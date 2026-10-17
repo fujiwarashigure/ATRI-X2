@@ -1,0 +1,27 @@
+# 仓库文本规范：Python 源码与文档一律 LF，二进制资源不做行尾转换。
+# 目的：避免在 Windows 上 checkout 出 CRLF 导致 diff 噪声与 shebang/脚本行为差异。
+* text=auto eol=lf
+
+*.py   text eol=lf
+*.pyi  text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
+*.ps1  text eol=crlf
+*.cmd  text eol=crlf
+
+# 二进制
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.bmp  binary
+*.ico  binary
+*.xlsx binary
+*.zip  binary
+*.tar  binary
+*.gz   binary

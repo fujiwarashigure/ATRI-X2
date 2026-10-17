@@ -1,0 +1,169 @@
+# Shared read-only service config for ATRI-X and compatible services.
+# - LLM providers: [providers.*] and [model_metadata]
+# - Image generation: [image_generation]
+# - Image to prompt: [image_to_prompt]
+# - Vision fallback: [vision]
+# - Voice transcription: [asr]
+# - Secrets: reference .env via api_key_env; never put real keys in this file.
+# - Runtime state: keep state.toml separate; ATRI-X rewrites it at runtime.
+# Other services may mount this file read-only and consume only their sections.
+
+# Provider/model config. Do not commit real API keys.
+# Prefer api_key_env and set secrets in the OS environment or .env.
+
+[providers.deepseek]
+base_url = "https://api.deepseek.com"
+api_key_env = "DEEPSEEK_API_KEY"
+
+[providers.openai]
+base_url = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+models = ["gpt-4o-mini"]
+# api_mode = "chat"                 # chat（默认，POST {base_url}/chat/completions）/ response（POST {base_url}/responses）
+# fallback_provider = "deepseek"
+# fallback_model = "deepseek-chat"
+# fallback_mode = "circuit"          # circuit（默认，熔断后接管）/ on_error（首个失败请求即切换）/ off
+# fallback_on_error = false         # 等价于 fallback_mode = "on_error"
+# fallback_timeout_seconds = 0      # 单次 Provider 尝试的总超时；0 表示沿用现有流式超时控制
+
+# [providers.openai.model_configs."gpt-4o-mini"]
+# context_window = 128000
+# extra_payload = { }
+# api_mode = "response"             # 按模型覆盖 Provider 级协议，同一个 Provider 可以混用两种协议
+
+[model_metadata]
+default_context_window = 256000
+
+# Optional image generation tool. The endpoint must be OpenAI-compatible
+# POST {base_url}/images/generations. Provide the API key via api_key_env.
+[image_generation]
+enabled = false
+# base_url = "https://your-relay.example.com/v1"  # /images/generations is appended
+# endpoint = ""                                    # override the full URL when the relay differs
+api_key_env = "IMAGE_API_KEY"
+# api_key = ""                                     # discouraged; prefer api_key_env
+model = "gpt-image-2.5"
+size = "1024x1024"
+quality = "high"          # low / medium / high (depends on the relay)
+output_format = "png"     # png / jpeg / webp
+# response_format = "b64_json"  # set only if the relay requires it
+timeout_seconds = 180
+
+# 预设提示词：最终 prompt = preset_prompt + 角色预设 + 场景描述。
+preset_prompt = ""
+# negative_prompt = ""
+max_prompt_runes = 4000
+
+# 提示词优化：off 或 rules（使用内置的 GPT Image Prompts 大全规则库）。
+optimize = "rules"
+optimize_term_mode = "phrase"   # phrase：短语锚点；tag：单个单词 tag 串
+optimize_max_anchors = 4
+optimize_max_negatives = 10
+optimize_max_added_runes = 400
+optimize_max_tags = 12
+
+# LLM 语义改写：off / auto（短或含糊的 prompt 才改写）/ always。
+optimize_rewrite = "auto"
+optimize_rewrite_model = "naming"   # naming / compact / chat / work
+optimize_rewrite_min_runes = 40
+
+# 自动编排：从 prompt 里识别角色名/别名并自动选角、自动拉当前群聊上下文。
+auto_character = true
+auto_context = true
+context_default_limit = 6
+
+# 权限与落盘。
+superadmin_only = true       # 只有超级管理员能调用 image_generate
+save_to_character = true     # 出图写回当前角色的 images/
+send_by_default = false      # 生成后是否默认发到当前聊天
+
+# 参考图（视中转站是否支持）。开启后会把角色图片按 reference_field 字段透传。
+supports_reference = false
+reference_field = "image"
+
+# 提示词方言与负向提示词。方言决定画师串怎么渲染：natural（自然语言，默认，
+# 适合 GPT Image / Flux）、sd_weighted（(tag:1.2) 加权标签）、nai、tags。
+# model_family 只在 prompt_dialect 留空时用来推断方言。
+# prompt_dialect = "natural"
+# model_family = "gpt_image"
+
+# 负向提示词默认作为独立字段发送（field），不再折进正向提示词：加权标签模型
+# 会把 "avoid: blurry" 当成要画出来的东西。inline 保留旧的折叠行为，off 直接丢弃。
+# negative_prompt_field = "negative_prompt"
+# negative_prompt_mode = "field"   # field / inline / off
+
+# 画师串库（可选）。配置 root 即启用；artist_extract 的文本解析与图片元数据读取
+# 不需要它，只有画师串组合的保存与检索需要。
+# [image_generation.artist_library]
+# enabled = true
+# root = "artist_library.json"     # 相对 app.toml/services.toml 所在目录
+# artist_default_preset = ""       # 未显式指定画师串时使用的组合 id
+
+# 入库图片的生成参数留档（可选）。超过 [media] 限制的图片在入库时会被转成 JPEG，
+# PNG 文本块与 EXIF/XMP 就在那一步丢失；配置本项后，ATRI-X 在转码前先把参数另存
+# 成一份 JSON，此后 artist_extract / image_to_prompt 仍能取回画师串与提示词。
+# 留空即关闭，路径相对 app.toml/services.toml 所在目录。
+# metadata_store = "image_metadata.json"
+
+# extra_payload = { }
+# extra_headers = { }
+# proxy = ""
+
+# 生图独立并发限制；0 表示不限制。queue_size > 0 时超限会短暂排队。
+max_concurrent = 0
+queue_size = 0
+queue_timeout_seconds = 0
+
+# Optional image_to_prompt tool: turn a reference image into a drawing prompt.
+# It calls a vision-capable model from the [providers.*] entries above, so it
+# reuses the same api_key_env, proxy and retry settings. Setting provider+model
+# is enough to enable it; enabled=false force-disables it. An explicitly
+# enabled section with a missing provider/model fails startup instead of
+# silently disappearing.
+# [image_to_prompt]
+# provider = "openai"
+# model = "gpt-4o-mini"
+# max_tokens = 400          # cap the prompt returned to the chat model
+# temperature = 0.2         # 0 = do not override the provider's own temperature
+# max_edge = 1536           # downscale the long edge before upload; 0 keeps original
+# max_image_bytes = 12582912
+# timeout_seconds = 90
+
+# Optional automatic vision fallback: when a text-only chat model rejects image
+# content, ATRI-X describes the images with this vision model and retries with
+# the descriptions. It reuses [providers.*], so no extra key is needed.
+# Disabled unless enabled = true. When provider/model are omitted they are
+# inherited from [image_to_prompt] above.
+# [vision]
+# enabled = false
+# provider = "openai"        # optional; defaults to [image_to_prompt].provider
+# model = "gpt-4o-mini"      # optional; defaults to [image_to_prompt].model
+# max_tokens = 400
+# temperature = 0.2
+# max_edge = 1536
+# max_image_bytes = 12582912
+# timeout_seconds = 90
+# language = "zh"            # description language: zh or en
+# cache_ttl_seconds = 1800
+# negative_cache_ttl_seconds = 30
+
+# Optional voice-message transcription (ASR). Disabled unless enabled = true.
+# It reuses one existing [providers.*] entry (base_url, api_key_env, proxy) and
+# calls POST {base_url}/audio/transcriptions with multipart/form-data.
+# [asr]
+# enabled = false
+# provider = "openai"
+# model = "whisper-1"
+# language = "zh"             # optional ISO-639-1 hint; empty = auto-detect
+# prompt = ""                 # optional hint for names/domain terms
+# timeout_seconds = 120
+# max_audio_bytes = 20971520
+# max_concurrent = 2
+# queue_size = 8
+# max_segments = 4
+# cache_ttl_seconds = 1800
+# cache_max_entries = 128
+# negative_cache_ttl_seconds = 30
+# negative_cache_max_entries = 128
+# max_retries = 2
+# retry_initial_delay_seconds = 1

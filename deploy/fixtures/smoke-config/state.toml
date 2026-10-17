@@ -1,0 +1,20 @@
+# 冒烟 / 稳定性测试用的最小可用 state.toml。
+#
+# 这是**可写**运行态文件：容器里的应用会回写它（写的是数据卷里的那一份，
+# 不是仓库里这一份）。与内置默认资产 `atri_x/config/assets_data/state.toml` 相比，
+# 唯一区别是 provider 指向 fixtures 里的假 provider `smoke`。
+#
+# 为什么必须写全这两段：`atri_x/config/app.py::validate_mode_models`
+# 在每次 Load 时强校验 `mode_models.work` / `mode_models.chat` 的
+# provider 与 model 都非空，缺一个就直接 `ConfigDecodeError` 启动失败。
+
+[session]
+default_mode = "work"
+
+[mode_models.work]
+provider = "smoke"
+model = "smoke-model"
+
+[mode_models.chat]
+provider = "smoke"
+model = "smoke-model"

@@ -1,0 +1,89 @@
+# syntax=docker/dockerfile:1.7
+#
+# 预构建源码版运行镜像（离线包专用）。
+#
+# 上游 `Dockerfile.prebuilt` 的输入是一个**静态编译好的 Go 二进制**；Python 版
+# 没有编译产物，因此这里的输入是 `atri_x/` 源码目录，基础镜像就是官方
+# `python:*-slim`（源码直接复制进去即可运行，零依赖、零安装步骤）。
+#
+#   docker compose -f deploy/pack/docker-compose.prebuilt.yml build
+#   docker compose -f deploy/pack/docker-compose.prebuilt.yml up -d
+#
+# 国内服务器拉 python 慢时，可换镜像源：
+#   docker build --build-arg BASE_IMAGE=registry.cn-hangzhou.aliyuncs.com/library/python:3.14-slim .
+# 需要 pin digest 时：
+#   docker build --build-arg BASE_IMAGE=python:3.14-slim@sha256:<digest> .
+#
+# 运行镜像里的系统命令默认**不装任何东西**（Python 版运行时不依赖系统命令）。
+# 需要给 Agent 的 shell 工具补命令时用 --build-arg "EXTRA_TOOLS=xxx" 追加。
+
+ARG BASE_IMAGE=python:3.14-slim
+FROM ${BASE_IMAGE}
+
+ARG VERSION=dev
+# 只用于“追加”更多命令；为空时一个 apt 包都不装。
+ARG EXTRA_TOOLS=
+ARG APT_MIRROR=
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    PYTHONFAULTHANDLER=1 \
+    TZ=Asia/Shanghai \
+    XDG_CONFIG_HOME=/data/config \
+    XDG_DATA_HOME=/data \
+    XDG_CACHE_HOME=/data/cache \
+    XDG_RUNTIME_DIR=/data/run \
+    HOME=/home/atri-x \
+    LANG=C.UTF-8 \
+    ATRIX_HEALTH_ADDR=0.0.0.0:32171
+
+WORKDIR /app
+
+# 只复制运行必需的三样；离线包里没有 tests/、scripts/、docs/。
+COPY atri_x/ /app/atri_x/
+COPY pyproject.toml /app/pyproject.toml
+COPY README.md /app/README.md
+
+# 非 root 运行：10001:10001 与主 Dockerfile / compose 完全一致。
+RUN set -eux; \
+    if [ -n "${EXTRA_TOOLS}" ]; then \
+        apt-get update; \
+        if [ -n "${APT_MIRROR}" ]; then \
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+                [ -f "${f}" ] && sed -i "s|deb[.]debian[.]org|${APT_MIRROR}|g" "${f}" || true; \
+            done; \
+            apt-get update; \
+        fi; \
+        apt-get install -y --no-install-recommends ${EXTRA_TOOLS}; \
+        rm -rf /var/lib/apt/lists/*; \
+    fi; \
+    groupadd -g 10001 atri-x; \
+    useradd -u 10001 -g 10001 -d /home/atri-x -m -s /usr/sbin/nologin atri-x; \
+    mkdir -p /data/config /data/cache /data/run /home/atri-x; \
+    chown -R atri-x:atri-x /data /home/atri-x /app; \
+    chmod 750 /data/run; \
+    python -c "import atri_x, sys; print('atri_x', atri_x.__version__, 'on', sys.version.split()[0])"
+
+LABEL org.opencontainers.image.title="atri-x" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/fujiwarashigure/ATRI-X" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+USER atri-x:atri-x
+WORKDIR /app
+
+VOLUME ["/data"]
+EXPOSE 32170 32171 32172
+
+# 与主 Dockerfile 完全一致的三层标准库探测（slim 镜像没有 curl）。
+HEALTHCHECK --interval=30s --timeout=8s --start-period=45s --retries=3 \
+    CMD python -m atri_x --health-probe >/dev/null 2>&1 \
+        || python -c "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:32171/live',timeout=3).status==200 else 1)" >/dev/null 2>&1 \
+        || python -c "import socket,sys;s=socket.socket();s.settimeout(3);sys.exit(0 if s.connect_ex(('127.0.0.1',32171))==0 else 1)" >/dev/null 2>&1
+
+# 与 deploy/Dockerfile 一致：容器里要的是长驻服务语义（`service run`），
+# 不能用 `run` —— 后者在所有平台运行时退出后进程就跟着退出，零平台的最小配置下
+# 容器会启动完成即以 0 退出。上游镜像的 CMD 同样是 `service run`。
+ENTRYPOINT ["python", "-m", "atri_x"]
+CMD ["service", "run"]

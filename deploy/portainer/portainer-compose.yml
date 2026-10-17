@@ -1,0 +1,33 @@
+# 可选：Portainer CE 浏览器 Docker 管理界面。
+# 本地 Windows Docker Desktop 和云服务器 Linux 共用同一份文件。
+# 放在独立目录里，避免 Compose 自动读取 deploy/.env 的 COMPOSE_PROJECT_NAME=atri-x。
+#
+# 只绑定宿主机回环 127.0.0.1:9443：
+#   - 本地浏览器：https://127.0.0.1:9443
+#   - 云服务器：优先用 SSH 隧道，或由 Nginx / 宝塔 HTTPS 反向代理
+#   - 不要直接暴露到 0.0.0.0，也不要在云安全组开放 9443
+#
+# 启动：docker compose -f deploy/portainer/portainer-compose.yml up -d
+# 停止：docker compose -f deploy/portainer/portainer-compose.yml down
+# 升级：docker compose -f deploy/portainer/portainer-compose.yml pull
+#       docker compose -f deploy/portainer/portainer-compose.yml up -d
+#
+# 安全说明：
+#   Portainer 挂载了 /var/run/docker.sock，等同于 Docker 管理员权限，
+#   能看到并操作所有容器，也能读取容器环境变量中的 token / API Key。
+#   首次启动必须设置强管理员密码，并保持 9443 只监听回环地址。
+name: atri-x-portainer
+
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
+volumes:
+  portainer_data:

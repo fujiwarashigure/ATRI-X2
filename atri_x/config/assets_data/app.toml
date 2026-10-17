@@ -1,0 +1,413 @@
+# Main application config. Relative paths are resolved from this file.
+
+[config_files]
+# 共享的只读服务配置：大模型 provider、image_generation、model_profiles。
+# 多个服务可以挂载并读取同一个 services.toml；密钥仍只放在 .env。
+services = "services.toml"
+# providers 仅用于兼容旧部署；当 services 存在时不再读取 providers.toml。
+# providers = "providers.toml"
+state = "state.toml"
+atrinis = "atrinis.toml"
+tool_tags = "tool_tags.toml"
+
+[storage]
+# Leave empty to use the platform default data directory.
+sessions_sqlite_path = ""
+chat_history_sqlite_path = ""
+# Disk protection: ratios are used-space ratios; critical rejects non-essential media writes.
+disk_warn_ratio = 0.85
+disk_critical_ratio = 0.95
+disk_min_free_bytes = 0
+
+[runtime]
+log_level = "info"
+log_retention_days = 30
+
+[maintenance.log_cleanup]
+enabled = true
+schedule = "0 3 * * *"
+
+[maintenance.session_cleanup]
+enabled = false
+schedule = "15 3 * * *"
+retention_days = 30
+
+[maintenance.sandbox_cleanup]
+enabled = true
+schedule = "0 4 * * *"
+retention_days = 7
+
+[maintenance.chat_history_cleanup]
+enabled = true
+schedule = "35 4 * * *"
+retention_days = 180
+
+[maintenance.privacy_cleanup]
+# clean-room angel_memory / self_learning 数据保留清理；具体保留天数在各自 section 配置。
+enabled = true
+schedule = "45 4 * * *"
+
+# 每天两次的资源/用量报告（生图量、Token、费用、磁盘、内存）。
+[maintenance.daily_report]
+enabled = false
+schedule = "0 9,21 * * *"    # 每天 9:00 和 21:00
+window_hours = 12            # 每次统计最近 12 小时
+provider = "deepseek"        # 统计哪个 provider 的 llm_usage；留空统计全部
+# platform = ""              # 指定发送平台（按 superadmins 发送）；留空用主平台
+currency = "CNY"
+image_price_per_image = 0.05 # 生图服务每张价格（只统计成功出图；失败不计费）
+peak_pricing = true          # DeepSeek 高峰/空闲双档
+# holidays = ["2026-10-01", "2026-10-02", "2026-10-03"]  # 法定节假日按空闲价
+# data_root = ""             # 默认取 SQLite 所在数据目录
+
+# DeepSeek 官方单价（单位：元 / 百万 tokens，2026 定价页）。
+# 基准字段是高峰价；offpeak_* 是空闲价，未填则沿用高峰价。
+[maintenance.daily_report.prices."deepseek-v4-pro"]
+input_per_million = 9.0
+cache_input_per_million = 0.30
+output_per_million = 27.0
+offpeak_input_per_million = 4.5
+offpeak_cache_input_per_million = 0.15
+offpeak_output_per_million = 13.5
+
+[maintenance.daily_report.prices."deepseek-flash"]
+input_per_million = 2.0
+cache_input_per_million = 0.04
+output_per_million = 8.0
+offpeak_input_per_million = 1.0
+offpeak_cache_input_per_million = 0.02
+offpeak_output_per_million = 4.0
+
+# 旧模型名仍可调用，按 Flash 价格计费。
+[maintenance.daily_report.prices."deepseek-v4-flash"]
+input_per_million = 2.0
+cache_input_per_million = 0.04
+output_per_million = 8.0
+offpeak_input_per_million = 1.0
+offpeak_cache_input_per_million = 0.02
+offpeak_output_per_million = 4.0
+
+# ── 命名 profile：群聊消息里声明，仅本轮有效，仅超级管理员 ──
+#
+# 触发写法（可自定义）：
+#   @model:强 / #模型:强 / #生图:高清 / #工具:管理
+#   @m:pro / @image:hq / @use:admin
+[turn_directives]
+prefixes = ["@", "#"]                 # 触发符号，可再加 "！" 等
+model_keywords = ["model", "m", "模型", "用模型"]
+image_keywords = ["image", "img", "生图", "出图"]
+tool_keywords = ["use", "工具", "用工具"]
+
+# 模型 profile：默认模型仍来自 state.toml 的 mode_models.*。
+# aliases 是中文/短标签，声明时用它代替 profile 名。
+# [model_profiles.pro]
+# provider = "deepseek"
+# model = "deepseek-v4-pro"
+# aliases = ["强", "强模型", "pro"]
+#
+# [model_profiles.cheap]
+# provider = "deepseek"
+# model = "deepseek-flash"
+# aliases = ["快", "便宜", "flash"]
+
+# 工具 profile：声明后为本轮额外注入这些工具（不写入 Session）。
+# [tool_profiles.admin]
+# tools = ["shell", "read_file", "edit_file"]
+# aliases = ["管理", "运维"]
+
+# 生图 profile：没写的字段沿用上面的 [image_generation] 基础配置。
+# 用 [image_generation] default_profile = "fast" 可把某个 profile 设为默认。
+# [image_generation.profiles.fast]
+# base_url = "https://another-relay.example.com/v1"
+# api_key_env = "IMAGE_API_KEY_FAST"
+# model = "gpt-image-2.5"
+# quality = "medium"
+# superadmin_only = true
+# aliases = ["快", "高清"]
+
+[sandbox]
+root = ""
+
+[file_delivery]
+# Controls media delivery in model requests: base64 uses inline data, s3 uses presigned download URLs, and hybrid uses S3 when the total media size in a request exceeds max_direct_base64_bytes. After switching to S3, existing local media will be uploaded when remote delivery is required, and previously recorded object keys will be reused.
+# base64 will increase the file size by about 33%.
+max_direct_base64_bytes = 8388608
+backend = "base64"
+s3_endpoint = ""
+s3_region = "auto"
+s3_bucket = ""
+s3_access_key_env = "ATRIX_S3_ACCESS_KEY_ID"
+s3_secret_key_env = "ATRIX_S3_SECRET_ACCESS_KEY"
+s3_public_base_url = ""
+
+[media]
+# Images exceeding either limit are stored as compressed JPEGs on import; originals are not kept.
+# Compression starts when the original image exceeds this byte threshold.
+llm_image_compression_threshold_bytes = 4194304
+# The maximum image width or height after compression.
+llm_image_max_length = 4096
+
+[platform_files]
+max_receive_file_bytes = 104857600
+download_timeout_secs = 60
+
+[llm_request]
+first_chunk_timeout_seconds = 180
+stream_idle_timeout_seconds = 60
+response_timeout_seconds = 0
+max_retries = 3
+retry_initial_delay_seconds = 2
+
+[context]
+compact_enabled = true
+compact_trigger_ratio = 0.8
+# 发送前的 prompt 上限比例，超过会触发长消息保护。
+max_prompt_ratio = 0.8
+# 预留的输出 token；0 表示根据模型窗口自动计算。
+reserve_output_tokens = 0
+# 单条用户消息占模型窗口的比例上限，超过会触发保护。
+single_message_max_ratio = 0.5
+# 压缩上下文时，每条历史用户原话保留的最大字符数，避免长消息撑爆摘要。
+user_original_max_runes = 4000
+# 长消息保护默认策略：reject / truncate / summarize。
+# 群管理员可用 /overflow 覆盖当前群的 chat/work 模式。
+overflow_mode = "reject"
+
+[soul]
+path = "SOUL.md"
+
+[character_library]
+enabled = true
+root = "characters"
+
+[group_analysis]
+# 群分析工具默认启用；它只读取本地 chat_history/outbound_messages，不复制第三方模板或素材。
+enabled = true
+# 单次统计最多读取多少条本地历史消息。
+max_messages = 5000
+# 可选：每天定时把统计/摘要发送到指定平台会话。默认关闭。
+report_enabled = false
+report_schedule = "0 9 * * *"
+# report_platform = "qqonebot"      # 必填且 report_enabled=true 才会注册
+# report_scope_id = "group:123456"
+report_days = 1
+
+[group_services]
+# 群内提醒 / 投票 / 报名；全部本地确定性执行，不调用模型。
+enabled = true
+# 每个群 scope 最多保留多少条待发送提醒。
+max_reminders_per_scope = 50
+# 提醒最长可设置多少天。
+max_reminder_days = 365
+# 每个群 scope 最多保留多少个投票。
+max_polls_per_scope = 20
+# 单个投票最多几个选项。
+max_poll_options = 10
+# 每个群 scope 最多保留多少个报名。
+max_signups_per_scope = 20
+# 单个报名最多人数；0 表示不限制。
+max_signup_capacity = 500
+# 标题/问题/选项/提醒文本最大字符数。
+max_text_runes = 500
+
+[group_knowledge]
+# 确定性群知识库 / FAQ；命中后直接本地回答，不调用模型。
+enabled = true
+# 每个群 scope 最多保存多少条知识。
+max_entries_per_scope = 200
+# 问题/触发词最大字符数。
+max_question_runes = 200
+# 答案最大字符数。
+max_answer_runes = 2000
+# 每条知识最多别名数。
+max_aliases = 8
+# keyword 模式每条知识最多关键词数。
+max_keywords = 16
+# 匹配时最多扫描的入站字符数。
+max_match_runes = 2000
+
+[angel_memory]
+# clean-room 长期记忆；默认启用。
+enabled = true
+# 0 表示不按时间清理。
+retention_days = 365
+# 源消息被撤回时删除由它派生的长期记忆；默认 true。
+forget_on_recall = true
+# 允许模型通过 angel_forget 工具删除来源为当前用户的长期记忆；默认 false。
+# 开启后仍需用户确认高风险工具调用，且每次调用只删除一条、有速率上限。
+# allow_tool_forget = false
+# 单条记忆最大字符数（rune）；超过会拒绝写入。
+# max_content_runes = 1000
+# 单个会话最多保留多少条记忆。
+# max_per_scope = 1000
+# 每个会话每分钟最多写入次数。
+# max_writes_per_minute = 30
+# 每轮最多注入多少字符的上下文。
+# max_context_runes = 1200
+
+[self_learning]
+# clean-room 表达/黑话学习；默认启用，但只有 review 通过的内容会注入。
+enabled = true
+retention_days = 365
+# 候选至少出现多少次才进入 review。
+min_count = 3
+# 候选至少被多少个不同用户说过才进入 review；设为 1 允许单人复读形成候选。
+# min_users = 2
+# 单个候选含义的最大字符数。
+# max_meaning_runes = 200
+# 每轮最多注入多少字符的学习上下文。
+# max_context_runes = 1200
+# 单条观察最大字符数（rune）；超过会被截断后入库。
+# max_observation_runes = 1000
+# 单个会话最多保留多少条观察；超过会拒绝写入。
+# max_observations_per_scope = 5000
+# 每个会话每分钟最多写入多少条观察。
+# max_observation_writes_per_minute = 60
+# 单次挖掘最多扫描多少字符。
+# max_mine_chars = 200000
+# 单次挖掘超时秒数。
+# mine_timeout_seconds = 10
+
+# image_generation 已移到共享的只读 services.toml，避免多个服务各配一份。
+# 旧部署仍可把 [image_generation] 写回这里；写了 services.toml 时以 services.toml 为准。
+
+[view]
+session_list_page_size = 10
+
+[commands]
+prefixes = ["/"]
+
+[tools]
+max_rounds_per_turn = 10
+
+[ops]
+# 单次工具 / Hook / 上下文压缩的超时。0 表示不限时；生产建议设置明确上限。
+tool_timeout_seconds = 600
+hook_timeout_seconds = 60
+compress_timeout_seconds = 300
+# 同时运行的 turn / tool / hook 上限。0 表示不限制；超出上限的请求会排队或明确拒绝。
+# 默认 10：面向十位以上用户的并发，而不是上游的 4。
+max_concurrent_turns = 10
+max_concurrent_tools = 10
+max_concurrent_hooks = 10
+# 可选：按用户 / 群聊限速；0 表示不限制。
+user_messages_per_minute = 0
+user_burst = 0
+group_messages_per_minute = 0
+group_burst = 0
+rate_limit_idle_ttl_seconds = 600
+# 可选：超过并发上限时允许短暂排队。turn 已加入排队，所以并发满时用户是等一会儿，而不是被直接拒绝；
+# queue_wait_timeout_seconds 必须大于 0，否则排队的请求会一直等下去（0 表示不限时）。
+queue_max_size = 20
+queue_max_per_user = 0
+queue_max_per_scope = 0
+queue_wait_timeout_seconds = 30
+queue_wait_kinds = ["turn", "tool", "hook", "compress"]
+# 可选：Provider 实际调用并发上限与等待队列；0 表示不限制。
+# 与 max_concurrent_turns 同步：并发 turn 会同时打同一个 provider，这里不设上限只会把并发压力换成 429。
+provider_max_concurrent = 10
+provider_queue_max_size = 20
+provider_wait_timeout_seconds = 30
+# 可选：Provider 连续失败后的熔断；0 表示关闭。
+circuit_breaker_failure_threshold = 0
+circuit_breaker_open_cooldown_seconds = 60
+circuit_breaker_half_open_max = 1
+
+[budget_limits]
+# 可选：全局 / 单用户每日额度；0 表示不限制。生图/视觉/语音转写按调用次数，chat 按 token 与费用统计。
+global_image_daily = 0
+user_image_daily = 0
+global_vision_daily = 0
+user_vision_daily = 0
+global_asr_daily = 0
+user_asr_daily = 0
+global_chat_tokens_daily = 0
+user_chat_tokens_daily = 0
+global_chat_cost_daily = 0
+user_chat_cost_daily = 0
+# 可选：把 token/费用限制变成调用前原子预占、返回 usage 后结算的硬预算。
+chat_hard_limit = false
+# 预占使用的输出 token 预算；0 使用模型 prompt budget。
+chat_hard_limit_reserve_output_tokens = 0
+
+[resident_memory]
+# Memory length units: CJK characters count as one each; English/digits count by word.
+core_max_units = 200
+normal_max_units = 300
+
+# P1/P2 normal 写入保护。显式写 0 可关闭对应限制。
+# 最小写入间隔（秒）；防止短时间内反复改写 normal。
+normal_write_min_interval_seconds = 5
+# 写入频率窗口（秒）与窗口内最大写入次数。
+normal_write_window_seconds = 60
+normal_write_max_per_window = 6
+# normal 最大条目数（每条一行）；0 表示不限制。
+normal_max_lines = 20
+# 单条 normal 的最大长度；0 表示不限制。
+normal_max_units_per_entry = 80
+# 拒绝明显的指令类内容（如 "ignore previous instructions"）；false 关闭。
+normal_block_instruction_patterns = true
+
+[security]
+user_max_tool_risk = "low"
+superadmin_confirm_risk = "high"
+
+[security.superadmins]
+cli = ["local"]
+
+[session]
+
+[session.idle_expiration]
+group_user_ttl_minutes = 10
+group_superadmin_ttl_minutes = 10
+private_user_ttl_minutes = 10
+private_superadmin_ttl_minutes = 0
+
+[session.naming]
+trigger_step = 3
+
+[platform.cli]
+enabled = true
+# Default CLI client profile. Used by atri-x/atri-x cli when -c is omitted.
+default_client = "local"
+# Default WebSocket URL for clients without their own clients.<name>.url.
+# To connect to another machine, set url under the client profile.
+default_url = "ws://127.0.0.1:32172/cli/v1/ws"
+
+# Used only when this ATRI-X runs as a CLI server. It listens here; clients connect via their url.
+# Container deployment: use "0.0.0.0:32172" so the host port mapping can reach it; keep the host bind on 127.0.0.1.
+[platform.cli.server]
+enabled = false
+listen = "127.0.0.1:32172"
+
+# Client ids allowed to log in to this CLI server and their token environment variables.
+[platform.cli.server.tokens]
+local = ["ATRIX_CLI_LOCAL_TOKEN"]
+
+# Client profile used by this command. For remote servers, add url = "ws://SERVER_IP:32172/cli/v1/ws".
+[platform.cli.clients.local]
+token_env = ["ATRIX_CLI_LOCAL_TOKEN"]
+
+# [platform.qqonebot]
+# enabled = false
+# ws_url = "ws://127.0.0.1:6700/" # native/local OneBot. Inside a container 127.0.0.1 points to ATRI-X itself; use a Compose service name or reachable host address.
+# access_token = "" # legacy direct value; optional
+# access_token_env = "QQONEBOT_ACCESS_TOKEN" # optional; reads process env, then config .env
+# api_timeout_seconds = 15 # base timeout for OneBot writes and API responses
+# trigger_keywords = ["bot"]
+# send_file_mode = "base64" # base64 works across machines; use file_uri for a shared filesystem
+# inbound_dedup_enabled = true # suppress reconnect replays by platform+bot+scope+message-id, independent of history
+# inbound_dedup_ttl_seconds = 1800
+# inbound_dedup_max_entries = 4096
+# preprocess_workers = 4 # bounded pool for @ / quote / merged-forward lookups
+# preprocess_queue_size = 256 # full means the message is dropped locally, not queued as unbounded goroutines
+# high_priority_workers = 1 # recall / member / admin notices must not wait behind chat traffic
+# high_priority_queue_size = 128
+
+# [platform.telegram]
+# enabled = false
+# bot_token_env = "TELEGRAM_BOT_TOKEN"
+# proxy_url_env = "TELEGRAM_PROXY_URL" # optional; read OS env first, then config .env
+# trigger_keywords = ["bot"]
+# format = "html" # html/plain/rich
+# stream_edit_interval_milliseconds = 250

@@ -1,0 +1,87 @@
+# Docker 构建上下文裁剪（BuildKit 优先读取的同目录副本）。
+#
+# ⚠️ 本文件与仓库根的 deploy/.dockerignore **内容完全相同**，只是一个在
+# Dockerfile 同目录（BuildKit 会优先读这一份），一个在构建上下文根。
+# 改一份必须同步另一份，否则会出现「本地构建和 CI 构建裁剪结果不一致」。
+#
+# 构建上下文 = 仓库根目录，命令形如：
+#   docker build -f deploy/Dockerfile .
+#
+# Python 版与上游 Go 版的差异：
+#   - 上游为了 `COPY . .` 后跑 `go build` 才需要保留全部源码；Python 版**没有
+#     编译步骤**，Dockerfile 只 `COPY atri_x/ pyproject.toml README.md`，
+#     所以除这三样以外的一切都可以排除，构建上下文能做到最小。
+#   - 排除 .venv / venv / *.egg-info 等 Python 检出产物。
+#   - 排除上游 Go 源码（本仓不含 .go，但构建上下文可能被误放在含上游的目录下）。
+
+# ---------- Git / CI ----------
+.git
+.gitattributes
+.gitignore
+.github
+.commitmsg.tmp
+
+# ---------- 文档（构建不需要） ----------
+docs
+docs.en
+devdocs
+*.md
+!README.md
+
+# ---------- 翻译缓存 / 脚本 / 发布包 ----------
+.translation-cache
+scripts
+*.zip
+*.tar.gz
+*.tgz
+*.tar
+
+# ---------- 测试 / 部署套件（只在开发机上用；运行时一律不需要） ----------
+tests
+deploy
+**/test_*.py
+**/*_test.py
+
+# ---------- Python 检出产物 ----------
+__pycache__
+**/__pycache__
+*.py[cod]
+*.pyd
+*.so
+*.egg-info
+.eggs
+.venv
+venv
+env
+.mypy_cache
+.ruff_cache
+.pytest_cache
+build
+dist
+
+# ---------- 上游 Go 源码（本仓是 Python 重写，不应该有；误放也不要进上下文） ----------
+**/*.go
+go.mod
+go.sum
+bin
+release-assets
+deploy/dist
+
+# ---------- 本地运行数据、备份与诊断 ----------
+# deploy/backups 是一致性备份（全部 SQLite + 配置 + API Key），
+# deploy/diagnostics、deploy/watchdog-state 是 watchdog 产物；
+# 这些内容既大又敏感，绝对不要进构建上下文。
+data
+deploy/data
+deploy/backups
+deploy/diagnostics
+deploy/watchdog-state
+deploy/watchdog.env
+deploy/.env
+*.log
+
+# ---------- 本机调试残留（见 PORTING.md §7.3） ----------
+tmp_*
+.tmp_*
+.probe*
+tmp_suite.log

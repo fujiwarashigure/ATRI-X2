@@ -1,0 +1,128 @@
+# ATRI-X Python 版单机常驻服务（Docker Compose）
+#
+# 使用：
+#   cd deploy
+#   cp .env.example .env   # 填写密钥
+#   docker compose build
+#   docker compose up -d
+#
+# Windows 本地 Docker Desktop 用户可改用：
+#   .\deploy\windows\atri-x.cmd init
+#   .\deploy\windows\atri-x.cmd start
+#
+# 与上游 Go 版 compose 的差异（有意偏差，详见 deploy/README.md）：
+#   1. 镜像只有一个阶段（Python 不需要编译），没有 ATRIX_BUILD_TARGET；
+#   2. 没有 GO_VERSION / GOPROXY / GO_BASE_IMAGE，改成 PY_BASE_IMAGE；
+#   3. 持久化改用 named volume（atri_x_data 挂 /data），
+#      legacy 的 ./data bind mount 在 volumes 段以注释形式保留，需要直接备份
+#      宿主机目录时按注释改回即可；
+#   4. 用 init: true 替代镜像内 tini；
+#   5. healthcheck 与 Dockerfile 一致（三层标准库探测，不依赖 curl）。
+#
+# 其他说明（与上游相同）：
+# - 只映射到宿主机 127.0.0.1，公网访问统一走宝塔 Nginx 反向代理。
+# - 单实例运行，请勿 scale，也不要在多台机器共享同一份卷。
+
+services:
+  atri-x:
+    image: ${ATRIX_IMAGE:-atri-x:0.9.0}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        VERSION: ${ATRIX_VERSION:-0.9.0}
+        # 基础镜像（可覆盖成国内加速路径 / pin digest）。默认值必须非空，
+        # 否则 ${VAR:-} 展开成空串会把 FROM 变成 ":" 而直接报错。
+        PY_BASE_IMAGE: ${PY_BASE_IMAGE:-python:3.14-slim}
+        # 追加更多系统命令（默认不装任何包；Python 版运行时不依赖任何系统命令）
+        EXTRA_TOOLS: ${EXTRA_TOOLS:-}
+    container_name: atri-x
+    hostname: atri-x
+    # 镜像内同样以 10001:10001 运行；这里显式写死，避免换镜像后 UID 漂移导致数据卷不可写
+    user: "10001:10001"
+
+    # 崩溃/重启/宿主机重启后自动拉起；配合下方 systemd 单元可确保开机即启动
+    restart: unless-stopped
+
+    # ATRI-X 收到 SIGTERM 后最多需要约 30s 优雅关闭
+    stop_grace_period: 40s
+
+    # 镜像里没有 tini，用 Docker 自带的 init 回收僵尸进程
+    init: true
+
+    # 密钥和 token 全部通过 .env 注入，不要写进配置文件。
+    # TZ / XDG_* / ATRIX_HEALTH_ADDR 等路径变量已经在镜像 ENV 里定义；
+    # 需要覆盖时写进 .env 即可（env_file 会覆盖镜像 ENV）。
+    env_file:
+      - .env
+
+    volumes:
+      # 单一 named volume 挂 /data：配置（/data/config/atri-x/*.toml）、
+      # SQLite、日志、媒体、cache、run 全在里面。
+      # 不要在这里再加一条 `atri_x_config:/data/config`（或任何 /data 子路径）：
+      # 子路径挂载会覆盖父挂载，把配置从数据卷里遮掉，导致 `docker compose down -v`
+      # 之后配置“消失”、备份脚本在 /data 里找不到 config/。配置与数据同卷是
+      # 刻意选择，和上游 `./data:/data` 的布局保持一致。
+      - atri_x_data:/data
+      # 直接把宿主机目录当数据卷（上游默认，便于 tar 整个目录做备份）：
+      # - ./data:/data
+
+    # QQ OneBot 跑在宿主机时，取消下面两行注释，并把 app.toml 的 ws_url 写成
+    # ws://host.docker.internal:6700/；OneBot 在同一 Compose 项目时直接用服务名即可。
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+    # 只监听宿主机回环地址；公网入口由宝塔 Nginx 反代 + TLS 提供
+    # 32172: CLI 远程 WebSocket 服务端（app.toml 中 platform.cli.server.enabled=true 时生效）
+    # 32171: 独立应用健康接口，不依赖 Atrinis。
+    # 32170: Atrinis 事件 HTTP 入口（atrinis.toml enabled=true 时生效）。ATRI-X 默认不启用 Atrinis，
+    #        不使用 Atrinis 时映射没有意义，且 /healthz 不能代表 ATRI-X / 模型 / OneBot 健康；
+    #        请删除或注释这一行。
+    ports:
+      - "127.0.0.1:32172:32172"
+      - "127.0.0.1:32171:32171"   # 独立健康接口 /live /ready /healthz
+      - "127.0.0.1:32170:32170"
+
+    # 与 deploy/Dockerfile 的 HEALTHCHECK 完全一致（三层标准库探测）。
+    # compose 里再写一遍是为了让不读 Dockerfile 的人也能在这份文件里看到探针，
+    # 并保证 `docker compose config` 输出自带健康检查。
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -m atri_x --health-probe >/dev/null 2>&1
+          || python -c "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:32171/live',timeout=3).status==200 else 1)" >/dev/null 2>&1
+          || python -c "import socket,sys;s=socket.socket();s.settimeout(3);sys.exit(0 if s.connect_ex(('127.0.0.1',32171))==0 else 1)" >/dev/null 2>&1
+      interval: 30s
+      timeout: 8s
+      start_period: 45s
+      retries: 3
+
+    # 2 核 4G 机器上限制资源，避免异常时拖垮宝塔和其他站点
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    pids_limit: 512
+
+    # Agent 会派生 shell / hook / worker 子进程，文件描述符给足
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    # 只禁提权，不 cap_drop / 不加 read_only：
+    # Agent 的 shell 工具依赖容器内命令，过度收窄 capability 会直接砍掉工具能力。
+    security_opt:
+      - no-new-privileges:true
+
+    # 限制容器 stdout 日志大小，防止 40G 磁盘被 Docker 日志写满
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  # 配置和数据在同一个卷里（见上面 volumes 的说明）。
+  # 显式写 name，保证项目名变化时卷名不漂移（升级 / 备份脚本按名字找卷）。
+  atri_x_data:
+    name: ${ATRIX_DATA_VOLUME:-atri_x_data}

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atri-x"
+version = "0.9.0"
+description = "ATRI-X 的 Python 全量重写：多平台 LLM Agent 守护进程"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "ATRI-X2-Py port" }]
+keywords = ["llm", "agent", "bot", "asyncio", "sqlite"]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+]
+# 运行时零第三方依赖。Pillow 是可选加速后端（图像编解码），缺失时走纯 Python 后备。
+dependencies = []
+
+[project.optional-dependencies]
+imaging = ["Pillow>=10"]
+dev = []
+
+[project.scripts]
+atri-x = "atri_x.launcher.cli:main"
+
+[tool.setuptools]
+packages = { find = { include = ["atri_x*"] } }

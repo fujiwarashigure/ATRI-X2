@@ -1,0 +1,24 @@
+# 冒烟 / 稳定性测试用的**最小可用** services.toml。
+#
+# 键名同样来自 `atri_x/config/assets_data/services.toml`（内置默认资产）。
+#
+# 这里刻意只放一个**不可达**的假 provider：
+#   * `base_url = "http://127.0.0.1:1/v1"` 指向本机 1 端口，容器里必然连接失败；
+#   * `api_key` 是占位串，不是真凭据，也不需要任何环境变量；
+#   * 冒烟测试只验证「进程起得来、健康接口活着」，不会真的发模型请求。
+# 这样做的目的：如果将来某条启动路径意外开始调用模型，它会以「立刻连接被拒绝」
+# 的形式暴露出来，而不是悄悄打到真实的中转站上。
+#
+# 若要让容器带着真实 provider 跑（例如端到端验收），请用 --fixture-dir 指向
+# 你自己的一份配置，而不是改这里。
+
+[providers.smoke]
+base_url = "http://127.0.0.1:1/v1"
+api_key = "smoke-test-placeholder-not-a-real-key"
+
+[model_metadata]
+default_context_window = 256000
+
+[image_generation]
+# 生图默认关闭：冒烟环境没有生图 key，也没有出图服务。
+enabled = false

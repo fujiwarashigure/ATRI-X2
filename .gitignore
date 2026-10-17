@@ -1,0 +1,70 @@
+# Python 构建/缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+
+# 测试与覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# 测试临时目录（统一用仓库内前缀目录；不要用系统 tempfile）
+tests/_tmp*/
+tests/_probe*/
+tests/.probe*/
+tests/.probe2*/
+tests/.tmp-*/
+tests/probe-*/
+tests/__pycache__/
+
+# 运行期数据、日志与部署产物
+data/
+*.db
+*.db-wal
+*.db-shm
+logs/
+run/
+deploy/reports/
+
+# 本机私有配置（不要提交真实 API Key）
+.env
+# 内嵌的 Hook 插件环境变量模板是随代码分发的资产，不是本机私有配置
+!atri_x/config/assets_data/plugins/.env
+app.local.toml
+*.local.toml
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# Agent / 测试在仓库根部留下的调试产物（一律不入库）
+.sig_*.txt
+*_v.log
+*_v.err
+tests/_probe.txt
+tmp_*/
+tmp_*
+tmp_atrix_test/
+tmp_cfg_test/
+tmp_sqlite_test/
+# 点开头的临时文件/目录；不会误伤 .github / .gitignore / .gitattributes
+.*.txt
+.*.log
+.*.err
+.*-test*/
+.*test-*/
+.probe*/
+.probe2*/
+.tmp*/
+.fo*.txt
+.commitmsg.tmp

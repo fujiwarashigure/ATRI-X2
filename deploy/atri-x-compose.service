@@ -1,0 +1,23 @@
+# 注意：宝塔 Docker 管理器和本 systemd 单元不要同时管理同一套 Compose。
+# restart: unless-stopped 负责进程退出拉起；应用层卡死交给 atri-x-watchdog。
+[Unit]
+Description=ATRI-X container stack (docker compose, Python)
+Documentation=https://github.com/fujiwarashigure/ATRI-X
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/atri-x/deploy
+Environment=COMPOSE_PROJECT_NAME=atri-x
+# 如 docker 不在 /usr/bin/docker，请改成 `command -v docker` 的结果
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecReload=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=0
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

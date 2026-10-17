@@ -1,0 +1,457 @@
+"""``atri_x.request`` 的单元测试。
+
+对应 Go：``internal/request/manager_test.go`` + ``fairness_test.go``。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import unittest
+
+from atri_x.errors import (
+    ConcurrencyLimitError,
+    QueueCancelledError,
+    QueueFullError,
+    QueueTimeoutError,
+)
+from atri_x.request import (
+    KindLLM,
+    KindTool,
+    KindTurn,
+    Manager,
+    QueueConfig,
+    StartRequest,
+)
+from atri_x.safecontext import CancelToken, CancelledError, with_cancel
+
+
+async def _wait_queued(manager: Manager, kind: str) -> None:
+    for _ in range(500):
+        if manager.snapshot().queued_by_kind.get(kind):
+            return
+        await asyncio.sleep(0.002)
+    raise AssertionError(f"request never entered the {kind} queue")
+
+
+class TestManagerBasics(unittest.IsolatedAsyncioTestCase):
+    async def test_start_list_and_done(self) -> None:
+        manager = Manager(60.0)
+        request, _ctx, done = await manager.start(
+            None, StartRequest(session_id="s1", kind=KindLLM, label="chat")
+        )
+        requests = manager.list()
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].id, request.id)
+        self.assertIsNotNone(requests[0].deadline)
+        done()
+        done()  # 幂等
+        self.assertEqual(manager.list(), [])
+
+    async def test_kind_and_stage_defaults(self) -> None:
+        manager = Manager(60.0)
+        request, _ctx, done = await manager.start(None, StartRequest())
+        self.assertEqual(request.kind, KindLLM)
+        self.assertEqual(request.stage, KindLLM)
+        done()
+
+    async def test_cancel(self) -> None:
+        manager = Manager(60.0)
+        request, ctx, _done = await manager.start(
+            None, StartRequest(session_id="s1", kind=KindLLM)
+        )
+        found, ok = manager.get(request.id)
+        self.assertTrue(ok)
+        self.assertEqual(found.id, request.id)
+        self.assertTrue(manager.cancel(request.id))
+        self.assertTrue(ctx.is_cancelled())
+        self.assertEqual(manager.list(), [])
+        self.assertFalse(manager.cancel(request.id))
+
+    async def test_cancel_session_keeps_other_sessions(self) -> None:
+        manager = Manager(60.0)
+        parent, ctx1, _d1 = await manager.start(
+            None, StartRequest(session_id="s1", kind=KindTurn)
+        )
+        child, ctx2, _d2 = await manager.start(
+            ctx1, StartRequest(parent_id=parent.id, session_id="s1", kind=KindTool)
+        )
+        _third, ctx3, _d3 = await manager.start(
+            None, StartRequest(session_id="s2", kind=KindLLM)
+        )
+        self.assertEqual(child.parent_id, parent.id)
+        self.assertEqual(manager.cancel_session("s1"), 2)
+        self.assertTrue(ctx1.is_cancelled())
+        self.assertTrue(ctx2.is_cancelled())
+        self.assertFalse(ctx3.is_cancelled())
+        self.assertEqual(len(manager.list_by_session("s2")), 1)
+
+    async def test_cancel_all(self) -> None:
+        manager = Manager(60.0)
+        _a, ctx1, _d1 = await manager.start(None, StartRequest(session_id="s1"))
+        _b, ctx2, _d2 = await manager.start(
+            None, StartRequest(session_id="s2", kind=KindTool)
+        )
+        self.assertEqual(manager.cancel_all(), 2)
+        self.assertTrue(ctx1.is_cancelled())
+        self.assertTrue(ctx2.is_cancelled())
+        self.assertEqual(manager.list(), [])
+
+    async def test_session_and_scope_and_fair_key_ids(self) -> None:
+        manager = Manager(60.0)
+        request, _ctx, done = await manager.start(
+            None,
+            StartRequest(
+                session_id="s1", kind=KindTurn, fair_key="A", scope_key="group:1"
+            ),
+        )
+        self.assertEqual(manager.session_ids("s1"), [request.id])
+        self.assertEqual(manager.scope_ids("group:1"), [request.id])
+        self.assertEqual(manager.fair_key_ids("A"), [request.id])
+        self.assertEqual(manager.session_ids("  "), [])
+        done()
+
+    async def test_timeout_cleans_request_and_counts(self) -> None:
+        manager = Manager(0.01)
+        _request, ctx, _done = await manager.start(None, StartRequest(kind=KindLLM))
+        await ctx.wait(1.0)
+        for _ in range(500):
+            if not manager.list():
+                break
+            await asyncio.sleep(0.002)
+        self.assertEqual(manager.list(), [])
+        self.assertEqual(manager.snapshot().timeouts, 1)
+
+    async def test_concurrency_limit(self) -> None:
+        manager = Manager(60.0, {KindTool: 1})
+        _request, _ctx, done = await manager.start(None, StartRequest(kind=KindTool))
+        with self.assertRaises(ConcurrencyLimitError):
+            await manager.start(None, StartRequest(kind=KindTool))
+        done()
+        _again, _ctx2, done2 = await manager.start(None, StartRequest(kind=KindTool))
+        done2()
+        self.assertEqual(manager.snapshot().queue_busy_rejected, 1)
+
+    async def test_snapshot_and_stage(self) -> None:
+        manager = Manager(60.0)
+        turn, _ctx, _done = await manager.start(
+            None,
+            StartRequest(session_id="s1", kind=KindTurn, label="chat", stage="preparing"),
+        )
+        await manager.start(
+            None, StartRequest(session_id="s1", kind=KindTool, label="shell", stage="running")
+        )
+        self.assertTrue(manager.set_stage(turn.id, "llm"))
+        self.assertTrue(manager.touch(turn.id))
+        self.assertFalse(manager.set_stage(turn.id, "   "))
+        self.assertFalse(manager.set_stage("missing", "llm"))
+        self.assertFalse(manager.touch("missing"))
+        snapshot = manager.snapshot()
+        self.assertEqual(len(snapshot.active), 2)
+        self.assertEqual(snapshot.count_by_kind[KindTurn], 1)
+        self.assertEqual(snapshot.count_by_kind[KindTool], 1)
+        self.assertIsNotNone(snapshot.oldest_started_at)
+        self.assertGreaterEqual(snapshot.oldest_age, 0)
+        stages = {item.id: item.stage for item in snapshot.active}
+        self.assertEqual(stages[turn.id], "llm")
+
+    async def test_set_fair_key(self) -> None:
+        manager = Manager(60.0)
+        request, _ctx, done = await manager.start(None, StartRequest(kind=KindTurn))
+        self.assertTrue(manager.set_fair_key(request.id, " late "))
+        self.assertEqual(manager.fair_key_ids("late"), [request.id])
+        self.assertFalse(manager.set_fair_key("missing", "late"))
+        done()
+
+
+class TestManagerQueue(unittest.IsolatedAsyncioTestCase):
+    def queue_config(self, **kwargs) -> QueueConfig:
+        kwargs.setdefault("wait_kinds", [KindTool, KindTurn])
+        return QueueConfig(**kwargs)
+
+    async def test_queue_wait_and_grant(self) -> None:
+        manager = Manager(
+            60.0,
+            {KindTool: 1},
+            self.queue_config(max_queue=1, wait_timeout=5.0),
+        )
+        _first, _ctx, done = await manager.start(None, StartRequest(kind=KindTool))
+        started: list[str] = []
+
+        async def second() -> None:
+            request, _ctx2, done2 = await manager.start(
+                None, StartRequest(kind=KindTool, label="second")
+            )
+            started.append(request.label)
+            done2()
+
+        task = asyncio.ensure_future(second())
+        await _wait_queued(manager, KindTool)
+        done()
+        await asyncio.wait_for(task, 2)
+        self.assertEqual(started, ["second"])
+        self.assertEqual(manager.snapshot().queue_admitted, 1)
+
+    async def test_queue_full(self) -> None:
+        manager = Manager(
+            60.0, {KindTool: 1}, self.queue_config(max_queue=1, wait_timeout=5.0)
+        )
+        _first, _ctx, done = await manager.start(None, StartRequest(kind=KindTool))
+        task = asyncio.ensure_future(
+            manager.start(None, StartRequest(kind=KindTool))
+        )
+        await _wait_queued(manager, KindTool)
+        with self.assertRaises(QueueFullError):
+            await manager.start(None, StartRequest(kind=KindTool))
+        self.assertGreaterEqual(manager.snapshot().queue_full_rejected, 1)
+        done()
+        _second, _ctx2, done2 = await asyncio.wait_for(task, 2)
+        done2()
+
+    async def test_queue_timeout(self) -> None:
+        manager = Manager(
+            60.0, {KindTool: 1}, self.queue_config(max_queue=1, wait_timeout=0.01)
+        )
+        _first, _ctx, done = await manager.start(None, StartRequest(kind=KindTool))
+        with self.assertRaises(QueueTimeoutError):
+            await manager.start(None, StartRequest(kind=KindTool))
+        self.assertEqual(manager.snapshot().queue_timeout_rejected, 1)
+        done()
+
+    async def test_queue_context_cancel(self) -> None:
+        manager = Manager(
+            60.0, {KindTool: 1}, self.queue_config(max_queue=1, wait_timeout=60.0)
+        )
+        _first, _ctx, done = await manager.start(None, StartRequest(kind=KindTool))
+        ctx = with_cancel(None)
+        ctx.cancel("test")
+        with self.assertRaises(CancelledError):
+            await manager.start(ctx, StartRequest(kind=KindTool))
+        self.assertEqual(manager.snapshot().queue_cancel_rejected, 1)
+        done()
+
+    async def test_queue_disabled_for_kind(self) -> None:
+        manager = Manager(60.0, {KindTool: 1}, QueueConfig(max_queue=8))
+        _first, _ctx, done = await manager.start(None, StartRequest(kind=KindTool))
+        with self.assertRaises(ConcurrencyLimitError):
+            await manager.start(None, StartRequest(kind=KindTool))
+        done()
+
+    async def test_cancel_scope_removes_active_and_queued(self) -> None:
+        manager = Manager(
+            60.0,
+            {KindTurn: 1},
+            self.queue_config(max_queue=8, wait_timeout=5.0),
+        )
+        _active, active_ctx, done = await manager.start(
+            None, StartRequest(kind=KindTurn, fair_key="A", scope_key="group:1")
+        )
+        waiter = asyncio.ensure_future(
+            manager.start(
+                None, StartRequest(kind=KindTurn, fair_key="A", scope_key="group:1")
+            )
+        )
+        await _wait_queued(manager, KindTurn)
+        self.assertEqual(manager.cancel_scope("group:1"), 2)
+        self.assertTrue(active_ctx.is_cancelled())
+        with self.assertRaises(QueueCancelledError):
+            await asyncio.wait_for(waiter, 2)
+        self.assertEqual(manager.cancel_scope("  "), 0)
+        done()
+
+
+class TestManagerFairness(unittest.IsolatedAsyncioTestCase):
+    async def test_fair_queue_prefers_idle_fair_key(self) -> None:
+        manager = Manager(
+            60.0,
+            {KindTurn: 1},
+            QueueConfig(
+                max_queue=10, wait_timeout=5.0, wait_kinds=[KindTurn]
+            ),
+        )
+        _a1, _ctx, a1_done = await manager.start(
+            None, StartRequest(kind=KindTurn, fair_key="A")
+        )
+        granted: list[str] = []
+        hold = asyncio.Event()
+
+        async def queued(key: str, gate: asyncio.Event | None = None) -> None:
+            _request, _ctx2, done = await manager.start(
+                None, StartRequest(kind=KindTurn, fair_key=key)
+            )
+            granted.append(key)
+            if gate is not None:
+                await gate.wait()
+            done()
+
+        a2 = asyncio.ensure_future(queued("A"))
+        await _wait_queued(manager, KindTurn)
+        b1 = asyncio.ensure_future(queued("B", hold))
+        for _ in range(500):
+            if manager.snapshot().queued_by_kind.get(KindTurn) == 2:
+                break
+            await asyncio.sleep(0.002)
+        self.assertEqual(manager.snapshot().queued_by_kind.get(KindTurn), 2)
+
+        a1_done()
+        for _ in range(500):
+            if granted:
+                break
+            await asyncio.sleep(0.002)
+        # 空闲 key（B）先上队；A 仍有活跃请求，所以 A2 继续等。
+        self.assertEqual(granted, ["B"])
+        self.assertEqual(manager.snapshot().queued_by_kind.get(KindTurn), 1)
+
+        hold.set()
+        await asyncio.wait_for(a2, 2)
+        self.assertEqual(granted, ["B", "A"])
+        await asyncio.wait_for(b1, 2)
+
+    async def test_cancel_fair_key_cancels_only_matching_bucket(self) -> None:
+        manager = Manager(60.0)
+        _a, a_ctx, a_done = await manager.start(
+            None, StartRequest(kind=KindTurn, fair_key="A")
+        )
+        _b, b_ctx, b_done = await manager.start(
+            None, StartRequest(kind=KindTurn, fair_key="B")
+        )
+        self.assertEqual(manager.cancel_fair_key("A"), 1)
+        self.assertTrue(a_ctx.is_cancelled())
+        self.assertFalse(b_ctx.is_cancelled())
+        a_done()
+        b_done()
+
+    async def test_cancel_fair_key_removes_queued_waiters(self) -> None:
+        manager = Manager(
+            60.0,
+            {KindTurn: 1},
+            QueueConfig(max_queue=10, wait_timeout=5.0, wait_kinds=[KindTurn]),
+        )
+        _a1, a1_ctx, a1_done = await manager.start(
+            None, StartRequest(kind=KindTurn, fair_key="A")
+        )
+        waiter = asyncio.ensure_future(
+            manager.start(None, StartRequest(kind=KindTurn, fair_key="A"))
+        )
+        await _wait_queued(manager, KindTurn)
+        self.assertEqual(manager.cancel_fair_key("A"), 2)
+        self.assertTrue(a1_ctx.is_cancelled())
+        with self.assertRaises(QueueCancelledError):
+            await asyncio.wait_for(waiter, 2)
+        a1_done()
+
+    async def test_queue_per_fair_key_cap(self) -> None:
+        manager = Manager(
+            60.0,
+            {KindTurn: 1},
+            QueueConfig(
+                max_queue=10,
+                max_queue_per_fair_key=1,
+                wait_timeout=5.0,
+                wait_kinds=[KindTurn],
+            ),
+        )
+        _a1, _ctx, a1_done = await manager.start(
+            None, StartRequest(kind=KindTurn, fair_key="A", scope_key="group:1")
+        )
+        waiter = asyncio.ensure_future(
+            manager.start(
+                None, StartRequest(kind=KindTurn, fair_key="A", scope_key="group:1")
+            )
+        )
+        await _wait_queued(manager, KindTurn)
+        with self.assertRaises(QueueFullError):
+            await manager.start(
+                None, StartRequest(kind=KindTurn, fair_key="A", scope_key="group:1")
+            )
+        a1_done()
+        _second, _ctx2, done2 = await asyncio.wait_for(waiter, 2)
+        done2()
+
+    async def test_queue_per_scope_cap_across_fair_keys(self) -> None:
+        manager = Manager(
+            60.0,
+            {KindTurn: 1},
+            QueueConfig(
+                max_queue=10,
+                max_queue_per_scope=1,
+                wait_timeout=5.0,
+                wait_kinds=[KindTurn],
+            ),
+        )
+        _a, _ctx, a_done = await manager.start(
+            None, StartRequest(kind=KindTurn, fair_key="A", scope_key="group:1")
+        )
+        waiter = asyncio.ensure_future(
+            manager.start(
+                None, StartRequest(kind=KindTurn, fair_key="B", scope_key="group:1")
+            )
+        )
+        await _wait_queued(manager, KindTurn)
+        with self.assertRaises(QueueFullError):
+            await manager.start(
+                None, StartRequest(kind=KindTurn, fair_key="C", scope_key="group:1")
+            )
+        a_done()
+        _second, _ctx2, done2 = await asyncio.wait_for(waiter, 2)
+        done2()
+
+    async def test_snapshot_reports_queue_metrics(self) -> None:
+        manager = Manager(
+            60.0,
+            {KindTurn: 1},
+            QueueConfig(
+                max_queue=10,
+                max_queue_per_fair_key=1,
+                wait_timeout=5.0,
+                wait_kinds=[KindTurn],
+            ),
+        )
+        _active, _ctx, done = await manager.start(
+            None, StartRequest(kind=KindTurn, fair_key="A")
+        )
+        waiter = asyncio.ensure_future(
+            manager.start(None, StartRequest(kind=KindTurn, fair_key="A"))
+        )
+        await _wait_queued(manager, KindTurn)
+        with self.assertRaises(QueueFullError):
+            await manager.start(None, StartRequest(kind=KindTurn, fair_key="A"))
+        snapshot = manager.snapshot()
+        self.assertGreaterEqual(snapshot.queue_full_rejected, 1)
+        self.assertEqual(snapshot.queued_by_kind[KindTurn], 1)
+        self.assertGreater(snapshot.oldest_queued_wait, 0)
+        done()
+        _second, _ctx2, done2 = await asyncio.wait_for(waiter, 2)
+        done2()
+        self.assertGreaterEqual(manager.snapshot().queue_admitted, 1)
+
+    async def test_cancel_scope_cancels_only_matching_scope(self) -> None:
+        manager = Manager(60.0)
+        _a, a_ctx, a_done = await manager.start(
+            None, StartRequest(kind=KindTurn, scope_key="qqonebot:group:9")
+        )
+        _b, b_ctx, b_done = await manager.start(
+            None, StartRequest(kind=KindTurn, scope_key="qqonebot:group:10")
+        )
+        self.assertEqual(manager.cancel_scope("qqonebot:group:9"), 1)
+        self.assertTrue(a_ctx.is_cancelled())
+        self.assertFalse(b_ctx.is_cancelled())
+        a_done()
+        b_done()
+
+    async def test_parent_cancellation_propagates_to_child_request(self) -> None:
+        manager = Manager(60.0)
+        parent = CancelToken()
+        _p, parent_ctx, _done = await manager.start(
+            parent, StartRequest(kind=KindTurn)
+        )
+        child, child_ctx, _done2 = await manager.start(
+            parent_ctx, StartRequest(kind=KindTool)
+        )
+        parent.cancel("test")
+        self.assertTrue(child_ctx.is_cancelled())
+        for _ in range(500):
+            if not manager.list():
+                break
+            await asyncio.sleep(0.002)
+        self.assertEqual(manager.list(), [])
+        self.assertTrue(child.id)

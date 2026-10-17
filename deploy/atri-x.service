@@ -1,0 +1,65 @@
+# 原生部署（不用容器）的 systemd 单元。
+# 适用于你已经把仓库放到 /opt/atri-x 的场景（Python 版**没有编译产物**：
+# 代码就在 /opt/atri-x/atri_x/，靠 `python -m atri_x` 直接运行）。
+#
+# 安装：
+#   useradd -r -s /usr/sbin/nologin atri-x
+#   mkdir -p /opt/atri-x/data/config /opt/atri-x/data/run
+#   cp -a <仓库>/. /opt/atri-x/
+#   chown -R atri-x:atri-x /opt/atri-x
+#   cp deploy/atri-x.service /etc/systemd/system/atri-x.service
+#   systemctl daemon-reload && systemctl enable --now atri-x
+#
+# 注意：ATRI-X 是自动化 Agent，会按设计执行 shell / 写文件。下面的加固
+# 只允许它写入 /opt/atri-x；如果你要让 Agent 管理其他目录（如 /www），
+# 必须在 ReadWritePaths 中追加对应路径，或放宽 ProtectSystem。
+
+[Unit]
+Description=ATRI-X Agent Service (Python)
+Documentation=https://github.com/fujiwarashigure/ATRI-X
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=atri-x
+Group=atri-x
+WorkingDirectory=/opt/atri-x
+
+# Python 版入口：仓库根的 atri_x/ 是扁平布局，WORKDIR 在仓库根即可 import。
+# PYTHONPATH 显式给一份，避免 systemd 环境的 cwd 解析差异。
+Environment=PYTHONPATH=/opt/atri-x
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TZ=Asia/Shanghai
+Environment=XDG_CONFIG_HOME=/opt/atri-x/data/config
+Environment=XDG_DATA_HOME=/opt/atri-x/data
+Environment=XDG_RUNTIME_DIR=/opt/atri-x/data/run
+# .env 不存在时忽略，不阻止启动
+EnvironmentFile=-/opt/atri-x/data/config/.env
+
+# 上游是 /opt/atri-x/atri-x service run；Python 版是 `python -m atri_x run`。
+# 解释器路径请按实际安装位置调整（`command -v python3`）。
+ExecStart=/usr/bin/python3 -m atri_x run
+
+Restart=always
+RestartSec=5
+# ATRI-X 收到 SIGTERM 后最多需要约 30s 优雅关闭
+TimeoutStopSec=40
+
+# ---- 安全加固（可按需放宽）----
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/atri-x
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run ATRI-X watchdog every minute
+Documentation=https://github.com/fujiwarashigure/ATRI-X
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=atri-x-watchdog.service
+
+[Install]
+WantedBy=timers.target

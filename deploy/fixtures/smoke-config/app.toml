@@ -1,0 +1,65 @@
+# 冒烟 / 稳定性测试用的**最小可用** app.toml。
+#
+# 用途：`python deploy/smoke.py` / `python deploy/stability.py` 把它塞进容器的
+# 配置目录（`/data/config/atri-x/app.toml`），让容器在
+# **没有任何平台、没有网络、没有任何 API key** 的情况下启动到 healthy。
+#
+# 约束（改这个文件前先读）：
+#   1. 这里的键**全部来自** `atri_x/config/assets_data/app.toml`（内置默认资产，
+#      由 `scripts/extract_assets.py` 从上游 Go 生成），不臆造键名；
+#   2. 只保留「启动必需 + 关掉会联网 / 会调模型的后台任务」的键，
+#      其余一律交给 `AppConfig.apply_app_defaults()` 补默认值；
+#   3. 解析期强校验的段必须写全 —— `atri_x/config/app.py::validate_mode_models`
+#      要求 `mode_models.work` / `mode_models.chat` 都有 provider/model
+#      （在 state.toml 里给），`[config_files].services` 指向的文件必须存在。
+
+[config_files]
+# 指向最小可用 services.toml（**必须存在**，否则 loader 抛 MissingConfigFileError）。
+services = "services.toml"
+# 可写运行态（provider/model 选择）；容器内会被应用回写，与只读配置分离。
+state = "state.toml"
+# atrinis.toml / tool_tags.toml 缺席是允许的：loader 用 os.path.exists 判断后跳过。
+# 这里显式不引用，避免“文件不存在”被当成错误。
+
+[storage]
+# 数据目录固定成 /data/data（镜像 ENV 的 XDG_DATA_HOME=/data）。
+# 显式写绝对值是为了让数据卷里的目录结构可断言：
+#   /data/config/atri-x/*.toml   只读配置
+#   /data/data/*.db              两个 SQLite
+# 目录由 atri_x/storage/sqlite/store.py 在打开库时自建，不需要预先 mkdir。
+sessions_sqlite_path = "/data/data/sessions.db"
+chat_history_sqlite_path = "/data/data/chat_history.db"
+
+[runtime]
+log_level = "info"
+
+[soul]
+# 人格文件；fixtures/smoke-config/SOUL.md 提供一份最小内容。
+path = "SOUL.md"
+
+# 关掉会联网 / 会调用模型的后台维护任务：冒烟测试必须零外部依赖。
+[maintenance.log_cleanup]
+enabled = false
+
+[maintenance.sandbox_cleanup]
+enabled = false
+
+[maintenance.chat_history_cleanup]
+enabled = false
+
+[maintenance.privacy_cleanup]
+enabled = false
+
+# CLI 远程 WebSocket 服务端默认关闭（上游默认也是 false）：
+# 冒烟测试不注入任何 token，开着只会让 32172 上多一个需要鉴权的监听。
+[platform.cli]
+enabled = false
+
+[security]
+user_max_tool_risk = "low"
+superadmin_confirm_risk = "high"
+
+[security.superadmins]
+# 与内置默认资产一致：只登记本地 CLI 身份，但没有 ATRIX_CLI_LOCAL_TOKEN
+# 就无法登录；容器里不注入任何 token，因此等于没有超级管理员。
+cli = ["local"]

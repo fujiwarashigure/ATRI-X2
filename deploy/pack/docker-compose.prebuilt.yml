@@ -1,0 +1,90 @@
+# ATRI-X 离线包专用 Compose（Python 版，源码 + python slim 运行时）
+#
+#   cd offline-amd64
+#   cp .env.example .env   # 填 Key / token
+#   docker compose build
+#   docker compose up -d
+#
+# 如果已经用 `docker load` 载入了 atri-x-0.9.0-linux-amd64.tar.gz，
+# 可直接 `docker compose up -d`，无需 build。
+
+services:
+  atri-x:
+    image: ${ATRIX_IMAGE:-atri-x:0.9.0}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # 国内可换成：registry.cn-hangzhou.aliyuncs.com/library/python:3.14-slim
+        # 需要 pin digest 时：python:3.14-slim@sha256:<digest>
+        BASE_IMAGE: ${PY_BASE_IMAGE:-python:3.14-slim}
+        VERSION: ${ATRIX_VERSION:-0.9.0}
+        # 可选：追加更多系统命令；默认**一个都不装**（Python 版运行时不依赖系统命令）
+        EXTRA_TOOLS: ${EXTRA_TOOLS:-}
+        # apt 镜像主机名（仅当 EXTRA_TOOLS 非空时需要）
+        APT_MIRROR: ${APT_MIRROR:-}
+    container_name: atri-x
+    hostname: atri-x
+    # 镜像内已以 10001:10001 运行；显式写死，避免数据卷属主和容器 UID 不一致
+    user: "10001:10001"
+
+    restart: unless-stopped
+    stop_grace_period: 40s
+    # 镜像里没有 tini，用 Docker 自带的 init 回收僵尸进程
+    init: true
+
+    env_file:
+      - .env
+
+    volumes:
+      # 单一数据卷：配置（/data/config/atri-x/*.toml）+ SQLite + 日志 + 媒体 + cache + run。
+      # 不要在这里再挂 /data 的子路径，子路径挂载会覆盖父挂载、把配置遮掉。
+      - ./data:/data
+
+    # QQ OneBot 跑在宿主机时，取消下面两行注释，并把 app.toml 的 ws_url 写成
+    # ws://host.docker.internal:6700/；OneBot 在同一 Compose 项目时直接用服务名即可。
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+
+    # 32172: CLI 远程 WebSocket 服务端（app.toml 中 platform.cli.server.enabled=true 时生效）
+    # 32171: 独立应用健康接口，不依赖 Atrinis。
+    # 32170: Atrinis 事件 HTTP 入口（atrinis.toml enabled=true 时生效）。ATRI-X 默认不启用 Atrinis，
+    #        不使用 Atrinis 时映射没有意义，且 /healthz 不能代表 ATRI-X / 模型 / OneBot 健康；
+    #        请删除或注释这一行。
+    ports:
+      - "127.0.0.1:32172:32172"
+      - "127.0.0.1:32171:32171"   # 独立健康接口 /live /ready /healthz
+      - "127.0.0.1:32170:32170"
+
+    # 与 Dockerfile 的 HEALTHCHECK 一致（三层标准库探测，slim 镜像没有 curl）
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -m atri_x --health-probe >/dev/null 2>&1
+          || python -c "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:32171/live',timeout=3).status==200 else 1)" >/dev/null 2>&1
+          || python -c "import socket,sys;s=socket.socket();s.settimeout(3);sys.exit(0 if s.connect_ex(('127.0.0.1',32171))==0 else 1)" >/dev/null 2>&1
+      interval: 30s
+      timeout: 8s
+      start_period: 45s
+      retries: 3
+
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    pids_limit: 512
+
+    # Agent 会派生 shell / hook / worker 子进程，文件描述符给足
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    # 只禁提权，不 cap_drop / 不加 read_only：Agent 的 shell 工具依赖容器内命令。
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

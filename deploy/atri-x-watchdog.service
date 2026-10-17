@@ -1,0 +1,16 @@
+[Unit]
+Description=ATRI-X external watchdog (live check + controlled restart, Python)
+Documentation=https://github.com/fujiwarashigure/ATRI-X
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/atri-x/deploy
+EnvironmentFile=-/opt/atri-x/deploy/watchdog.env
+# 上游是 ExecStart=/opt/atri-x/deploy/atri-x-watchdog.sh；
+# Python 版是同一个位置的 .py，由解释器执行。
+# 解释器路径请按实际安装位置调整（`command -v python3`）。
+ExecStart=/usr/bin/python3 /opt/atri-x/deploy/atri_x_watchdog.py
+TimeoutStartSec=120
+Nice=10
