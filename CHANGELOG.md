@@ -2,7 +2,405 @@
 
 本文件**只做补丁式写作**：描述从旧状态怎样变化到新状态。其它文档（`README.md`、`docs/`、`devdocs/`）只描述「现在正确的状态」，不写历史。
 
-本仓库 `ATRI-X2-Py` 是 Go 项目 [`ATRI-X`](https://github.com/fujiwarashigure/ATRI-X)（v0.9.0，781 个 `.go` 文件 / 156,773 行生产代码）的 **Python 全量重写**。因此本文件的「旧状态」有两层含义：一是**跨语言**（Go → Python），二是 Python 仓库内部的后续改动。跨语言那一层集中在下面「未发布」的第一节，之后按正常节奏追加。
+本仓库 `ATRI-X2-Py` 是 Go 项目 [`ATRI-X`](https://github.com/fujiwarashigure/ATRI-X)（v0.9.0，781 个 `.go` 文件 / 156,773 行生产代码）的 **Python 全量重写**。因此本文件的「旧状态」有两层含义：一是**跨语言**（Go → Python），二是 Python 仓库内部的后续改动。跨语言那一层集中在下面最早的一节（0.9.1），之后按正常节奏追加。
+
+---
+
+## [0.9.6] - 2026-10-19
+
+> 本版修 0.9.5 的两个桌面端可用性问题，运行期行为与配置格式**没有变化**：
+> 一是「进阶」页在展开本地生图挂载后会把下方的「记忆 / 群功能 / 外部事件」和
+> 「定时维护任务」推出窗口、点不到，窗口拉大也救不回来；现在改成两列布局并把整页
+> 放进竖向滚动容器。二是「定时维护任务」窗口里只能手写 cron、下拉预设又太死板，
+> 现在改成「每天 / 每周 / 每月 / 自定义 cron」的选择式界面，实时显示生成的表达式
+> 与下次触发时间。
+
+### 本版摘要（v0.9.6）
+
+- **「进阶」页可滚动、不再丢控件**：布局从「2 行 × 2 列」改成「左列：生图 + 运行与日志，
+  右列：视觉与语音 + 记忆/群功能开关 + 定时维护任务」。展开本地生图挂载只是把左列
+  撑高，不再增加整页高度；窗口被拖小时整页可以滚轮/滚动条上下滚，窗口够大时滚动条
+  自动收起。
+- **维护任务调度改成选择题**：周期任务先选「每天 / 每周 / 每月 / 自定义 cron」，再选
+  时/分——每周还选周几、每月还选几号；窗口实时显示「生成的 cron + 下次触发时间」，
+  列表里当前任务那一行也会立刻跟着变。cron 列表/区间/步长这类表达不了的写法仍可切到
+  「自定义 cron」手填（带常用写法下拉）；「指定日期（一次性）」保持不变。
+- 已有配置照旧兼容：能还原成结构化写法的 cron（如 `0 3 * * 1`）打开就是「每周一 03:00」，
+  还原不了的（如 `0 9,21 * * *`、`0 */6 * * *`）自动落在「自定义 cron」里原样显示。
+
+### Added
+
+- `atri_x/gui/cronschedule.py`：界面用 cron 小工具 —— 「每天 / 每周 / 每月」结构 →
+  5 段表达式（`build_cron`）、表达式 → 结构（`parse_cron`，还原不了返回 `None`）、
+  中文摘要（`describe_cron`）、下次触发时间（`next_run_text`）、一次性时间解析
+  （`parse_once_at` / `split_run_at`）与「周一…周日」标签互转。
+- `atri_x/gui/dialogs/tasks.py`：维护任务清单（8 个任务的默认 cron / 保留期 / 提示语）
+  与「表单 ↔ cron」翻译（`TaskForm` / `schedule_of` / `validate_schedule` /
+  `load_schedule` / `schedule_text`），不含 Tk，便于单独测试。
+- `atri_x/gui/widgets.py` 新增 `ScrollFrame`：竖向滚动容器（内容超高才显示滚动条、
+  内容宽度跟随画布、只在指针位于本区域时接管滚轮）。
+- `tests/test_gui_maintenance.py`（26 条）：结构化 cron 的生成/还原/摘要/下次触发、
+  一次性时间与表单兜底，外加 Tk 窗口的每天/每周/每月/自定义/一次性落盘、非法输入
+  不落盘、列表实时刷新、已有 cron 载入。
+- `tests/test_gui_tabs.py` 新增 4 条：`ScrollFrame` 出现/隐藏滚动条与滚动生效、
+  「进阶」页展开挂载后下方两块仍在可视区、窗口压小时能滚到最下面。
+
+### Changed
+
+- `atri_x/gui/tabs/base.py`：新增类属性 `ConfigTab.scrollable`；为 `True` 时
+  `self.body` 放进 `ScrollFrame` 内容区，底部按钮/状态行仍是固定的一行。
+- `atri_x/gui/tabs/advanced.py`：`scrollable = True`；布局改为左右两列（生图 +
+  运行与日志 / 视觉与语音 + 开关 + 维护任务），维护任务入口仍是二级窗口按钮。
+- `atri_x/gui/dialogs/maintenance.py`：重写调度表单（重复方式、周几、几号、时分的
+  下拉 + 「自定义 cron」输入 + 预设 + 下次触发预览），列表当前行随编辑实时更新；
+  校验与兜底逻辑移到 `dialogs/tasks.py`。
+- `atri_x/gui/tabs/mountpanel.py`：提示文案缩短并放宽换行宽度，减少挂载面板占高。
+- 文档同步：`docs/windows-app.md` §4.2/§4.7（9 页表格里的进阶说明、二级窗口表格、
+  滚动说明）、`docs/configuration.md`（维护任务窗口的结构化写法）、`README.md`
+  版本与特性行、`devdocs/code-map.md`、`atri_x/gui/__init__.py` 模块表。
+- **仓库清理与脱敏**（发行前）：删掉 30 个测试残留的 `.cron-test-*` 目录、`debug.log`
+  （输入法写进进程 cwd 的日志）、旧版 `build/`、`dist/` 构建残留与截图调试目录；
+  测试临时目录从「仓库根 `.cron-test-*`」改到 `tests/_tmp_cron/`（被 `.gitignore`
+  覆盖，中断也不会散到仓库根）；文档里指向构建机/环境的具体路径（工作区路径、内网
+  环境名）改成中性占位；确认仓库与发行物不含 API Key、token、个人目录、主机名等
+  敏感信息（见下方「清理与脱敏核对」）。
+
+### 发行（v0.9.6）
+
+Windows 两种产物按 0.9.6 重新构建（`python packaging/build.py --with-kernel --release`，
+产物均含内置 DSH 内核 `0.2.0-rc.2`）：
+
+| 产物 | 体积 | 构建耗时 | 自检 |
+|---|---|---|---|
+| `dist/windows/atri-x/`（onedir 中间产物） | 318.6 MB / 23862 文件 | PyInstaller 64.3 s | `--version`（`atri-x 0.9.6`）/ `config check` / `-m` 转发 / `sidecar found:true` / GUI `--selftest`（含逐页切换）全过 |
+| `dist/portable/ATRI-X-0.9.6-portable-win64.zip` | 113.7 MB（源 318.6 MB，deflate 36%） | 18.8 s | 解压 16.6 s（23867 条目）后 8 步全过，并断言配置落在解包目录 `data\appdata\ATRI-X` |
+| `dist/installer/ATRI-X-0.9.6-setup.exe` | 56.3 MB | ISCC 52.1 s | 静默安装 43.0 s / 23865 文件、`--version` 通过、静默卸载 15.1 s 且目录清空 |
+
+便携版 zip 的 SHA256：`9423cc895d83d42ec162ac9969f9df45cfd16dbd240084021ec3a1c6ec144a8e`；
+安装包 SHA256：`89c59c109dbdd6ca3082e0c1badb4d104ebbec5af13fa766b305267ea0ceb172`。
+两份产物已复制到桌面 `ATRI-X-0.9.6-Windows\` 并核对哈希。容器镜像本轮未重建。
+
+验证：全量测试 **5293 条 OK**（skipped 2，328.8 s）；`check_syntax` 扫描 854 个文件
+0 错误 / 0 BOM / 0 CRLF；`check_imports` 681/681；`check_integration` 74/74；
+源码与打包产物的 GUI 自检均通过。
+
+### 清理与脱敏核对（v0.9.6 发行前）
+
+- **删掉的本地垃圾**：30 个 `.cron-test-*`（测试中断残留）、`debug.log`（搜狗输入法
+  写进进程 cwd 的日志）、`build/`、`dist/`（0.9.2–0.9.6 旧产物与构建日志）、
+  `tmp_gui_shot/`（调试截图）、`tests/_tmp_dsh_route/`、76 个 `__pycache__/`。
+- **敏感信息扫描**（工作树 + 全部 Git 历史）：API Key / `ghp_` / AKIA / xoxb 等令牌
+  只命中 `tests/` 里刻意构造的假值（如 AWS 文档示例 key）；无 `C:\Users\<实际用户名>`、
+  主机名、内网 IP、邮箱、SSH 私钥、代理明文口令；`app.toml` / `services.toml` 等随包
+  资产只有 `api_key_env` 与占位符。
+- **文档脱敏**：`packaging/README.md` 与 `devdocs/upstream-sync-todo.md` 里的构建机
+  具体路径 / 环境名换成中性占位；桌面 `使用说明.txt` 同步去掉工作区绝对路径。
+- **发行物复核**：解包后的 `_internal` 与内置内核里唯一的 `C:\Users\...` 来自第三方
+  预编译产物（`node-pty` 的 PDB 调试信息，GitHub Actions 构建机）与 `@types/node`
+  的注释示例，均非本机用户信息；未发现 `shigure` 以外的个人标识（`shigure` 只出现在
+  项目公开仓库 URL `github.com/fujiwarashigure/...` 中）。
+
+---
+
+## [0.9.5] - 2026-10-19
+
+> 本版继续打磨桌面端：日志可导出、生图支持**本地服务挂载**（端口映射 / AUTODL 等
+> SSL 链接）、新增「知识库」选项卡；自学习 / HOOK 插件 / 定时维护任务改成「进阶」页
+> 按钮打开的二级窗口，维护任务支持**指定日期一次性执行**；「关于」窗口补上项目简介、
+> 仓库地址、推荐语与署名。运行期行为变化只有一处：维护任务新增可选 `run_at` 配置键
+> （不写就完全兼容老配置）。
+
+### 本版摘要（v0.9.5）
+
+- **日志导出**：「日志」页新增「导出…」，把当前筛选视图（通道/日期/级别/关键字）
+  存成 `.log`，文件头写明筛选条件与导出时间，UTF-8 + LF。
+- **本地生图服务挂载**：「进阶 → 生图」新增「端口映射 / SSL 链接」两种挂载方式，
+  自动生成 OpenAI 兼容 Base URL（`http://127.0.0.1:8188/v1`、`https://xxx.gpuhub.com/v1`），
+  并有只读「检测服务」：能拉 `/models` 就是 OpenAI 兼容并记入模型目录，只认 ComfyUI
+  原生接口（`/system_stats`、`/queue`）时明确提示需要转接。
+- **知识库选项卡（第 9 页）**：可改 `[group_knowledge]` 全局开关与上限（每群条数、
+  问题/答案/别名/关键词/匹配扫描上限），并只读列出 `state.toml` 里各群的 FAQ 条目
+  （关键字筛选、选中看别名/关键词/id/更新时间）；条目增删仍用 `/faq` 命令，避免和
+  服务端的 `state.toml` 回写互相覆盖。
+- **三个二级设置窗口**（不新增选项卡，从「进阶」页进入）：
+  - 自学习设置：保留期、候选出现次数/用户数门槛、含义/观察/上下文的字符与条数上限、挖掘超时；
+  - HOOK 插件配置：直接编辑 `plugins/hooks.toml`（等宽字体、保存前 `tomllib` 校验、
+    规则/插件计数），保存后 `/hooks reload` 生效；
+  - 定时维护任务：8 个任务逐个开关，每个任务可选 **cron 周期**（常用预设）或
+    **指定日期一次性**（`run_at`），清理类任务可改保留天数。
+- **关于窗口**：项目简述、仓库地址（可点击/可复制）、好评推荐句段与
+  `POWERED BY DAFEIYU` 署名。
+
+### Added
+
+- `atri_x/gui/imagemount.py`：本地生图挂载数据层 —— `MountSpec` / `build_base_url`
+  （端口映射、SSL 链接、外部 API 三种方式规整 base_url，`/v1` 不重复追加）、
+  `probe`（只读探测 `/models`、`/system_stats`、`/queue`，区分 OpenAI 兼容 / 需要鉴权 /
+  ComfyUI 原生 / 连不上）。
+- `atri_x/gui/tabs/knowledge.py`：「知识库」选项卡，全局配置写 `app.toml`，
+  `load_entries` 读 `state.toml` 的 `[group_knowledge]`（兼容数组表与 JSON 字符串值）。
+- `atri_x/gui/dialogs/`：二级设置窗口包 —— `common.Dialog`（窗口/状态行/按钮条/
+  错误弹窗/操作日志）、`selflearning.SelfLearningDialog`、`hooks.HooksDialog`
+  （`plugins/hooks.toml` 编辑器）、`maintenance.MaintenanceDialog`（周期/一次性调度）。
+- `atri_x/gui/about.py`：「关于 ATRI-X」窗口（`DESCRIPTION` / `REPO_URL` / `RECOMMEND` /
+  `POWERED_BY` 常量 + `about_text()` 纯文本）。
+- `tests/test_gui_imagemount.py`（20 条）：地址拼装与非法输入、SSL/端口映射/外部 API、
+  本机临时 HTTP 服务验证 OpenAI/鉴权/ComfyUI/未知/连不上五类探测。
+- `tests/test_gui_tabs.py` 新增 17 条 Tk 用例：日志导出、本地生图挂载与探测落目录、
+  维护任务摘要、知识库页（加载/筛选/详情/保存）、自学习/Hook/维护任务三个二级窗口
+  （含非法输入不落盘）、关于文案常量。
+- `tests/test_maintenance.py` 新增 1 条：`run_at` 一次性任务要带 `mode=once` 的 metadata。
+
+### Changed
+
+- `atri_x/gui/app.py`：选项卡 8 → 9（新增「知识库」，`Ctrl+1`…`Ctrl+9`、菜单、
+  「功能」页跳转同步）；`actions.show_about` 改为打开 `about` 窗口。
+- `atri_x/gui/tabs/advanced.py`：生图区新增「本地生图服务挂载」子框；维护任务的 8 个
+  复选框换成「N 个任务启用」摘要 + 「定时维护任务…」按钮；新增「自学习设置…」
+  与「HOOK 插件配置…」按钮。
+- `atri_x/gui/tabs/logs.py`：新增「导出…」与 `export_text` / `_export_to`（纯函数，
+  测试可直接断言文件内容）。
+- `atri_x/gui/featureview.py` / `tabs/features.py`：「功能」页新增「群知识库（FAQ）」行
+  并跳到知识库页；Hook/维护任务的说明改为指向「进阶」页的二级窗口。
+- `atri_x/config/app_sections.py` + `atri_x/maintenance/maintenance.py`：维护任务配置
+  新增可选 `run_at`（本地墙钟 `YYYY-MM-DD HH:MM:SS`）；`setup_cron` 在该键非空时给
+  cron job 带上一次性 metadata（`schedule.mode = "once"`），到点只跑一次、跑完不再
+  重复；`schedule` 仍保留做表达式校验与兜底。
+- 文档同步：`docs/windows-app.md` §4 表格与 §4.2 更新为 9 页，新增 §4.6 知识库页、
+  §4.7 进阶页二级设置窗口，§4.3/§4.4 补本地生图挂载与日志导出；`docs/image-generation.md`
+  新增「本地生图服务（自建 / AUTODL）」；`docs/configuration.md` 补 `run_at`；
+  `README.md` 版本与特性行、`devdocs/code-map.md`、模块 docstring 同步。
+
+### 发行（v0.9.5）
+
+Windows 两种产物按 0.9.5 重新构建（`python packaging/build.py --with-kernel --release`，
+产物均含内置 DSH 内核 `0.2.0-rc.2`）：
+
+| 产物 | 体积 | 构建耗时 | 自检 |
+|---|---|---|---|
+| `dist/windows/atri-x/`（onedir 中间产物） | 318.5 MB / 23862 文件 | PyInstaller 61.1 s | `--version` / `config check` / `-m` 转发 / `sidecar found:true` / GUI `--selftest`（含逐页切换）全过 |
+| `dist/portable/ATRI-X-0.9.5-portable-win64.zip` | 113.7 MB（源 318.5 MB，deflate 36%） | 24.1 s | 解压 15.9 s（23867 条目）后 8 步全过，并断言配置落在解包目录 `data\appdata\ATRI-X` |
+| `dist/installer/ATRI-X-0.9.5-setup.exe` | 56.3 MB | ISCC 45.1 s | 静默安装 40.4 s / 23865 文件、`--version` 通过、静默卸载 13.8 s 且目录清空 |
+
+便携版 zip 的 SHA256：`f1e28dd3eae6ec273dcb399f65ab5bda85e301e94a99e0bbaf4b35b6a03137ad`；
+安装包 SHA256：`141f9035723e609a38e8f1c80c375d8d33a036393676402682a47ab711dc63b1`。
+两份产物已复制到桌面 `ATRI-X-0.9.5-Windows\` 并核对哈希。容器镜像本轮未重建。
+
+---
+
+## [0.9.4] - 2026-10-19
+
+> 本版全部是**桌面端**的可用性补丁：密钥看得见/看不见、日志有地方看、模型不用手打
+> （还能起别名）、模型分配手动刷新、群友逐个建档并带头像。运行期（Agent / 后台服务）
+> 行为与配置文件格式**没有变化**，老配置直接可用。
+
+### 本版摘要（v0.9.4）
+
+- **选项卡 6 → 8**：新增「群友」（群友角色数据）与「日志」（日志记录与显示），
+  `Ctrl+1`…`Ctrl+8`、「视图」菜单、「功能」页双击跳转同步更新。
+- **密钥可见性**：LLM API Key、生图密钥、三个平台的 token / client_secret 输入框默认
+  掩码，右侧「显示 / 隐藏」按钮可临时看明文；保存成功后自动清空并恢复掩码。
+- **模型目录**：模型页与「进阶」页生图区新增 **获取可用模型** —— `GET {base_url}/models`
+  拉上游清单（`/v1` 拼法不对手自动补试），下拉点选后「加入列表」/直接切换；每个模型
+  还能起**本地备注名**，下拉里显示成 `备注（真模型名）`，保存时自动还原真模型名。
+- **模型分配**：新增 **刷新模型列表**（重读 `services.toml` + 模型目录，不动已选值）；
+  四个槽位的模型下拉都改成带箭头、可滚动的下拉（模型名仍可手打）。
+- **日志页**：运行日志 / 审计日志 / Atrinis 日志 / 后台服务输出 / 界面操作五个通道，
+  按日期、级别、关键字过滤，可选条数、勾自动刷新（3 秒）、打开文件/目录、复制；
+  `ERROR`/`WARN`/`DEBUG` 分别红/橙/灰着色。界面动作另外追加写 `gui/gui.log`。
+- **群友页**：按群（来自聊天历史库，只读）列出群友，带**头像缩略图**；右侧编辑备注名、
+  标签、角色数据（最长 4000 字）、头像（QQ 头像下载 / 本地图片 / 移除）。档案写
+  `<配置目录>\gui\members.json`，头像缓存写 `<配置目录>\gui\avatars\*.png`。
+
+### Added
+
+- `atri_x/gui/widgets.py`：`SecretEntry`（掩码输入框 + 显示/隐藏切换）、`dropdown`
+  （带箭头、可滚动的组合框、`postcommand` 即时刷新候选）、`run_async`（后台线程跑
+  网络 IO，结果经 `after` 回 Tk 主线程）。
+- `atri_x/gui/modelcatalog.py`：`gui/model_catalog.json` 的读写（provider 键
+  `providers.<名字>`、生图键 `image_generation`）、`fetch_models`（`/models` 拉取，
+  兼容 `data` / `models` / 裸数组三种返回，401/403/404 给出可操作提示）、
+  `display_label` / `model_of_label`（备注名 ↔ 真模型名）、`Catalog.save` 原子写。
+- `atri_x/gui/memberdata.py`：群友档案 `gui/members.json`（备注名/标签/角色数据/头像/
+  时间戳，单条正文 4000 字、标签最多 12 个）、`list_scopes` / `discover_members`
+  （只读打开聊天历史库，按 `platform + scope + sender` 聚合，昵称取最近一条消息）。
+- `atri_x/gui/avatars.py`：QQ 头像 URL 规则、下载、**用内置图像编解码把 JPEG 转成
+  96×96 PNG**（`atri_x.media.imagecodec`，不依赖 Pillow）、缓存到 `gui/avatars/`。
+- `atri_x/gui/journal.py`：界面操作日志 `gui/gui.log`（一行一条"时间 + 动作"，
+  512 KiB 轮转为 `.1`，写失败静默）。
+- `atri_x/gui/tabs/logs.py`：「日志」选项卡（五通道 + 筛选 + 自动刷新 + 着色）。
+- `atri_x/gui/tabs/members.py`：「群友」选项卡（列表 + 头像缩略图 + 档案编辑器；
+  头像先缓存、点「保存档案」才写 JSON，避免误写）。
+- `tests/test_gui_modelcatalog.py`（22 条）：目录读写/备注名/标签还原、`parse_models`
+  三种结构、本机临时 HTTP 服务验证 `/models` 拉取与 401/404/连不上、`secret_value`。
+- `tests/test_gui_members.py`（20 条）：档案增删改查与裁剪、真实 SQLite 聚合群友与昵称、
+  头像 URL/JPEG→PNG/缓存与删除。
+- `tests/test_gui_tabs.py`（25 条）：真建 Tk 控件跑模型目录/备注名/刷新/标签还原、
+  日志五通道与筛选、群友发现/保存/头像、生图模型目录、平台密钥显示切换；无 Tk 自动跳过。
+
+### Changed
+
+- `atri_x/gui/app.py`：选项卡从 6 页扩到 8 页（新增「群友」「日志」），`_TAB_KEYS`
+  增加 `members` / `logs`；`selftest.py` 增加"逐页切换"（让日志/功能页的 `on_show`
+  自检也真跑一次）。
+- `atri_x/gui/tabs/model.py`：密钥行改用 `SecretEntry`；新增「可用模型」下拉 +
+  「获取可用模型」+「加入列表」+「模型备注名」子框；模型分配区新增「刷新模型列表」，
+  四个槽位的下拉改为可滚动下拉，保存时把 `备注（模型）` 还原成真模型名。
+- `atri_x/gui/tabs/advanced.py`：生图密钥改用 `SecretEntry`；生图模型改为可滚动下拉，
+  新增「获取可用模型」「模型备注名」，保存写回真模型名。
+- `atri_x/gui/tabs/platform.py`：三处 token / client_secret 改用 `SecretEntry`（同一套
+  显示/隐藏与保存后清空语义），并补「重新载入」按钮。
+- `atri_x/gui/configedit.py`：`ConfigPaths` 增加 `data_dir` / `sessions_db_path` /
+  `chat_history_db_path` / `log_dir` 与 `gui_dir` 属性（从 `[storage]` 推，空值回落
+  平台默认数据目录），供日志页与群友页只读定位文件。
+- `atri_x/gui/configmodel.py`：新增 `secret_value`（进程环境优先、其次 `.env`）——
+  拉模型目录真的要带密钥，界面上仍不回显明文。
+- `atri_x/gui/tabs/base.py`：新增 `ConfigTab.journal()`，保存类动作统一记进 `gui.log`。
+- `atri_x/gui/featureview.py` / `tabs/features.py`：「功能」页增加"群友角色数据""日志查看"
+  两行并双击跳到新页；「查看日志」按钮直接切到日志页（没有该页时才退回独立窗口）。
+- 文档同步：`docs/windows-app.md` §4 表格与 §4.2 更新为 8 页，新增 §4.3 模型目录与备注名、
+  §4.4 日志页、§4.5 群友角色数据；`README.md` 版本与特性行同步。
+
+### 发行（v0.9.4）
+
+Windows 两种产物按 0.9.4 重新构建（`python packaging/build.py --with-kernel --release`，
+产物均含内置 DSH 内核 `0.2.0-rc.2`）：
+
+| 产物 | 体积 | 构建耗时 | 自检 |
+|---|---|---|---|
+| `dist/windows/atri-x/`（onedir 中间产物） | 318.4 MB / 23862 文件 | PyInstaller 62.3 s | `--version` / `config check` / `-m` 转发 / `sidecar found:true` / GUI `--selftest`（含逐页切换）全过 |
+| `dist/portable/ATRI-X-0.9.4-portable-win64.zip` | 113.5 MB（源 318.4 MB，deflate 36%） | 25.9 s | 解压 15.9 s（23867 条目）后 8 步全过，并断言配置落在解包目录 `data\appdata\ATRI-X` |
+| `dist/installer/ATRI-X-0.9.4-setup.exe` | 56.3 MB | ISCC 43.6 s | 静默安装 41.2 s / 23865 文件、`--version` 通过、静默卸载 13.5 s 且目录清空 |
+
+便携版 zip 的 SHA256：`d12c1f82cce5f39035adc1e739a67da089e6bbb8a24e70147e1c63ea3fa4911c`
+（同目录 `.zip.sha256` 可校验）；安装包 SHA256：
+`da71eddcd1222ed1ed326c7028e1571e18e86765a865056f5535cd864ea1e8df`。
+安装包自检第一次被"正在运行的旧版"挡住（Inno Setup `AppMutex=ATRI-X-GUI`，属预期行为），
+关掉运行中的 0.9.3 后重跑通过；两份产物已复制到桌面 `ATRI-X-0.9.4-Windows\` 并核对哈希。
+容器镜像本轮未重建。
+
+---
+
+## [0.9.3] - 2026-10-19
+
+> 本版把桌面端从"一个聊天窗口"扩成**选项卡式桌面端**：模型 API、人设卡、平台接入、
+> 生图/语音/记忆等开关、功能总览第一次都能在界面里改，不用再手搓 TOML。
+> 同时把 Windows 交付做成**两条腿**：解压即用的**便携版 zip** 与**安装包**，一条命令同时产出并各自自检。
+
+### 本版摘要（v0.9.3）
+
+- **6 个选项卡**：对话 / 模型 / 人设卡 / 平台 / 进阶 / 功能（`Ctrl+1`…`Ctrl+6`、「视图」菜单）。
+- **模型页**：Provider 增删改（Base URL、密钥环境变量、API Key、模型列表、API 协议），
+  密钥只写 `.env` 且界面只显示掩码；工作/聊天/命名/压缩四个模型槽位与默认模式写
+  `state.toml`，保存后热加载。
+- **人设卡页**：角色库增删改 + `profile/world/greeting/examples/image_prompt/notes`
+  文档编辑 + 生图预设 + `SOUL.md` 系统人设；写入走 `atri_x.character` 的 `Store.write`，
+  版本号自增与 Agent 工具链一致。
+- **平台页**：QQ（OneBot v11）/ QQ 官方机器人 / Telegram 的开关、地址、token 变量与值、
+  唤醒词；本地 CLI 服务端监听；各平台超级管理员。
+- **进阶页**：生图 / 图片转提示词 / 视觉回退 / 语音转写、长期记忆 / 自学习 / 群分析 /
+  群服务 / Atrinis、8 个定时维护任务、日志级别与保留天数。
+- **功能页**：18 项能力的只读状态表（已启用/已停用/未配置 + 关键配置），双击跳到对应
+  选项卡；右侧是连接状态、重启服务、配置目录与后台日志（可只读查看尾部）。
+- **保存安全**：所有配置写入都走行级 TOML 补丁（保留注释与其它键）、写前留
+  `<文件>.gui.bak`、写前 `tomllib` 全量校验，失败不落盘。
+- **两种 Windows 交付形态**：便携版 zip（解压即用，`start-portable.bat` 把数据留在解压目录里，
+  整包拷走即可复现问题）与安装包（开始菜单/自启/卸载项）；`python packaging/build.py --release`
+  一条命令同时产出并各自做产物级自检。
+
+### Added
+
+- `atri_x/gui/tabs/`：`base.py`（选项卡公共骨架）、`chat.py`（对话，从主窗口拆出）、
+  `model.py`、`character.py`、`platform.py`、`advanced.py`、`features.py`。
+- `atri_x/gui/actions.py`：主窗口的「服务」动作（启动/重启/停止后台服务、打开配置目录/
+  日志、关于），重启在后台线程里跑、结果回主线程展示。
+- `atri_x/gui/configedit.py`：配置路径解析（`ConfigPaths`）、TOML 行级补丁
+  （`patch_section` / `patch_top_level` / `remove_section`）、文本文件写入、
+  `.env` 增删改。
+- `atri_x/gui/configmodel.py`：Provider 视图与密钥状态（掩码）、模型分配读写。
+- `atri_x/gui/featureview.py`：「功能」页的状态汇总（只读，读配置文件与目录现状）。
+- `atri_x/gui/service.py`：`restart_service()`（停止 + 重新拉起 + 等就绪），供保存启动期
+  配置后一键生效。
+- `tests/test_gui_configedit.py`：27 条用例覆盖行级补丁/备份/校验/`.env`/Provider/
+  模型分配/功能汇总。
+- `packaging/build_portable.py`：把 onedir 产物打成**解压即用**的便携版 zip。包内附带
+  `start-portable.bat`（`APPDATA` 指到解压目录 `data\appdata`）、`start-normal.bat`
+  （标准模式）、`debug-console.bat`（doctor + 命令行窗口）、`README.txt`（UTF-8 BOM）
+  与 `build-info.json`；同时输出 `.zip.sha256`。自带**解压级核验**：解压到本地短路径，
+  跑 `--version` / `config check` / `-m` 转发 / `sidecar status` / GUI `--selftest` /
+  `start-portable.bat --selftest`，并断言配置落在解包目录而非真实 `%APPDATA%`。
+- `packaging/build.py`：新增 `--with-portable`、`--portable-verify`、`--portable-output`
+  与 `--release`；`--release` 一条命令出便携版 zip + 安装包并各自自检。
+- `tests/test_packaging_portable.py`：11 条用例覆盖 zip 目录契约、启动器内容、README
+  BOM/CRLF、`build-info.json` 元数据、SHA256 旁注、垃圾文件过滤与缺 exe 报错。
+
+### Changed
+
+- `atri_x/gui/app.py`：主窗口改为"状态栏 + `ttk.Notebook` + 菜单/托盘"，聊天界面拆到
+  `tabs/chat.py`；新增「视图」菜单、`Ctrl+1…6`、跨线程「重启后台服务」；配置路径在
+  没有 `GuiSettings` 时按平台默认目录推算（不再阻断界面构建）。
+- `atri_x/gui/tabs` 的配置页保存后会在状态行标注生效方式（热加载 / 重启后台服务），
+  每个配置页带「重启后台服务」按钮。
+- 文档同步：`docs/windows-app.md` §3 三步接模型改为界面优先、§4 表格补选项卡与
+  「重启后台服务」、新增 §4.2 配置选项卡说明（写入哪份文件、何时生效）；本次再补
+  §1 交付形态表、§2 `--release` 与新增 §7.2 便携版 zip。
+- `packaging/README.md`：文件表补 `build_portable.py`、构建参数表补 4 个新开关、
+  新增 §8 便携版 zip（布局、两种数据模式、自检内容、长路径限制），原 §8 排障顺延为 §9。
+- `README.md`：发行版表补「Windows 便携版」一行，平台与前端补两种交付形态说明。
+
+### 发行（v0.9.3）
+
+Windows 两种产物按 0.9.3 重新构建（`python packaging/build.py --with-kernel --release`，
+产物均含内置 DSH 内核 `0.2.0-rc.2`）：
+
+| 产物 | 体积 | 构建耗时 | 自检 |
+|---|---|---|---|
+| `dist/windows/atri-x/`（onedir 中间产物） | 318.2 MB / 23862 文件 | PyInstaller 57.7 s | `--version` / `config check` / `-m` 转发 / `sidecar found:true` / GUI `--selftest` 全过 |
+| `dist/portable/ATRI-X-0.9.3-portable-win64.zip` | 113.3 MB（源 318.2 MB，deflate 36%） | 22.6 s（首打）/ 10.4 s（复打） | 解压 14.9 s（23867 条目）后 8 步全过，并断言配置落在解包目录 `data\appdata\ATRI-X` |
+| `dist/installer/ATRI-X-0.9.3-setup.exe` | 56.2 MB | ISCC 43.5 s | 静默安装 40.4 s / 23865 文件、`--version` 通过、静默卸载 13.9 s 且目录清空 |
+
+便携版 zip 的 SHA256：`c60773f069e7c893649c1a2745263dd9c0dacb29758255914dce02c9050f7a49`
+（同目录 `.zip.sha256` 可校验）。解压自检覆盖 `--version` / `config check` / `-m` 转发 /
+`sidecar status` / GUI `--selftest` / `start-portable.bat --selftest` / `debug-console.bat`
+七步；另用 Windows 自带 `Expand-Archive` 解压（等价资源管理器双击解压）后再跑
+`--version` + `config check`，`app.toml` 落在解压目录的 `data\appdata\ATRI-X`。容器镜像本轮未重建。
+
+## [0.9.2] - 2026-10-18
+
+> 本版补齐「定时维护」闭环：会话清理默认打开，并新增**内置 DSH 内核清理**与**每日会话总结**
+> 两个 Python 版新增能力。Windows 安装包与 `ghcr.io` 镜像按 0.9.2 重新构建发布。
+
+### 本版摘要（v0.9.2）
+
+- **每日会话总结**：`[maintenance.daily_summary]`（配置资产默认开）每天 8:00 把最近一天的 ATRI-X 会话汇总成一段文本，落盘 `<数据目录>/daily_summaries/<日期>.json`；`python -m atri_x.maintenance.summary_cli` 可查看、立即生成或输出 JSON。
+- **内置 DSH 内核清理**：`[maintenance.dsh_cleanup]`（默认开，保留 30 天）只清 `DSH_HOME/sessions` 下过期的一次性会话历史与会话缓存，`profiles/` 与其它 `storages/` 内容保留。
+- **会话清理默认开**：`[maintenance.session_cleanup]` 从 `enabled = false` 改为 `true`（保留 30 天），会话表与级联消息按天自动清理。
+- **发行**：Windows 安装包（含内置 DSH 内核）与容器镜像随 tag 重建，安装/卸载自检数据见下面的「发行（v0.9.2）」。
+
+### Added
+
+- **每日会话总结**（`[maintenance.daily_summary]`，配置资产默认开启）：cron 任务 `maintenance.daily_summary` 每天 8:00 把最近一天的 ATRI-X 会话（SQLite `sessions` + `messages`）汇总成文本，落盘到 `<数据目录>/daily_summaries/<日期>.json`；`use_llm = true` 时复用 `/compact` 的压缩模型做二次摘要（失败自动回退确定性摘要），`notify = true` 时走资源报告通道投递。新增 `atri_x/maintenance/summary.py`（库）与 `atri_x/maintenance/summary_cli.py`（`python -m atri_x.maintenance.summary_cli`：查看 / `--build` 立即生成 / `--json`）。
+- **内置 DSH 内核清理**（`[maintenance.dsh_cleanup]`，配置资产默认开启，保留 30 天）：cron 任务 `maintenance.dsh_cleanup` 只删 `DSH_HOME/sessions/` 下过期的一次性会话目录与会话缓存 `storages/session_projcache/sessions/`；`profiles/`、其它 `storages/` 与顶层文件一律保留。新增 `atri_x/maintenance/dsh.py`。
+
+### Changed
+
+- `[maintenance.session_cleanup]` 默认从 `enabled = false` 改为 `enabled = true`（保留 30 天）：会话表（含级联的消息）按天自动清理，不再需要手动打开。
+- 维护任务从 7 个 handler 增加到 9 个；`Service` 新增 `dsh_home` / `daily_summary` / `summary_dir` / `summary_generator` 装配项，`setup_cron` 相应多 upsert/disable 两条任务。
+- 文档同步：`docs/configuration.md`（维护段与新增两段）、`docs/reports.md`（新增「每日会话总结」）、`docs/windows-app.md`（DSH 内核清理说明）、`docs/README.md`。
+
+### 发行（v0.9.2）
+
+Windows 安装包按 0.9.2 重新构建（`python packaging/build.py --with-kernel --installer-verify`）：
+
+| 项 | 实测值 |
+|---|---|
+| 安装包 | `ATRI-X-0.9.2-setup.exe`，**56.1 MB**（58,792,879 字节），SHA256 `6b79d8f0cdf2b20b626898a7f3d82da03bd5fe981cf9d745504cc8328d9f391a` |
+| 冻结 onedir | **318.0 MB / 23862 个文件**（其中内置 DSH 内核 277.6 MB） |
+| 构建耗时 | PyInstaller 约 59 s；Inno 编译 59.4 s |
+| 静默安装 / 卸载 | 安装 40.4 s / 23865 个文件；卸载 13.9 s，目录清空 |
+| 产物级核验 | `--version = atri-x 0.9.2`、`config check` ok、`-m` 分发 ok、内置内核 sidecar ok、GUI `--selftest` ok；新增 `-m atri_x.maintenance.summary_cli` 在冻结包内可用 |
+
+容器镜像的 `:0.9.2` tag 由 GitHub Actions 在打 tag / 发 Release 时构建（`git push origin v0.9.2` 触发），本地未推送。
 
 ---
 

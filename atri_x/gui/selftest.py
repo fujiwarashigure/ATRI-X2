@@ -55,6 +55,14 @@ def run_selftest() -> int:
         rendered = app.transcript_view.get("1.0", tk.END)
         assert "自检" in rendered, "transcript 没有渲染出来"
         assert "ATRI" in rendered, "角色前缀缺失"
+        # 逐个切页：让每页的 on_show（日志/功能页会重读文件）都真跑一次。
+        for index in range(len(app.notebook.tabs())):
+            app.notebook.select(index)
+            root.update_idletasks()
+            root.update()
+        app.notebook.select(0)
+        root.update_idletasks()
+        root.update()
         root.destroy()
     except Exception as exc:  # noqa: BLE001 - 自检失败要报出原因
         safe_print(f"GUI_SELFTEST_FAIL {type(exc).__name__}: {exc}")

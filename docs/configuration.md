@@ -625,14 +625,25 @@ enabled = true
 schedule = "0 3 * * *"
 ```
 
-Cron 表达式由内部 Cron Runtime 调度，使用 Linux crontab 风格的 5 字段格式：`分钟 小时 日 月 星期`。默认维护任务包含日志、Session、sandbox 和聊天历史清理，例如 Session 清理默认保留 30 天，sandbox 默认每天 04:00 清理 7 天前内容，聊天历史默认每天 04:35 执行：
+Cron 表达式由内部 Cron Runtime 调度，使用 Linux crontab 风格的 5 字段格式：`分钟 小时 日 月 星期`。默认维护任务包含日志、Session、sandbox、聊天历史与内置 DSH 内核清理，外加两个报告/总结任务：
 
 ```toml
-[maintenance.session_cleanup]
-enabled = false
+[maintenance.session_cleanup]   # 默认开启：保留 30 天
+enabled = true
 schedule = "15 3 * * *"
 retention_days = 30
 ```
+
+每个维护任务除了 `enabled` / `schedule`，还可以写 `run_at` 变成**一次性任务**（本地墙钟，`YYYY-MM-DD HH:MM:SS`）：
+
+```toml
+[maintenance.log_cleanup]
+enabled = true
+schedule = "0 3 * * *"          # 仍需保留：引擎先解析它，再做 cron 校验
+run_at = "2026-03-01 03:30:00"  # 到点只跑一次，跑完不再重复；清空本键恢复周期调度
+```
+
+`run_at` 只影响下次触发时机（按一次性 metadata 定点），任务本身的清理逻辑不变；过期的一次性任务不会补跑。桌面端的「进阶 → 定时维护任务…」窗口把两种写法都做成了界面操作：周期任务选「每天 / 每周 / 每月」再填时分（每周额外选周几、每月额外选几号），窗口实时显示生成的 cron 与「下次触发」时间；列表/区间/步长这类表达不了的写法切到「自定义 cron」直接写；也可以切「指定日期」改成一次性执行。
 
 ```toml
 [maintenance.sandbox_cleanup]
@@ -647,6 +658,31 @@ enabled = true
 schedule = "35 4 * * *"
 retention_days = 180
 ```
+
+```toml
+# 内置 DSH 内核（DSH_HOME）的会话历史清理：只删 sessions/ 与会话缓存，
+# profiles/ 和 storages/ 的其它内容保留。默认开启，保留 30 天。
+[maintenance.dsh_cleanup]
+enabled = true
+schedule = "50 4 * * *"
+retention_days = 30
+```
+
+```toml
+# 每日会话总结：写到 <数据目录>/daily_summaries/<日期>.json，默认不花 token。
+[maintenance.daily_summary]
+enabled = true
+schedule = "0 8 * * *"        # 每天 8:00
+days = 1                      # 统计最近几天
+max_sessions = 20             # 最多汇总多少个会话
+use_llm = false               # true 时再交给压缩模型摘要一遍（会花 token）
+notify = false                # true 时走 [maintenance.daily_report].platform 投递
+```
+
+- `session_cleanup` 删的是**未归档、未置顶**且 `updated_at` 早于保留期的 `sessions` 行；`messages` / `context_summaries` 由外键级联删除。会话标记归档或置顶即可永久保留。
+- `dsh_cleanup` 只在 `[agent.dsh]` 打开后才有实际内容可清；清理范围白名单固定（只碰 DSH 的 `sessions/` 与 `storages/session_projcache/sessions/`），`profiles/`（ACP profile 与插件依赖）永远保留。
+- `daily_summary` 的正文默认是确定性摘要（会话标题、消息数、最后一条用户/助手内容），`use_llm = true` 时才复用 `/compact` 的压缩模型做二次摘要；查看方式见 [`docs/reports.md`](reports.md)。
+- 上面这几段是**配置资产（新装默认）**的取值。已有部署的 `app.toml` 不会自动补段：缺段时按数据类默认（`session_cleanup` / `dsh_cleanup` / `daily_summary` 都**关**），需要手动补上对应配置段再重启。
 
 ## Context 与压缩
 

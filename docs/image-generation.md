@@ -56,6 +56,28 @@ API Key 从 `api_key_env` 指定的环境变量读取；Docker 部署时写在 `
 IMAGE_API_KEY=sk-xxxxxxxx
 ```
 
+### 本地生图服务（自建 / AUTODL）
+
+ATRI-X 只认 **OpenAI 兼容**端点（`POST {base_url}/images/generations`），所以本地
+生图分两种情况：
+
+1. **本地跑的是 OpenAI 兼容服务**（或 ComfyUI 外加了一层 OpenAI 兼容转接）：把
+   `base_url` 指向它即可，密钥按服务要求填 `api_key_env` / `.env`；
+2. **本地只有 ComfyUI 原生接口**：它没有 `/images/generations`，需要在 ComfyUI 侧
+   启动一个 OpenAI 兼容转接层，再把 `base_url` 指向转接层地址。
+
+地址怎么来，桌面端「进阶 → 生图 → 本地生图服务挂载」直接给了两种挂载方式：
+
+| 挂载方式 | 典型场景 | 填什么 | 生成的 base_url |
+|---|---|---|---|
+| 端口映射 | 本机 / 局域网部署；SSH 隧道 `ssh -L 8188:127.0.0.1:8188 user@host`、frp、Docker `-p 8188:8188` | 主机 + 端口 | `http://127.0.0.1:8188/v1` |
+| SSL 链接 | AUTODL 等平台只暴露 HTTPS 自定义服务 | 完整 HTTPS 地址 | `https://xxxx-8188.gpuhub.com/v1` |
+
+窗口里的 **检测服务** 是只读探测：`GET {base_url}/models` 返回模型清单就判定为
+OpenAI 兼容并记入模型目录；只探测到 ComfyUI 原生接口（`/system_stats`、`/queue`）
+时会明确提示需要转接。生成的地址最终仍然写进 `services.toml` 的 `base_url`，没有
+新增配置键。
+
 ## 提示词是怎么拼的
 
 最终提示词按顺序拼成：

@@ -1,7 +1,7 @@
 """``atri_x.maintenance`` 的清理任务与 cron 装配测试。
 
 覆盖：沙盒清理（真实文件系统）、各项 ``run_*`` 的前置条件与错误吞并语义、
-cron 装配（7 个 handler + upsert/disable 分支）。
+cron 装配（9 个 handler + upsert/disable 分支）。
 
 **为什么不 import atri_x.cron**：``atri_x.cron`` 目前 import 即抛
 ``NameError``（``cron/model.py`` 的既有问题，不属于本模块）。``setup_cron`` 在
@@ -350,6 +350,7 @@ class _FakeUpsertJobRequest:
     handler: str = ""
     schedule: str = ""
     enabled: bool = False
+    metadata: str = ""
 
 
 class _FakeCronManager:
@@ -381,9 +382,14 @@ class _FakeCronManager:
 class TestCronAssembly(_AsyncCaseWithTmp):
     def setUp(self) -> None:
         super().setUp()
-        # 只用字段名与 Go 的 UpsertJobRequest 对齐的最小替身。
+        # 只用字段名与 Go 的 UpsertJobRequest 对齐的最小替身；一次性任务要用到
+        # metadata 序列化，所以把真实 cron 模型挂在替身上（不替换整个模块）。
+        import atri_x.cron as real_cron
+
         fake = types.ModuleType("atri_x.cron")
         fake.UpsertJobRequest = _FakeUpsertJobRequest  # type: ignore[attr-defined]
+        for name in ("METADATA_KIND", "Metadata", "CronSchedule", "CronTrigger", "ScheduleMode"):
+            setattr(fake, name, getattr(real_cron, name))
         self._previous = sys.modules.get("atri_x.cron")
         sys.modules["atri_x.cron"] = fake
         self.addCleanup(self._restore)
@@ -394,7 +400,7 @@ class TestCronAssembly(_AsyncCaseWithTmp):
         else:
             sys.modules["atri_x.cron"] = self._previous
 
-    async def test_registers_seven_handlers(self) -> None:
+    async def test_registers_nine_handlers(self) -> None:
         service = new_service(None, None, None, None)
         manager = _FakeCronManager()
         await service.register_cron_handlers(manager)
@@ -406,8 +412,10 @@ class TestCronAssembly(_AsyncCaseWithTmp):
                 "maintenance.sandbox_cleanup",
                 "maintenance.media_cleanup",
                 "maintenance.chat_history_cleanup",
+                "maintenance.dsh_cleanup",
                 "maintenance.privacy_cleanup",
                 "maintenance.daily_report",
+                "maintenance.daily_summary",
             ],
         )
 
@@ -477,11 +485,25 @@ class TestCronAssembly(_AsyncCaseWithTmp):
             [
                 "system.maintenance.session_cleanup",
                 "system.maintenance.chat_history_cleanup",
+                "system.maintenance.dsh_cleanup",
                 "system.maintenance.privacy_cleanup",
                 "system.maintenance.daily_report",
+                "system.maintenance.daily_summary",
             ],
         )
         self.assertEqual(len(manager.started), 1)
+
+    async def test_setup_cron_writes_one_off_metadata(self) -> None:
+        """``run_at`` 非空时请求里要带一次性任务的 metadata（mode=once）。"""
+        cfg = AppConfig()
+        cfg.maintenance.log_cleanup = CronTaskConfig(
+            enabled=True, schedule="0 3 * * *", run_at="2026-02-01 03:30"
+        )
+        manager = _FakeCronManager()
+        await setup_cron(None, manager, cfg)
+        job = next(item for item in manager.upserted if item.name.endswith("log_cleanup"))
+        self.assertIn('"mode":"once"', job.metadata)
+        self.assertIn('"run_at":"2026-02-01 03:30"', job.metadata)
 
     async def test_setup_cron_ignores_missing_job_on_disable(self) -> None:
         cfg = AppConfig()

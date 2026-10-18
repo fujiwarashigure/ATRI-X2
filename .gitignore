@@ -53,6 +53,8 @@ app.local.toml
 .sig_*.txt
 *_v.log
 *_v.err
+# 输入法（如搜狗）会往进程 cwd 写日志，不是本仓库产物
+debug.log
 tests/_probe.txt
 tmp_*/
 tmp_*

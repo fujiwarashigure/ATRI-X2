@@ -9,9 +9,12 @@ Desktop 一键运维时用 [`deploy/windows/`](../deploy/windows/README.md)。
 |---|---|
 | `atri-x.spec` | PyInstaller 描述：收集 `atri_x` 全部子模块（延迟导入太多，静态分析不够）、打入两份数据资产、**保留 tkinter**（窗口版要用）、onedir 下出两个 exe 共用一个 `COLLECT`、可选打入 `runtime/` |
 | `entry.py` | 冻结入口：`atri-x.exe` → `atri_x.__main__:main`；`atri-x-gui.exe` → `atri_x.gui.__main__`；两者都支持 `-m <模块>`（用 `runpy` 复刻 `python -m`） |
-| `build.py` | 构建脚本：清产物 → 调 PyInstaller → **产物级核验**（跑 exe 本体，而不是只看构建退出码） |
+| `build.py` | 构建脚本：清产物 → 调 PyInstaller → **产物级核验**（跑 exe 本体，而不是只看构建退出码）；`--release` 一条命令再出便携版 zip + 安装包 |
+| `build_portable.py` | 把 onedir 产物打成**解压即用**的便携版 zip（内置启动器/说明/构建元数据），并做**解压级核验**（解压 → 跑 exe/启动器 → 断言数据落在包内） |
+| `build_installer.py` | 调 Inno Setup 把 onedir 产物打成一个 `setup.exe`，可选静默安装/卸载自检 |
 | `assemble_kernel.py` | 组装内置 DSH 内核（node.exe + ACP 依赖闭包 + `kernel.json`），并**真启动 ACP 服务端握手核验** |
 | `kernel_manifest.py` | `kernel.json` 清单读写（产物契约，与 `atri_x.sidecar.registry` 对应） |
+
 
 面向用户的操作步骤（桌面端、接 QQ、托盘/自启、安装）见
 [`docs/windows-app.md`](../docs/windows-app.md)。
@@ -56,15 +59,19 @@ python packaging/build.py --no-verify        # 只构建
 | `--with-installer` | 关 | 核验通过后再打 Inno Setup 安装包（见 §7；只支持 onedir） |
 | `--installer-verify` | 关 | 打安装包并静默安装/卸载自检（隐含 `--with-installer`） |
 | `--installer-output` | `dist/installer` | 安装包输出目录 |
+| `--with-portable` | 关 | 核验通过后再打**便携版 zip**（解压即用，见 §8；只支持 onedir） |
+| `--portable-verify` | 关 | 打便携版 zip 并**解压自检**（隐含 `--with-portable`） |
+| `--portable-output` | `dist/portable` | 便携版 zip 输出目录 |
+| `--release` | 关 | 一条命令出**两种交付物**：便携版 zip + 安装包，并各自自检（= `--with-portable --portable-verify --with-installer --installer-verify`） |
 | `--with-pillow` | 关 | 不排除 Pillow/numpy/PyYAML；默认排除（见 §5 冻结限制表） |
 | `--dist` | `dist/windows` | 输出目录（已在 `.gitignore`） |
 | `--work` | `build/pyinstaller` | PyInstaller 工作目录（已在 `.gitignore`） |
 
 > 本目录的 `.py` **不在** `scripts/check_syntax.py` 的扫描范围（该脚本只扫
 > `atri_x` / `tests` / `scripts`，`deploy/` 同理），改完请自己跑：
-> `python -m py_compile packaging/build.py packaging/entry.py packaging/assemble_kernel.py packaging/kernel_manifest.py`
+> `python -m py_compile packaging/build.py packaging/build_portable.py packaging/build_installer.py packaging/entry.py packaging/assemble_kernel.py packaging/kernel_manifest.py`
 
-产物（onedir：不含内置内核时 40.1 MB / 50 个文件；含内置内核时 317.9 MB / 23862 个文件）：
+产物（onedir：不含内置内核时 40.1 MB / 50 个文件；含内置内核时 318.6 MB / 23862 个文件）：
 
 ```
 dist/windows/atri-x/
@@ -72,6 +79,9 @@ dist/windows/atri-x/
 ├── atri-x-gui.exe        ~10 MB 窗口版：桌面端（Tk + 托盘）
 └── _internal/            python314.dll、标准库扩展、atri_x 模块、tkinter、数据资产
     └── runtime/          可选：内置 DSH 内核（node.exe + node_modules + kernel.json）
+
+dist/portable/ATRI-X-<版本>-portable-win64.zip     # --with-portable / --release
+dist/installer/ATRI-X-<版本>-setup.exe             # --with-installer / --release
 ```
 
 ---
@@ -200,14 +210,25 @@ dist/installer/ATRI-X-<版本>-setup.exe
 `build_installer.py --verify` 做的事：把安装包**复制到本地临时目录**、静默装到短路径
 （默认 `C:\Users\<user>\AtriXVerify`）、断言两个 exe + `install.json` + `unins000.exe`
 都在、跑一次 `atri-x.exe --version`、再静默卸载并等目录被清空。实测（含内置内核的
-317.9 MB onedir → 56.0 MB 安装包）：安装 40.7 s / 23865 个文件，卸载 13.6 s。
+318.6 MB onedir → 56.3 MB 安装包）：安装 43.0 s / 23865 个文件，卸载 15.1 s。
 
 ### 7.1 构建环境的两个坑（实测）
 
-1. **TEMP/TMP 不能指向映射盘/网络盘**。Inno 会把自身解压到 `%TEMP%\is-*.tmp` 再以该
-   副本运行；从 `M:` 这类盘运行时进程会被加上受限令牌，写 HKCU 一律
-   `RegCreateKeyEx failed; code 5`（卸载项建不出来、安装回滚）。保持系统默认 TEMP
-   （本地盘）即可；`build_installer.py --verify` 已经不再改 TEMP。
+1. **不要在 DSH 工作区（如 `<工作区根>\...` 这类受限目录）里直接双击安装包**。DSH 的
+   Windows ACL 沙箱把工作区内的对象标成 **Low integrity**（`icacls "<安装包>"` 里能看到
+   `Mandatory Label\Low Mandatory Level:(I)(NW)`），于是工作区里的 exe 一启动就是
+   Low IL 进程；它**写不了 Medium IL 的 `%TEMP%`**，Inno 会在第一步报
+   「安装程序无法创建目录 `%TEMP%\is-XXXX.tmp`，错误 5: 拒绝访问」并以 exit=1 退出
+   （无日志、无残留）。同一份产物**复制到工作区外**（桌面/下载/任意本地目录）后完全正常：
+   实测 exit=0、40+ s 装完 23865 个文件、`--version` 与 `config check` 均通过。
+   - `icacls "<安装包>" /setintegritylevel Medium` **提不动**（需要 `SeRelabelPrivilege`），
+     就地改标签这条路走不通；`Copy-Item` 复制到工作区外即可拿到 Medium 标签。
+   - 自查：`icacls "<安装包>" | findstr Mandatory`，出现 `Low Mandatory Level` 就是本问题。
+   - 同一个受限令牌还会让 HKCU 写入失败（`RegCreateKeyEx failed; code 5`，卸载项建不出来、
+     安装回滚），以及让 `dist\windows\atri-x\atri-x.exe` 写 `%APPDATA%` 失败——本地冒烟
+     测试同样要先把产物复制到工作区外再跑。
+   - `build_installer.py --verify` 本来就会把安装包复制到 `%TEMP%` 再装，所以自检一直是绿的；
+     只有"就地运行"才会踩到。
 2. **安装根路径要短**。内置内核里有 190 字符以上的相对路径（`@opentelemetry` 的嵌套
    包），安装根 + 191 必须 ≤ 260（MAX_PATH）。默认的 `%LOCALAPPDATA%\ATRI-X\app`
    在普通用户配置下没问题；如果 profile 路径极深（例如隔离环境把 `LOCALAPPDATA`
@@ -223,7 +244,58 @@ Inno Setup 7。
 
 ---
 
-## 8. 排障
+## 8. 便携版 zip（解压即用）
+
+`--with-portable`（或 `--release`）会把**已经核验过的** onedir 产物打成单个 zip。
+它和安装版是同一份产物，区别只在"怎么交到用户手里"：
+
+```bash
+python packaging/build.py --with-kernel --with-portable --portable-verify   # 构建 + 便携包 + 解压自检
+python packaging/build.py --with-kernel --release                          # 构建 + 便携包 + 安装包（都自检）
+python packaging/build_portable.py --verify                                 # 只对已有 dist 重打便携包并自检
+# 产物：dist/portable/ATRI-X-<版本>-portable-win64.zip（+ 同名 .zip.sha256）
+```
+
+zip 内布局（顶层目录名刻意取短，给 Windows 的 `MAX_PATH` 留余量）：
+
+```
+ATRI-X-<版本>/
+├── atri-x.exe / atri-x-gui.exe / _internal/…   ← onedir 产物原样（内置 DSH 内核在 _internal\runtime）
+├── start-portable.bat    便携模式启动：APPDATA 指到 .\data\appdata，数据留在解压目录里
+├── start-normal.bat      标准模式启动：数据在 %APPDATA%\ATRI-X（与安装版共用一份）
+├── debug-console.bat     调试控制台：打印 doctor 报告，并留一个命令行窗口
+├── README.txt            使用/排障说明（UTF-8 BOM + CRLF，记事本可读）
+└── build-info.json       构建元数据（版本、Python/PyInstaller、内核版本、文件数）
+```
+
+| 项 | 便携版 zip | 安装版 setup.exe |
+|---|---|---|
+| 交付形态 | 解压即用（绿色版） | 用户级安装（不弹 UAC） |
+| 程序位置 | 解压目录 | `%LOCALAPPDATA%\ATRI-X\app` |
+| 用户数据 | 便携模式 `<解压目录>\data\appdata\ATRI-X`；标准模式 `%APPDATA%\ATRI-X` | `%APPDATA%\ATRI-X` |
+| 注册表 | 不写（除非用户在桌面端自己开自启） | HKCU 卸载项 + 可选开机自启 |
+| 卸载 | 直接删文件夹（便携模式下不残留数据） | `unins000.exe`；用户数据默认保留 |
+| 适合 | 快速试跑、拷给别人复现问题、绿色部署 | 普通用户长期使用 |
+
+`--portable-verify` 做的事：把 zip **解压到本地短路径**（默认
+`C:\Users\<用户>\AtriXPortableVerify`），跑 `atri-x.exe --version` / `config check` /
+`-m <模块>` / `-m atri_x.sidecar status`（打了内核时要求 `found: true`），再跑窗口版
+`--selftest` 与 `start-portable.bat --selftest`，最后用 `debug-console.bat --version`
+断言**配置确实落在解压目录的 `data\appdata` 里**、而不是用户真实的 `%APPDATA%`。
+自检目录默认用完即删。
+
+限制：
+
+- **必须解压到短路径**。内置内核里有 191 字符级的相对路径，加上顶层目录后，解压根目录
+  超过约 55 字符（总长 260）时 Windows 资源管理器解压会失败。构建时会打印建议上限。
+- zip 用 deflate 而不是 lzma：资源管理器双击即可解压，不依赖 7-Zip。
+- 发行目录里的顶层 `debug.log`（输入法日志）与 `install.json`（安装版标记）不会进便携包。
+- 无代码签名，SmartScreen 仍可能提示；`start-*.bat` 只做「设 `APPDATA` + 调 exe」，
+  不包含业务逻辑，便于排查。
+
+---
+
+## 9. 排障
 
 **Q：`config check` 报配置为空 / 首次启动没有生成 `app.toml`。**
 A：说明 `atri_x/config/assets_data` 没进包——检查 `atri-x.spec` 的 `datas`，或重跑
@@ -248,3 +320,8 @@ A：正常的首次状态；在 `services.toml` 的 `[providers.*].api_key_env` 
 
 **Q：杀软报毒/删除 exe。**
 A：PyInstaller onedir + 不开 UPX 误报最少；`--onefile` 更容易被拦。加白名单或做代码签名。
+
+**Q：双击安装包报「安装程序无法创建目录 `%TEMP%\is-XXXX.tmp`，错误 5: 拒绝访问」。**
+A：见 §7.1 第 1 条。先看安装包所在位置：`icacls "<安装包>" | findstr Mandatory` 若显示
+`Low Mandatory Level`，说明它是在 DSH 工作区（受限目录）里被构建/存放的，Low IL
+进程写不了 `%TEMP%`。把安装包复制到工作区外（桌面/下载）再双击即可，不需要重打包。

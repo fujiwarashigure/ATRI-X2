@@ -354,11 +354,20 @@ class AppConfig(StrictConfig):
             (maintenance.session_cleanup, "15 3 * * *", 30),
             (maintenance.sandbox_cleanup, "0 4 * * *", 7),
             (maintenance.chat_history_cleanup, "35 4 * * *", 180),
+            (maintenance.dsh_cleanup, "50 4 * * *", 30),
         ):
             if not cleanup.schedule:
                 cleanup.schedule = schedule
             if cleanup.retention_days == 0:
                 cleanup.retention_days = retention
+        # 每日会话总结：0 一律按「1 天 / 20 个会话」解释（与其它段的 0=默认 口径一致）。
+        summary = maintenance.daily_summary
+        if not summary.schedule:
+            summary.schedule = "0 8 * * *"
+        if summary.days <= 0:
+            summary.days = 1
+        if summary.max_sessions <= 0:
+            summary.max_sessions = 20
         # 隐私清理只在启用时才补 schedule（默认关闭时保持为空）。
         if maintenance.privacy_cleanup.enabled and not maintenance.privacy_cleanup.schedule:
             maintenance.privacy_cleanup.schedule = "45 4 * * *"

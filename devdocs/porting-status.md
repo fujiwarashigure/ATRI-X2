@@ -74,12 +74,13 @@
 | 21 | `python -m atri_x.agent.dsh.status [--json] [--score 文本]` | **Python 版新增**DSH 内核/深度路由状态与打分标定（冻结后 `atri-x.exe -m ...`） | `docs/windows-app.md` §8.1、`devdocs/dsh-acp.md` §6 |
 | 22 | `python -m atri_x.agent.dsh.smoke [--command ...] [--json]` | **Python 版新增**DSH ACP 闭环冒烟（优先用内置内核）；命令解析与路由共用 `atri_x/agent/dsh/command.py` | `docs/windows-app.md`、`devdocs/dsh-acp.md` |
 | 23 | `python packaging/build_installer.py [--verify] [--iscc PATH]` | **Python 版新增**打 Inno Setup 安装包（用户级、不弹 UAC），`--verify` 静默安装/卸载自检；也可 `build.py --with-installer` | `packaging/README.md` §7、`docs/windows-app.md` §7.1 |
+| 24 | `python -m atri_x.maintenance.summary_cli [--build] [--json] [--days N]` | **Python 版新增**查看/立即生成每日会话总结（`[maintenance.daily_summary]`，冻结后 `atri-x.exe -m ...` 同语义） | `docs/reports.md`「每日会话总结」 |
 
 补充说明：
 
 - 第 8 条是 Python 版相对 Go 上游**新增**的开关，不是"上游有、Python 版待核对"，因此不存在等价性问题；它已实现（`atri_x/launcher/cli.py`、`atri_x/__main__.py`）并有用例覆盖（`tests/test_main.py::TestHealthProbeCommand`、`tests/test_main.py::TestHealthProbeUrl`、`tests/test_launcher_cli.py`）。若实现侧决定删减，请同步改本文档与 `deploy/Dockerfile` 的 `HEALTHCHECK`。
 - 第 15、16 条同样是 Python 版**新增**：打包（`packaging/`）与 OneBot 协议层冒烟（`atri_x/platform/qq_onebot/smoke.py`）在 Go 上游都不存在，不存在等价性问题。冒烟用例在 `tests/test_qq_onebot_smoke.py`（假 OneBot 协议端，真实 WebSocket）。
-- 第 17～23 条也都是 Python 版**新增**（桌面端 `atri_x/gui/`、安装器 `atri_x/dist/`、内置运行时 `atri_x/sidecar/`、内核组装 `packaging/assemble_kernel.py`、DSH 深度路由 `atri_x/agent/dsh/`、Inno 安装包 `packaging/build_installer.py`）。对应离线用例：`tests/test_gui_protocol.py`、`tests/test_gui_client.py`、`tests/test_gui_service.py`、`tests/test_sidecar_kernel.py`、`tests/test_dist_install.py`、`tests/test_dsh_acp_client.py`、`tests/test_dsh_route.py`、`tests/test_cli_sessions.py`；托盘与 Tk 需要图形环境，用 `python -m atri_x.gui --selftest` 与 `python -m atri_x.gui.tray` 人工核验；安装包用 `python packaging/build_installer.py --verify` 做真实安装/卸载核验。
+- 第 17～24 条也都是 Python 版**新增**（桌面端 `atri_x/gui/`、安装器 `atri_x/dist/`、内置运行时 `atri_x/sidecar/`、内核组装 `packaging/assemble_kernel.py`、DSH 深度路由 `atri_x/agent/dsh/`、Inno 安装包 `packaging/build_installer.py`、每日会话总结 `atri_x/maintenance/summary.py` + `summary_cli.py`）。对应离线用例：`tests/test_gui_protocol.py`、`tests/test_gui_client.py`、`tests/test_gui_service.py`、`tests/test_sidecar_kernel.py`、`tests/test_dist_install.py`、`tests/test_dsh_acp_client.py`、`tests/test_dsh_route.py`、`tests/test_cli_sessions.py`、`tests/test_daily_summary.py`、`tests/test_maintenance_dsh.py`；托盘与 Tk 需要图形环境，用 `python -m atri_x.gui --selftest` 与 `python -m atri_x.gui.tray` 人工核验；安装包用 `python packaging/build_installer.py --verify` 做真实安装/卸载核验。
 - 第 3、4、7 条超出了一开始的对接约定（只列了 `run` / `config check` / `doctor` / `--health-probe`），但它们**在 `launcher/cli.py` 里已实现**，因此文档按实现书写；若实现侧决定删减，请同步改文档。
 - 文档里出现的 `/*`、`/` 开头的 **slash 命令**（`/*models`、`/*grouppolicy`、`/memory`…）由 Agent 命令层实现，不是 CLI 子命令，不受本表约束。
 - 上游的 `atri-x service run` / `atri-x cli` / `atri-x completion` 已分别映射为上表第 4、3、7 条；文档里不再出现裸 `atri-x <子命令>`。

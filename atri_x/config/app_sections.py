@@ -47,7 +47,8 @@ __all__ = [
     "AtrinisDeliveryDisabledConfig", "AtrinisHTTPConfig", "AtrinisSegmentConfig",
     "AtrinisTargetConfig", "AtrinisTokenConfig", "BudgetLimitsConfig",
     "CharacterLibraryConfig", "ChatHistoryCleanupConfig", "CommandsConfig",
-    "ContextConfig", "CronTaskConfig", "DailyReportConfig", "FileDeliveryConfig",
+    "ContextConfig", "CronTaskConfig", "DailyReportConfig", "DailySummaryConfig",
+    "DshCleanupConfig", "FileDeliveryConfig",
     "GroupAnalysisConfig", "GroupKnowledgeConfig", "GroupServicesConfig",
     "LLMRequestConfig", "MaintenanceCleanupConfig", "MaintenanceConfig", "MediaConfig",
     "ModelPriceConfig", "ModelSelection", "OpsConfig", "PlatformFilesConfig",
@@ -305,6 +306,10 @@ def _value_or(value: int | None, fallback: int) -> int:
 class CronTaskConfig(StrictConfig):
     enabled: bool = False
     schedule: str = ""
+    #: 一次性执行时间（本地墙钟 ``YYYY-MM-DD HH:MM[:SS]``）。非空时该任务改为
+    #: 「到点执行一次」：调度器按 metadata 里的 ``run_at`` 定点，跑完不再重复。
+    #: ``schedule`` 仍要保留一个合法 cron 表达式（引擎用它做表达式校验与下次时间计算）。
+    run_at: str = ""
 
 
 @dataclass
@@ -312,6 +317,7 @@ class MaintenanceCleanupConfig(StrictConfig):
     enabled: bool = False
     schedule: str = ""
     retention_days: int = 0
+    run_at: str = ""
 
 
 @dataclass
@@ -319,6 +325,17 @@ class ChatHistoryCleanupConfig(StrictConfig):
     enabled: bool = False
     schedule: str = ""
     retention_days: int = 0
+    run_at: str = ""
+
+
+@dataclass
+class DshCleanupConfig(MaintenanceCleanupConfig):
+    """``[maintenance.dsh_cleanup]``：内置 DSH 内核状态目录的保留清理。
+
+    字段口径与其它清理段一致；清理范围见 :mod:`atri_x.maintenance.dsh`：
+    只删 ``DSH_HOME/sessions`` 下过期的一次性会话目录与会话缓存，
+    ``profiles/``、``storages/`` 和顶层文件一律保留（删了要重新准备运行配置）。
+    """
 
 
 @dataclass
@@ -362,6 +379,8 @@ class DailyReportConfig(StrictConfig):
     peak_pricing: bool | None = None
     holidays: list[str] = field(default_factory=list)
     prices: dict[str, ModelPriceConfig] = field(default_factory=dict)
+    #: 一次性执行时间（本地墙钟）；非空时改为「到点执行一次」，见 :class:`CronTaskConfig`。
+    run_at: str = ""
 
     def is_peak_pricing(self) -> bool:
         """默认启用双档。对应 Go ``IsPeakPricing``。"""
@@ -375,6 +394,30 @@ class DailyReportConfig(StrictConfig):
         if not self.is_peak_pricing() or not off_peak(at, self.holidays):
             return price
         return offpeak_price(price)
+
+
+@dataclass
+class DailySummaryConfig(StrictConfig):
+    """``[maintenance.daily_summary]``：每天把会话信息汇总成一段可读文本。
+
+    生成物是 ``<数据目录>/daily_summaries/<YYYY-MM-DD>.json``（纯文本 + 统计），
+    对应维护任务 ``maintenance.daily_summary``；实现见
+    :mod:`atri_x.maintenance.summary`。口径：
+
+    - ``days``：统计最近几天（0 → 1，按 ``updated_at`` 落在窗口内的会话算）；
+    - ``max_sessions``：最多汇总多少个会话（0 → 20），按最近更新时间倒序取；
+    - ``use_llm``：是否再交给压缩模型二次摘要（会花 token；默认关）；
+    - ``notify``：是否复用资源报告的投递通道（:attr:`Service.report_sender`）发出去。
+    """
+
+    enabled: bool = False
+    schedule: str = "0 8 * * *"
+    days: int = 0
+    max_sessions: int = 0
+    use_llm: bool = False
+    notify: bool = False
+    #: 一次性执行时间（本地墙钟）；非空时改为「到点执行一次」，见 :class:`CronTaskConfig`。
+    run_at: str = ""
 
 
 @dataclass
@@ -393,7 +436,13 @@ class MaintenanceConfig(StrictConfig):
     )
     #: 只在 enabled 时才补 schedule（默认关闭，保持空串）。
     privacy_cleanup: MaintenanceCleanupConfig = field(default_factory=MaintenanceCleanupConfig)
+    #: 内置 DSH 内核（``DSH_HOME/sessions``）的保留清理；默认 30 天。
+    dsh_cleanup: DshCleanupConfig = field(
+        default_factory=lambda: DshCleanupConfig(schedule="50 4 * * *", retention_days=30)
+    )
     daily_report: DailyReportConfig = field(default_factory=DailyReportConfig)
+    #: 每日会话总结（本地文件，默认由配置资产打开）。
+    daily_summary: DailySummaryConfig = field(default_factory=DailySummaryConfig)
 
 
 # --- 会话 / 安全 / 指令 ----------------------------------------------------

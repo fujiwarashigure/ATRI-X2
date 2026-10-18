@@ -96,13 +96,16 @@ def repo_root() -> str:
 
 
 def make_temp_dir(prefix: str) -> str:
-    """在仓库根下建一个临时目录并返回路径。
+    """在 ``tests/_tmp_cron/`` 下建一个临时目录并返回路径。
 
     刻意不用 ``tempfile.TemporaryDirectory`` / ``mkdtemp``：本机沙箱下这些目录带
     0o700 ACL，清理时会抛 ``PermissionError``。测试在 ``tearDown`` 里
-    ``shutil.rmtree(ignore_errors=True)``。
+    ``shutil.rmtree(ignore_errors=True)``；即使测试被中断，残留也只落在
+    ``tests/_tmp_cron/``（已在 ``.gitignore`` 里），不会散到仓库根。
     """
-    path = os.path.join(repo_root(), f".cron-test-{prefix}-{uuid.uuid4().hex[:8]}")
+    base = os.path.join(repo_root(), "tests", "_tmp_cron")
+    os.makedirs(base, exist_ok=True)
+    path = os.path.join(base, f"{prefix}-{uuid.uuid4().hex[:8]}")
     os.makedirs(path, exist_ok=True)
     return path
 

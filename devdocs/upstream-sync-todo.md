@@ -232,7 +232,7 @@
 - `atri_x/tool/skill`：`TestFinalizeAtrixSkillReturnsBuildFailure`（测试内部跑 `go build`）。
 - `atri_x/hook/rules`：`TestExecCancellationKillsDescendantProcesses`（依赖 TCP 回连，本机 accept 超时）。
 - `atri_x/llm/openai`：`TestChatStream_ActiveStreamCompletesWithoutResponseTimeout` 等基于真实计时的用例在并行跑全量时偶发失败（单独跑 3 轮均通过）。
-- `atri_x/character` / `atri_x/request`：偶发 `[build failed]`，原因是 `go test` 写测试二进制时被拒（`...\eac-beta\tmp\go-build*\b001\*.test.exe: Access is denied`），属本机 Go 构建缓存/临时目录权限问题；`go vet` 这两个包通过，说明代码本身可编译。
+- `atri_x/character` / `atri_x/request`：偶发 `[build failed]`，原因是 `go test` 写测试二进制时被拒（`...\tmp\go-build*\b001\*.test.exe: Access is denied`），属本机 Go 构建缓存/临时目录权限问题；`go vet` 这两个包通过，说明代码本身可编译。
 
 **本机 Go 工具链事实（本次验证环境，供后续复核）**：
 

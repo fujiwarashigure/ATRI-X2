@@ -18,6 +18,7 @@
     python packaging/build.py --no-gui              # 只出控制台版
     python packaging/build.py --verify-only         # 只核验已有产物
     python packaging/build.py --no-verify           # 只构建，不核验
+    python packaging/build.py --release             # 一条命令出「便携版 zip + 安装包」并逐项自检
 
 内置运行时默认**自动探测**：仓库根存在 ``runtime/dsh-kernel/kernel.json`` 就打包进去，
 可用 ``--with-kernel`` / ``--no-kernel`` 强制开启/关闭。
@@ -92,6 +93,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     _out("work        : %s" % args.work)
     _out("gui exe     : %s" % ("yes" if with_gui else "no"))
     _out("dsh kernel  : %s" % ("yes" if with_kernel else "no"))
+    if args.release:
+        _out("release     : portable zip + installer（两者都会逐项自检）")
     if args.onefile and with_kernel:
         _out("note        : onefile 模式不打包内置运行时（体积与启动时间都不可接受）")
 
@@ -112,16 +115,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         code = verify(artifact, name, with_kernel=with_kernel, with_gui=with_gui)
     if code != 0:
         return code
-    if args.with_installer or args.installer_verify:
-        if args.onefile:
-            _err("--with-installer 只支持 onedir 产物（--onefile 不是发行形态）")
-            return 1
-        return run_installer_build(
+    want_portable = args.with_portable or args.portable_verify or args.release
+    want_installer = args.with_installer or args.installer_verify or args.release
+    if (want_portable or want_installer) and args.onefile:
+        _err("便携版 zip / 安装包只支持 onedir 产物（--onefile 不是发行形态）")
+        return 1
+    if want_portable:
+        code = run_portable_build(
+            artifact.parent,
+            output=args.portable_output,
+            verify_zip=(args.portable_verify or args.release),
+        )
+        if code != 0:
+            return code
+    if want_installer:
+        code = run_installer_build(
             artifact.parent,
             output=args.installer_output,
-            verify_install=args.installer_verify,
+            verify_install=(args.installer_verify or args.release),
         )
+        if code != 0:
+            return code
     return 0
+
+
+def run_portable_build(
+    dist_root: Path, *, output: Path | None = None, verify_zip: bool = False
+) -> int:
+    """调 ``packaging/build_portable.py`` 打「解压即用」便携版 zip；返回退出码。"""
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import build_portable  # noqa: PLC0415 - 只在这里需要
+    except ImportError as exc:  # pragma: no cover - 同目录文件缺失
+        _err("cannot import build_portable: %s" % exc)
+        return 1
+    argv = ["--dist", str(dist_root)]
+    if output is not None:
+        argv.extend(["--output", str(output)])
+    if verify_zip:
+        argv.append("--verify")
+    return int(build_portable.main(argv))
 
 
 def run_installer_build(
@@ -208,6 +242,31 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         type=Path,
         default=None,
         help="installer output directory (default: dist/installer)",
+    )
+    parser.add_argument(
+        "--with-portable",
+        action="store_true",
+        help="also zip the verified onedir artifact into an unzip-and-run portable bundle",
+    )
+    parser.add_argument(
+        "--portable-verify",
+        action="store_true",
+        help="build the portable zip and extract-verify it (implies --with-portable)",
+    )
+    parser.add_argument(
+        "--portable-output",
+        type=Path,
+        default=None,
+        help="portable zip output directory (default: dist/portable)",
+    )
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help=(
+            "one command for both deliverables: portable zip + Inno installer, "
+            "each verified (implies --with-portable --portable-verify "
+            "--with-installer --installer-verify)"
+        ),
     )
     return parser.parse_args(list(argv))
 

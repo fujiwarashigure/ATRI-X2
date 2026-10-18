@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Iterable, Mapping, Sequence
 
 DEFAULT_TIMEOUT = 30.0
-DEFAULT_USER_AGENT = "atri-x/0.9.1 (python)"
+DEFAULT_USER_AGENT = "atri-x/0.9.2 (python)"
 
 
 class HTTPError(Exception):

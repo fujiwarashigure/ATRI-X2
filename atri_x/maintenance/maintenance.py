@@ -1,10 +1,11 @@
-"""维护任务：日志/会话/沙盒/聊天历史/隐私数据清理，以及 cron 装配。
+"""维护任务：日志/会话/沙盒/聊天历史/DSH 内核/隐私数据清理，以及 cron 装配。
 
-对应 Go：``internal/maintenance/maintenance.go``。
+对应 Go：``internal/maintenance/maintenance.go``（DSH 内核清理与每日会话总结是
+Python 版新增件，见 :mod:`atri_x.maintenance.dsh` / :mod:`atri_x.maintenance.summary`）。
 
-:class:`Service` 把五类清理任务收在一处，并对外提供两个装配入口：
+:class:`Service` 把六类清理任务与两种报告收在一处，并对外提供两个装配入口：
 
-* :meth:`Service.register_cron_handlers` —— 注册 7 个 handler 名（cron 侧只管调度，
+* :meth:`Service.register_cron_handlers` —— 注册 9 个 handler 名（cron 侧只管调度，
   业务逻辑在这里）；
 * :func:`setup_cron` —— 按配置把任务 upsert 或停用，最后启动调度器。
 
@@ -35,10 +36,15 @@ from atri_x.config import (
     AppConfig,
     ChatHistoryCleanupConfig,
     DailyReportConfig,
+    DailySummaryConfig,
+    DshCleanupConfig,
     MaintenanceCleanupConfig,
+    shanghai_tz,
 )
 from atri_x.errors import NotFoundError
+from atri_x.maintenance.dsh import RunDshCleanupMixin, resolve_dsh_home
 from atri_x.maintenance.report import RunDailyReportMixin
+from atri_x.maintenance.summary import RunDailySummaryMixin, data_dir_of, summary_dir
 from atri_x.session import new_service as new_session_service
 from atri_x.storage import ErrNotFound
 
@@ -66,14 +72,16 @@ class RetentionCleanup:
     fn: Callable[..., Any] | None = None
 
 
-class Service(RunDailyReportMixin):
+class Service(RunDailyReportMixin, RunDshCleanupMixin, RunDailySummaryMixin):
     """维护任务服务。对应 Go ``Service``。
 
     构造与 Go 的两个构造器对应：:meth:`Service.__init__` 是
     ``NewService``（只带会话清理配置），:meth:`Service.with_config` 是
     ``NewServiceWithConfig``（从整个 ``Config`` 取全部维护配置）。
-    日报相关方法来自 :class:`atri_x.maintenance.report.RunDailyReportMixin`
-    （对应 Go ``report.go`` 里挂在同一个 ``Service`` 上的方法）。
+
+    三个报告/清理扩展以混入形式挂在 ``Service`` 上（拆开是为了压住单文件行数）：
+    ``RunDailyReportMixin``（资源日报）、``RunDshCleanupMixin``（内置 DSH 内核清理）、
+    ``RunDailySummaryMixin``（每日会话总结，后两者是 Python 版新增件）。
     """
 
     def __init__(
@@ -90,9 +98,15 @@ class Service(RunDailyReportMixin):
         self.outbound_messages: Any = None
         self.session_cleanup = session_cleanup or MaintenanceCleanupConfig()
         self.chat_history_cleanup = ChatHistoryCleanupConfig()
+        self.dsh_cleanup = DshCleanupConfig()
         self.privacy_cleanup = MaintenanceCleanupConfig()
         self.sandbox_root = ""
         self.sandbox_cleanup = MaintenanceCleanupConfig()
+        #: 内置 DSH 内核的 ``DSH_HOME``（空串表示不清理）。
+        self.dsh_home = ""
+        #: 每日会话总结的配置与落盘目录（空串表示不落盘）。
+        self.daily_summary = DailySummaryConfig()
+        self.summary_dir = ""
         # Go 的 ``report`` 是值类型 ``config.DailyReportConfig``，零值也能用；
         # Python 侧同样给一个零值对象（而不是 ``None``），否则 NewService 路径下
         # 的 RunDailyReport 会解引用失败。
@@ -104,6 +118,9 @@ class Service(RunDailyReportMixin):
         #: 日报投递回调（由 app 装配到超级管理员）。``report(ctx, text)``，
         #: 同步或异步都可以。
         self.report_sender: Callable[..., Any] | None = None
+        #: 每日会话总结的 LLM 二次摘要回调（由 app 接到压缩模型）。
+        #: ``summary_generator(ctx, text) -> str``，同步或异步都可以。
+        self.summary_generator: Callable[..., Any] | None = None
 
     @classmethod
     def with_config(
@@ -125,7 +142,12 @@ class Service(RunDailyReportMixin):
         service.chat_history = chat_history
         service.outbound_messages = outbound_messages
         service.chat_history_cleanup = cfg.maintenance.chat_history_cleanup
+        service.dsh_cleanup = cfg.maintenance.dsh_cleanup
+        service.dsh_home = resolve_dsh_home(cfg)
+        service.daily_summary = cfg.maintenance.daily_summary
+        service.summary_dir = summary_dir(data_dir_of(cfg))
         service.privacy_cleanup = cfg.maintenance.privacy_cleanup
+
         service.sandbox_root = cfg.sandbox.root
         service.sandbox_cleanup = cfg.maintenance.sandbox_cleanup
         service.report = cfg.maintenance.daily_report
@@ -175,10 +197,17 @@ class Service(RunDailyReportMixin):
             lambda ctx, job: self.run_chat_history_cleanup(ctx),
         )
         await manager.register_handler(
+            "maintenance.dsh_cleanup",
+            lambda ctx, job: self.run_dsh_cleanup(ctx),
+        )
+        await manager.register_handler(
             "maintenance.privacy_cleanup", lambda ctx, job: self.run_privacy_cleanup(ctx)
         )
         await manager.register_handler(
             "maintenance.daily_report", lambda ctx, job: self.run_daily_report(ctx)
+        )
+        await manager.register_handler(
+            "maintenance.daily_summary", lambda ctx, job: self.run_daily_summary(ctx)
         )
         return None
 
@@ -420,9 +449,10 @@ def remove_empty_dirs(root: str) -> None:
 async def setup_cron(ctx: Any, manager: Any, cfg: AppConfig | None) -> None:
     """按配置装配维护任务并启动调度器。对应 Go ``SetupCron``。
 
-    ``manager`` 或 ``cfg`` 为 ``None`` 时直接返回（同 Go）。七条任务的顺序与
-    schedule 来源与 Go 逐条对应；``media_cleanup`` 硬编码启用并沿用 sandbox
-    cleanup 的 schedule（Go 里传的字面量就是 ``cfg.Maintenance.SandboxCleanup.Schedule``）。
+    ``manager`` 或 ``cfg`` 为 ``None`` 时直接返回（同 Go）。九条任务的顺序与
+    schedule 来源：前七条与 Go 逐条对应，后两条（DSH 内核清理 / 每日会话总结）是
+    Python 版新增件；``media_cleanup`` 硬编码启用并沿用 sandbox cleanup 的 schedule
+    （Go 里传的字面量就是 ``cfg.Maintenance.SandboxCleanup.Schedule``）。
     """
     if manager is None or cfg is None:
         return None
@@ -432,41 +462,60 @@ async def setup_cron(ctx: Any, manager: Any, cfg: AppConfig | None) -> None:
             maintenance.log_cleanup.enabled,
             "maintenance.log_cleanup",
             maintenance.log_cleanup.schedule,
+            maintenance.log_cleanup.run_at,
         ),
         (
             maintenance.session_cleanup.enabled,
             "maintenance.session_cleanup",
             maintenance.session_cleanup.schedule,
+            maintenance.session_cleanup.run_at,
         ),
         (
             maintenance.sandbox_cleanup.enabled,
             "maintenance.sandbox_cleanup",
             maintenance.sandbox_cleanup.schedule,
+            maintenance.sandbox_cleanup.run_at,
         ),
         (
             maintenance.chat_history_cleanup.enabled,
             "maintenance.chat_history_cleanup",
             maintenance.chat_history_cleanup.schedule,
+            maintenance.chat_history_cleanup.run_at,
+        ),
+        (
+            maintenance.dsh_cleanup.enabled,
+            "maintenance.dsh_cleanup",
+            maintenance.dsh_cleanup.schedule,
+            maintenance.dsh_cleanup.run_at,
         ),
         (
             True,
             "maintenance.media_cleanup",
             maintenance.sandbox_cleanup.schedule,
+            "",
         ),
         (
             maintenance.privacy_cleanup.enabled,
             "maintenance.privacy_cleanup",
             maintenance.privacy_cleanup.schedule,
+            maintenance.privacy_cleanup.run_at,
         ),
         (
             maintenance.daily_report.enabled,
             "maintenance.daily_report",
             maintenance.daily_report.schedule,
+            maintenance.daily_report.run_at,
+        ),
+        (
+            maintenance.daily_summary.enabled,
+            "maintenance.daily_summary",
+            maintenance.daily_summary.schedule,
+            maintenance.daily_summary.run_at,
         ),
     )
-    for enabled, handler, schedule in jobs:
+    for enabled, handler, schedule, run_at in jobs:
         await upsert_or_disable(
-            ctx, manager, enabled, "system." + handler, handler, schedule
+            ctx, manager, enabled, "system." + handler, handler, schedule, run_at=run_at
         )
     await _maybe_await(manager.start(ctx))
     return None
@@ -479,12 +528,18 @@ async def upsert_or_disable(
     name: str,
     handler: str,
     schedule: str,
+    *,
+    run_at: str = "",
 ) -> None:
-    """启用则 upsert，否则停用（停用时吞掉"任务不存在"）。对应 Go ``upsertOrDisable``。"""
+    """启用则 upsert，否则停用（停用时吞掉"任务不存在"）。对应 Go ``upsertOrDisable``。
+
+    ``run_at`` 非空表示一次性任务：仍然写一个合法 cron ``schedule``（引擎要先解析它），
+    但真正的下次触发时间由 metadata 里的 ``run_at`` 定点，跑完自动不再调度。
+    """
     if enabled:
         await _maybe_await(
             manager.upsert_job(
-                _upsert_request(name=name, handler=handler, schedule=schedule)
+                _upsert_request(name=name, handler=handler, schedule=schedule, run_at=run_at)
             )
         )
         return None
@@ -497,19 +552,32 @@ async def upsert_or_disable(
     return None
 
 
-def _upsert_request(name: str, handler: str, schedule: str) -> Any:
-    """构造 ``atri_x.cron.UpsertJobRequest``（延迟导入）。
+def _upsert_request(name: str, handler: str, schedule: str, run_at: str = "") -> Any:
+    """构造 ``atri_x.cron.UpsertJobRequest``。
 
-    延迟导入的原因：``atri_x.cron`` 的导入链在 ``model.py`` 里会抛
-    ``NameError``（既有问题，不属于本模块），模块级 import 会让
-    ``atri_x.maintenance`` 一起无法导入。这里在**调用点**才 import，因此
-    ``setup_cron`` 之前 maintenance 一直可用；测试通过注入
-    ``sys.modules["atri_x.cron"]`` 的替身来验证装配逻辑（见
-    ``tests/test_maintenance.py``）。
+    ``run_at`` 非空时带上一次性任务的 metadata（``metadata.schedule.mode = "once"``），
+    调度器据此在 ``run_at`` 定点触发，并在跑完后判定"已过期"不再重复。
     """
     from atri_x.cron import UpsertJobRequest
 
-    return UpsertJobRequest(name=name, handler=handler, schedule=schedule, enabled=True)
+    metadata = ""
+    if run_at.strip():
+        from atri_x.cron import METADATA_KIND, CronSchedule, Metadata, ScheduleMode
+
+        metadata = Metadata(
+            kind=METADATA_KIND,
+            version=1,
+            schedule=CronSchedule(mode=ScheduleMode.ONCE, run_at=run_at.strip()),
+        ).encode()
+    fields: dict[str, Any] = {
+        "name": name,
+        "handler": handler,
+        "schedule": schedule,
+        "enabled": True,
+    }
+    if metadata:
+        fields["metadata"] = metadata
+    return UpsertJobRequest(**fields)
 
 
 # ---------------------------------------------------------------------------

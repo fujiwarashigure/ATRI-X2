@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `0.9.1`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供） |
+| 版本 | `0.9.6`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -18,12 +18,12 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行（含测试共 754 个文件 / 146,153 行） |
-| 本仓库 | 平铺布局的 `atri_x/`：648 个 `.py` 模块，约 18.1 万行（含注释与 docstring） |
+| 本仓库 | 平铺布局的 `atri_x/`：651 个 `.py` 模块，约 17.2 万行（含注释与 docstring） |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 平台适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 157 个 Python 文件（其中 148 个 `test_*.py`）、5098 个用例；仓库自带四道质量门禁（见「开发与验证」） |
-| 规模 | 932 个受版本控制文件（不含 `.git`） |
+| 测试 | `tests/` 159 个 Python 文件（其中 150 个 `test_*.py`）、5121 个用例；仓库自带四道质量门禁（见「开发与验证」） |
+| 规模 | 937 个受版本控制文件（不含 `.git`） |
 
 ## 功能特性
 
@@ -40,6 +40,8 @@
 ### 平台与前端
 
 - **CLI**：本地 TUI（聊天区、通知区、滚动、copy mode、文件引用补全）；也支持把进程作为服务端、任意电脑用 CLI 客户端远程连接（默认端口 `32172`）。
+- **Windows 桌面端（选项卡式）**：Tk 窗口 + 托盘常驻 + 后台服务自动拉起；9 个选项卡（对话 / 模型 / 人设卡 / 平台 / 群友 / 知识库 / 进阶 / 日志 / 功能）把模型 API 与密钥、角色人设卡与 `SOUL.md`、QQ/Telegram 接入、群知识库、生图/视觉/语音与记忆开关、维护任务和功能状态都做成界面操作，配置改动自动留备份。密钥输入框可一键显示/隐藏；模型页与生图区能直接拉取上游 `/models` 清单并给模型起本地备注名；生图区支持**本地生图服务挂载**（端口映射 / AUTODL 等 SSL 链接 → OpenAI 兼容 Base URL，可一键检测服务类型）；「日志」页统一查看运行/审计/Atrinis/后台输出/界面操作五类日志并可导出当前视图；「群友」页按群管理每个人的备注名、标签、角色数据与头像；「进阶」页里的自学习设置、HOOK 插件配置与定时维护任务是按钮打开的二级窗口（维护任务用「每天 / 每周 / 每月 / 自定义 cron」或「指定日期一次性」调度，并实时显示下次触发时间）；「进阶」页整页可竖向滚动，窗口再小也不会把下方控件挤出可视区。见 [Windows 桌面端](docs/windows-app.md)。
+- **Windows 两种交付形态**：安装包（开始菜单/自启/卸载项）与**便携版 zip**（解压即用，数据可留在解压目录，整包拷走即可复现问题）；一条 `python packaging/build.py --release` 同时产出并各自自检。
 - **即时通信平台**：Telegram、QQ OneBot、QQ Official，统一抽象平台层与输出层，便于扩展新平台。
 - **前端自由定制**：远程 CLI 使用 WebSocket 协议，附带补全接口，可以自己写前端界面；协议见 [前端 API](docs/frontend-api.md)。
 
@@ -76,7 +78,8 @@
 - **图片反推提示词**：内置 `image_to_prompt`，把参考图交给视觉模型反推绘图 prompt，带指纹缓存与并发合并。
 - **视觉兜底**：主模型为纯文本、上游拒绝图片时，先用视觉模型转写图片再重试；结构化判定触发条件，不会把普通错误误判成「不支持视觉」。
 - **语音转写（可选）**：用已有 Provider 的 `/audio/transcriptions` 把被唤醒的语音消息转成文本，再进入聊天与工具流程。
-- **定时报告**：向超级管理员推送生图量、Token、费用、磁盘与内存统计。见 [定时报告](docs/reports.md)。
+- **定时报告与会话总结**：向超级管理员推送生图量、Token、费用、磁盘与内存统计；每天把当天会话汇总成 `<数据目录>/daily_summaries/<日期>.json`（可选 LLM 二次摘要）。见 [定时报告](docs/reports.md)。
+- **定时维护清理**：日志、会话、沙盒、聊天历史、隐私数据与内置 DSH 内核会话历史的保留期清理，cron 表达式可配，也支持 `run_at` 指定日期一次性执行（见 [配置说明](docs/configuration.md)）。
 
 ### 群聊能力
 
@@ -173,16 +176,17 @@ python -m atri_x --version                 # 版本
 | 产物 | 位置 |
 | --- | --- |
 | Windows 安装包 | [`ATRI-X-<版本>-setup.exe`](https://github.com/fujiwarashigure/ATRI-X2/releases)：用户级安装（不弹 UAC），含桌面端、托盘、开机自启与内置 DSH 内核 |
+| Windows 便携版 | `ATRI-X-<版本>-portable-win64.zip`：解压即用（绿色版），内置启动器与 `README.txt`；便携模式下配置/会话/日志都留在解压目录的 `data\` 里，整个文件夹可整体拷走排查问题（构建见 [`packaging/README.md`](packaging/README.md) §8） |
 | 容器镜像 | [`ghcr.io/fujiwarashigure/atri-x2`](https://github.com/fujiwarashigure/ATRI-X2/pkgs/container/atri-x2)：`:<版本>` 与 `:latest`，由 [`.github/workflows/release-image.yml`](.github/workflows/release-image.yml) 在打 tag 时构建并回拉冒烟 |
 | 源码归档 | Release 里另有 `atri-x-<版本>-repo.tar.gz`（完整仓库）、`atri-x-<版本>-src.tar.gz`（离线源码包）与 `SHA256SUMS` |
 
 ```bash
-docker pull ghcr.io/fujiwarashigure/atri-x2:0.9.1
-# 包若为 private，先 docker login ghcr.io（用户名 + PAT，至少 read:packages）
+docker pull ghcr.io/fujiwarashigure/atri-x2:latest
+# 具体版本 tag（:<版本>）与 Release 一一对应；包若为 private，先 docker login ghcr.io（用户名 + PAT，至少 read:packages）
 
 # 用 compose 时把镜像覆盖成 ghcr 地址；纯 docker run 的参数见 deploy/README.md
 cd deploy
-ATRIX_IMAGE=ghcr.io/fujiwarashigure/atri-x2:0.9.1 docker compose up -d
+ATRIX_IMAGE=ghcr.io/fujiwarashigure/atri-x2:latest docker compose up -d
 ```
 
 > Windows 包内已内置 DSH 内核（Node 与 `@deepseek-ai/dsh`），目标机不需要另装 Node；容器镜像同样在
@@ -319,11 +323,11 @@ python -m unittest discover -s tests -t .             # 全量测试
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 812 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=648 imported=648`，0 失败 |
+| `check_syntax` | 817 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=651 imported=651`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%` |
-| 全量 `unittest` | 5098 个用例通过（`skipped=2`） |
+| 全量 `unittest` | 5121 个用例通过（`skipped=2`） |
 
 ### 对抗性验证
 
@@ -337,7 +341,7 @@ python -m unittest discover -s tests -t .             # 全量测试
 
 ### 性能数据说明
 
-本仓库**不提供官方性能基准**。旧文档中的「N5105 上 <10 ms 启动、约 30 MB 常驻内存」是 Go 版 v0.5.0 的历史参考数据，无法代表当前 Python 版（版本已到 0.9.1，且新增了健康接口、诊断、素材清单、`doctor` 等组件），因此不在本 README 中保留。启动与资源占用取决于配置、模型调用、生图与工具子进程、并发规模，需要时请在自己的目标机器上实测，例如：
+本仓库**不提供官方性能基准**。旧文档中的「N5105 上 <10 ms 启动、约 30 MB 常驻内存」是 Go 版 v0.5.0 的历史参考数据，无法代表当前 Python 版（版本已到 0.9.2，且新增了健康接口、诊断、素材清单、`doctor` 等组件），因此不在本 README 中保留。启动与资源占用取决于配置、模型调用、生图与工具子进程、并发规模，需要时请在自己的目标机器上实测，例如：
 
 ```bash
 python -m atri_x --version

@@ -12,7 +12,7 @@
 6. [生图服务](image-generation.md)：对接中转站 GPT Image 2.5，自动拼接预设提示词并出图。
 7. [图片反推提示词](configuration.md#图片反推提示词-image_to_prompt)：用 `image_to_prompt` 内置工具把参考图交给视觉模型，反推绘图提示词。
 8. [视觉兜底 vision](configuration.md#视觉兜底-vision)：纯文本主模型拒绝图片时，先用视觉模型把图片转写成描述再重试。
-9. [定时报告](reports.md)：每天两次推送生图量、Token、费用、磁盘和内存。
+9. [定时报告](reports.md)：每天两次推送生图量、Token、费用、磁盘和内存；另有每日**会话总结**（`[maintenance.daily_summary]`）。
 10. [Hook](hooks.md)：规则 Hook 配置、action 类型、segments 多段输出、exec 脚本和表情提取示例。
 11. [Atrinis 监听枢纽](atrinis.md)：了解 Atrinis、Atriwisp、Atriena 和外部事件接入。
 12. [Atrinis 配置与使用](atrinis-usage.md)：启用 Atrinis、配置 Atriwisp，并用 Atriena 投递事件。

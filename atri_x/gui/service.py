@@ -65,6 +65,7 @@ __all__ = [
     "prepare_settings",
     "probe_server",
     "read_service_pid",
+    "restart_service",
     "service_command",
     "service_log_path",
     "single_instance_lock",
@@ -330,6 +331,21 @@ def wait_until_ready(settings: GuiSettings, timeout: float = 25.0) -> tuple[bool
             return True, ""
         time.sleep(0.4)
     return False, reason or "服务未在限定时间内就绪"
+
+
+def restart_service(settings: GuiSettings, timeout: float = 30.0) -> tuple[bool, str]:
+    """停止再拉起后台服务，返回 ``(是否就绪, 原因)``。
+
+    用于"改完启动期配置（providers / .env / app.toml）后应用改动"。Windows 上没有
+    可靠的"给另一个控制台进程发 Ctrl+C"手段，所以这里和菜单里的停止一样是强制结束；
+    差别只是紧接着重新拉起并等它就绪。调用方应当放到后台线程里（会阻塞到就绪/超时）。
+    """
+    stop_service()
+    try:
+        spawn_service(settings)
+    except Exception as exc:  # noqa: BLE001 - 结果直接展示给用户
+        return False, f"启动后台服务失败：{exc}"
+    return wait_until_ready(settings, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------

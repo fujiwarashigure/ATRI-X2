@@ -26,9 +26,12 @@ log_retention_days = 30
 [maintenance.log_cleanup]
 enabled = true
 schedule = "0 3 * * *"
+# run_at = "2026-03-01 03:30:00"   # 一次性执行（本地时间，到点只跑一次；清空恢复周期调度）
 
+# 会话表清理：删「未归档、未置顶」且 updated_at 早于保留期的 sessions 行
+# （messages / context_summaries 由外键级联删除）。默认开启，保留 30 天。
 [maintenance.session_cleanup]
-enabled = false
+enabled = true
 schedule = "15 3 * * *"
 retention_days = 30
 
@@ -41,6 +44,13 @@ retention_days = 7
 enabled = true
 schedule = "35 4 * * *"
 retention_days = 180
+
+# 内置 DSH 内核的状态目录清理：只删 DSH_HOME/sessions 下过期的一次性会话历史
+# 与会话缓存；profiles/ 与其余 storages/ 保留（删了要重新准备运行配置）。
+[maintenance.dsh_cleanup]
+enabled = true
+schedule = "50 4 * * *"
+retention_days = 30
 
 [maintenance.privacy_cleanup]
 # clean-room angel_memory / self_learning 数据保留清理；具体保留天数在各自 section 配置。
@@ -86,6 +96,17 @@ output_per_million = 8.0
 offpeak_input_per_million = 1.0
 offpeak_cache_input_per_million = 0.02
 offpeak_output_per_million = 4.0
+
+# 每天一次「会话总结」：把当天各会话的标题/消息数/最后几条内容汇总成一段文字，
+# 写到 <数据目录>/daily_summaries/<日期>.json（不花 token）。
+# use_llm = true 时再用压缩模型摘要一遍；notify = true 时走资源报告通道发给超管。
+[maintenance.daily_summary]
+enabled = true
+schedule = "0 8 * * *"        # 每天 8:00
+days = 1                      # 统计最近几天
+max_sessions = 20             # 最多汇总多少个会话（按更新时间倒序）
+use_llm = false               # 交给压缩模型二次摘要（会花 token，需要已配置压缩模型）
+notify = false                # 是否通过 [maintenance.daily_report].platform 投递
 
 # ── 命名 profile：群聊消息里声明，仅本轮有效，仅超级管理员 ──
 #

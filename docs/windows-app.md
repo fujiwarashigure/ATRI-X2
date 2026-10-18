@@ -19,6 +19,8 @@
 | 控制台 TUI | `atri-x.exe run` | 想要纯命令行、在 Windows Terminal 里看流式输出 |
 | 后台服务 | `atri-x.exe service run` | 无人值守跑机器人（桌面端会自动帮你拉起） |
 | 原生 exe（本页） | 拷目录即用 | 一台 Windows 机器上跑个人助理 / QQ 机器人 |
+| **便携版 zip** | 解压后双击 `start-portable.bat` | 快速试跑、拷给别人复现问题、绿色部署；数据留在解压目录里（见 §7.2） |
+| **安装版** | `ATRI-X-<版本>-setup.exe` | 普通用户长期使用：开始菜单/桌面快捷方式、开机自启、卸载项（见 §7.1） |
 | Docker Desktop | [`deploy/windows/`](../deploy/windows/README.md) | 需要备份/升级/回滚/`/tasks` `/metrics` 运维接口 |
 | Linux 容器 | [`deploy/README.md`](../deploy/README.md) | 多机、水平扩容、容器编排 |
 
@@ -83,7 +85,7 @@ verify      : passed
 
 ```bash
 python packaging/assemble_kernel.py --modules "C:\path\to\node_modules"   # 已装 DSH 的机器
-python packaging/build.py --with-kernel                                    # 317.9 MB / 23862 个文件
+python packaging/build.py --with-kernel                                    # 318.6 MB / 23862 个文件
 ```
 
 产物：
@@ -98,6 +100,14 @@ dist\windows\atri-x\
 把整个 `atri-x` 目录拷到目标机器即可用（**不要只拷 exe**）。单文件模式
 `python packaging/build.py --onefile` 只有控制台版（15 MB 左右，首启慢、杀软误报更多，
 且启动时要解压到 `%TEMP%`，**TEMP 不可写时直接起不来**）。
+
+想要**两种交付形态**（便携版 zip + 安装包）一起出，用一条命令即可，两个产物都会各自自检：
+
+```bash
+python packaging/build.py --with-kernel --release
+# → dist/portable/ATRI-X-<版本>-portable-win64.zip（解压即用，见 §7.2）
+# → dist/installer/ATRI-X-<版本>-setup.exe（用户级安装，见 §7.1）
+```
 
 ---
 
@@ -127,11 +137,18 @@ dist\windows\atri-x\atri-x-gui.exe
 3. 后台拉起 `atri-x.exe service run`（日志在 `%APPDATA%\ATRI-X\gui\service.out.log`），
    然后用 WS 连上去。探测到 `127.0.0.1:32172` 已经有服务在跑时**不会重复启动**，直接复用。
 
-三步把它变成"能说话"：
+三步把它变成"能说话"（**在桌面端「模型」页点几下就行**，也可以照下面手改文件）：
 
-1. `services.toml` 里给 provider 配 `api_key_env`（变量名），例如 `DEEPSEEK_API_KEY`；
-2. 把密钥放进系统环境变量，或复制 `.env.example` 为 `%APPDATA%\ATRI-X\.env` 后填；
-3. `state.toml` 里选默认模式与模型，或在聊天框里用 `/model` 切换。
+1. 「模型」页选中/新增一个 provider，填 Base URL 和密钥环境变量名（如
+   `DEEPSEEK_API_KEY`），把 API Key 填进密钥框点「保存 Provider」（会写进
+   `%APPDATA%\ATRI-X\.env`）；
+2. 在同一个页面的「模型分配」里给工作/聊天模式选 provider + 模型（写 `state.toml`，
+   几秒内热加载）；也可以复制 `.env.example` 为 `%APPDATA%\ATRI-X\.env` 后手填密钥；
+3. 点页面右下角「重启后台服务」（provider 与密钥是启动期配置），或在聊天框里用
+   `/model` 临时切换。
+
+手改文件的等价写法是：`services.toml` 里给 provider 配 `api_key_env`、密钥放进系统
+环境变量或 `.env`、`state.toml` 里选默认模式与模型。
 
 验收：
 
@@ -148,12 +165,14 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 
 | 位置 | 行为 |
 |---|---|
+| 选项卡 | 「对话 / 模型 / 人设卡 / 平台 / 群友 / 知识库 / 进阶 / 日志 / 功能」9 页，配置都能在界面里改（见 §4.2），`Ctrl+1`…`Ctrl+9` 或「视图」菜单切换 |
 | 左侧会话栏 | 历史会话列表（当前会话带 `●`）；双击/回车切换会话，`刷新`/`新建` 按钮，`F5` 刷新 |
 | 聊天区 | 用户消息、助手回复、推理过程（灰色）、通知（橙色）、错误（红色）分区显示；流式输出实时刷新 |
 | 输入框 | `Enter` 发送、`Shift+Enter` 换行、`Tab` 触发补全（`/model`、`/help` 等） |
 | 状态栏 | 左边是连接状态（已连接/连接中/已断开/鉴权失败），右边是运行状态（阶段 · 耗时 · 模型 · tokens） |
-| 菜单 → 文件 | 新建会话、刷新会话列表、复制全部记录、退出（后台继续）/ 退出并停止服务 |
-| 菜单 → 服务 | 重新连接、启动/确认后台服务、停止后台服务（强制）、打开配置目录、打开后台日志 |
+| 菜单 → 文件 | 新建会话、刷新会话列表、复制全部记录、清空聊天区、退出（后台继续）/ 退出并停止服务 |
+| 菜单 → 视图 | 切到 9 个选项卡（等价于点选项卡标题） |
+| 菜单 → 服务 | 重新连接、启动/确认后台服务、**重启后台服务**（改完配置用它生效）、停止后台服务（强制）、打开配置目录、打开后台日志 |
 | 菜单 → 帮助 | 关于、托盘/后台说明 |
 | 点窗口 ✕ | **隐藏到托盘**，服务继续跑；没有托盘时退化为"关闭窗口（服务仍在）" |
 | 托盘图标 | 左键/双击 = 显示窗口；右键菜单：显示 / 新建会话 / 重新连接 / 打开日志 / 退出 / 退出并停止服务 |
@@ -170,6 +189,141 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 
 连上后台服务时会自动拉一次会话列表；断线时列表清空。历史记录来自服务端数据库，
 不是 GUI 本地缓存 —— 所以换一台前端连同一个服务端也能看到同样的会话。
+
+### 4.2 配置选项卡（模型 / 人设卡 / 平台 / 群友 / 知识库 / 进阶 / 日志 / 功能）
+
+窗口上方是 9 个选项卡，**配置都能在界面里改，不用再手搓 TOML**：
+
+| 选项卡 | 能改什么 | 写入 | 生效时机 |
+|---|---|---|---|
+| 对话 | 只聊天，不写配置 | — | — |
+| 模型 | Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式；「获取可用模型」拉上游 `/models`、给模型起本地备注名、模型分配区有「刷新模型列表」 | `services.toml`、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider 与密钥需重启后台服务 |
+| 人设卡 | 角色库增删改（名称/别名/标签/简介/可见性，`profile.md`、`world.md`、`greeting.md`、`examples.md`、`image_prompt.md`、`notes/*`）、生图预设、系统人设 `SOUL.md` | `characters/`、`SOUL.md` | 角色库 3 秒内自动重扫；`SOUL.md` 下一轮对话生效 |
+| 平台 | QQ（OneBot v11）/ QQ 官方机器人 / Telegram 的启用、地址、token 变量与值、唤醒词；本地 CLI 服务端；各平台超级管理员 | `app.toml`、`.env` | 重启后台服务 |
+| 群友 | 按群管理群友档案：备注名、标签、角色数据（自由文本）、头像（下载/本地图片），群友列表来自聊天历史库 | `gui/members.json`、`gui/avatars/*.png` | 只影响界面（后台服务暂不读） |
+| 知识库 | 群知识库 / FAQ 的全局开关与上限（每群条数、问题/答案/别名/关键词/匹配扫描字符数），并只读列出 `state.toml` 里各群的条目；条目增删用群里的 `/faq` 命令 | `app.toml` 的 `[group_knowledge]` | 重启后台服务 |
+| 进阶 | 生图 / 图片转提示词 / 视觉回退 / 语音转写；**本地生图服务挂载**（端口映射 / SSL 链接）；长期记忆、自学习、群分析、群服务、Atrinis 开关；日志级别与保留天数；生图 API 的「获取可用模型」与模型备注名；三个二级设置窗口（自学习 / HOOK 插件 / 定时维护任务，其中维护任务支持每天 / 每周 / 每月 / 自定义 cron / 指定日期一次性）；整页可竖向滚动 | `services.toml`、`app.toml`、`atrinis.toml`、`plugins/hooks.toml`（+ `.env`、`gui/model_catalog.json`） | 重启后台服务；Hook 配置可用 `/hooks reload` |
+| 日志 | 运行日志 / 审计日志 / Atrinis 日志 / 后台服务输出 / 界面操作五个通道；按日期、级别、关键字筛选，可自动刷新、打开文件/目录、复制、**导出当前视图** | 只读 | — |
+| 功能 | 只读清单：逐项显示"已启用 / 已停用 / 未配置"与关键配置；双击跳到对应选项卡；右侧是连接状态与日志入口 | — | — |
+
+约定：
+
+- **密钥只写 `.env`**：界面只显示"已设置 / 未设置 + 掩码"，不回显明文；读取时
+  进程环境变量优先于 `.env`（与 `docs/configuration.md` 的规则一致）。输入框默认
+  掩码，右侧「显示 / 隐藏」按钮可以临时看明文；保存成功后会自动清空并恢复掩码。
+- **保存前留备份**：文件第一次被界面写之前留 `<文件名>.gui.bak`（之后每次保存覆盖
+  上一份，相当于"撤销上一次保存"），可手工回滚。
+- **保存前校验**：写盘前用 `tomllib` 重新解析整份文件，解析不过就**不落盘**，避免
+  把配置写坏导致服务起不来。
+- 保存后状态行会说明该改动是"热加载"还是"需要重启"；每个配置页右下角有「重启后台
+  服务」，也可以走「服务 → 重启后台服务」。
+- 界面只改它负责的那几个键，**不覆盖**其它键与注释；更细的参数（并发、重试、提示词
+  策略等）仍以配置文件为准。手改文件后点该页的「重新载入」即可同步。
+- **GUI 私有文件不进配置文件**：模型目录/备注名、群友档案、头像、界面操作日志都放在
+  `<配置目录>\gui\` 下（如 `%APPDATA%\ATRI-X\gui\`）。它们不是 ATRI-X 的配置项，
+  搬配置时按需一起拷。
+
+### 4.3 模型目录与备注名（模型 / 进阶页）
+
+不想手打模型名时：
+
+1. 在「模型」页选一个 Provider，点 **获取可用模型** —— 界面对
+   `{base_url}/models` 发一次 `GET`（`/v1` 拼法不对手会自动补试另一种），密钥用
+   该 Provider 的 `api_key_env`（进程环境 → `.env`），结果落进
+   `gui/model_catalog.json`；
+2. 在「可用模型」下拉里点选，按 **加入列表** 追加到该 Provider 的 `models`；
+3. 想给模型起中文别名：在「模型备注名」里选模型、填备注、按 **保存备注**。之后所有
+   模型下拉都会显示成 `备注（真模型名）`，保存时自动还原真模型名写进配置，**不会**
+   把备注名写进 `services.toml`。
+
+「模型分配」四个槽位的下拉都是可滚动列表（点箭头展开、滚轮/方向键选择），模型名也
+允许直接手打；换过配置文件之后点 **刷新模型列表** 重读 `services.toml` 与模型目录，
+不必重启界面。
+
+「进阶」页的生图区同理：填好生图 Base URL 与密钥后点「获取可用模型」即可切换生图
+模型，备注名存在同一份 `gui/model_catalog.json` 里（键是 `image_generation`）。
+
+自己部署生图（ComfyUI / 本地 OpenAI 兼容服务）时不用手拼地址：「进阶 → 生图 →
+本地生图服务挂载」提供了两种挂载方式：
+
+| 挂载方式 | 填什么 | 生成的 Base URL |
+|---|---|---|
+| 端口映射 | 主机（默认 `127.0.0.1`）+ 端口（默认 `8188`） | `http://127.0.0.1:8188/v1` |
+| SSL 链接 | AUTODL「自定义服务」给的 HTTPS 地址 | `https://xxxx-8188.gpuhub.com/v1` |
+
+填完点 **填入 Base URL** 或 **检测服务**。检测是只读的 `GET`：能拉回 `/models` 就
+判定为 OpenAI 兼容并自动记入模型目录；只认 ComfyUI 原生接口（`/system_stats`、
+`/queue`）时会明确提示——ATRI-X 调用的是 OpenAI 兼容的
+`POST {base_url}/images/generations`，ComfyUI 原生接口需要先加一层 OpenAI 兼容转接。
+两种挂载生成的仍然是普通的 `base_url`，`services.toml` 的字段没有新增。
+
+### 4.4 日志页
+
+排障时不用去翻文件夹，「日志」页把五类日志放在一个窗口里：
+
+| 通道 | 文件 | 看什么 |
+|---|---|---|
+| 运行日志（atri-x） | `<数据目录>\logs\atri-x-YYYY-MM-DD.log` | 主流程、模型调用、工具执行 |
+| 审计日志（audit） | `<数据目录>\logs\audit-YYYY-MM-DD.log` | 权限、敏感操作 |
+| Atrinis 日志（atrinis） | `<数据目录>\logs\atrinis-YYYY-MM-DD.log` | 外部事件入口 |
+| 后台服务输出 | `<配置目录>\gui\service.out.log` | 服务进程 stdout/stderr（启动失败、崩溃栈常在这里） |
+| 界面操作 | `<配置目录>\gui\gui.log` | 点了保存/拉了模型/下载头像等 GUI 动作（追加写，512 KiB 轮转） |
+
+结构化通道可以按日期、级别（debug/info/warn/error）、关键字过滤，并选择显示条数
+（100…3000）；纯文本通道只按关键字过滤（每行没有统一 `level=`）。勾「自动刷新」每
+3 秒重读一次。默认从新到旧显示，`ERROR`/`WARN`/`DEBUG` 分别用红/橙/灰着色。
+
+**导出**：点「导出…」把**当前视图**（通道 + 日期 + 级别 + 关键字过滤之后的行）存成
+`.log`，文件头会写上通道、日期、级别、关键字、行数与导出时间——贴给别人排障时不用
+再补上下文。导出用 UTF-8 + LF，不经过后台服务。
+
+### 4.5 群友角色数据（群友页）
+
+「群友」页按群管理"每个人"的资料，方便查看/修改：
+
+1. 顶部下拉选群/会话作用域 —— 列表来自后台服务的聊天历史库（`chat_messages` 表，
+   **只读**打开，不建表不迁移）：谁发过言、发了多少条、最后一次什么时候；
+2. 左表带**头像缩略图**，右侧编辑器可以改昵称、**备注名**（列表优先显示）、标签、
+  角色数据（自由文本，最长 4000 字）；
+3. 头像：QQ 平台可以「下载头像」（`q1.qlogo.cn`，JPEG 会经内置图像编解码转成 PNG，
+   不依赖 Pillow）；也可以「选择本地图片」；缓存写在 `<配置目录>\gui\avatars\`；
+4. 点「保存档案」写入 `<配置目录>\gui\members.json`；「删除档案」只删这份档案与头像
+   缓存，聊天历史不受影响。
+
+> 群友档案目前**只给界面看**：后台服务与 Agent 还不读它（不影响对话行为）。后续要
+> 把它接进提示词时，从 `gui/members.json` 读即可。
+
+### 4.6 知识库页
+
+「知识库」页管的是群聊里的**本地确定性 FAQ**（命中后由服务端直接回答，不建 Session、
+不调 LLM、不进提示词）：
+
+1. 上半部分可改 `app.toml` 的 `[group_knowledge]`：总开关、每群条数上限、问题/答案
+   最大字符数、每条别名/关键词上限、匹配扫描字符数。留空表示用内置默认值。保存后需
+   重启后台服务；
+2. 下半部分**只读**列出 `state.toml` 里现有的条目（按 `平台:群` 分组），可以按关键字
+   筛选、点一行看别名/关键词/id/更新时间；
+3. 条目本身由群里的 `/faq` 命令维护（`/faq add` / `/faq list` / `/faq remove` /
+   `/faq clear`），界面不直接写 `state.toml` —— 那份文件由后台服务运行期回写并热加载，
+   两边同时写会互相覆盖。
+
+### 4.7 进阶页的二级设置窗口
+
+「进阶」页上有三个按钮，点开独立窗口（不占主选项卡）：
+
+| 按钮 | 窗口 | 写哪里 | 生效 |
+|---|---|---|---|
+| 自学习设置… | 保留天数、候选出现次数/用户数门槛、含义与观察的字符/条数上限、挖掘超时 | `app.toml` 的 `[self_learning]` | 重启后台服务 |
+| HOOK 插件配置… | 直接编辑 `plugins/hooks.toml`（等宽字体、保存前校验 TOML 语法），带规则/插件计数 | `plugins/hooks.toml` | 群里执行 `/hooks reload` 或重启后台服务 |
+| 定时维护任务… | 8 个维护任务逐个开关；周期任务选 **每天 / 每周 / 每月** 再填时分（每周还选周几、每月还选几号），界面实时显示生成的 cron 与「下次触发」时间，cron 表达不了的写法用 **自定义 cron**；也可以切 **指定日期**（一次性，填 `YYYY-MM-DD` + `HH:MM`）。清理类任务还能改保留天数 | `app.toml` 的 `[maintenance.*]`（一次性任务写 `run_at`） | 重启后台服务 |
+
+「进阶」页内容比窗口高（左边「生图 + 运行与日志」、右边三块开关），整页可以竖向
+滚动：窗口拉小时滚轮/滚动条就能看到下面的开关与「定时维护任务…」入口，不会被挤到
+窗口外面；窗口拉大时滚动条自动收起。
+
+一次性维护任务的行为：到点只跑一次，跑完不再重复；引擎仍要求 `schedule` 是合法 cron
+表达式，所以窗口里会保留周期表达式做兜底（见
+[配置说明](configuration.md#日志与维护任务)）。
 
 **「退出」与「停止服务」是两件事**：
 
@@ -208,7 +362,9 @@ NapCat 基于 NTQQ 客户端，Windows 上原生支持，自带 WebUI：
 
 ### 5.2 打开 ATRI-X 的 OneBot 平台
 
-编辑 `%APPDATA%\ATRI-X\app.toml`，把默认注释掉的这段打开：
+桌面端「平台」页可以直接填（勾选启用、填 WS 地址与 `access_token`、点「保存平台配置」
+→「重启后台服务」）；等价的手改方式是编辑 `%APPDATA%\ATRI-X\app.toml`，把默认注释掉的
+这段打开：
 
 ```toml
 [platform.qqonebot]
@@ -345,10 +501,43 @@ python packaging/build.py --with-kernel --installer   # 构建 + 打包一条龙
 | 用户数据 | `%APPDATA%\ATRI-X` **默认保留**；交互式卸载会问一次「是否同时删除用户数据」 |
 | 与脚本安装的关系 | 检测到 `installer=inno` 后，`atri-x -m atri_x.dist.install uninstall` 会**拒绝**执行并提示用 `unins000.exe`（避免留下指向已删目录的卸载器）；确实要强删加 `--force` |
 | 静默安装 | `ATRI-X-<版本>-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=<目录> /MERGETASKS=!autostart,!desktopicon` |
+| 覆盖升级 | 直接再跑新安装包即可；**先退出正在运行的 ATRI-X**——安装器带 `AppMutex=ATRI-X-GUI`，检测到 GUI 在跑会提示「当前正在运行」并中止（自检脚本也会因此失败） |
 
-实测（含内置内核的 317.9 MB onedir → 56.0 MB 安装包）：静默安装 40.7 s / 23865 个文件，
-`atri-x.exe --version` 正常，静默卸载 13.6 s 且目录被清空。构建环境有两个坑（TEMP 必须在
+实测（含内置内核的 318.6 MB onedir → 56.3 MB 安装包）：静默安装 43.0 s / 23865 个文件，
+`atri-x.exe --version` 正常，静默卸载 15.1 s 且目录被清空。构建环境有两个坑（TEMP 必须在
 本地盘、安装根路径要够短）写在 [`packaging/README.md`](../packaging/README.md) §7.1。
+
+### 7.2 便携版 zip（解压即用）
+
+不想安装、或者要把问题现场整包发给别人复现，用便携版 zip（构建细节见
+[`packaging/README.md`](../packaging/README.md) §8）：
+
+```bash
+python packaging/build.py --with-kernel --with-portable --portable-verify   # 构建 + 便携包 + 解压自检
+python packaging/build.py --with-kernel --release                          # 便携包 + 安装包（都自检）
+# 产物：dist/portable/ATRI-X-<版本>-portable-win64.zip（+ 同名 .zip.sha256）
+```
+
+解压后目录里有四个可双击的入口：
+
+| 文件 | 作用 |
+|---|---|
+| `start-portable.bat` | **推荐**。便携模式：`APPDATA` 指到 `<解压目录>\data\appdata`，配置/会话/日志都留在文件夹里 |
+| `start-normal.bat` | 标准模式：数据在 `%APPDATA%\ATRI-X`，与安装版共用同一份配置与会话 |
+| `debug-console.bat` | 调试控制台：打印 `--version` 与 `doctor --no-model`，并留一个命令行窗口；带参数时直接转发给 `atri-x.exe` |
+| `atri-x-gui.exe` / `atri-x.exe` | 直接双击等价于标准模式；控制台版用于 `service run` / `config check` / `-m <模块>` |
+
+两种模式的数据目录互不可见：便携模式适合把「程序 + 配置 + 会话库 + 日志」整体压缩发走；
+标准模式适合与已安装的版本共用同一份数据。另外包里还有 `README.txt`（使用/排障）与
+`build-info.json`（版本、Python/PyInstaller、内置内核版本、文件数）。
+
+注意事项：
+
+- **解压到短路径**（例如 `D:\ATRI-X`）。内置内核有 191 字符级相对路径，解压根目录太长会
+  解压失败；构建脚本会打印本包的路径上限。
+- 不写注册表、不建快捷方式，**删掉文件夹即卸载**（便携模式下连数据一起删）。
+- 无代码签名，SmartScreen 可能提示一次；README 里有说明。
+- 内置 DSH 内核（`_internal\runtime`）与安装版同一份，目标机不需要另装 Node。
 
 ---
 
@@ -382,7 +571,11 @@ atri-x.exe -m atri_x.agent.dsh.smoke         # 完整 ACP 冒烟（需要模型�
 
 - 想换/临时指定内核目录：设 `ATRIX_DSH_KERNEL=<内核目录>`；
 - 想给别的位置的运行时：设 `ATRIX_RUNTIME_DIR=<运行时根目录>`（下面可有多个运行时）；
-- 找不到内核时自动回退到 PATH 上的 `dsh --profile acp`，不会报错。
+- 找不到内核时自动回退到 PATH 上的 `dsh --profile acp`，不会报错；
+- 内核每轮路由都会新建一个一次性会话（结束时只 `session/close`，不删历史），所以
+  `DSH_HOME/sessions` 会随使用增长：`[maintenance.dsh_cleanup]`（默认开启，保留 30 天）
+  只清过期会话历史与会话缓存，`profiles/` 一律保留。桌面端的每日会话总结
+  （`[maintenance.daily_summary]`）汇总的是 ATRI-X 自己的 SQLite 会话，不含内核内部历史。
 
 > 说明：内置内核解决的是"**运行时依赖**"；把 DSH 接进对话路由（成本闸门、上下文交接、
 > 预算记账）见下面的 §8.1。设计细节在 [`devdocs/dsh-acp.md`](../devdocs/dsh-acp.md) §6。
@@ -481,11 +674,17 @@ atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函�
   熔断状态是进程内的（不跨重启）。
 - **会话历史只读**：GUI 侧边栏能切换/查看历史，但删除、归档、重命名仍走 `/delete`、
   `/archive`、`/rename` 命令（GUI 没有对应按钮）。
+- **群友档案只在界面里**：`gui/members.json` 目前只有桌面端读写，后台服务与 Agent 不读它；
+  换机器/重装要自己拷贝 `<配置目录>\gui\`（模型备注名、群友档案、头像、界面日志都在这里）。
+- **知识库条目只读**：「知识库」页只改全局开关/上限并查看条目；增删条目走群里的
+  `/faq` 命令 —— `state.toml` 由后台服务回写，界面直接写会互相覆盖。
+- **本地生图要 OpenAI 兼容**：挂载助手生成的是普通 `base_url`；ComfyUI 原生接口
+  （`/system_stats`、`/queue`）不能直接调用，需要先起一层 OpenAI 兼容转接。
 
 **排障顺序**
 
-1. 窗口标题栏/状态栏显示「已断开」→ 看 `%APPDATA%\ATRI-X\gui\service.out.log`，
-   或手动 `atri-x.exe service run` 看控制台；
+1. 窗口标题栏/状态栏显示「已断开」→ 看 `%APPDATA%\ATRI-X\gui\service.out.log`（或直接开
+   桌面端「日志」页，通道选「后台服务输出」），或手动 `atri-x.exe service run` 看控制台；
 2. `atri-x.exe -m atri_x.dist.install status` —— 装在哪、快捷方式是否在；
 3. `atri-x.exe config check` —— 配置本身是否合法；
 4. `atri-x.exe doctor --no-model` —— 平台是否装配起来（应看到 `qqonebot`）；

@@ -94,6 +94,9 @@ __all__ = [
     "maxInt64",
 ]
 
+#: 每日会话总结交给压缩模型时的单次输入/输出上限（token）。摘要不是正文，1200 够用。
+_SUMMARY_MAX_TOKENS = 1200
+
 
 # ---------------------------------------------------------------------------
 # 默认运行时工厂
@@ -349,6 +352,8 @@ class DefaultRuntimeFactory:
             foundation.maintenance.report_sender = _report_sender(
                 state, send_notice, platform
             )
+            # 每日会话总结的 LLM 二次摘要（use_llm 时才用，失败自动回退确定性摘要）。
+            foundation.maintenance.summary_generator = _summary_generator(state)
         if req.profiler is not None:
             req.profiler.mark("agent init")
 
@@ -382,6 +387,30 @@ def _report_sender(state: dict[str, Any], send_notice: Any, platform: str) -> An
         )
 
     return sender
+
+
+def _summary_generator(state: dict[str, Any]) -> Any:
+    """把确定性会话摘要交给压缩模型再摘要一遍（``[maintenance.daily_summary].use_llm``）。
+
+    走的是上下文压缩那条既有链路（``ensure_context_runtime`` + ``summarize_text``），
+    因此模型选择、provider 客户端、超时与配额口径都与 ``/compact`` 完全一致；
+    没配压缩模型时抛 :class:`InvalidError`，维护任务的 handler 会回退到确定性摘要。
+    """
+
+    async def generator(cctx: Any, text: str) -> str:
+        agent = state["agent"]
+        if agent is None:
+            raise InvalidError("agent is not ready")
+        from atri_x.agent.context_runtime import ensure_context_runtime  # noqa: PLC0415
+        from atri_x.storage import SessionModeWork  # noqa: PLC0415
+
+        runtime = ensure_context_runtime(agent)
+        selection = runtime.compact_selection(agent.model_for_mode(SessionModeWork))
+        if not selection.provider or not selection.model:
+            raise InvalidError("未配置压缩模型，无法生成 LLM 会话总结")
+        return await runtime.summarize_text(cctx, selection, text, _SUMMARY_MAX_TOKENS)
+
+    return generator
 
 
 def _with_module(logger: Any, module: str) -> Any:

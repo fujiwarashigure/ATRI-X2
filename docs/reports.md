@@ -1,4 +1,4 @@
-# 定时报告（生图量 / Token / 费用 / 磁盘 / 内存）
+# 定时报告（生图量 / Token / 费用 / 磁盘 / 内存）与每日会话总结
 
 ATRI-X 内置一个定时资源报告任务，默认每天 **9:00 和 21:00** 各发一次，内容包含：
 
@@ -160,3 +160,70 @@ ATRI-X 定时报告
 4. **磁盘指标**：数据目录默认是 SQLite 所在目录（含 `logs/`、`media/`、`sandbox/` 等）；文件系统使用量需要 Linux（`statfs`），其他平台只报数据目录大小。
 5. **服务器时区**：高峰判定按北京时间；部署脚本已设置 `TZ=Asia/Shanghai`，如果自己改过时区，记得保持 Asia/Shanghai，否则高低峰会算错。
 6. **手动补发**：可以让机器人调用 `cron` 工具触发同名维护任务（`maintenance.daily_report`），或临时创建一个只跑一次的任务。注意 `cron` 是超级管理员专用的**内置工具**而不是 slash 命令：需要先切到 `work` 模式，并让模型发现该工具（也可用 `@tool:cron` 预载）。
+
+---
+
+# 每日会话总结（`[maintenance.daily_summary]`）
+
+资源报告看的是"花了多少、占了多少"，**会话总结看的是"今天聊了什么"**：它把一段时间内
+ATRI-X 自己的会话（SQLite `sessions` + `messages`）汇总成一段可读文本，默认每天 8:00
+生成一次，**不调用模型、不花 token**。
+
+## 产物
+
+```text
+<数据目录>/daily_summaries/<YYYY-MM-DD>.json
+```
+
+```json
+{
+  "day": "2026-10-18",
+  "createdAt": "2026-10-18T00:00:12.345678+00:00",
+  "sessions": 3,
+  "messages": 42,
+  "source": "digest",
+  "text": "ATRI-X 会话总结 2026-10-18\n窗口：2026-10-17 08:00 ~ 2026-10-18 08:00\n会话 3 个 / 消息 42 条\n\n1) 10-17 21:12 · cli · 《项目讨论》 · 12 条\n   用户：…\n   助手：…"
+}
+```
+
+## 配置
+
+```toml
+[maintenance.daily_summary]
+enabled = true                # 默认由配置资产打开
+schedule = "0 8 * * *"        # 每天 8:00
+days = 1                      # 统计最近 1 天（24 小时口径，不是自然日）
+max_sessions = 20             # 最多汇总多少个会话（按最近更新时间倒序）
+use_llm = false               # true 时把摘要再交给压缩模型改写一遍（会花 token）
+notify = false                # true 时走资源报告的投递通道发给超管
+```
+
+## 查看与手动生成
+
+```bash
+# 查看最近 3 份
+python -m atri_x.maintenance.summary_cli
+
+# 现在生成一份并落盘（会覆盖当天的文件）
+python -m atri_x.maintenance.summary_cli --build
+
+# 机器可读
+python -m atri_x.maintenance.summary_cli --json --limit 7
+
+# 打包后的程序同样可用
+atri-x.exe -m atri_x.maintenance.summary_cli --build
+```
+
+## 说明
+
+1. **窗口口径**：`days` 是"最近 N×24 小时"，与资源报告的 `window_hours` 一致；日期标签按
+   Asia/Shanghai 计算。
+2. **`use_llm`**：打开后复用 `/compact` 的压缩模型（provider/model 与压缩完全一致）；
+   模型没配、调用失败或返回空串时**自动回退**到确定性摘要，不会丢当天的记录。
+   摘要不会写回任何会话，也不会改 `messages` / `context_summaries`。
+3. **只读本地库**：不访问平台接口、不上传任何内容；`notify = true` 才把正文按资源报告
+   通道发给超管。
+4. **与清理的关系**：`[maintenance.session_cleanup]`（默认开启）会在保留期后删除会话行；
+   需要长期留着每日总结就把 `daily_summaries/` 单独备份，不要依赖库里还留着原文。
+5. **默认不含 DSH 内核侧会话**：内置 DSH 内核的一次性会话历史由
+   `[maintenance.dsh_cleanup]` 清理，其内容不进本总结（DSH 用自己的存储格式）。
