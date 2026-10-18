@@ -167,3 +167,18 @@ queue_timeout_seconds = 0
 # negative_cache_max_entries = 128
 # max_retries = 2
 # retry_initial_delay_seconds = 1
+
+# Optional web_search channels. Leave this section out to keep the environment
+# default chain (Tavily -> Firecrawl -> Keenable -> Exa, keyed ones only when
+# their key is set). Desktop app: Models tab -> "Search services" page.
+# [web_search]
+# engine_order = ["firecrawl", "keenable", "tavily"]
+#
+# [web_search.engines.tavily]
+# protocol = "tavily"         # built-in names may omit protocol
+# api_key_env = "TAVILY_API_KEY"
+# # base_url = ""             # empty = official endpoint (full URL otherwise)
+#
+# [web_search.engines.my-searx]
+# protocol = "searxng"        # custom channel: protocol is required
+# base_url = "https://searx.example.com"

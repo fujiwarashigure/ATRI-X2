@@ -119,7 +119,10 @@ class _FakeResponse:
         self.body = text.encode("utf-8")
         self._payload = payload
 
+    @property
     def ok(self) -> bool:
+        """与 :class:`atri_x.net.httpclient.Response` 一致：这是属性，不是方法。"""
+
         return 200 <= self.status < 300
 
     def text(self, encoding: str | None = None) -> str:
@@ -196,14 +199,28 @@ class TestWebSearch(unittest.TestCase):
         self.assertIn("1. T", text)
         self.assertIn("https://a", text)
 
-    def test_call_requires_query_and_key(self) -> None:
+    def test_call_requires_query(self) -> None:
         tool = new_web_search_tool()
         with self.assertRaises(InvalidError):
             _run(tool.call(None, _call("web_search", {"query": " "})))
+
+    def test_call_without_tavily_key_uses_keyless_engine(self) -> None:
+        """没有 TAVILY_API_KEY 时不再直接报错，而是走免注册通道（见 web_search_engines）。"""
+
+        client = _FakeClient(
+            _FakeResponse(
+                200,
+                {"data": {"web": [{"title": "T", "url": "u", "description": "d"}]}},
+            )
+        )
+        tool = WebSearchTool(client=client, engines="firecrawl")
         os.environ.pop("TAVILY_API_KEY", None)
-        with self.assertRaises(InvalidError) as ctx:
-            _run(tool.call(None, _call("web_search", {"query": "hi"})))
-        self.assertIn("TAVILY_API_KEY", str(ctx.exception))
+        os.environ.pop("FIRECRAWL_API_KEY", None)
+        result = _run(tool.call(None, _call("web_search", {"query": "hi"})))
+        self.assertIn("1. T", result.content)
+        method, path, kw = client.calls[0]
+        self.assertEqual((method, path), ("POST", "https://api.firecrawl.dev/v2/search"))
+        self.assertNotIn("Authorization", kw["headers"])
 
     def test_call_success(self) -> None:
         client = _FakeClient(
@@ -228,15 +245,21 @@ class TestWebSearch(unittest.TestCase):
         self.assertEqual(kw["json"]["query"], "hi")
 
     def test_call_http_error(self) -> None:
+        """Tavily 失败后继续降级；所有通道都失败才把各自的原因汇总成 InvalidError。"""
+
         client = _FakeClient(_FakeResponse(500, {}, "boom"))
-        tool = WebSearchTool(client=client)
+        tool = WebSearchTool(client=client, engines="tavily,firecrawl,keenable")
         os.environ["TAVILY_API_KEY"] = "k"
         try:
             with self.assertRaises(InvalidError) as ctx:
                 _run(tool.call(None, _call("web_search", {"query": "hi"})))
         finally:
             os.environ.pop("TAVILY_API_KEY", None)
-        self.assertIn("Tavily HTTP 500", str(ctx.exception))
+        message = str(ctx.exception)
+        self.assertIn("Tavily HTTP 500", message)
+        self.assertIn("Firecrawl HTTP 500", message)
+        self.assertIn("Keenable HTTP 500", message)
+        self.assertEqual(len(client.calls), 3)
 
     def test_helpers(self) -> None:
         self.assertEqual(trim_string_list([" a ", "", "b"]), ["a", "b"])

@@ -248,7 +248,7 @@ class WebExtractTool:
             )
         except HTTPError as exc:
             raise InvalidError(f"Jina request: {exc}") from exc
-        if not response.ok():
+        if not response.ok:
             raise InvalidError(
                 f"Jina HTTP {response.status}: {truncate_http_body(response.body)}"
             )
@@ -271,7 +271,7 @@ class WebExtractTool:
             )
         except HTTPError as exc:
             raise InvalidError(f"direct extract request: {exc}") from exc
-        if not response.ok():
+        if not response.ok:
             raise InvalidError(
                 f"direct extract HTTP {response.status}: "
                 f"{truncate_http_body(response.body)}"

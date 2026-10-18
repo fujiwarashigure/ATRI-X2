@@ -6,6 +6,97 @@
 
 ---
 
+## [0.9.7] - 2026-10-19
+
+> 本版把 `web_search` 从「只会调 Tavily、没 key 就不可用」改成**可配置的搜索通道链**：
+> 桌面端「模型」页新增「搜索服务」子页，可以按顺序排列通道、填密钥/服务地址、加自定义通道。
+> 通道覆盖 Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI / Grok Build，
+> 其中 Firecrawl 与 Keenable 免注册、不填 key 也能搜。工具名、参数、风险等级与 `Result`
+> 文本格式都没变，配置里没有 `[web_search]` 段时行为与旧版一致（外加「配了 `EXA_API_KEY`
+> 才参与」的 Exa）。
+
+### Added
+
+- `atri_x/tool/builtin/web_search_engines.py`：HTTP 搜索通道的请求与解析——
+  Firecrawl（`POST /v2/search`，不带 `Authorization` 即免注册额度）、Keenable
+  （`POST /v1/search/public` + `X-Keenable-Title`）、Exa（`POST /search` + `x-api-key`）、
+  SearXNG（`GET {base_url}/search?format=json`）；单条通道失败抛 `EngineFailure`，
+  由工具层换下一条；另含 `SearchEngineSpec` / `specs_from_config`（把 `[web_search]`
+  配置转成通道列表）与 `default_specs`（环境变量默认链）。
+- `atri_x/tool/builtin/web_search_cli.py`：外部 CLI 通道——Antigravity（`agy -p … --output-format
+  json --json-schema …`）与 Grok Build（`grok -p … --always-approve`，X 搜索）。负责拼提示词、
+  跑子进程（`CREATE_NO_WINDOW`，工作目录是临时目录）、解析信封、把「还在检索」的占位结果
+  判为失败；CLI 不存在/未登录/超时/非零退出都转成 `EngineFailure` 再降级。
+- `atri_x/config/services.py`：`WebSearchConfig`（`engine_order` + `engines`）与
+  `WebSearchEngineConfig`（`protocol` / `api_key_env` / `base_url` / `bin`），接进
+  `ServicesConfig`，并由 `AppConfig.merge_services` 合并。
+- `atri_x/gui/searchconfig.py` + `atri_x/gui/tabs/searchpanel.py`：桌面端「模型 → 搜索服务」
+  子页的数据层与界面——通道列表（顺序即降级顺序，上移/下移）、单条通道表单（协议、密钥环境变量名、
+  API Key 写 `.env`、服务地址、CLI 可执行文件）、新增自定义/删除/恢复默认链；先删旧小节再写，
+  自定义名不允许带点，重复名与未知协议在保存前拒绝。
+- `web_search` 新增环境变量 `FIRECRAWL_API_KEY`、`KEENABLE_API_KEY`、`EXA_API_KEY`（可选）
+  与 `WEB_SEARCH_ENGINES`（覆盖通道顺序，`[web_search]` 存在时也生效）。
+- 默认资产：`services.toml` 里补了注释版的 `[web_search]` 示例，`.env.example` 补了搜索通道密钥位。
+- 测试：`tests/test_web_search_engines.py`（42 条，覆盖五条 HTTP 通道、CLI 通道、配置解析、
+  通道链与覆盖顺序）、`tests/test_config_web_search.py`（5 条，`[web_search]` 解析/合并/
+  未知键拒绝）、`tests/test_gui_searchconfig.py`（11 条，读写/默认链/删除清理/校验/密钥状态）、
+  `tests/test_gui_tabs.py` 的「模型」页新增 7 条搜索服务界面用例。
+
+### Changed
+
+- `atri_x/tool/builtin/web_search.py`：`call` 改成「按通道链逐条尝试、失败换下一条、全失败才报错」；
+  每条通道归一成 `SearchOutcome` 再统一渲染，因此 Tavily 的 `Answer:` 摘要与免注册通道的
+  「标题 + URL + 摘要」共用同一个输出函数（Tavily 文本仍与 Go 版逐字一致）。工具描述改成指向
+  「模型 → 搜索服务」页。
+- `atri_x/tool/builtin/register.py`、`atri_x/app/tool_runtime.py`、`atri_x/app/runtime.py`：
+  `RegisterOptions` / `ToolRuntimeOptions` 增加 `web_search`，把配置里的 `[web_search]`
+  传给 `new_web_search_tool(..., specs=...)`。
+- `atri_x/gui/tabs/model.py`：「模型」页改成二级页签（LLM Provider / 模型分配、搜索服务），
+  搜索服务界面拆到 `tabs/searchpanel.py` 以免单文件过长。
+- `atri_x/gui/app.py`：默认窗口从 `1060x740` 放大到 `1280x860`，最小尺寸从 `900x600`
+  提到 `1100x700`，给两个左右并排的配置页留出宽度。
+- `docs/configuration.md` §内置 Web 工具配置：改成以 `[web_search]` TOML 为主、环境变量默认链为辅；
+  `docs/windows-app.md`：更新「模型」页说明（两个子页）与「能联网搜索」的启动步骤；
+  `devdocs/code-map.md`：登记新模块。
+
+### Fixed
+
+- `web_search` / `web_extract` 把 `Response.ok` 当方法调用（`response.ok()`）：真实
+  `HTTPClient` 返回的是属性，运行到 HTTP 响应判定时必然抛 `TypeError: 'bool' object is
+  not callable`。测试里的假响应恰好也写成了方法，所以一直没暴露；现在假响应改成与真实
+  `Response` 一致的属性，两处调用改为属性访问。
+
+### 发行（v0.9.7）
+
+Windows 三种产物按 0.9.7 重新构建（`python packaging/build.py --with-kernel --release`，
+产物均含内置 DSH 内核 `0.2.0-rc.2`）：
+
+| 产物 | 体积 | 构建耗时 | 自检 |
+|---|---|---|---|
+| `dist/windows/atri-x/`（onedir 中间产物） | 318.7 MB / 23862 文件 | PyInstaller 105.7 s | `--version`（`atri-x 0.9.7`）、`config check`、`-m` 转发、`sidecar found:true`、GUI `--selftest`（含逐页切换）全过 |
+| `dist/portable/ATRI-X-0.9.7-portable-win64.zip` | 113.8 MB（源 318.7 MB，deflate 36%） | 21.7 s | 解压 15.4 s（23867 条目）后 `--version` / `config check` / 数据目录落在包内 / `-m` / sidecar / GUI selftest / 两个启动器 / APPDATA 重定向全过 |
+| `dist/installer/ATRI-X-0.9.7-setup.exe` | 56.4 MB | ISCC 42.5 s | 静默安装 39.7 s / 23865 文件、`--version` 通过、静默卸载 13.5 s 且目录清空 |
+
+| 文件 | SHA256 |
+|---|---|
+| `ATRI-X-0.9.7-portable-win64.zip` | `f6e1040f21eba9b05bb0099f5e1cd245a93f3af01c7b7ef9717505abd72ad2d4` |
+| `ATRI-X-0.9.7-setup.exe` | `d67daa499bd28c86df66965fae9f9f5537607f7ea1244db59f97d383d2898ee1` |
+
+两份产物已复制到桌面 `ATRI-X-0.9.7-Windows\` 并核对哈希。容器镜像由 `v0.9.7` tag 推送触发
+Actions 重建并推送（`ghcr.io/fujiwarashigure/atri-x2:0.9.7` 与 `:latest`）。
+
+### 清理与脱敏核对（v0.9.7 发行前）
+
+- **凭据**：工作区 964 个文件按 `sk-*` / `tvly-*` / `ghp_*` / `github_pat_*` / `AKIA*` /
+  `AIza*` / `xox[baprs]-*` / 私钥头扫描，命中项全部是测试夹具（`sk-abcdef…`、
+  `AKIAIOSFODNN7EXAMPLE`、`user:secret-pass@example.com` 等）与文档里 `192.168.0.0/16`、
+  `10.0.0.0/8` 这类私有段示例；新增代码与测试里只有 `tvly-123` 这类假值。
+- **个人信息**：没有真实用户目录、主机名、邮箱、私钥入库；`shigure` 只出现在公开仓库地址与
+  `ghcr.io/fujiwarashigure/atri-x2` 镜像名里。`atri_x/config/assets_data/.env.example`、
+  `assets_data/plugins/.env`、`deploy/.env.example` 三个模板都只有占位/注释，没有真实密钥。
+- **临时产物**：重建前删掉 `dist/` 里 0.9.6 的旧产物与 `build/pyinstaller` 中间目录；
+  测试用 `tests/_tmp_*` / `tmp_*` 目录已清空，工作区只剩本次源码改动。
+
 ## [0.9.6] - 2026-10-19
 
 > 本版修 0.9.5 的两个桌面端可用性问题，运行期行为与配置格式**没有变化**：

@@ -319,11 +319,69 @@ default_context_window = 256000
 
 ## 内置 Web 工具配置
 
-`web_search` 使用 `tavily`：
+`web_search` 的搜索通道写在 `services.toml` 的 `[web_search]` 里；桌面端「模型 → 搜索服务」
+子页编辑的就是这一段（含通道顺序、密钥写入 `.env`）。
+
+```toml
+[web_search]
+# 自上而下逐条尝试；没写进来的内置通道不参与
+engine_order = ["tavily", "firecrawl", "keenable", "exa", "my-searx"]
+
+[web_search.engines.tavily]
+protocol = "tavily"             # 内置名可省略（等于通道名）；自定义名必填
+api_key_env = "TAVILY_API_KEY"
+# base_url = ""                 # 留空 = 官方端点；自建/兼容端点写完整接口地址
+
+[web_search.engines.firecrawl]
+api_key_env = "FIRECRAWL_API_KEY"
+
+[web_search.engines.exa]
+api_key_env = "EXA_API_KEY"
+
+[web_search.engines.my-searx]
+protocol = "searxng"            # 自建 SearXNG
+base_url = "https://searx.example.com"
+
+[web_search.engines.agy]
+protocol = "antigravity"        # 可选：本机装好并登录 Antigravity CLI
+# bin = "agy"
+```
+
+各协议：
+
+| protocol | 需要什么 | 说明 |
+| --- | --- | --- |
+| `tavily` | `api_key_env` 指向的密钥（默认 `TAVILY_API_KEY`） | 官方端点，每月 1,000 credits；**唯一会返回 `Answer:` 摘要的通道** |
+| `firecrawl` | 不需要 key（可填 `FIRECRAWL_API_KEY` 提额） | 免注册按出口 IP 每月 1,000 credits；填 key 换成自己的额度 |
+| `keenable` | 不需要 key（可填 `KEENABLE_API_KEY` 提额） | 免注册按出口 IP 每小时 1,000 次；填 key 每月 100,000 次 |
+| `exa` | `EXA_API_KEY` | 官方端点，每月 $10 循环免费额度（约 1,400 次） |
+| `searxng` | `base_url`（实例根地址） | 请求 `{base_url}/search?format=json`；实例要允许 JSON 输出 |
+| `antigravity` | 本机 `agy` 且已浏览器登录 | 外部 CLI 通道，一次检索就是一次模型调用，超时 180 秒 |
+| `grok` | 本机 `grok` 且用 SuperGrok / X Premium 登录 | 外部 CLI 通道，只搜 X（推特） |
+
+规则：
+
+- `base_url` 对 HTTP 通道是**完整接口地址**（Tavily `/search`、Firecrawl `/v2/search`、
+  Keenable `/v1/search` 或 `/public`、Exa `/search`），留空用官方端点；`searxng` 写实例
+  根地址（程序自己拼 `/search`）；CLI 通道忽略这个字段。
+- `bin` 只对 `antigravity` / `grok` 有效，留空用 `agy` / `grok`。
+- 缺配置的通道自动跳过：Tavily / Exa 没 key、SearXNG 没地址时不参与尝试，也不会白跑一次
+  请求；CLI 通道要跑起来之后才会报「找不到可执行文件 / 未登录」。
+- 全部通道失败、或者配置里一条可用通道都没有时，错误信息会逐条列出各通道的原因。
+- CLI 通道的登录态归对应的 CLI 自己保存，ATRI-X2 不读也不写它们的凭据。
+
+`[web_search]` 整段缺席时走**环境变量默认链**（旧部署行为不变）：
 
 ```env
-TAVILY_API_KEY=your_tavily_api_key
+WEB_SEARCH_ENGINES=firecrawl,keenable     # 覆盖通道顺序；不写则 tavily,firecrawl,keenable,exa
+TAVILY_API_KEY=your_tavily_api_key        # 有 key 才参与
+FIRECRAWL_API_KEY=your_firecrawl_api_key  # 可选：换成自己的额度
+KEENABLE_API_KEY=your_keenable_api_key    # 可选：换成自己的额度
+EXA_API_KEY=your_exa_api_key              # 有 key 才参与
 ```
+
+不配置任何 key 时 `web_search` 照样能用（Firecrawl → Keenable 两条免注册通道）；
+`WEB_SEARCH_ENGINES` 在 `[web_search]` 存在时也生效，便于临时只跑某一条通道。
 
 `web_extract` 默认优先使用 Jina Reader。配置 `JINA_API_KEY` 后会通过 Jina Reader 提取网页；未配置时回退为直接抓取：
 

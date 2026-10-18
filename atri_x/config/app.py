@@ -72,6 +72,7 @@ from atri_x.config.services import (
     ServicesConfig,
     VisionConfig,
     VisionSupport,
+    WebSearchConfig,
     parse_api_protocol,
 )
 from atri_x.config.state import (
@@ -160,6 +161,7 @@ class AppConfig(StrictConfig):
     image_to_prompt: ImageToPromptConfig = field(default_factory=ImageToPromptConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
     asr: ASRConfig = field(default_factory=ASRConfig)
+    web_search: WebSearchConfig = field(default_factory=WebSearchConfig)
     group_analysis: GroupAnalysisConfig = field(default_factory=GroupAnalysisConfig)
     group_knowledge: GroupKnowledgeConfig = field(default_factory=GroupKnowledgeConfig)
     group_services: GroupServicesConfig = field(default_factory=GroupServicesConfig)
@@ -555,6 +557,8 @@ class AppConfig(StrictConfig):
             self.vision = services.vision
         if services.asr is not None:
             self.asr = services.asr
+        if services.web_search is not None:
+            self.web_search = services.web_search
 
     # -- 校验 ---------------------------------------------------------------
     def validate_provider_protocols(self) -> None:

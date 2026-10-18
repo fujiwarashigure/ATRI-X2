@@ -1,5 +1,6 @@
 """共享只读服务配置：``[providers.*]`` / ``[model_metadata]`` / ``[model_profiles]`` /
-``[image_generation]`` / ``[image_to_prompt]`` / ``[vision]`` / ``[asr]``。
+``[image_generation]`` / ``[image_to_prompt]`` / ``[vision]`` / ``[asr]`` /
+``[web_search]``。
 
 对应 Go：``internal/config/config.go`` 里的 ``ProviderConfig`` / ``ModelConfig`` /
 ``ModelMetadataConfig`` / ``ModelProfileConfig`` / ``ServicesConfig`` /
@@ -42,6 +43,8 @@ __all__ = [
     "ServicesConfig",
     "VisionConfig",
     "VisionSupport",
+    "WebSearchConfig",
+    "WebSearchEngineConfig",
     "audio_support_from_bool",
     "load_services_config",
     "parse_api_protocol",
@@ -455,6 +458,35 @@ class ASRConfig(StrictConfig):
 
 
 @dataclass
+class WebSearchEngineConfig(StrictConfig):
+    """``[web_search.engines.<name>]``：一条搜索通道。
+
+    ``protocol`` 决定用哪个实现（``tavily`` / ``firecrawl`` / ``keenable`` /
+    ``exa`` / ``searxng`` / ``antigravity`` / ``grok``）；内置名留空时等于名字，
+    自定义名字必须显式写 ``protocol``。``bin`` 只给 ``antigravity`` / ``grok``
+    这类外部 CLI 通道覆盖可执行文件名。
+    """
+
+    protocol: str = ""
+    api_key_env: str = ""
+    base_url: str = ""
+    bin: str = ""
+
+
+@dataclass
+class WebSearchConfig(StrictConfig):
+    """``[web_search]``：``web_search`` 工具的搜索通道与尝试顺序。
+
+    ``engine_order`` 里的名字按顺序逐条尝试；``engines`` 里没有列出的内置通道不参与。
+    整段缺席时回落到「Tavily → Firecrawl → Keenable → Exa（有 key 才参与）」的环境变量
+    默认链，保持旧部署行为不变。
+    """
+
+    engine_order: list[str] = field(default_factory=list)
+    engines: dict[str, WebSearchEngineConfig] = field(default_factory=dict)
+
+
+@dataclass
 class ServicesConfig(StrictConfig):
     """整个 ``services.toml``。
 
@@ -470,6 +502,7 @@ class ServicesConfig(StrictConfig):
     image_to_prompt: ImageToPromptConfig | None = None
     vision: VisionConfig | None = None
     asr: ASRConfig | None = None
+    web_search: WebSearchConfig | None = None
 
 
 def load_services_config(path: str, *, strict: bool = True) -> ServicesConfig:

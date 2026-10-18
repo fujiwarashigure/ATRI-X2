@@ -73,6 +73,7 @@ from atri_x.tool.builtin.shell import new_shell_tool_with_environment
 from atri_x.tool.builtin.view_image import new_view_image_tool
 from atri_x.tool.builtin.web_extract import new_web_extract_tool
 from atri_x.tool.builtin.web_search import new_web_search_tool
+from atri_x.tool.builtin.web_search_engines import specs_from_config
 from atri_x.tool.builtin.workspace import new_workspace_tool
 from atri_x.tool.discover import new_discover_tool
 from atri_x.tool.media_runtime import MediaRuntime
@@ -204,6 +205,7 @@ class RegisterOptions:
     process_env: Environment = field(default_factory=Environment)
     child_process_env: Environment = field(default_factory=Environment)
     config_dir: str = ""
+    web_search: Any = None
     character_store: Any = None
     image_profiles: dict[str, ImageProfile] = field(default_factory=dict)
     default_image_profile: str = ""
@@ -289,7 +291,9 @@ def register_all(registry: Registry, opts: RegisterOptions) -> None:
             )
         )
 
-    registry.register(new_web_search_tool(opts.process_env))
+    registry.register(
+        new_web_search_tool(opts.process_env, specs=specs_from_config(opts.web_search) or None)
+    )
     registry.register(new_web_extract_tool(opts.process_env))
 
     if opts.character_store is not None and _enabled(opts.character_store):

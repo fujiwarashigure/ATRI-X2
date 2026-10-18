@@ -38,6 +38,7 @@ from atri_x.gui import (
     journal,
     memberdata,
     modelcatalog,
+    searchconfig,
     widgets,
 )
 from atri_x.gui.dialogs import HooksDialog, MaintenanceDialog, SelfLearningDialog
@@ -252,6 +253,77 @@ class ModelTabCase(TkCase):
         self.assertIn("DEEPSEEK_API_KEY=sk-secret-123", env_text)
         self.assertEqual(self.tab.key_entry.get(), "")
         self.assertEqual(self.tab.key_entry.entry.cget("show"), "*")
+
+    # -- 搜索服务子页 -------------------------------------------------------
+    def test_search_page_exists_with_default_chain(self) -> None:
+        panel = self.tab.search_panel
+        self.assertEqual(self.tab.notebook.index("end"), 2)
+        self.assertEqual(
+            [view.name for view in panel.engines], ["tavily", "firecrawl", "keenable", "exa"]
+        )
+        self.assertEqual(len(panel.tree.get_children("")), 4)
+        self.assertEqual(panel.engines[0].protocol, "tavily")
+
+    def test_search_state_column_marks_keyless_and_missing_keys(self) -> None:
+        panel = self.tab.search_panel
+        rows = {
+            name: panel.tree.item(name, "values")[2] for name in panel.tree.get_children("")
+        }
+        self.assertEqual(rows["firecrawl"], "免注册")
+        self.assertEqual(rows["keenable"], "免注册")
+        self.assertEqual(rows["tavily"], "缺密钥")
+
+    def test_search_saves_custom_engine(self) -> None:
+        panel = self.tab.search_panel
+        panel._new_engine()
+        panel.name_var.set("my-searx")
+        panel.protocol_var.set(searchconfig.PROTOCOL_LABELS["searxng"])
+        panel.base_url_var.set("https://searx.example.com")
+        panel._save_engine()
+        data = self.read_toml("services.toml")
+        self.assertEqual(data["web_search"]["engine_order"][-1], "my-searx")
+        entry = data["web_search"]["engines"]["my-searx"]
+        self.assertEqual(entry["protocol"], "searxng")
+        self.assertEqual(entry["base_url"], "https://searx.example.com")
+        self.assertIn("my-searx", panel.tree.get_children(""))
+
+    def test_search_writes_key_to_dotenv(self) -> None:
+        panel = self.tab.search_panel
+        panel._select_row("tavily")
+        self.assertIn("TAVILY_API_KEY", panel.key_env_var.get())
+        panel.key_entry.set("tvly-123")
+        panel._save_key()
+        env_text = Path(self.paths.env_path).read_text(encoding="utf-8")
+        self.assertIn("TAVILY_API_KEY=tvly-123", env_text)
+        self.assertEqual(panel.key_entry.get(), "")
+
+    def test_search_move_changes_attempt_order(self) -> None:
+        panel = self.tab.search_panel
+        panel._select_row("keenable")
+        panel._move_engine(-1)
+        data = self.read_toml("services.toml")
+        self.assertEqual(
+            data["web_search"]["engine_order"], ["tavily", "keenable", "firecrawl", "exa"]
+        )
+        self.assertEqual(panel.engines[1].name, "keenable")
+
+    def test_search_delete_requires_confirmation(self) -> None:
+        panel = self.tab.search_panel
+        panel._select_row("exa")
+        panel._delete_engine()  # askyesno 在测试里被 mock 成 False
+        self.assertEqual(len(panel.engines), 4)
+        self.assertNotIn("web_search", self.read_toml("services.toml"))
+
+    def test_search_reset_restores_default_chain(self) -> None:
+        panel = self.tab.search_panel
+        panel._new_engine()
+        panel._save_engine()
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            panel._reset_engines()
+        data = self.read_toml("services.toml")
+        self.assertEqual(
+            data["web_search"]["engine_order"], ["tavily", "firecrawl", "keenable", "exa"]
+        )
 
 
 class LogsTabCase(TkCase):

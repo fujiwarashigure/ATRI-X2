@@ -85,7 +85,7 @@ verify      : passed
 
 ```bash
 python packaging/assemble_kernel.py --modules "C:\path\to\node_modules"   # 已装 DSH 的机器
-python packaging/build.py --with-kernel                                    # 318.6 MB / 23862 个文件
+python packaging/build.py --with-kernel                                    # 318.7 MB / 23862 个文件
 ```
 
 产物：
@@ -124,7 +124,7 @@ dist\windows\atri-x\atri-x-gui.exe
    | 文件 | 作用 |
    |---|---|
    | `app.toml` | 行为、平台、工具、安全、维护等主配置 |
-   | `services.toml` | `[providers.*]`、模型元数据、生图、视觉、语音 |
+   | `services.toml` | `[providers.*]`、模型元数据、生图、视觉、语音、搜索通道 `[web_search]` |
    | `state.toml` | 默认模式与模型（程序回写） |
    | `SOUL.md` | Agent 的 System Prompt |
    | `.env.example` | 环境变量模板，复制成 `.env` 后填密钥 |
@@ -144,8 +144,10 @@ dist\windows\atri-x\atri-x-gui.exe
    `%APPDATA%\ATRI-X\.env`）；
 2. 在同一个页面的「模型分配」里给工作/聊天模式选 provider + 模型（写 `state.toml`，
    几秒内热加载）；也可以复制 `.env.example` 为 `%APPDATA%\ATRI-X\.env` 后手填密钥；
-3. 点页面右下角「重启后台服务」（provider 与密钥是启动期配置），或在聊天框里用
-   `/model` 临时切换。
+3. 想让它能联网搜索：**默认就能用**（Firecrawl / Keenable 两条免注册通道，不用填 key）。
+   要换通道或填 key，去同一个选项卡的「搜索服务」子页（详见 §4.2）；
+4. 点页面右下角「重启后台服务」（provider、密钥与搜索通道都是启动期配置），或
+   在聊天框里用 `/model` 临时切换。
 
 手改文件的等价写法是：`services.toml` 里给 provider 配 `api_key_env`、密钥放进系统
 环境变量或 `.env`、`state.toml` 里选默认模式与模型。
@@ -197,7 +199,7 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 | 选项卡 | 能改什么 | 写入 | 生效时机 |
 |---|---|---|---|
 | 对话 | 只聊天，不写配置 | — | — |
-| 模型 | Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式；「获取可用模型」拉上游 `/models`、给模型起本地备注名、模型分配区有「刷新模型列表」 | `services.toml`、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider 与密钥需重启后台服务 |
+| 模型 | 两个子页：**LLM Provider / 模型分配**——Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式，另可「获取可用模型」拉上游 `/models`、给模型起本地备注名；**搜索服务**——`web_search` 的通道列表（顺序即降级顺序，可上移/下移/新增自定义/删除）与单条通道表单（协议 Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI / Grok Build、密钥环境变量名与值、服务地址、CLI 可执行文件），免注册通道不填 key 也能用 | `services.toml`（`[providers.*]`、`[web_search]`）、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider、密钥与搜索通道需重启后台服务 |
 | 人设卡 | 角色库增删改（名称/别名/标签/简介/可见性，`profile.md`、`world.md`、`greeting.md`、`examples.md`、`image_prompt.md`、`notes/*`）、生图预设、系统人设 `SOUL.md` | `characters/`、`SOUL.md` | 角色库 3 秒内自动重扫；`SOUL.md` 下一轮对话生效 |
 | 平台 | QQ（OneBot v11）/ QQ 官方机器人 / Telegram 的启用、地址、token 变量与值、唤醒词；本地 CLI 服务端；各平台超级管理员 | `app.toml`、`.env` | 重启后台服务 |
 | 群友 | 按群管理群友档案：备注名、标签、角色数据（自由文本）、头像（下载/本地图片），群友列表来自聊天历史库 | `gui/members.json`、`gui/avatars/*.png` | 只影响界面（后台服务暂不读） |
@@ -503,8 +505,8 @@ python packaging/build.py --with-kernel --installer   # 构建 + 打包一条龙
 | 静默安装 | `ATRI-X-<版本>-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=<目录> /MERGETASKS=!autostart,!desktopicon` |
 | 覆盖升级 | 直接再跑新安装包即可；**先退出正在运行的 ATRI-X**——安装器带 `AppMutex=ATRI-X-GUI`，检测到 GUI 在跑会提示「当前正在运行」并中止（自检脚本也会因此失败） |
 
-实测（含内置内核的 318.6 MB onedir → 56.3 MB 安装包）：静默安装 43.0 s / 23865 个文件，
-`atri-x.exe --version` 正常，静默卸载 15.1 s 且目录被清空。构建环境有两个坑（TEMP 必须在
+实测（含内置内核的 318.7 MB onedir → 56.4 MB 安装包）：静默安装 39.7 s / 23865 个文件，
+`atri-x.exe --version` 正常，静默卸载 13.5 s 且目录被清空。构建环境有两个坑（TEMP 必须在
 本地盘、安装根路径要够短）写在 [`packaging/README.md`](../packaging/README.md) §7.1。
 
 ### 7.2 便携版 zip（解压即用）

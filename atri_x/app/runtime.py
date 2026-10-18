@@ -499,6 +499,7 @@ def _tool_options(
         artist_library_root=str(getattr(artist_library, "root", "") or ""),
         artist_metadata_store=artist_metadata,
         image_generation=image_generation,
+        web_search=getattr(cfg, "web_search", None),
         prompt_rewriter=image_rewriter,
         image_prompt_service=image_to_prompt,
         process_env=credential_env,

@@ -71,7 +71,7 @@ python packaging/build.py --no-verify        # 只构建
 > `atri_x` / `tests` / `scripts`，`deploy/` 同理），改完请自己跑：
 > `python -m py_compile packaging/build.py packaging/build_portable.py packaging/build_installer.py packaging/entry.py packaging/assemble_kernel.py packaging/kernel_manifest.py`
 
-产物（onedir：不含内置内核时 40.1 MB / 50 个文件；含内置内核时 318.6 MB / 23862 个文件）：
+产物（onedir：不含内置内核时 40.1 MB / 50 个文件；含内置内核时 318.7 MB / 23862 个文件）：
 
 ```
 dist/windows/atri-x/
@@ -210,7 +210,7 @@ dist/installer/ATRI-X-<版本>-setup.exe
 `build_installer.py --verify` 做的事：把安装包**复制到本地临时目录**、静默装到短路径
 （默认 `C:\Users\<user>\AtriXVerify`）、断言两个 exe + `install.json` + `unins000.exe`
 都在、跑一次 `atri-x.exe --version`、再静默卸载并等目录被清空。实测（含内置内核的
-318.6 MB onedir → 56.3 MB 安装包）：安装 43.0 s / 23865 个文件，卸载 15.1 s。
+318.7 MB onedir → 56.4 MB 安装包）：安装 39.7 s / 23865 个文件，卸载 13.5 s。
 
 ### 7.1 构建环境的两个坑（实测）
 

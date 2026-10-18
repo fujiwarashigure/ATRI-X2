@@ -120,10 +120,10 @@ class GuiApp:
         self._tabs: dict[int, Any] = {}
 
         root.title(WINDOW_TITLE)
-        # 900 宽是「进阶」页两列布局的最小舒适宽度（再窄生图区的模型行会被横向裁掉；
-        # 高度不足时该页可以竖向滚动，所以 600 够用）。
-        root.minsize(900, 600)
-        root.geometry(self._window_state.get("geometry") or "1060x740")
+        # 1100 宽是「进阶」页两列布局与「模型 → 搜索服务」页左右并列表单的最小舒适宽度；
+        # 高度不足时这两页都可以竖向滚动，所以 700 够用。
+        root.minsize(1100, 700)
+        root.geometry(self._window_state.get("geometry") or "1280x860")
         root.protocol("WM_DELETE_WINDOW", self.on_close_request)
         self._build_ui()
         self._build_menu()
