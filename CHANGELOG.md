@@ -78,7 +78,10 @@ Windows 两种产物按 0.9.6 重新构建（`python packaging/build.py --with-k
 
 便携版 zip 的 SHA256：`9423cc895d83d42ec162ac9969f9df45cfd16dbd240084021ec3a1c6ec144a8e`；
 安装包 SHA256：`89c59c109dbdd6ca3082e0c1badb4d104ebbec5af13fa766b305267ea0ceb172`。
-两份产物已复制到桌面 `ATRI-X-0.9.6-Windows\` 并核对哈希。容器镜像本轮未重建。
+两份产物已复制到桌面 `ATRI-X-0.9.6-Windows\` 并核对哈希。容器镜像由 `v0.9.6` tag 推送触发
+Actions 重建并推送（`ghcr.io/fujiwarashigure/atri-x2:0.9.6` 与 `:latest`，digest
+`sha256:38c29feab34c5f077eb90cc335e6f098dd7f5b97e458f6785cb402790cacea93`，回拉冒烟
+`atri-x 0.9.6`）。
 
 验证：全量测试 **5293 条 OK**（skipped 2，328.8 s）；`check_syntax` 扫描 854 个文件
 0 错误 / 0 BOM / 0 CRLF；`check_imports` 681/681；`check_integration` 74/74；
