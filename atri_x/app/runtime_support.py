@@ -284,6 +284,14 @@ class HookRuntimeLifecycle:
                     await maybe_await(method(ctx))
                 except BaseException as exc:  # noqa: BLE001
                     errors.append(exc)
+        # Python 版新增：DSH 深度路由可能拉起过 node 子进程，必须显式回收。
+        if self.agent is not None:
+            try:
+                from atri_x.agent.dsh.route_call import close_route_service
+
+                await maybe_await(close_route_service(self.agent))
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
         if self.runtime is not None:
             try:
                 await maybe_await(self.runtime.close(ctx))

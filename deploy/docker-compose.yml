@@ -11,7 +11,8 @@
 #   .\deploy\windows\atri-x.cmd start
 #
 # 与上游 Go 版 compose 的差异（有意偏差，详见 deploy/README.md）：
-#   1. 镜像只有一个阶段（Python 不需要编译），没有 ATRIX_BUILD_TARGET；
+#   1. Python 没有编译阶段、没有 ATRIX_BUILD_TARGET；另有一个 DSH 阶段把
+#      DeepSeek Harness 装进镜像（ATRI-X 以 `dsh --profile acp` 子进程调用，不开端口）；
 #   2. 没有 GO_VERSION / GOPROXY / GO_BASE_IMAGE，改成 PY_BASE_IMAGE；
 #   3. 持久化改用 named volume（atri_x_data 挂 /data），
 #      legacy 的 ./data bind mount 在 volumes 段以注释形式保留，需要直接备份
@@ -34,7 +35,11 @@ services:
         # 基础镜像（可覆盖成国内加速路径 / pin digest）。默认值必须非空，
         # 否则 ${VAR:-} 展开成空串会把 FROM 变成 ":" 而直接报错。
         PY_BASE_IMAGE: ${PY_BASE_IMAGE:-python:3.14-slim}
-        # 追加更多系统命令（默认不装任何包；Python 版运行时不依赖任何系统命令）
+        # 内置 DSH 的 node 基础镜像与版本（见 deploy/README.md 第 2 节）。
+        NODE_BASE_IMAGE: ${NODE_BASE_IMAGE:-node:24-bookworm-slim}
+        DSH_VERSION: ${DSH_VERSION:-0.2.0-rc.2}
+        DSH_NPM_REGISTRY: ${DSH_NPM_REGISTRY:-https://registry.npmjs.org}
+        # 追加更多系统命令（默认只装内置 DSH 必需的 libstdc++6 / ca-certificates）
         EXTRA_TOOLS: ${EXTRA_TOOLS:-}
     container_name: atri-x
     hostname: atri-x
@@ -58,7 +63,8 @@ services:
 
     volumes:
       # 单一 named volume 挂 /data：配置（/data/config/atri-x/*.toml）、
-      # SQLite、日志、媒体、cache、run 全在里面。
+      # SQLite、日志、媒体、cache、run 全在里面；内置 DSH 的状态也复用同一个卷
+      # （DSH_HOME=/data/dsh，会话工作区 /data/dsh-ws），备份/迁移跟着 /data 走。
       # 不要在这里再加一条 `atri_x_config:/data/config`（或任何 /data 子路径）：
       # 子路径挂载会覆盖父挂载，把配置从数据卷里遮掉，导致 `docker compose down -v`
       # 之后配置“消失”、备份脚本在 /data 里找不到 config/。配置与数据同卷是

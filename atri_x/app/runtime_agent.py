@@ -186,6 +186,8 @@ async def build_agent(
             image_profiles=image_profiles,
             image_aliases=image_aliases,
             turn_directives=getattr(cfg, "turn_directives", None),
+            # Python 版新增：``[agent.dsh]`` 深度路由配置（没有该段时为 None）。
+            dsh_config=getattr(getattr(cfg, "agent", None), "dsh", None),
         )
     )
     # 把三组同僚实现的服务真正装到 Agent 上（``atri_x/agent/bootstrap.py``）。

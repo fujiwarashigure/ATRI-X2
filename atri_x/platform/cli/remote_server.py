@@ -71,8 +71,12 @@ from atri_x.platform.cli.protocol import (
     REMOTE_MSG_ERROR,
     REMOTE_MSG_HELLO,
     REMOTE_MSG_HELLO_OK,
+    REMOTE_MSG_HISTORY,
+    REMOTE_MSG_HISTORY_RESULT,
     REMOTE_MSG_INPUT,
     REMOTE_MSG_REASONING,
+    REMOTE_MSG_SESSIONS,
+    REMOTE_MSG_SESSIONS_RESULT,
     REMOTE_MSG_STATUS,
     REMOTE_MSG_STREAM_APPEND,
     REMOTE_MSG_STREAM_FINISH,
@@ -83,6 +87,7 @@ from atri_x.platform.cli.protocol import (
     remote_notice_message,
     set_from_strings,
 )
+from atri_x.platform.cli.session_browse import SessionBrowseMixin
 from atri_x.platform.platform import MessageContext, with_message_context
 from atri_x.runtime.status import Snapshot
 from atri_x.security import ActorID
@@ -147,6 +152,9 @@ class RemoteServerOptions:
     config_dir: str = ""
     superadmins: Sequence[str] = field(default_factory=list)
     completer: Any = None
+    #: 会话浏览扩展（Python 版新增）：鸭子类型对象，提供
+    #: ``scope(client_id)`` / ``list(scope, limit, query)`` / ``history(scope, session_id, limit)``。
+    session_browser: Any = None
 
 
 @dataclass(eq=False)
@@ -205,7 +213,7 @@ def new_remote_server(opts: RemoteServerOptions) -> "RemoteServer":
     return RemoteServer(opts)
 
 
-class RemoteServer:
+class RemoteServer(SessionBrowseMixin):
     """远程 CLI 服务端。对应 Go ``RemoteServer``。"""
 
     def __init__(self, opts: RemoteServerOptions) -> None:
@@ -221,6 +229,9 @@ class RemoteServer:
         self.config_dir = opts.config_dir
         self.superadmins = set_from_strings(opts.superadmins)
         self.completer = opts.completer
+        #: 会话浏览扩展（Python 版新增）。没有注入时 ``sessions``/``history`` 帧
+        #: 返回空结果，不影响原有协议。
+        self.session_browser = opts.session_browser
         self.server: ws.WebSocketServer | None = None
         self._lock = asyncio.Lock()
         self._clients: dict[str, set[RemoteClientConn]] = {}
@@ -231,6 +242,14 @@ class RemoteServer:
     def set_completer(self, completer: Any) -> None:
         """对应 Go ``(*RemoteServer).SetCompleter``。"""
         self.completer = completer
+
+    def set_session_browser(self, browser: Any) -> None:
+        """装上会话浏览实现（Python 版新增；``None`` 表示不支持浏览帧）。
+
+        与 :meth:`set_completer` 同一个装配时机（``app/integrations.py`` 的
+        ``register_session_browsers``），只是数据来源是会话服务而不是补全服务。
+        """
+        self.session_browser = browser
 
     def name(self) -> str:
         """对应 Go ``(*RemoteServer).Name``。"""
@@ -341,6 +360,27 @@ class RemoteServer:
             await _safe_write(
                 client.connection,
                 RemoteMessage(type=REMOTE_MSG_COMPLETE_RESULT, id=msg.id, items=items),
+            )
+        elif msg.type == REMOTE_MSG_SESSIONS:
+            sessions = self._browse_sessions(client, msg)
+            await _safe_write(
+                client.connection,
+                RemoteMessage(
+                    type=REMOTE_MSG_SESSIONS_RESULT,
+                    id=msg.id,
+                    sessions=sessions,
+                ),
+            )
+        elif msg.type == REMOTE_MSG_HISTORY:
+            history = self._browse_history(client, msg)
+            await _safe_write(
+                client.connection,
+                RemoteMessage(
+                    type=REMOTE_MSG_HISTORY_RESULT,
+                    id=msg.id,
+                    session_id=msg.session_id,
+                    history=history,
+                ),
             )
 
     async def _dispatch_input(

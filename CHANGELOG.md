@@ -6,7 +6,20 @@
 
 ---
 
-## [未发布]
+## [0.9.1] - 2026-10-18
+
+> 本版是仓库的**首个 Windows 发行版**：Windows 桌面端（Tk GUI + 托盘 + 安装包）、内置 DSH 深度路由、
+> GUI 会话浏览、GitHub Actions 容器镜像与发行流程都在这一版落地。与上游 Go 版的整体对应关系见
+> [`PORTING.md`](PORTING.md) 与 [`devdocs/porting-status.md`](devdocs/porting-status.md)。
+
+### 本版摘要（v0.9.1）
+
+- **Windows 桌面端**：`atri-x-gui.exe`（Tk 窗口 + 托盘常驻 + 单实例 + 后台服务自动拉起），关窗口不退出，QQ 机器人保持在线；首次启动自动打通 `[platform.cli.server]` 与本地 token。
+- **安装/分发**：Inno Setup 单文件安装包（用户级、不弹 UAC、默认开机自启）；`atri_x.dist.install` 安装/卸载/状态；内置 DSH 内核随包分发。
+- **DSH 深度路由**：`call_llm` 前按任务打分 + 成本闸门 + 熔断决定是否交给内置 DSH，ACP 用量并入既有预算账本（见 [`devdocs/dsh-acp.md`](devdocs/dsh-acp.md) §6）。
+- **GUI 会话浏览**：前端协议新增只读 `sessions` / `history` 帧，左侧会话栏切换复用 `/resume`。
+- **发行与 CI**：`.github/workflows/release-image.yml` 在 tag 推送时构建并冒烟 `ghcr.io/fujiwarashigure/atri-x2` 镜像；容器镜像与 Windows 安装包一起随 GitHub Release 发布。
+- **仓库清理与脱敏**：修正 `.gitignore` 把 `atri_x/dist/` 误当构建产物忽略的问题；删除测试/构建残留；文档里的本机绝对路径改为通用占位符。
 
 ### 从 Go 版到 Python 版（本次重写）
 
@@ -50,6 +63,83 @@
 - 新增验收与体检脚本：`scripts/check_syntax.py`（语法 + BOM + CRLF + U+FFFD + mojibake）、`scripts/check_imports.py`、`scripts/check_integration.py`、`scripts/check_coverage.py`、`scripts/extract_assets.py`、`scripts/dump_hang.py`。
 - 新增文档：[`devdocs/porting-status.md`](devdocs/porting-status.md)（移植规则速查、命令行接口清单、缺失模块、待核对功能点清单）与 [`AGENTS.md`](AGENTS.md)（Python 版 Agent 操作手册）。
 - 新增配置资产漂移比对：`scripts/extract_assets.py --check` 对比内置配置资产与上游 `assets.go` 的差异。
+
+### 内置 DSH（DeepSeek Harness）最小闭环
+
+- 镜像新增 DSH 阶段（`node:24-bookworm-slim` + `@deepseek-ai/dsh@0.2.0-rc.2`）：DSH 以 `dsh --profile acp` 的 stdio 子进程形式内置，不开端口；状态根 `/data/dsh`、会话工作区 `/data/dsh-ws` 与 ATRI-X 数据同卷。运行阶段因此固定安装 `libstdc++6` 与 `ca-certificates`（node 二进制依赖），其余 apt 包仍默认不装。
+- 新增 `atri_x/agent/dsh/`（纯标准库、导入无副作用）：`types`（ACP 数据类型与解析）、`transport`（NDJSON JSON-RPC 子进程传输）、`client`（`initialize` / `session/*` / `prompt` / `cancel` / `close`）、`smoke`（`python -m atri_x.agent.dsh.smoke` 闭环冒烟，打印真实 token 用量）。客户端默认**拒绝**一切权限请求——自动放行会绕过 ATRI-X 自己的风险确认。
+- 新增构建参数 `NODE_BASE_IMAGE` / `DSH_VERSION` / `DSH_NPM_REGISTRY`，`.env`、compose 与 `deploy/build_push.py` 均可覆盖。
+- 新增离线测试 `tests/test_dsh_acp_client.py` + `tests/_dsh_fake_acp_server.py`：不依赖 Node/dsh，覆盖握手、会话生命周期、流式事件、token 用量、权限默认拒绝、未知服务端请求、超时取消、进程崩溃与冒烟入口。
+- 本阶段**只落闭环**：路由阈值、上下文交接与预算记账尚未接入对话链路，设计见 [`devdocs/dsh-acp.md`](devdocs/dsh-acp.md)。
+
+### Windows 原生应用与 QQ OneBot 连通性
+
+- 新增 `packaging/`（此前只有 Docker 形态的 [`deploy/windows/`](deploy/windows/README.md)，没有任何冻结/打包脚本）：`atri-x.spec`（收集 `atri_x` 全部子模块、打入 `config/assets_data` 与 `imagegen/prompts`、默认排除 Pillow/numpy/PyYAML/tkinter）、`build.py`（构建 + **产物级核验**）、`entry.py`（冻结入口，转发到 `atri_x.__main__:main`，并支持 `-m <模块>` 复刻 `python -m`）、`README.md`。产物为 onedir 目录（约 27 MB / 44 文件）或单文件 exe，运行期仍是纯标准库。
+- 新增 `atri_x/platform/qq_onebot/smoke.py`（`python -m atri_x.platform.qq_onebot.smoke`，冻结后用 `atri-x.exe -m ...`）：一次跑完"连上协议端 → `get_login_info` → 可选发群/私聊 → 可选监听 N 秒上报事件"，把 QQ 链路故障压到不依赖模型的一层。它不读 `app.toml`，`--url` / `--access-token-env` 显式给；`--json` 输出 `ok` / `self_id` / `sent` / `event_count`。
+- 新增离线端到端用例 `tests/test_qq_onebot_smoke.py`：用 `atri_x/net/websocket.py` 的服务端实现起一个**真的走 WebSocket** 的假 OneBot v11 协议端，覆盖动作通道、发送通道（`message_id` 回读）、事件监听、Bearer token 透传与连不上时的退出码；不依赖 QQ/NapCat，可进 CI。
+- 修复 `pyproject.toml` 的 `[project.scripts]`：`atri-x` 原来指向 `atri_x.launcher.cli:main`，而该模块并没有 `main`（直接 `ImportError`），`pip install` 出来的命令是坏的；现指向真正的入口 `atri_x.__main__:main`。
+- 文档新增 [`docs/windows-app.md`](docs/windows-app.md)（原生 exe 的构建、首启、接 QQ、冒烟与排障）与 [`packaging/README.md`](packaging/README.md)（构建细节、冻结限制）；`docs/README.md` 阅读顺序补一条。三种部署形态（Linux/Docker、Docker Desktop、原生 exe）共用同一份配置格式。
+
+### Windows 桌面端（Tk GUI + 托盘 + 安装器 + 内置 DSH 内核）
+
+- 新增 `atri_x/gui/`（纯标准库，Tk 9.0 实测）：`app.py` 主窗口（聊天气泡式记录、流式渲染、状态栏、菜单、补全）、`client.py`（WS 客户端：`hello` 握手、断线重连、鉴权失败单列状态）、`protocol.py`（帧 → 界面状态的纯逻辑，复用 `RemoteMessage`/`format_compact`，不抄第二份字段映射）、`service.py`（准备配置与 token、探测/拉起后台服务）、`process.py`（程序/状态目录、pid 记录、强制停服务、单实例）、`tray.py`（`ctypes` 调 `Shell_NotifyIconW` 的托盘，独立线程 + 隐藏窗口 + 消息循环）、`autostart.py`（`HKCU\…\Run` 开机自启）、`__main__.py`（单实例、`--minimized`、`--selftest`、`--no-service`）。
+- **关窗口 ≠ 退出**：默认隐藏到托盘，Agent 继续跑在独立的 `atri-x service run` 进程里（GUI 只是 `docs/frontend-api.md` 那套 WS 协议的前端），QQ 机器人保持在线；要彻底退出用托盘/「文件」菜单，要停服务走「服务 → 停止后台服务（强制）」。
+- 首次启动自动打通前后端：`app.toml` 的 `[platform.cli.server].enabled` 置 `true`（只改这一行、写前留 `.bak`、写完用 `tomllib` 重新解析校验），token 写入配置目录 `.env` 的 `ATRIX_CLI_LOCAL_TOKEN`（已有/环境变量优先生效，幂等）。这两处是 GUI 唯一会写的用户配置。
+- 新增 `atri_x/dist/`：`shell_link.py`（`ctypes` 走 COM `IShellLinkW` + `IPersistFile` 建/读 `.lnk`）、`install.py`（`python -m atri_x.dist.install install|uninstall|status`）：复制发行包到 `%LOCALAPPDATA%\ATRI-X\app`、建开始菜单/桌面快捷方式、写 `HKCU` 「应用和功能」卸载项、可选 `--autostart`/`--add-path`；卸载默认**保留** `%APPDATA%\ATRI-X` 用户数据，`--purge-data` 才连数据一起删。
+- 新增 `atri_x/sidecar/`（内置运行时的通用发现层）：`registry.py`（`ATRIX_RUNTIME_DIR` → 发行包 `runtime/` → `<配置目录>/runtime` 的查找顺序，`kernel.json` 清单解析）、`kernel.py`（DSH 内核定位与 `[node.exe, bin.js, --profile acp]` 命令组装，找不到就回退 PATH 上的 `dsh`）、`__main__.py`（`python -m atri_x.sidecar list|status|dsh-command|verify [--acp]`）。
+- 新增 `packaging/assemble_kernel.py`：从**本机已装好的 DSH** 组装自包含内核到 `runtime/dsh-kernel/`（node.exe + 依赖闭包 + `kernel.json`）。做法是先跑 `--dump-config` 取 acp profile 引用的包、按 `dependencies` 求闭包、剪掉 Web/桌面前端包，再**真启动 ACP 服务端发 `initialize`** 核验；启动期报缺包就从源目录补拷后重试（实测 2 轮补拷 23 个包通过）。实测产物 384 包 / 189.1 MB + node.exe 92.8 MB，握手返回 `deepseek-harness-acp/0.0.1`。
+- `atri_x/agent/dsh/smoke.py` 启动命令改为「显式 > `DSH_ACP_COMMAND` > 内置内核 > PATH 上的 `dsh`」，内置内核优先，因此不再需要外部 `dsh` 安装。
+- `packaging/` 升级：onedir 现在出**两个 exe**（`atri-x.exe` 控制台 + `atri-x-gui.exe` 窗口版，共用 `_internal`），`entry.py` 按 exe 文件名分流；`tkinter` 不再被排除；`--with-kernel/--no-kernel`（默认按 `runtime/dsh-kernel/kernel.json` 自动判断）、`--no-gui`；产物核验新增 `-m atri_x.sidecar status` 与窗口版 `--selftest` 两项。
+- 新增离线用例 66 个：`tests/test_gui_protocol.py`（记录/流式/补全/状态栏）、`tests/test_gui_client.py`（真 WebSocket 假 CLI 服务端：握手、收发、鉴权失败、断线）、`tests/test_gui_service.py`（配置定向修改、token 幂等、WS 探测）、`tests/test_sidecar_kernel.py`（发现顺序、清单校验、命令组装）、`tests/test_dist_install.py`（假注册表/假快捷方式的安装/卸载/状态）。
+- 文档重写 [`docs/windows-app.md`](docs/windows-app.md)（新增桌面端、托盘/自启/安装、内置 DSH 内核三节，并更新构建产物、命令表与限制）与 [`packaging/README.md`](packaging/README.md)（双 exe、内核组装、安装器、核验清单）；`devdocs/code-map.md`、`devdocs/dsh-acp.md`、`AGENTS.md` locator 表同步。
+
+### Windows 桌面端（第二轮）：会话列表、Inno 安装包、DSH 深度路由
+
+- **会话列表与历史**：前端协议新增两对**只读**帧（Python 版扩展，Go 上游没有）：
+  客户端 `sessions` → 服务端 `sessions_result`（id/标题/模式/最近活跃/是否当前）、
+  客户端 `history` → 服务端 `history_result`（用户/助手消息 + 时间）。服务端实现复用
+  `atri_x.session.Service.list_page` 与 `can_access`（新模块 `atri_x/session/browse.py`），
+  不碰 Agent 上下文装载；GUI 侧新增 `atri_x/gui/sessions.py` 会话侧边栏（双击切换 =
+  发 `/resume <id>` + 拉历史，`Ctrl+N`/`新建` = `/new`）。切换/鉴权/审计仍走既有命令链路。
+  `docs/frontend-api.md` 增补「扩展帧：会话浏览」一节。
+- **Inno Setup 安装包**：新增 `packaging/atri-x.iss` + `packaging/build_installer.py`，
+  把 onedir 打成单个用户级安装包（`PrivilegesRequired=lowest`，不弹 UAC）：
+  `%LOCALAPPDATA%\ATRI-X\app`、开始菜单快捷方式、默认勾选开机自启（HKCU Run `ATRI-X`，
+  与 `autostart.py` 同值名）、`install.json` 标记 `"installer":"inno"`、静默安装/卸载参数、
+  `--verify` 自检（本地盘 + 短路径，实测 317.9 MB onedir → 56.0 MB 安装包；安装 40.7 s /
+  23865 文件、卸载 13.6 s 且清空目录）。`packaging/build.py` 新增
+  `--with-installer` / `--installer-verify` / `--installer-output`。
+  `atri_x.dist.install` 检测到 Inno 安装箱时会拒绝脚本卸载并提示 `unins000.exe`
+  （新增 `--force` 可强删），`status` 输出新增 `installer` 字段。
+- **DSH 深度路由（§6 落地）**：新增 `atri_x/agent/dsh/{command,router,handoff,runtime,route_call,status}.py`，
+  在 `call_llm` 的原生调用前问一次路由：任务特征打分（代码痕迹/路径/任务动词/多步…）+
+  成本闸门（`score − λ·cost_pressure`）+ 连续失败熔断；命中时把「系统设定 + 最近 N 轮 +
+  当前消息」拼成一次性 prompt 交给内置内核（每次新开 DSH 会话，无状态交接），流式文本写回
+  同一个 `MessageStream`，返回普通 `LLMCallResult`，因此落库/发送/状态发布全部沿用原生路径；
+  ACP 真实 `usage` 走既有预算服务（`begin_chat_budget`/`settle_chat_budget`/`record_chat_usage`），
+  与原生用量共享按用户/群/日额度。失败时：无输出→静默回退原生，有部分输出→保留并提示。
+  新增配置段 `[agent.dsh]`（`enabled`/`min_score`/成本参数/模型/超时/历史预算/权限/熔断，
+  默认值写入 `atri_x/config/assets_data/app.toml`）；新增
+  `python -m atri_x.agent.dsh.status [--json] [--score 文本]` 查看内核/熔断/打分。
+- 新增离线用例 68 个：`tests/test_dsh_route.py`（打分/成本闸门/熔断/交接/运行时/预算/失败回退，
+  用假 ACP 服务端真跑子进程）、`tests/test_cli_sessions.py`（新帧协议往返、查询层、服务端分发、
+  GUI 解码与侧边栏）；`tests/test_gui_client.py` 扩展会话帧收发；`tests/test_dist_install.py`
+  扩展 Inno 标记与拒绝卸载。
+- 修复 `SyncWebSocket.close` 的非幂等：重复关闭会对已停事件循环再造一个没人 await 的
+  `connection.close()` 协程（`RuntimeWarning`）。
+- 修复 `atri_x/sidecar/__main__.py` 的核验目录：冻结时不再写 `_internal/build/sidecar-verify`
+  （会被下一次打包/安装包带进发行物），改为写到 onedir 之外的同级目录。
+
+### 发行与持续集成（GitHub Release / ghcr.io）
+
+- 新增 `.github/workflows/release-image.yml`：tag `v*` 推送（也支持 Release 发布与手动触发）时构建
+  `deploy/Dockerfile`，推送 `ghcr.io/fujiwarashigure/atri-x2:<版本>` 与 `:latest`，随后**回拉镜像跑
+  `python -m atri_x --version` 冒烟**；构建附带 provenance 与 SBOM，并尝试把包可见性设为 public。
+- 新增仓库根 `.dockerignore`：排除 `.git`、`tests`、`docs`、`runtime/`（内置 DSH 内核约 277 MB）、
+  `dist/`、`build/` 等，构建上下文只保留 Dockerfile 需要的 `atri_x/`、`pyproject.toml`、`README.md`。
+- 发行产物：`ATRI-X-<版本>-setup.exe`（Windows 安装包）、`atri-x-<版本>-repo.tar.gz`（完整仓库归档）、
+  `atri-x-<版本>-src.tar.gz`（离线源码包）、`SHA256SUMS`；后两者由
+  `deploy/pack/prepare_offline.py --skip-images` 与 `git archive` 生成。
 
 ### Changed
 

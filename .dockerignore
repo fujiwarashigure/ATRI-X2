@@ -1,0 +1,85 @@
+# Docker 构建上下文裁剪（构建上下文 = 仓库根目录）：
+#   docker build -f deploy/Dockerfile .
+#
+# 这里才是真正生效的那份：`deploy/.dockerignore` 只在把 deploy/ 当上下文时才生效，
+# 两份内容保持同步（改一份就改另一份）。Dockerfile 只 COPY
+# `atri_x/`、`pyproject.toml`、`README.md`，所以其余一切都可以排除；
+# `atri_x/dist/` 是源码包（安装器/快捷方式），**不能**被 dist 规则误伤。
+#
+# 排除项里最影响体积的是 `runtime/`（内置 DSH 内核，约 277 MB）、`dist/`（冻结产物）、
+# `tests/`（用例）、`docs/`（文档）与 `build/`（PyInstaller 中间产物）。
+
+# ---------- Git / CI ----------
+.git
+.gitattributes
+.gitignore
+.github
+.commitmsg.tmp
+
+# ---------- 文档（构建不需要） ----------
+docs
+docs.en
+devdocs
+*.md
+!README.md
+
+# ---------- 翻译缓存 / 脚本 / 发布包 ----------
+.translation-cache
+scripts
+verification
+packaging
+*.zip
+*.tar.gz
+*.tgz
+*.tar
+
+# ---------- 测试 / 部署套件（只在开发机上用；运行时一律不需要） ----------
+tests
+deploy
+**/test_*.py
+**/*_test.py
+
+# ---------- Python 检出产物 ----------
+__pycache__
+**/__pycache__
+*.py[cod]
+*.pyd
+*.so
+*.egg-info
+.eggs
+.venv
+venv
+env
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# ---------- 仓库根构建产物（只匹配根目录，`atri_x/dist/` 保留） ----------
+build
+dist
+runtime
+deploy/dist
+
+# ---------- 上游 Go 源码（本仓是 Python 重写，不应该有；误放也不要进上下文） ----------
+**/*.go
+go.mod
+go.sum
+bin
+release-assets
+
+# ---------- 本地运行数据、备份与诊断 ----------
+data
+deploy/data
+deploy/backups
+deploy/diagnostics
+deploy/watchdog-state
+deploy/watchdog.env
+deploy/.env
+*.log
+
+# ---------- 本机调试残留（见 PORTING.md §7.3） ----------
+tmp_*
+.tmp_*
+.probe*
+.cron-test-sqlite-*
+tmp_suite.log

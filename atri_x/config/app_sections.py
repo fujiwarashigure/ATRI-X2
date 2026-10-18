@@ -43,7 +43,7 @@ __all__ = [
     "MissingConfigFileError", "StrictConfig", "UnknownConfigKeysError", "key_path",
     "load_toml", "normalize_string_list",
     # app.toml 静态段
-    "AngelMemoryConfig", "ArtistLibraryConfig", "AtrinisAtriwispConfig", "AtrinisConfig",
+    "AgentConfig", "AgentDshConfig", "AngelMemoryConfig", "ArtistLibraryConfig", "AtrinisAtriwispConfig", "AtrinisConfig",
     "AtrinisDeliveryDisabledConfig", "AtrinisHTTPConfig", "AtrinisSegmentConfig",
     "AtrinisTargetConfig", "AtrinisTokenConfig", "BudgetLimitsConfig",
     "CharacterLibraryConfig", "ChatHistoryCleanupConfig", "CommandsConfig",
@@ -574,6 +574,56 @@ class SelfLearningConfig(StrictConfig):
 
     def is_enabled(self) -> bool:
         return self.enabled is None or self.enabled
+
+
+# --- agent.dsh（Python 版新增：DSH 深度路由） ------------------------------
+@dataclass
+class AgentDshConfig(StrictConfig):
+    """``[agent.dsh]``：把复杂任务一次性交给内置 DSH 内核处理。
+
+    **Python 版新增段**（Go 上游没有）：DSH 只在「任务够复杂」时接管一轮
+    ``session/prompt``，普通聊天仍走 ATRI-X 原生低成本链路。判定与成本闸门见
+    :mod:`atri_x.agent.dsh.router`，上下文交接见 :mod:`atri_x.agent.dsh.handoff`。
+
+    0 / 空串一律表示「用内置默认」，与其它段的口径一致：
+
+    - ``enabled``：总开关（内核缺失或命令找不到时自动视为不可用，不会报错）；
+    - ``min_score``：任务复杂度阈值 0..1，越大越保守；
+    - ``lambda_penalty``：成本闸门权重，``score - λ·cost_pressure`` 必须仍达标；
+    - ``cost_ratio``：DSH 单轮成本相对原生链路的估计倍数（用于 cost_pressure）；
+    - ``cost_scale_tokens``：cost_pressure 的归一化尺度（多少 token 算「一次大调用」）；
+    - ``command``：显式启动命令；空串按「``DSH_ACP_COMMAND`` → 内置内核 → PATH 上的 ``dsh``」；
+    - ``model`` / ``reasoning_effort``：下发 ``session/set_config_option`` 的会话配置；
+    - ``timeout_seconds``：单轮 prompt 超时；
+    - ``max_history_messages`` / ``prompt_char_budget``：交给 DSH 的历史消息条数与字符预算；
+    - ``workspace`` / ``home``：DSH 会话工作区与 ``DSH_HOME``；空串落在配置目录下；
+    - ``allow_permissions``：是否放行 DSH 的权限请求（默认拒绝，安全优先）；
+    - ``circuit_breaker_failures`` / ``circuit_breaker_cooldown_seconds``：连续失败熔断。
+    """
+
+    enabled: bool = True
+    min_score: float = 0.40
+    lambda_penalty: float = 1.0
+    cost_ratio: float = 2.0
+    cost_scale_tokens: int = 20000
+    command: str = ""
+    model: str = ""
+    reasoning_effort: str = ""
+    timeout_seconds: float = 180.0
+    max_history_messages: int = 8
+    prompt_char_budget: int = 12000
+    workspace: str = ""
+    home: str = ""
+    allow_permissions: bool = False
+    circuit_breaker_failures: int = 3
+    circuit_breaker_cooldown_seconds: float = 300.0
+
+
+@dataclass
+class AgentConfig(StrictConfig):
+    """``[agent]``：Agent 行为段（Python 版新增，目前只有 ``dsh``）。"""
+
+    dsh: AgentDshConfig = field(default_factory=AgentDshConfig)
 
 
 # --- atrinis.toml ----------------------------------------------------------

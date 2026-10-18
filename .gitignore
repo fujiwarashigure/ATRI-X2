@@ -4,8 +4,10 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-dist/
+# 只忽略仓库根的构建产物：atri_x/dist/ 是安装器/快捷方式的源码包，不能被 dist/ 误伤
+/build/
+/dist/
+/deploy/dist/
 *.egg-info/
 .eggs/
 .venv/
@@ -68,3 +70,6 @@ tmp_sqlite_test/
 .tmp*/
 .fo*.txt
 .commitmsg.tmp
+
+# 打包用的内置运行时（由 packaging/assemble_kernel.py 从本机 DSH 安装组装，体积大，不入库）
+/runtime/

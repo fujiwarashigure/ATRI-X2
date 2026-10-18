@@ -72,6 +72,7 @@ rg -n "ATRIX_CONFIG_FILE|services.toml|providers.toml|state.toml|tool_tags.toml|
 - `atri_x/processenv/environment.py`：Shell / Go Skill 子进程凭据变量过滤。
 - `deploy/atri_x_watchdog.py`、`deploy/restore_verify.py`、`deploy/backup.py`：阈值/冷却/诊断脱敏、重启原因文件、sha256 备份清单和隔离恢复验证；在线 SQLite 模式先做数据库快照再复制媒体并按引用补齐，恢复结果区分 `passed` / `static_passed` / `static_passed_with_skips`，并在启动隔离实例前移除旧 PID 标记。
 - `deploy/upgrade.py`、`deploy/rollback.py`：配置兼容性检查、源码版本守卫、按实际 image ID 保存旧镜像、升级前 stop 模式快照、隔离配置预检；回滚先载入旧镜像验证备份，重建后等待 `/ready` 并跑 `doctor`，失败时尝试恢复回滚前 data。
+- `atri_x/agent/dsh/`、`deploy/Dockerfile` 的 `dsh-runtime` 阶段：ATRI-X 编排 DSH（DeepSeek Harness）的纯标准库 ACP 客户端（`types` 协议类型 / `transport` NDJSON JSON-RPC 传输 / `client` 会话与 prompt / `smoke` 闭环冒烟）；DSH 以 `dsh --profile acp` 的 stdio 子进程运行，状态根 `/data/dsh`，权限请求默认拒绝。路由阈值、上下文交接与预算记账尚未接入对话链路，设计见 `devdocs/dsh-acp.md`。
 - `atri_x/redact/`：用户可见错误、Hook 失败、日志/audit 和健康快照共用的凭据脱敏与错误 ID；`atri_x/redact/redact.py` 是脱敏的唯一实现，`atri_x/health/` 只保留兼容入口；`tests/test_deploy_watchdog.py` 覆盖诊断包脱敏。
 
 常用搜索：
@@ -106,6 +107,7 @@ rg -n "ATRIX_OPS_TOKEN|WATCHDOG_OPS_TOKEN|restore-verify|fallback_mode|doctor|up
 - `atri_x/agent/`：只读提供当前 Session ID，供平台引用续聊/fork 判定（对应 Go `reference.go`）。
 - `atri_x/agent/media_output.py`：发送前归一、发送副本解析与有序媒体回执缓存。
 - `atri_x/agent/options.py`、`atri_x/agent/logging.py`、`atri_x/agent/identity.py`：运行配置、日志和 Actor/Scope 解析。
+- `atri_x/agent/dsh/`（**Python 版新增**：把 DSH 接进对话链路）：`router.py`（任务特征打分 + 成本闸门 `score−λ·cost_pressure` + 熔断，纯函数可离线断言）、`handoff.py`（系统设定 + 最近 N 轮 + 当前消息 → 一次性 prompt；ACP usage → 账本 `Usage`）、`runtime.py`（长驻 `AcpClient` + 每轮一个一次性会话 + asyncio/阻塞桥接）、`route_call.py`（在 `call_llm` 里接路由：预算预占/结算、流式回传、失败回退/部分输出、熔断提示）、`command.py`（启动命令解析的唯一出处）、`status.py`（`python -m atri_x.agent.dsh.status`）。配置段 `[agent.dsh]`；挂点只在**一轮的第一次** `call_llm`（`allow_route`），工具轮次与视觉重试不换后端。设计见 [`devdocs/dsh-acp.md`](dsh-acp.md) §6。
 - `atri_x/agent/chat.py`：普通对话主流程；群级默认模型只在本轮没有显式 `@model:` 覆盖时生效。后台 turn（`backgroundTurnOutput`）在每次模型调用前、工具批次落库后、最终输出前与输出 hook 之后各查一次前台接管标记（`backgroundSessionMustStop` → `session.WasPromoted`），命中即返回 `errBackgroundTakenOver`，不发布 PhaseError、不写迟到助手消息；标记**查不出来**时保守停下并记 `background_takeover_check_failed`（不拿"读不到"当"没被接管"继续烧 token），上下文已结束时交给原有取消路径。`atri_x/agent/cron.py` 的 `RunBackground` 在 turn 正常结束后再复核一次接管，避免向已被接管的会话投递后台报告。
 - `atri_x/agent/group_policy.py`：群级策略解析、唤醒/静默判断、模型目录、learning 审核动作授权；策略保存在 `state.toml` 的 `group_policy`。
 - `atri_x/agent/group_knowledge.py`、`atri_x/groupkb/`：按群 scope 的本地确定性 FAQ 匹配与状态；`groupkb` 只做归一化和 exact/contains/keywords 匹配，不调用模型；Agent 负责权限、上限、`state.toml [group_knowledge]` 持久化和命中后的直接回答。
@@ -316,12 +318,14 @@ rg -n "Output|SendChat|SendNotice|Stream|Reasoning|emoticon|receipt|ToolPreview"
 - `atri_x/platform/platform.py`：平台抽象，以及可选的群历史/群目录/头像/群素材能力接口；`PlatformEventHandler` 提供 notice/request/meta_event 的非消息事件入口。
 - `atri_x/platform/qq_onebot/capabilities.py`：OneBot 可选群历史、群信息、成员列表和头像 URL 能力。
 - `atri_x/platform/qq_onebot/message.py`：入站文本保留原始空白，并生成不含转发内容的唤醒匹配视图；按共享总预算展开 `forward`/`node` 合并转发。`atri_x/platform/qq_onebot/inbound.py` 提供 `platform+bot+scope+message_id` 入站去重和有界预处理 worker / 高优先级事件通道；`atri_x/platform/qq_onebot/adapter.py` 的读取循环不再逐条无界起 asyncio task，并限制 `get_forward_msg` 拉取次数、超时、返回体和拉取失败降级。
+- `atri_x/platform/qq_onebot/transport.py`、`atri_x/platform/qq_onebot/smoke.py`：OneBot v11 正向 WS 连接的读写闸、动作响应分发与发送接口；`smoke.py`（`python -m atri_x.platform.qq_onebot.smoke`）只做协议层冒烟——连上 → `get_login_info` → 可选发群/私聊 → 可选监听上报事件，不读 `app.toml`、不装配 Agent，故障定位不依赖模型。
 - `atri_x/platform/telegram/capabilities.py`：Telegram 可选群信息和管理员列表能力；历史与全量成员回退本地历史。
 - `atri_x/platform/media.py`：Chat History 原始有序 segments 编解码与敏感来源清洗。
 - `atri_x/platform/refcontext.py`：按输出索引、Chat History、平台兜底恢复引用；自己 Session 的最后一条 assistant 自动 Resume，较早 assistant 自动 Fork。
 - `atri_x/platform/config.py`：平台配置解码。
 - `atri_x/platform/builtin.py`：内置平台装配。
 - `atri_x/platform/cli/`：本地/远程 CLI 和 TUI。
+- `atri_x/platform/cli/protocol.py`、`remote_server.py`（**Python 版扩展**）：前端协议在原有 `input`/`complete` 之外新增两对**只读**帧——`sessions`→`sessions_result`、`history`→`history_result`（会话列表/历史；不改当前会话，切换仍走 `/resume <id>`）。服务端通过 `set_session_browser(...)` 注入 `atri_x/session/browse.py` 的浏览器（装配在 `app/platforms.py` 的 `register_session_browsers`，与 `register_completion_platforms` 同时机）；没有注入时两帧返回空结果，不影响原协议。
 - `atri_x/platform/cli/tui/model.py`、`atri_x/platform/cli/tui/mouse.py`、`atri_x/platform/cli/tui/copy.py`：TUI 主模型、鼠标交互与 copy mode。
 - `atri_x/platform/qq_onebot/`
 - `atri_x/platform/qqofficial/`
@@ -347,6 +351,7 @@ rg -n "PlatformAdapter|SendChat|MessageSegment|Actor|Scope|remote|websocket|long
 - `atri_x/session/lifecycle.py`、`atri_x/session/query.py`、`atri_x/session/fork.py`、`atri_x/session/expiration.py`：生命周期、查询、Fork 和闲置过期策略；重命名/归档/置顶与闲置过期都在事务内基于最新行重新判定（手动改名标记、空闲判定）；`Unarchive` 对后台 Session 同样执行提升。
 - `atri_x/session/promotion.py`：后台 Session 的前台接管判定与提升。`IsBackground` 按 metadata `background_kind` 或 `cron:` / `atrinis:` scope 前缀判断，`WasPromoted` 按 metadata `foreground_origin` 判断；`promoteToForeground` 必须在 `Sessions().Mutate` 事务内调用，一次性写 `foreground_origin`（记录接管前的 kind/owner/platform/scope）、删除 `background_kind`、切到当前前台 scope 并置 `Mode = work`。`Resume` / `Unarchive` 用它做原地提升，`canAccess` 用 `IsBackground` 放行后台 Session 的跨 scope 恢复。
 - `atri_x/session/naming.py`：异步 Session 命名；迟到的命名写入在事务内检查 `title_renamed`，不覆盖手动改名。
+- `atri_x/session/browse.py`（**Python 版新增**）：远程前端的只读浏览视图（`sessions` / `history` 帧的数据源）——复用 `Service.list_page` 与 `can_access`，只读 `store.messages().list_by_session`，返回纯 dataclass（时间由平台层编码成 RFC3339），不依赖任何平台模块。
 - `atri_x/agent/session_metadata.py`：Session metadata 编解码；`encodeSessionMetadataInto` 基于原始 JSON 只改写已知字段，保留未知键。
 - `atri_x/agent/workspace.py`：Agent workspace 持久化适配；`workspace_dir` 与通知目录经 `mutateMetadata` 在事务内合并。
 - `atri_x/tool/workspace.py`：工具 workspace context 和路径解析。
@@ -462,6 +467,31 @@ rg -n "Atriena|Atriwisp|/atriena/v2/events|direct|segments|session_mode|backgrou
 
 ```bash
 rg -n "Cron|Job|Schedule|RunCron|maintenance|include_completed|tool_list_names" atri_x/cron atri_x/maintenance atri_x/agent atri_x/tool atri_x/storage
+```
+
+<!-- locator:packaging -->
+## 打包与分发（Windows 桌面端 / 原生 exe）
+
+适用任务：把 `atri_x` 冻结成不依赖 Python/Docker 的 Windows 可执行包、排查"打出来的 exe 起不来/首次启动没有默认配置/`-m` 模块跑不了/窗口版没 Tk/内置内核找不到"。
+
+先看：
+
+- `packaging/atri-x.spec`：PyInstaller 描述。三件事必须做对——`collect_submodules("atri_x")`（`--help`/`doctor`/各平台适配器大量走 `importlib.import_module` 延迟导入，静态分析看不到）、`datas` 打入 `atri_x/config/assets_data` 与 `atri_x/imagegen/prompts`（漏了会表现为"exe 能启动但生成不了默认配置"）、**不排除 `tkinter`**（窗口版要用）。onedir 下出两个 exe（`atri-x.exe` 控制台 + `atri-x-gui.exe` 窗口）共用一个 `COLLECT`；`ATRIX_PKG_RUNTIME_DIR` 非空时把 `runtime/` 打进 `_internal/runtime`。
+- `packaging/entry.py`：冻结入口。`atri-x.exe` 转发到 `atri_x.__main__:main`；`atri-x-gui.exe` 按文件名分流到 `atri_x.gui.__main__`；`-m <模块>` 用 `runpy` 复刻 `python -m`（冻结包没有解释器）。
+- `packaging/build.py`：构建 + **产物级核验**（跑 exe 的 `--version` / `config check` / `-m ... --help` / `-m atri_x.sidecar status` / 窗口版 `--selftest`，前几步把 `APPDATA`/`XDG_CONFIG_HOME` 指到 `build/pyinstaller-verify/`）。构建退出码为 0 不代表产物可用，核验步骤不能省。
+- `packaging/assemble_kernel.py`：从本机已装好的 DSH 组装 `runtime/dsh-kernel/`。闭包根来自 `dsh --profile acp --dump-config`，剪掉 Web/桌面前端包，然后用**真启动 ACP 服务端 + `initialize` 握手**核验，缺包自动补拷重试；`packaging/kernel_manifest.py` 负责 `kernel.json` 的读写（产物契约）。
+- `atri_x/sidecar/`：运行时发现层。`registry.py`（`ATRIX_RUNTIME_DIR` → `<发行包>/runtime` → `<配置目录>/runtime`；`kernel.json` 清单、`format` 版本守卫）、`kernel.py`（`find_kernel` / `dsh_command` / `describe`，找不到就回退外部 `dsh`）、`__main__.py`（`python -m atri_x.sidecar list|status|dsh-command|verify [--acp]`）。
+- `atri_x/gui/`：桌面端。`app.py`（Tk 窗口/菜单/托盘联动）、`client.py`（WS 客户端，复用 `atri_x/platform/cli/protocol.RemoteMessage`）、`protocol.py`（帧 → 界面状态的纯逻辑，含 `sessions_result`/`history_result` 解码）、`sessions.py`（会话侧边栏 + 历史灌入；打开会话 = 发 `/resume <id>` + 请求 `history`）、`service.py`（**唯一会改用户配置**的地方：`[platform.cli.server].enabled` + `.env` token；以及探测/拉起 `service run`）、`process.py`（程序/状态目录、窗口位置、pid 记录、强制停服务、单实例互斥量）、`tray.py`（`ctypes` Shell_NotifyIcon）、`autostart.py`（注册表 Run 项）、`selftest.py`（`--selftest` 的 Tk 自检）、`__main__.py`（单实例/`--minimized`/`--no-service`）。
+- `atri_x/dist/`：分发件。`shell_link.py`（COM `IShellLinkW`/`IPersistFile`）、`registry.py`（HKCU 卸载项 + 用户 PATH）、`paths.py`（安装/数据/快捷方式目录判定）、`install.py`（`python -m atri_x.dist.install install|uninstall|status`：复制到 `%LOCALAPPDATA%\ATRI-X\app`、快捷方式、HKCU 卸载项；卸载默认保留用户数据；检测到 `install.json` 里 `installer=inno` 时拒绝脚本卸载并提示 `unins000.exe`，`--force` 可强删）。
+- `packaging/atri-x.iss` + `packaging/build_installer.py`（**Python 版新增**）：Inno Setup 安装包。用户级安装（`PrivilegesRequired=lowest`，不弹 UAC）、`%LOCALAPPDATA%\ATRI-X\app`、开始菜单快捷方式、默认勾选开机自启、安装时写 `install.json`（`installer=inno`）、卸载前 `taskkill` 后台服务、`--verify` 静默安装/卸载自检（安装包先复制到本地盘、装到短路径；TEMP 不能指向映射盘，否则 Inno 子进程受限、HKCU 写入 `code 5`）。ISCC 查找顺序：`--iscc` → `ATRIX_ISCC` → `packaging/tools/ISCC.exe` → 常见安装路径。
+- `packaging/README.md`（构建细节与冻结限制）、`docs/windows-app.md`（用户侧：桌面端/托盘/自启/安装/接 QQ/内置内核/排障）。
+- 既有 Docker 形态在 `deploy/windows/`（Docker Desktop 生命周期与计划任务）与 `deploy/`（Linux 容器）；四种形态共用同一份 `app.toml` / `services.toml` / `state.toml` / `.env`。
+
+常用搜索：
+
+```bash
+rg -n "assets_data|ATRIX_PKG_|collect_submodules|freeze_support|-m atri_x" packaging docs/windows-app.md
+rg -n "sidecar|dsh-kernel|assemble_kernel|is_gui_exe|Shell_NotifyIcon|IShellLink" atri_x packaging devdocs/dsh-acp.md
 ```
 
 <!-- locator:docs -->

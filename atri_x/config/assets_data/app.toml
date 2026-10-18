@@ -280,6 +280,27 @@ prefixes = ["/"]
 [tools]
 max_rounds_per_turn = 10
 
+# ATRI-X desktop extension (Python port only): hand complex tasks to the bundled
+# DSH (DeepSeek Harness) ACP kernel. Normal chat keeps using the low-cost native
+# chain. If no kernel/`dsh` command can be found, routing silently stays off.
+# [agent.dsh]
+# enabled = true
+# min_score = 0.40                 # task complexity threshold, 0..1 (higher = more conservative)
+# lambda_penalty = 1.0             # cost gate weight: score - lambda * cost_pressure must pass
+# cost_ratio = 2.0                 # estimated DSH cost vs native chain for one turn
+# cost_scale_tokens = 20000        # prompt size that counts as "one large call" for cost pressure
+# command = ""                     # explicit launch command; empty = DSH_ACP_COMMAND -> bundled kernel -> dsh on PATH
+# model = ""                       # session/set_config_option model (empty = kernel default)
+# reasoning_effort = ""            # session/set_config_option reasoning_effort
+# timeout_seconds = 180
+# max_history_messages = 8         # recent messages handed to DSH together with the current one
+# prompt_char_budget = 12000       # character budget for the whole handed-over prompt
+# workspace = ""                   # DSH session cwd; empty = <config dir>/dsh/workspace
+# home = ""                        # DSH_HOME; empty = <config dir>/dsh/home
+# allow_permissions = false        # keep DSH permission requests denied (recommended)
+# circuit_breaker_failures = 3
+# circuit_breaker_cooldown_seconds = 300
+
 [ops]
 # 单次工具 / Hook / 上下文压缩的超时。0 表示不限时；生产建议设置明确上限。
 tool_timeout_seconds = 600

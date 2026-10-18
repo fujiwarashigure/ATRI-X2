@@ -10,6 +10,10 @@
 
 > **不要**往两个引导壳里加业务逻辑——加进去就会重新分裂成两份实现。
 
+> 另见：[`docs/windows-app.md`](../../docs/windows-app.md) —— **不装 Docker、不装 Python** 的原生 exe 形态
+> （`packaging/build.py` 构建）。两种形态共用同一份 `app.toml` / `services.toml` / `state.toml` / `.env`，
+> 换形态只需搬配置目录。
+
 ---
 
 ## 1. 前置条件

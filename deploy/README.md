@@ -51,12 +51,16 @@ Windows 本地 Docker Desktop 用户可以用引导壳：
 
 ## 2. 镜像
 
-`deploy/Dockerfile` 只有**一个阶段**，基础镜像是官方 `python:3.14-slim`：
+`deploy/Dockerfile` 有**两个阶段**：运行阶段的基础镜像是官方 `python:3.14-slim`，
+另一个 `node:24-bookworm-slim` 阶段只用来把 DSH（DeepSeek Harness）装进镜像：
 
 - Python 版**没有编译步骤**：纯标准库、零第三方依赖，代码直接 `COPY` 进镜像；
-- 只复制 `atri_x/`、`pyproject.toml`、`README.md`；
-- **不装任何第三方依赖**（Pillow 是可选的图像后端，不装；缺失时走纯 Python 后备）；
-- 非 root 运行（`10001:10001`），配置与数据都在 `/data` 卷上；
+- 只复制 `atri_x/`、`pyproject.toml`、`README.md`（新增的 `atri_x/agent/dsh/` 随包一起进镜像）；
+- Python 运行时**不装任何第三方依赖**（Pillow 是可选的图像后端，不装；缺失时走纯 Python 后备）；
+- 内置 DSH 需要 `node` 二进制，因此运行阶段固定装 `libstdc++6` 和 `ca-certificates`；
+  `EXTRA_TOOLS` 仍然只增不减；
+- 非 root 运行（`10001:10001`），配置与数据都在 `/data` 卷上（DSH 状态也在
+  `/data/dsh`，见 2.2）；
 - `ENTRYPOINT ["python", "-m", "atri_x"]`，`CMD ["service", "run"]`。
 
 构建：
@@ -92,6 +96,30 @@ slim 镜像里**没有 curl / git / tzdata**，这是官方刻意的精简取舍
 - 健康探测全部走标准库（见 3.1），不依赖 curl；
 - 时区靠 `ENV TZ` + 标准库 `zoneinfo`；
 - 需要给 Agent 的 shell 工具补系统命令时，用 `EXTRA_TOOLS` 追加（默认一个都不装）。
+
+### 2.2 镜像内置 DSH（ACP 编排，最小闭环）
+
+镜像里带一份锁版本的 DeepSeek Harness（默认 `@deepseek-ai/dsh@0.2.0-rc.2`），
+ATRI-X 通过 `dsh --profile acp` 的 **stdio 子进程**调用它：不开端口、不占宿主机
+端口映射，也不需要 pnpm 或运行期联网装包（`dsh` 的 bundle 从镜像安装目录解析，
+profile 目录首次启动自动生成）。ACP 客户端已就绪（`atri_x/agent/dsh/`），
+**对话链路的按需路由尚未接入**，当前可用的是下面的闭环冒烟。
+
+- 构建参数：`NODE_BASE_IMAGE`（默认 `node:24-bookworm-slim`）、`DSH_VERSION`、
+  `DSH_NPM_REGISTRY`；国内构建把 `DSH_NPM_REGISTRY` 指向镜像站即可；
+- DSH 的状态与工作区都落 `/data` 卷：`DSH_HOME=/data/dsh`、`DSH_WORKSPACE=/data/dsh-ws`，
+  与 ATRI-X 的配置/SQLite/媒体一起备份、一起迁移；
+- DSH 自己的模型凭据默认复用 `DEEPSEEK_API_KEY`（`dsh-credentials-local` 继承环境变量），
+  需要独立额度时再单独配；
+- 最小闭环冒烟（镜像内执行，跑通 initialize → session/new → prompt → close 并打印真实 token）：
+
+```bash
+# 镜像 ENTRYPOINT 是 `python -m atri_x`，所以要用 --entrypoint python 覆盖后再传 -m ...
+docker compose run --rm --entrypoint python atri-x -m atri_x.agent.dsh.smoke --json
+```
+
+- 客户端代码：`atri_x/agent/dsh/`（纯标准库，导入无副作用，不参与启动装配）；
+  协议契约、路由阈值与后续工作见 [`devdocs/dsh-acp.md`](../devdocs/dsh-acp.md)。
 
 ---
 
@@ -135,7 +163,7 @@ OneBot / Telegram 连通性。要判断“就绪”用 `/ready`。
 |---|---|---|
 | `GO_VERSION` / `GO_BASE_IMAGE` / `GOPROXY` | 删除 | Python 版没有编译阶段 |
 | `RUNTIME_BASE_IMAGE` | `PY_BASE_IMAGE` | 基础镜像覆盖（加速 / pin digest） |
-| `ATRIX_BUILD_TARGET` | 删除 | 上游用来选 `runtime` / `go-runtime`；Python 版只有一个阶段 |
+| `ATRIX_BUILD_TARGET` | 删除 | 上游用来选 `runtime` / `go-runtime`；Python 版没有 Go 编译阶段（内置 DSH 用独立 node 阶段） |
 | `ATRIX_GO_BINARY` / `EXTRA_TOOLS` | `EXTRA_TOOLS` 保留 | 上游默认装一大串 CLI 工具；Python 版默认不装 |
 | — | `ATRIX_DATA_VOLUME` | 新增：named volume 名（默认 `atri_x_data`） |
 | — | `ATRIX_CONFIG_FILE` | 新增：非标准配置路径时才需要 |
@@ -361,8 +389,8 @@ Atrinis，未启用时该请求会失败，但进程、模型 API、OneBot / Tel
 
 | # | 上游（Go / bash） | Python 版 | 原因 |
 |---|---|---|---|
-| 1 | Dockerfile 两阶段（golang 构建 + debian 运行），产物是静态二进制 | 单阶段，`python:3.14-slim`，只 COPY 源码 | Python 没有编译步骤 |
-| 2 | 运行镜像装一大串 CLI 工具（curl/wget/git/jq/…），另装 tini | 默认一个 apt 包都不装；用 compose `init: true` 代替 tini | 零第三方依赖是硬约束；slim 自带 Python 足够 |
+| 1 | Dockerfile 两阶段（golang 构建 + debian 运行），产物是静态二进制 | 运行阶段 `python:3.14-slim` 只 COPY 源码；另有 node 阶段装内置 DSH | Python 没有编译步骤 |
+| 2 | 运行镜像装一大串 CLI 工具（curl/wget/git/jq/…），另装 tini | 只装 node 需要的 libstdc++6 / ca-certificates；用 compose `init: true` 代替 tini | 零第三方依赖是硬约束；内置 DSH 需要 node |
 | 3 | `HEALTHCHECK` 用 `curl` 打 `/live` | 三层标准库探测：`--health-probe` → `/live` → TCP 32171 | slim 镜像没有 curl |
 | 4 | `ENTRYPOINT tini -- atri-x`，`CMD ["service","run"]` | `ENTRYPOINT ["python","-m","atri_x"]`，`CMD ["service","run"]` | 对应 `python -m atri_x service run` |
 | 5 | 有 `go-runtime` 构建目标（容器内编译 Go Skill） | 删除该目标 | Python 版没有需要编译的 Skill |

@@ -26,6 +26,7 @@ from atri_x.app.platforms import (
     register_command_catalogs,
     register_completion_platforms,
     register_platform_hooks,
+    register_session_browsers,
     runtime_names,
 )
 from atri_x.app.platform_caller import PlatformCallerResolver
@@ -78,6 +79,7 @@ class DefaultIntegrationFactory:
                 req.profiler.mark("atrinis init")
 
         register_completion_platforms(agent, platforms.runtimes)
+        register_session_browsers(agent, platforms.runtimes)
         register_command_catalogs(agent, platforms.runtimes)
         register_platform_hooks(agent, platforms.runtimes, req.health)
         if req.profiler is not None:

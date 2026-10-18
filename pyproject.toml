@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atri-x"
-version = "0.9.0"
+version = "0.9.1"
 description = "ATRI-X 的 Python 全量重写：多平台 LLM Agent 守护进程"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,7 +27,11 @@ imaging = ["Pillow>=10"]
 dev = []
 
 [project.scripts]
-atri-x = "atri_x.launcher.cli:main"
+# 真正的入口是 ``atri_x/__main__.py``（``python -m atri_x`` 的同一份）；
+# ``atri_x.launcher.cli`` 只导出参数解析与用法文本，没有 ``main``。
+atri-x = "atri_x.__main__:main"
+# 桌面端（Tk + 托盘）：`pip install` 后直接敲 `atri-x-gui`；与冻结版 atri-x-gui.exe 同入口。
+atri-x-gui = "atri_x.gui.__main__:main"
 
 [tool.setuptools]
 packages = { find = { include = ["atri_x*"] } }

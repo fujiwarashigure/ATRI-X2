@@ -22,7 +22,11 @@
 其他可用环境变量：
     ``ATRIX_VERSION``     覆盖版本号（默认读 ``deploy/VERSION``）
     ``PY_BASE_IMAGE``     覆盖基础镜像（国内加速 / pin digest）
-    ``EXTRA_TOOLS``       追加系统命令（默认列表为空，Python 版不装任何包）
+    ``NODE_BASE_IMAGE``   内置 DSH 的 node 基础镜像（默认 ``node:24-bookworm-slim``）
+    ``DSH_VERSION``       内置 DSH 版本（默认 ``0.2.0-rc.2``，需与 ACP 客户端匹配）
+    ``DSH_NPM_REGISTRY``  内置 DSH 的 npm 源（国内加速）
+    ``EXTRA_TOOLS``       追加系统命令（Python 版默认不装；内置 DSH 用的
+                          libstdc++6 / ca-certificates 是固定的）
     ``APT_MIRROR``        仅当 ``EXTRA_TOOLS`` 非空时需要
     ``BUILDX_EXTRA_ARGS`` 追加给 buildx 的额外参数
 
@@ -63,7 +67,7 @@ def build_args(deploy_dir: Path) -> list[str]:
     """拼 ``--build-arg`` 列表（空值一律不传，避免把 ``FROM`` 变成 ``:``）。"""
     version = _lib.env_value("ATRIX_VERSION") or default_version(deploy_dir)
     args = ["--build-arg", f"VERSION={version}"]
-    for name in ("PY_BASE_IMAGE", "EXTRA_TOOLS", "APT_MIRROR"):
+    for name in ("PY_BASE_IMAGE", "NODE_BASE_IMAGE", "DSH_VERSION", "DSH_NPM_REGISTRY", "EXTRA_TOOLS", "APT_MIRROR"):
         value = _lib.env_value(name)
         if value:
             args += ["--build-arg", f"{name}={value}"]

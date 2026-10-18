@@ -1,9 +1,9 @@
 """单次 LLM 调用：请求构造、流式读取、用量与错误审计。
 
 对应 Go：``internal/agent/chat_llm.go``。其中 ``llmRequestOptions`` /
-``llmRequestOptionsFromPayload`` / ``mergeLLMRequestOptions`` 在 Go 里位于
-``internal/agent/llm_request_options.go``（不在本组文件清单内），为保证本模块
-自洽，一并实现于此。
+``llmRequestOptionsFromPayload`` / ``mergeLLMRequestOptions`` 在 Go 里就在单独的
+``internal/agent/llm_request_options.go``；Python 版把它们放在
+:mod:`atri_x.agent.chat_request_options`（本模块末尾重新导出，导入路径不变）。
 
 Go 的 ``(llmCallResult, error)`` 在 Python 里是"返回 :class:`LLMCallResult`，
 失败抛异常"。两个刻意的例外与 Go 一致：``ctx`` 被取消/超时时**不抛**，而是带着
@@ -76,16 +76,6 @@ LEVEL_ERROR = 8
 
 
 @dataclass
-class LLMRequestOptions:
-    """Hook 返回的临时请求参数（不落库）。对应 Go ``llmRequestOptions``。"""
-
-    system_append: list[str] = field(default_factory=list)
-    temperature: float | None = None
-    max_tokens: int | None = None
-    extra_body: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
 class LLMCallResult:
     """一次模型调用的结果。对应 Go ``llmCallResult``。"""
 
@@ -98,56 +88,25 @@ class LLMCallResult:
     stream: MessageStream | None = None
 
 
-def llm_request_options_from_payload(payload: Any) -> LLMRequestOptions:
-    """从 hook 负载取临时请求参数。对应 Go ``llmRequestOptionsFromPayload``。"""
-    if payload is None:
-        return LLMRequestOptions()
-    options = LLMRequestOptions(
-        temperature=getattr(payload, "temperature", None),
-        max_tokens=getattr(payload, "max_tokens", None),
-        extra_body=_clone_any_map(getattr(payload, "extra_body", None)),
+async def _route_to_dsh(
+    agent: Any,
+    ctx: Any,
+    session_id: str,
+    selection: Any,
+    messages: list[LLMMessage],
+    stream: MessageStream | None,
+    out: Any,
+    *,
+    max_output: int = 0,
+) -> LLMCallResult | None:
+    """尝试 DSH 深度路由；不可用/不划算/失败都返回 ``None``（继续原生链路）。"""
+    try:
+        from atri_x.agent.dsh.route_call import maybe_route_to_dsh
+    except Exception:  # noqa: BLE001 - DSH 模块缺失（裁剪发行版）时静默跳过
+        return None
+    return await maybe_route_to_dsh(
+        agent, ctx, session_id, selection, messages, stream, out, max_output=max_output
     )
-    for part in getattr(payload, "system_append", None) or []:
-        text = str(part or "").strip()
-        if text:
-            options.system_append.append(text)
-    return options
-
-
-def merge_llm_request_options(
-    base: LLMRequestOptions | None, overlay: LLMRequestOptions | None
-) -> LLMRequestOptions:
-    """叠加上层参数。对应 Go ``mergeLLMRequestOptions``。
-
-    Go 的 ``merged := base`` 是值拷贝，因此这里也必须复制：返回值与 ``base``
-    不共享可变容器，调用方不会因为后续合并而看到自己的参数被改。
-    """
-    source = base or LLMRequestOptions()
-    merged = LLMRequestOptions(
-        system_append=list(source.system_append),
-        temperature=source.temperature,
-        max_tokens=source.max_tokens,
-        extra_body=dict(source.extra_body),
-    )
-    if overlay is None:
-        return merged
-    if overlay.system_append:
-        merged.system_append = list(merged.system_append) + list(overlay.system_append)
-    if overlay.temperature is not None:
-        merged.temperature = overlay.temperature
-    if overlay.max_tokens is not None:
-        merged.max_tokens = overlay.max_tokens
-    if overlay.extra_body:
-        combined = dict(merged.extra_body)
-        combined.update(overlay.extra_body)
-        merged.extra_body = combined
-    return merged
-
-
-def _clone_any_map(raw: Any) -> dict[str, Any]:
-    if not isinstance(raw, dict) or not raw:
-        return {}
-    return {str(key): value for key, value in raw.items()}
 
 
 async def call_llm(
@@ -162,11 +121,17 @@ async def call_llm(
     request_options: LLMRequestOptions | None,
     stream: MessageStream | None,
     out: Any,
+    *,
+    allow_route: bool = False,
 ) -> LLMCallResult:
     """调用一次模型（含请求/响应 hook、预算、限流与视觉兜底）。
 
     对应 Go ``Agent.callLLM``。``selection`` 在 Go 里按值传递，这里先复制，
     保证 hook 改的模型选择不会泄漏回调用方。
+
+    ``allow_route`` 是 Python 版新增：**一轮对话的第一次调用**才允许把任务交给
+    内置 DSH 内核（见 :mod:`atri_x.agent.dsh.route_call`）。工具阶段的多轮调用与
+    视觉重试不允许再次路由，避免同一轮被两个后端交替接管。
     """
     started_at = time.monotonic()
     base_messages = list(clone_messages(messages) or [])
@@ -228,6 +193,19 @@ async def call_llm(
             )
         for part in request_options.system_append:
             request_messages = append_system_segment_text(request_messages, part)
+        if allow_route:
+            routed = await _route_to_dsh(
+                agent,
+                ctx,
+                session_id,
+                selection,
+                request_messages,
+                stream,
+                out,
+                max_output=int(request_options.max_tokens or 0),
+            )
+            if routed is not None:
+                return routed
         await agent.guard_prompt_before_call(
             ctx, session_id, selection, request_messages, tools, out
         )
@@ -552,6 +530,13 @@ def _accumulated(
 
 
 
+
+# 这些名字的实现搬到了 atri_x.agent.chat_request_options，这里保持导入路径。
+from atri_x.agent.chat_request_options import (  # noqa: E402,F401
+    LLMRequestOptions,
+    llm_request_options_from_payload,
+    merge_llm_request_options,
+)
 
 # 这些名字的实现搬到了 atri_x.agent.chat_observe，这里保持同样的导入路径。
 from atri_x.agent.chat_observe import (  # noqa: E402,F401

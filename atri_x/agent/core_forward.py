@@ -111,6 +111,8 @@ class CoreForwardMixin:
         request_options: Any,
         stream: Any,
         out: Any,
+        *,
+        allow_route: bool = False,
     ) -> Any:
         from atri_x.agent.chat_llm import call_llm
 
@@ -126,6 +128,7 @@ class CoreForwardMixin:
             request_options,
             stream,
             out,
+            allow_route=allow_route,
         )
 
     def user_message_segments(self, ctx: Any, text: str) -> list[Any]:

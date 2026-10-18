@@ -183,6 +183,71 @@ LLM 流式输出的一段增量文本。前端应追加到当前正在生成的�
 
 处理过程中发生的错误。
 
+## 扩展帧：会话浏览（Python 版新增）
+
+> 上游 Go 版的线上协议只有 `input` / `complete` 两种客户端请求。桌面端需要
+> **列出历史会话、读某个会话的历史记录**，因此本仓库在**不改变原有帧语义**的前提下
+> 加了两对只读帧。它们不改当前会话；切换会话仍用既有的 `/resume <id>` 命令
+> （复用权限、审计、命名与上下文切换），前端不需要自己实现会话切换。
+
+### sessions — 请求会话列表
+
+```json
+{"type": "sessions", "id": "s-1", "limit": 30, "text": ""}
+```
+
+| 字段 | 说明 |
+|------|------|
+| id | 请求 ID，响应原样带回（可省略） |
+| limit | 最多返回多少条（1..200，省略用默认 30） |
+| text | 可选关键字过滤（按标题匹配） |
+
+服务端回复 `sessions_result`：
+
+```json
+{
+  "type": "sessions_result",
+  "id": "s-1",
+  "sessions": [
+    {
+      "id": "0f0c…",
+      "title": "重写打包脚本",
+      "mode": "work",
+      "status": "active",
+      "updated_at": "2026-07-01T12:00:00Z",
+      "current": true
+    }
+  ]
+}
+```
+
+`updated_at` 是 RFC3339（UTC，可能带小数秒）；`current` 标记该连接当前所在会话。
+没有可用数据时 `sessions` 字段整体省略。
+
+### history — 请求某会话历史
+
+```json
+{"type": "history", "id": "h-1", "session_id": "0f0c…", "limit": 200}
+```
+
+服务端回复 `history_result`：
+
+```json
+{
+  "type": "history_result",
+  "id": "h-1",
+  "session_id": "0f0c…",
+  "history": [
+    {"role": "user", "text": "帮我重构 utils.py", "at": "2026-07-01T11:59:00Z"},
+    {"role": "assistant", "text": "好的……", "at": "2026-07-01T11:59:02Z"}
+  ]
+}
+```
+
+只回用户/助手消息（工具与系统中间消息不回放）；单条超长文本会被截断并附
+`…（已截断）`。无权访问或会话不存在时 `history` 字段省略（等同于空）。
+
+
 ## 补全 Item 字段
 
 | 字段 | 类型 | 说明 |
@@ -273,3 +338,17 @@ ws.onmessage = (e) => {
 ```
 
 更多前端示例见 [elbot-showcase/frontend](https://github.com/Elfreese/elbot-showcase/tree/main/frontend)。
+
+## 参考实现：Windows 桌面端
+
+仓库自带一个**纯标准库**的桌面前端 [`atri_x/gui/`](../atri_x/gui/)，可以直接当参考实现读：
+
+| 文件 | 与协议的对应 |
+|---|---|
+| `atri_x/gui/client.py` | 连接、`hello` 握手、`input`/`complete`/`sessions`/`history` 发送、断线重连 |
+| `atri_x/gui/protocol.py` | `chat` / `notice` / `reasoning` / `status` / `stream_*` / `error` / `sessions_result` / `history_result` 帧 → 界面状态（复用 `RemoteMessage`，不另抄字段） |
+| `atri_x/gui/sessions.py` | 会话侧边栏与历史灌入（打开会话 = 发 `/resume <id>` + 请求 `history`） |
+| `atri_x/gui/service.py` | 准备 `[platform.cli.server]` 与 token、探测/拉起 `service run` |
+| `atri_x/gui/app.py` | Tk 窗口：聊天记录、状态栏、`Tab` 补全、托盘联动 |
+
+它走的就是本页的协议，`python -m atri_x.gui --no-service --url ws://127.0.0.1:32172/cli/v1/ws` 可以单独连一个已经在跑的服务端。

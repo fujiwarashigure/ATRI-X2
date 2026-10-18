@@ -47,6 +47,8 @@ __all__ = [
     "run_platforms",
     "registerCompletionPlatforms",
     "register_completion_platforms",
+    "registerSessionBrowsers",
+    "register_session_browsers",
     "registerCommandCatalogs",
     "register_command_catalogs",
     "registerPlatformHooks",
@@ -159,6 +161,28 @@ def register_completion_platforms(agent: Any, adapters: Any) -> None:
         setter = getattr(adapter, "set_completer", None)
         if callable(setter):
             setter(service)
+
+
+def register_session_browsers(agent: Any, adapters: Any) -> None:
+    """给支持会话浏览的适配器装上只读浏览器（Python 版新增）。
+
+    对应装配时机与 :func:`register_completion_platforms` 相同：Agent 已就绪、
+    平台还没启动。没有 ``sessions`` 服务的 Agent 桩直接跳过。
+    """
+    sessions = getattr(agent, "sessions", None) if agent is not None else None
+    if sessions is None:
+        return
+    try:
+        from atri_x.session.browse import SessionBrowser
+    except ImportError:  # pragma: no cover - 会话包缺失时跳过浏览扩展
+        return
+    browser = SessionBrowser(sessions)
+    for adapter in adapters or []:
+        if adapter is None:
+            continue
+        setter = getattr(adapter, "set_session_browser", None)
+        if callable(setter):
+            setter(browser)
 
 
 def register_command_catalogs(agent: Any, adapters: Any) -> None:
@@ -545,6 +569,7 @@ defaultPlatformFactory = DefaultPlatformFactory
 defaultPlatformExecutor = DefaultPlatformExecutor
 runPlatforms = run_platforms
 registerCompletionPlatforms = register_completion_platforms
+registerSessionBrowsers = register_session_browsers
 registerCommandCatalogs = register_command_catalogs
 registerPlatformHooks = register_platform_hooks
 registerCronPlatformHook = register_cron_platform_hook

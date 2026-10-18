@@ -219,6 +219,8 @@ async def _run_chat_body(
                 request_options,
                 stream,
                 out,
+                # 只有一轮的第一次调用允许交给 DSH：工具轮次与视觉重试不再换后端。
+                allow_route=tool_rounds == 0 and not in_tool_phase and pending is None,
             )
         except BaseException as exc:  # noqa: BLE001 - 溢出是"正常结束这一轮"
             if _is_prompt_overflow(exc):

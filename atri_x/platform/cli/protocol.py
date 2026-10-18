@@ -45,6 +45,22 @@ REMOTE_MSG_STREAM_REPLACE = "stream_replace"
 REMOTE_MSG_STREAM_FINISH = "stream_finish"
 REMOTE_MSG_ERROR = "error"
 
+#: 会话浏览扩展（**Python 版新增**，Go 上游没有这两对帧）。
+#:
+#: 桌面端需要"列出会话 / 读某会话历史"，但 Go 的线上协议只有 ``input`` 与
+#: ``complete`` 两种客户端请求。为了不改 ``input`` 的语义（它走完整的
+#: ``handle_message``，会触发命令、落库、发送），这里加两对只读帧：
+#:
+#: * 客户端发 ``sessions``（``limit``/``text`` 可选）→ 服务端回 ``sessions_result``；
+#: * 客户端发 ``history``（``session_id`` + ``limit``）→ 服务端回 ``history_result``。
+#:
+#: 两者都只读存储，不改变当前会话；切换会话仍走既有的 ``/resume <id>`` 命令，
+#: 因此权限、审计、命名等语义完全复用命令链路，不在这里另起一套。
+REMOTE_MSG_SESSIONS = "sessions"
+REMOTE_MSG_SESSIONS_RESULT = "sessions_result"
+REMOTE_MSG_HISTORY = "history"
+REMOTE_MSG_HISTORY_RESULT = "history_result"
+
 #: 单次写入的超时（秒）。对应 Go ``remoteWriteTimeout = 15 * time.Second``。
 REMOTE_WRITE_TIMEOUT = 15.0
 
@@ -78,17 +94,25 @@ __all__ = [
     "REMOTE_MSG_ERROR",
     "REMOTE_MSG_HELLO",
     "REMOTE_MSG_HELLO_OK",
+    "REMOTE_MSG_HISTORY",
+    "REMOTE_MSG_HISTORY_RESULT",
     "REMOTE_MSG_INPUT",
     "REMOTE_MSG_NOTICE",
     "REMOTE_MSG_REASONING",
+    "REMOTE_MSG_SESSIONS",
+    "REMOTE_MSG_SESSIONS_RESULT",
     "REMOTE_MSG_STATUS",
     "REMOTE_MSG_STREAM_APPEND",
     "REMOTE_MSG_STREAM_FINISH",
     "REMOTE_MSG_STREAM_REPLACE",
     "REMOTE_WRITE_TIMEOUT",
     "ZERO_TIME_TEXT",
+    "HistoryEntry",
     "RemoteMessage",
+    "SessionInfo",
     "format_rfc3339_nano",
+    "history_entry_from_json",
+    "history_entry_to_json",
     "item_from_json",
     "item_to_json",
     "level_from_text",
@@ -97,12 +121,99 @@ __all__ = [
     "parse_rfc3339_nano",
     "remote_notice_level",
     "remote_notice_message",
+    "session_info_from_json",
+    "session_info_to_json",
     "set_from_strings",
     "snapshot_from_json",
     "snapshot_to_json",
     "usage_from_json",
     "usage_to_json",
 ]
+
+
+@dataclass
+class SessionInfo:
+    """会话列表里的一条（**Python 版新增**，见 ``REMOTE_MSG_SESSIONS`` 的说明）。
+
+    键名用 snake_case：这是扩展帧，不必复刻 Go 的 PascalCase 结构体字段。
+    """
+
+    id: str = ""
+    title: str = ""
+    mode: str = ""
+    status: str = ""
+    platform: str = ""
+    updated_at: str = ""
+    created_at: str = ""
+    current: bool = False
+
+    def to_json(self) -> dict[str, Any]:
+        """序列化（空字段省略，``current`` 恒出现）。"""
+        out: dict[str, Any] = {"id": self.id, "current": bool(self.current)}
+        for key, value in (
+            ("title", self.title),
+            ("mode", self.mode),
+            ("status", self.status),
+            ("platform", self.platform),
+            ("updated_at", self.updated_at),
+            ("created_at", self.created_at),
+        ):
+            if value:
+                out[key] = value
+        return out
+
+
+@dataclass
+class HistoryEntry:
+    """某会话历史里的一条消息（**Python 版新增**）。"""
+
+    role: str = ""
+    text: str = ""
+    at: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        """序列化。"""
+        out: dict[str, Any] = {"role": self.role, "text": self.text}
+        if self.at:
+            out["at"] = self.at
+        return out
+
+
+def session_info_to_json(info: SessionInfo) -> dict[str, Any]:
+    """:class:`SessionInfo` → 线上字典。"""
+    return info.to_json()
+
+
+def session_info_from_json(raw: Any) -> SessionInfo:
+    """线上字典 → :class:`SessionInfo`（非法值取零值）。"""
+    if not isinstance(raw, Mapping):
+        return SessionInfo()
+    return SessionInfo(
+        id=str(raw.get("id") or ""),
+        title=str(raw.get("title") or ""),
+        mode=str(raw.get("mode") or ""),
+        status=str(raw.get("status") or ""),
+        platform=str(raw.get("platform") or ""),
+        updated_at=str(raw.get("updated_at") or ""),
+        created_at=str(raw.get("created_at") or ""),
+        current=bool(raw.get("current")),
+    )
+
+
+def history_entry_to_json(entry: HistoryEntry) -> dict[str, Any]:
+    """:class:`HistoryEntry` → 线上字典。"""
+    return entry.to_json()
+
+
+def history_entry_from_json(raw: Any) -> HistoryEntry:
+    """线上字典 → :class:`HistoryEntry`。"""
+    if not isinstance(raw, Mapping):
+        return HistoryEntry()
+    return HistoryEntry(
+        role=str(raw.get("role") or ""),
+        text=str(raw.get("text") or ""),
+        at=str(raw.get("at") or ""),
+    )
 
 
 @dataclass
@@ -122,6 +233,11 @@ class RemoteMessage:
     cursor: int = 0
     items: list[Item] = field(default_factory=list)
     snapshot: Snapshot = field(default_factory=Snapshot)
+    # -- 会话浏览扩展（Python 版新增；Go 的 remoteMessage 没有这些字段） ----
+    session_id: str = ""
+    limit: int = 0
+    sessions: list[SessionInfo] = field(default_factory=list)
+    history: list[HistoryEntry] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         """按 Go struct tag 序列化（``omitempty`` 逐字段复刻）。"""
@@ -132,13 +248,20 @@ class RemoteMessage:
             ("token", self.token),
             ("text", self.text),
             ("level", self.level),
+            ("session_id", self.session_id),
         ):
             if value:
                 out[key] = value
         if self.cursor:
             out["cursor"] = self.cursor
+        if self.limit:
+            out["limit"] = int(self.limit)
         if self.items:
             out["items"] = [item_to_json(item) for item in self.items]
+        if self.sessions:
+            out["sessions"] = [session_info_to_json(item) for item in self.sessions]
+        if self.history:
+            out["history"] = [history_entry_to_json(item) for item in self.history]
         # omitempty 对 struct 无效：snapshot 永远出现（见模块 docstring 第 2 条）。
         out["snapshot"] = snapshot_to_json(self.snapshot)
         return out
@@ -150,6 +273,9 @@ class RemoteMessage:
             return cls()
         cursor = raw.get("cursor")
         items = raw.get("items")
+        sessions = raw.get("sessions")
+        history = raw.get("history")
+        limit = raw.get("limit")
         return cls(
             type=str(raw.get("type") or ""),
             id=str(raw.get("id") or ""),
@@ -160,6 +286,18 @@ class RemoteMessage:
             cursor=int(cursor) if isinstance(cursor, (int, float)) else 0,
             items=[item_from_json(value) for value in items] if isinstance(items, list) else [],
             snapshot=snapshot_from_json(raw.get("snapshot")),
+            session_id=str(raw.get("session_id") or ""),
+            limit=int(limit) if isinstance(limit, (int, float)) else 0,
+            sessions=(
+                [session_info_from_json(value) for value in sessions]
+                if isinstance(sessions, list)
+                else []
+            ),
+            history=(
+                [history_entry_from_json(value) for value in history]
+                if isinstance(history, list)
+                else []
+            ),
         )
 
 

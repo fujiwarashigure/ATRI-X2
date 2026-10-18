@@ -61,6 +61,9 @@ rg -n "locator:agent-chat" AGENTS.md devdocs/*.md
 | Atrinis/Atriena/Atriwisp | `locator:atrinis` | `atri_x/atrinis/`、`atri_x/atriena/`、[`docs/atrinis.md`](docs/atrinis.md) |
 | Cron/维护任务 | `locator:cron` | `atri_x/cron/`、`atri_x/maintenance/` |
 | Go → Python 移植状态 | `locator:porting` | [`PORTING.md`](PORTING.md)、[`devdocs/porting-status.md`](devdocs/porting-status.md) |
+| Windows 打包/分发 | `locator:packaging` | [`packaging/README.md`](packaging/README.md)、[`docs/windows-app.md`](docs/windows-app.md) |
+| 桌面端/托盘/安装器 | `locator:packaging` | `atri_x/gui/`、`atri_x/dist/`、`atri_x/sidecar/`、`packaging/build_installer.py`、[`docs/windows-app.md`](docs/windows-app.md) |
+| DSH 深度路由 | `locator:packaging` | `atri_x/agent/dsh/`、`[agent.dsh]`、[`devdocs/dsh-acp.md`](devdocs/dsh-acp.md) §6 |
 | 文档维护 | `locator:docs` | 本文件、[`docs/README.md`](docs/README.md) |
 | 测试验证 | `locator:testing` | 本文件 |
 

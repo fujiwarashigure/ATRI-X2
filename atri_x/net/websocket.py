@@ -887,6 +887,9 @@ class SyncWebSocket:
 
     def __init__(self, connection: WebSocketConnection, loop: _LoopThread) -> None:
         self.connection, self._loop = connection, loop
+        #: ``close()`` 是否已经执行过（幂等：重复 close 会拿到已关闭的事件循环，
+        #: 再造一个没人 await 的 ``connection.close()`` 协程只会报 RuntimeWarning）。
+        self._closed = False
 
     @classmethod
     def connect(cls, url: str, **kwargs: Any) -> "SyncWebSocket":
@@ -912,7 +915,10 @@ class SyncWebSocket:
         return sync_call
 
     def close(self, code: int = CLOSE_NORMAL, reason: str = "") -> None:
-        """关闭连接并回收后台事件循环。"""
+        """关闭连接并回收后台事件循环（幂等）。"""
+        if self._closed:
+            return
+        self._closed = True
         try:
             self._loop.call(self.connection.close(code, reason), 10.0)
         finally:

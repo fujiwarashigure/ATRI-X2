@@ -96,6 +96,8 @@ class Options:
     image_profiles: dict[str, bool] = field(default_factory=dict)
     image_aliases: dict[str, str] = field(default_factory=dict)
     turn_directives: Any = None
+    #: Python 版新增：``[agent.dsh]`` 段（DSH 深度路由）。``None`` 表示不路由。
+    dsh_config: Any = None
 
 
 def validate_options(opts: Options) -> None:

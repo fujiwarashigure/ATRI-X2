@@ -295,6 +295,9 @@ class Agent(
         self.group_knowledge: dict[str, list[Any]] = {}
         self.session_commands: Any = None
         self.turn_directives = opts.turn_directives or _default_turn_directives()
+        # Python 版新增：``[agent.dsh]`` 深度路由配置。路由状态（熔断器、子进程）
+        # 在首次真正需要路由时才创建，见 ``atri_x.agent.dsh.route_call``。
+        self.dsh_config = opts.dsh_config
         self.tools_config = opts.tools_config or _default_tools_config()
         self.context_config = opts.context_config
         self.llm_request_config = opts.llm_request_config

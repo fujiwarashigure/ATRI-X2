@@ -28,6 +28,7 @@ from typing import Any
 
 from atri_x.config.app_sections import (
     TOML_OFF,
+    AgentConfig,
     AtrinisConfig,
     AngelMemoryConfig,
     BudgetLimitsConfig,
@@ -127,6 +128,8 @@ class AppConfig(StrictConfig):
     """
 
     config_files: ConfigFilesConfig = field(default_factory=ConfigFilesConfig)
+    #: Python 版新增段：``[agent]``（目前只有 ``[agent.dsh]`` 深度路由）。
+    agent: AgentConfig = field(default_factory=AgentConfig)
     mode_models: dict[str, ModelSelection] = field(default_factory=dict)
     naming_model: ModelSelection = field(default_factory=ModelSelection)
     compact_model: ModelSelection = field(default_factory=ModelSelection, metadata=TOML_OFF)

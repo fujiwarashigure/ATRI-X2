@@ -3,8 +3,12 @@
 # ATRI-X Python 版容器镜像
 #
 # 上游 Go 版用「golang 构建阶段 + debian 运行阶段」两段式编译静态二进制；
-# Python 版**没有编译步骤**：纯标准库、零第三方依赖，代码直接复制进镜像即可，
-# 因此这里只有一个阶段，基础镜像就是官方 python:3.14-slim。
+# Python 版**没有编译步骤**：纯标准库、零第三方依赖，代码直接复制进运行阶段即可，
+# 运行阶段的基础镜像仍是官方 python:3.14-slim。
+#
+# 另有一个 **DSH 阶段**（node:24-bookworm-slim）把 DeepSeek Harness 装进镜像：
+# ATRI-X 只通过 `dsh --profile acp` 的 stdio 子进程调用它，不开端口、运行期不联网
+# 装包。不需要 DSH 时删掉该阶段与运行阶段里的两条 COPY 即可。
 #
 # 本机构建（版本号取自 deploy/VERSION，也可显式传入）：
 #   docker build -f deploy/Dockerfile \
@@ -29,14 +33,44 @@
 #   - 健康探测改用标准库（python -m atri_x --health-probe + /live 兜底），不依赖 curl；
 #   - 时区靠 ENV TZ + 标准库 zoneinfo（Debian 自带 /usr/share/zoneinfo）；
 #   - Agent 的 shell 工具想用更多系统命令时，用 --build-arg "EXTRA_TOOLS=xxx"
-#     追加（跟上游一样“只增不减”：默认列表是空的，不装任何多余东西）。
+#     追加（跟上游一样“只增不减”）；内置 DSH 的 node 二进制需要 libstdc++6，所以
+#     镜像固定装它和 ca-certificates，其余 apt 包仍然默认一个都不装。
+#
+# DSH 运行时来自 node:24-bookworm-slim（同样是 Debian 12 / glibc）：DSH 的
+# koffi、node-pty 等原生依赖只有 glibc 预编译，**不能换成 alpine**。
+# 版本必须与 ATRI-X 的 ACP 客户端匹配，这里锁死精确版本而不是范围。
 
 ARG PY_BASE_IMAGE=python:3.14-slim
+ARG NODE_BASE_IMAGE=node:24-bookworm-slim
+ARG DSH_VERSION=0.2.0-rc.2
+# npm 源可覆盖（国内加速）；@deepseek-ai/* 是 npmjs 公开包，镜像站可以代理。
+ARG DSH_NPM_REGISTRY=https://registry.npmjs.org
 
+# ---------- DSH 运行时阶段 ----------
+# 构建期装好 DSH 并预热 acp profile：profile 初始化只写文件，bundle 从安装目录解析，
+# 所以运行期不需要 pnpm、也不需要联网装包（只有 `dsh plugin add` 装插件时才要）。
+# `--dump-config` 失败即构建失败，用它在构建期挡住不兼容的 DSH 版本。
+FROM ${NODE_BASE_IMAGE} AS dsh-runtime
+
+ARG DSH_VERSION
+ARG DSH_NPM_REGISTRY
+
+ENV DSH_HOME=/opt/dsh-home
+
+RUN set -eux; \
+    npm install -g --no-audit --no-fund --registry "${DSH_NPM_REGISTRY}" \
+        "@deepseek-ai/dsh@${DSH_VERSION}"; \
+    mkdir -p "${DSH_HOME}"; \
+    dsh --version; \
+    dsh --profile acp --dump-config >/dev/null; \
+    dsh --profile acp --help >/dev/null; \
+    rm -rf /root/.npm
+
+# ---------- 运行时阶段 ----------
 FROM ${PY_BASE_IMAGE}
 
 ARG VERSION=dev
-# 只用于“追加”更多系统命令；为空时一个 apt 包都不装（Python 版零依赖）。
+# 只用于“追加”更多系统命令；为空时只装内置 DSH 必需的 libstdc++6 / ca-certificates。
 ARG EXTRA_TOOLS=
 
 # PYTHONUNBUFFERED=1  让 stdout/stderr 直接进 docker logs，不做块缓冲；
@@ -60,26 +94,43 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# 只复制运行必需的三样：包目录、项目元数据、README。
+# 只复制运行必需的源码三样：包目录、项目元数据、README。
 # deploy/、tests/、docs/、scripts/、.git/ 全部由 deploy/.dockerignore 排除。
 COPY atri_x/ /app/atri_x/
 COPY pyproject.toml /app/pyproject.toml
 COPY README.md /app/README.md
 
+# ---------- DSH 运行时（镜像内置，运行期不联网装包） ----------
+# 只拷 node 二进制与 dsh 包树；npm / pnpm 不进镜像（容器里不装插件）。
+# DSH 的 profiles 靠安装目录解析 bundle，所以 /data 卷上的 profile 目录首次启动
+# 会自动建好，跨镜像版本升级也能自愈。
+COPY --from=dsh-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=dsh-runtime /usr/local/lib/node_modules/@deepseek-ai/dsh /usr/local/lib/node_modules/@deepseek-ai/dsh
+
+# DSH 的状态根与工作区都放 /data 卷：profiles / settings / sessions 跟 ATRI-X
+# 数据同卷备份。ATRI-X 拉起它时用 `--profile acp` 的 stdio 子进程，不占端口。
+ENV DSH_HOME=/data/dsh \
+    DSH_WORKSPACE=/data/dsh-ws \
+    DSH_ACP_COMMAND="dsh --profile acp"
+
 # 非 root 运行：10001:10001 与上游 Dockerfile / compose 的 user 完全一致，
 # 换镜像不会因为 UID 漂移导致已有的 ./data 卷不可写。
 # 没有安装步骤、不建 venv：代码就在 /app，靠 WORKDIR + PYTHONPATH 直接 import。
+# apt 只装 node 二进制必需的两个包；EXTRA_TOOLS 仍按“只增不减”追加。
 RUN set -eux; \
-    if [ -n "${EXTRA_TOOLS}" ]; then \
-        apt-get update; \
-        apt-get install -y --no-install-recommends ${EXTRA_TOOLS}; \
-        rm -rf /var/lib/apt/lists/*; \
-    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends libstdc++6 ca-certificates; \
+    if [ -n "${EXTRA_TOOLS}" ]; then apt-get install -y --no-install-recommends ${EXTRA_TOOLS}; fi; \
+    rm -rf /var/lib/apt/lists/*; \
+    ln -s ../lib/node_modules/@deepseek-ai/dsh/lib/bin.js /usr/local/bin/dsh; \
+    chmod +x /usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js; \
     groupadd -g 10001 atri-x; \
     useradd -u 10001 -g 10001 -d /home/atri-x -m -s /usr/sbin/nologin atri-x; \
-    mkdir -p /data/config /data/cache /data/run /home/atri-x /app; \
+    mkdir -p /data/config /data/cache /data/run /data/dsh /data/dsh-ws /home/atri-x /app; \
     chown -R atri-x:atri-x /data /home/atri-x /app; \
     chmod 750 /data/run; \
+    node --version; \
+    dsh --version; \
     python -c "import atri_x, sys; print('atri_x', atri_x.__version__, 'on', sys.version.split()[0])"
 
 LABEL org.opencontainers.image.title="atri-x" \
