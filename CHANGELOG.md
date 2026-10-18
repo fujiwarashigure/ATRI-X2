@@ -83,7 +83,9 @@ Windows 三种产物按 0.9.7 重新构建（`python packaging/build.py --with-k
 | `ATRI-X-0.9.7-setup.exe` | `d67daa499bd28c86df66965fae9f9f5537607f7ea1244db59f97d383d2898ee1` |
 
 两份产物已复制到桌面 `ATRI-X-0.9.7-Windows\` 并核对哈希。容器镜像由 `v0.9.7` tag 推送触发
-Actions 重建并推送（`ghcr.io/fujiwarashigure/atri-x2:0.9.7` 与 `:latest`）。
+Actions 重建并推送（`ghcr.io/fujiwarashigure/atri-x2:0.9.7` 与 `:latest`，digest
+`sha256:7a31cbd0edef89bd764941e7366300dbe432879e51498b63fbed762a47ef1626`，run 39144389453
+success，回拉冒烟 `atri-x 0.9.7`）。
 
 ### 清理与脱敏核对（v0.9.7 发行前）
 
