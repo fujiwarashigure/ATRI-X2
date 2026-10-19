@@ -12,6 +12,8 @@ from atri_x.redact.redact import (
     Summarize,
     error,
     new_error_id,
+    redact_secrets,
+    redact_text,
     secrets,
     summarize,
 )

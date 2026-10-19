@@ -2,7 +2,8 @@
 
 设计要点：
 
-* 同步 ``http.client`` 在 ``asyncio.to_thread`` 里执行，避免引入第三方
+* 同步 ``http.client`` 在 :func:`atri_x.ops.executors.run_io` 的 ``atrix-io`` 池里
+  执行（不再占用 asyncio 默认池，避免被 CPU 任务挡住），避免引入第三方
   aiohttp/httpx；连接复用通过 ``http.client`` 的连接本身不可跨线程，
   因此每次请求新建连接（与 Go 侧 ``DisableKeepAlives`` 等价，本项目
   并发上限只有个位数，代价可忽略）。
@@ -29,6 +30,8 @@ import time
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Iterable, Mapping, Sequence
+
+from atri_x.ops.executors import run_io
 
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_USER_AGENT = "atri-x/0.9.2 (python)"
@@ -267,7 +270,7 @@ class HTTPClient:
             _raise_if_cancelled(cancel)
             hop_timeout = budget.remaining()
             try:
-                resp = await asyncio.to_thread(
+                resp = await run_io(
                     self._blocking_request, method, url, headers, payload, hop_timeout
                 )
             except HTTPError:

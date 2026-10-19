@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import time
 from typing import Any
@@ -27,6 +26,7 @@ from atri_x.llm.llm import (
 from atri_x.media import prepare_vision_image_context
 from atri_x.media.mimetype import detect_content_type
 from atri_x.ops import concurrency
+from atri_x.ops.executors import run_cpu
 from atri_x.safecontext import (
     CancelToken,
     CancelledError,
@@ -264,11 +264,13 @@ class Service:
 
         预处理是**纯 CPU**（解码 + 重编码；实测 3.1 MPix 图要 15 秒上下），
         必须放到工作线程：直接在事件循环里调用会把整个进程的定时器、
-        心跳和其它请求一起冻住。``prepare_vision_image_context`` 不碰
+        心跳和其它请求一起冻住。它走 :func:`atri_x.ops.executors.run_cpu` 的专用
+        ``atrix-cpu`` 池，既不冻事件循环，也不与阻塞 IO 抢同一个池。
+        ``prepare_vision_image_context`` 不碰
         asyncio 对象，只读 ``ctx`` 的取消状态，因此线程里调用是安全的。
         """
         preprocess_start = time.monotonic()
-        data, mime_type = await asyncio.to_thread(
+        data, mime_type = await run_cpu(
             prepare_vision_image_context,
             ctx,
             req.data,

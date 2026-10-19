@@ -40,6 +40,7 @@ from atri_x.media import (
     prepare_vision_image_context,
     valid_id,
 )
+from atri_x.ops.executors import run_cpu
 from atri_x.platform import SegmentImage as PlatformSegmentImage
 from atri_x.platform import message_context_from
 from atri_x.security import RoleSuperadmin, actor_from_context
@@ -267,8 +268,9 @@ class ViewImageTool:
         if meta is not None and getattr(meta, "mime_type", ""):
             mime_type = meta.mime_type
         try:
-            # 解码校验是纯 CPU（大图可达十几秒）：放进工作线程，别冻住事件循环。
-            await asyncio.to_thread(
+            # 解码校验是纯 CPU（大图可达十几秒）：放进 atrix-cpu 工作线程，
+            # 别冻住事件循环，也别和阻塞 IO 抢同一个池。
+            await run_cpu(
                 prepare_vision_image_context, ctx, data, mime_type, 0, 0
             )
         except BaseException as exc:  # noqa: BLE001

@@ -72,6 +72,14 @@ class TestSecretsIdempotent(unittest.TestCase):
             '{"api_key": "sk-abcdefgh1234", "x": 1}',
             "https://api.telegram.org/bot123456:AAHsecret/getUpdates",
             "https://user:pass@example.com/hook",
+            # 本仓新增规则同样必须收敛。
+            "creds AKIAIOSFODNN7EXAMPLE end",
+            "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+            "Cookie: session=abc123def456; Path=/",
+            "dsn postgres://admin:s3cr3t@db:5432/app",
+            "https://b.s3.amazonaws.com/k?X-Amz-Signature=deadbeef0123456789&x=1",
+            "raw bot123456:AAHfoo_bar-baz0123456789 end",
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----",
         ]
         for raw in cases:
             with self.subTest(raw=raw):

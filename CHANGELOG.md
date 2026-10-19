@@ -6,6 +6,129 @@
 
 ---
 
+## [0.9.9] - 2026-10-19 — DSH 凭据与用量记账、并发上限接线、脱敏补齐
+
+> 这一批来自对 v0.9.8 的三项只读审计（内置 DSH 内核能否构建工作区容纳对话、多并发下是否
+> 用上 CPU 多核、脱敏是否做好）。三条主线都指向「文档承诺了、代码没做到」：
+> **DSH 子进程拿不到 ATRI-X 解析出的密钥**（Windows 图形端密钥只写 `.env`）、
+> **`[ops]` 并发上限与排队旋钮只解析没有消费者**（并发实际无上限）、
+> **脱敏有绕过路径**（结构化日志属性不脱敏、规则集缺 9 类常见凭据形态）。
+
+### 行为变化（升级前需知悉）
+
+| # | 变化 | 影响面 |
+|---|---|---|
+| 1 | `[ops] max_concurrent_turns/tools/hooks` 与 `queue_*` **真正生效** | 出厂资产为 10/10/10 + 全局队列 20 + 等待 30s：单进程并发从"无上限"变为"10 并发、超出排队、队满/超时拒绝"。要恢复旧行为把这些旋钮显式配 0；旧 `app.toml` 未写这些键时仍是"无上限且并发满直接拒绝" |
+| 2 | DSH 子进程**不再继承整份环境**：先按变量名过滤敏感项，再放回显式注入的模型凭据 | 依赖子进程继承 `*_KEY` / `*_TOKEN` / `*SECRET*` 的自定义 DSH 插件需要显式配置（`[agent.dsh] credential_env`） |
+| 3 | `[agent.dsh]` 新增 `credential_provider` / `credential_env` / `credential_base_url_env` | Windows 图形端把密钥写进 `%APPDATA%\ATRI-X\.env` 时，DSH 路由不再是每轮 `MISSING_CREDENTIAL` 后静默回原生 |
+| 4 | DSH **没回报 usage 的轮次不再记 0** | 硬额度：保留预占并标 `uncertain`（新增审计 `chat_budget_uncertain`）；软账本：该轮不落 token/费用。`/usage` 与日报里 DSH 轮次不再显示 0 用量，而是不计入 |
+| 5 | `[agent.dsh].model` / `reasoning_effort` 被内核拒绝时**一次性降级**为内核默认并记一条审计 warning | 以前每轮 `-32602` 失败、连续 3 次后熔断静默回原生；现在第一轮就能正常跑完（填裸模型 id 不再等于开关失效） |
+| 6 | 脱敏规则集扩大；日志里 dict / list 等结构化属性也脱敏 | 之前会明文落盘的 AWS AKID、JWT、`Authorization: Basic`、`Cookie`、PEM 私钥块、DSN userinfo、URL query 签名、裸 `bot<id>:<token>` 现在会被遮；cron 等 `extra=dict` 的结构化属性不再绕过（同一个 error 走审计脱敏、走运行日志不脱敏的不一致消失） |
+| 7 | 阻塞 IO 与 CPU 任务分池（`atrix-io` 32 / `atrix-cpu` min(8,CPU) / `atrix-media` 10） | 图片压缩不再与 HTTP 请求抢同一个默认线程池；GIL 下**不增加**多核并行度，只换来隔离与背压 |
+
+### DSH（`atri_x/agent/dsh/**`、`[agent.dsh]` 配置）
+
+- 环境：`runtime.child_environment()` 用 `atri_x.processenv` 过滤继承的敏感变量，再叠加显式注入项；
+  `transport` / `client` 新增仅关键字参数 `isolate_env`（默认 `False` 保持"继承 + 叠加"的旧语义）。
+- 凭据选择：`route_call.resolve_credential_env()` —— 显式 `credential_provider` > 名字含 `deepseek`
+  且能供密钥的 provider > 当前 work provider；密钥取 `api_key`，为空再取 `api_key_env` 指向的宿主
+  变量；键为空时不注入空值；`base_url` 非官方 `api.deepseek.com` 时一并注入 base URL 变量。
+- 用量：`AcpPromptResult.usage_reported` / `DshRunResult.usage_reported`（响应里真有 `usage` 对象才为真）；
+  成功与 stopped 分支据此决定「真实结算」还是「预占 + uncertain」。
+- 配置降级：`DshRunResult.warnings` + `DshRuntime._apply_overrides()`（model / effort 各自独立，失败一次后不再重试）。
+- 脱敏：`AcpProcessError` 的 stderr 尾部、`smoke` 的 command / cwd / prompt / 错误 / stderr 全部过
+  `atri_x.redact.secrets`（内核 startup 横幅自己写着"可能含配置或凭据值"）。
+- 文档：`devdocs/dsh-acp.md` §1 / §5 / §6 改写（凭据优先级链、usage 事实、model 取值要求、环境收敛）；
+  `docs/windows-app.md` §8.1 同步（三个凭据键、model 取值限制、用量口径）。
+- 未做（登记）：`dsh/status.py` 不展示新凭据字段；崩溃分支拿不到 `DshRunResult`，其 `warnings` 不进审计。
+
+### 并发（`atri_x/agent/core.py`、`atri_x/ops/executors.py`）
+
+- `_request_settings_from_ops()` 把 `[ops]` 映射成 `Limits` + `QueueConfig`，接进
+  `new_manager_with_limits_and_queue`（此前硬编码 `(0.0, {}, None)`，所有旋钮是死配置）。
+- 新模块 `atri_x/ops/executors.py`：`cpu_pool` / `io_pool` / `named_pool` / `run_cpu` / `run_io` /
+  `shutdown_pools`；迁移 `vision/service`、`tool/builtin/view_image`、`net/httpclient`、`net/s3`、
+  `platform/cli/adapter`、`tool/builtin/web_search_cli`。`media/worker.py` 用与闸门槽位对齐的
+  `atrix-media` 池（10 线程，保持"槽位跟底层工作走"的既有语义；用通用 CPU 池会把闸门从 10 降到 8）。
+- 文档：`docs/configuration.md`「运维超时与并发上限」与出厂资产对齐（队列 20/0/0、等待 30s），
+  写明只有 turn/tool/hook 有上限、`queue_wait_kinds` 里的 `"compress"` 目前不生效、
+  `provider_queue_max_size` 仍未消费。
+
+### 脱敏（`atri_x/redact/**`、`atri_x/logging/**`、`atri_x/llm/openai/errors.py`、`atri_x/safecontext.py`、`atri_x/health/server.py`、`deploy/_libfs.py`）
+
+- 规则集：新增 PEM 私钥块、裸 `bot<id>:<token>`、DSN userinfo、AWS AKID、GitHub 细粒度 PAT、JWT、
+  `Authorization: Basic`、`Cookie` / `Set-Cookie`、URL query 签名参数；`secrets()` 保持幂等
+  （新增用例逐条验证二遍 / 三遍收敛）。
+- `atri_x.redact` 包级导出 `redact_secrets` / `redact_text`（PORTING §3 契约名，此前只在子模块里）。
+- 日志：非标量属性值（dict / list / tuple / set / 其它对象）先 `str()` 再脱敏；降级兜底
+  `redact_fallback.FALLBACK_RULES` 与严格模式同口径（补 URL bot、JSON 引号键等）。
+- `llm/openai/errors.response_summary` 复用 `redact.secrets`（上游回显的 `Incorrect API key provided: sk-…`
+  不再进用户可见错误 / 审计）；`safecontext` 的回溯输出、健康 checker 的 `str(exc)`、watchdog 的独立
+  检测形态（AKID / GitHub PAT / 私钥头 / Basic / DSN）同步补齐。
+- 基线：`scripts/except_baseexception_baseline.json` 因 `health/server.py::evaluate_ready` 的处理器正文
+  变化做了位置级更新（旧指纹消失、新指纹出现，计数不变：119 处 / 111 个位置）。
+
+### 其他
+
+- README 静态数字与实测同步（687 模块、176 个测试文件 / 167 个 `test_*.py`、993 个受版本控制文件、
+  `check_syntax` 872）：其中 982→993 等条目在本次改动前就已漂移，`gen_stats.py --check` 当时即失败。
+
+### 发行（v0.9.9）
+
+Windows 三种产物按 0.9.9 重建（`python packaging/build.py --with-kernel --release`，
+内置 DSH 内核 `0.2.0-rc.2` / 384 包 / 277.6 MB，`assemble_kernel.py` 的 ACP `initialize`
+握手核验通过）：
+
+| 产物 | 体积 | 构建耗时 | 自检 |
+|---|---|---|---|
+| `dist/windows/atri-x/`（onedir 中间产物） | 318.8 MB / 23862 文件 | PyInstaller 98.1 s | `--version`（`atri-x 0.9.9`）、`config check`、`-m` 转发、`sidecar`（内置内核可解析）、GUI `--selftest` 全过 |
+| `dist/portable/ATRI-X-0.9.9-portable-win64.zip` | 113.9 MB（源 318.8 MB，deflate 36%） | 打包 9.8 s | 解压 19.2 s（23867 条目）后 `--version` / `config check` / 数据目录落在包内 / `-m` / sidecar / GUI selftest / `start-portable.bat` / `debug-console.bat` / APPDATA 重定向全过 |
+| `dist/installer/ATRI-X-0.9.9-setup.exe` | 56.5 MB | ISCC 47.4 s（Inno Setup 7.1.0，自带简体中文界面） | 静默安装 51.8 s / 23865 文件、`--version` 通过、静默卸载 14.4 s 且目录清空 |
+
+| 文件 | SHA256 |
+|---|---|
+| `ATRI-X-0.9.9-portable-win64.zip` | `206de2405aed0860424dacaa75be3b149f7ee51bb03898415520381f9761b72e` |
+| `ATRI-X-0.9.9-setup.exe` | `c1990cc0ebdb0004a95bcada4b72b056fdd083d62daa4e670ec200f710067ac5` |
+
+### 清理与脱敏核对（v0.9.9 发行前）
+
+- **仓库**：对 `git ls-files` 全量扫描两类标记：①凭据形态（`sk-*` / GitHub PAT / AWS AKID /
+  Slack token / JWT / PEM 私钥头 / bot token）；②本机与构建机路径（宿主机用户目录、
+  工作区根路径、dpx 隔离环境目录、其他构建机工具目录）。→ **0 处真实本机路径**；命中的
+  凭据形态全部是 `tests/**` 与文档里刻意构造的假值（`sk-abcdefgh…`、
+  `AKIAIOSFODNN7EXAMPLE`、假 JWT / 假私钥块），与 v0.9.8 的登记一致。裸用户名只出现在
+  上游 GitHub 地址 `github.com/fujiwarashigure/ATRI-X`（公开身份），不涉及本机用户目录。
+- **产物**：onedir 23862 文件、便携版真解压 318.8 MB、`setup.exe` 本体按字节扫描本机路径
+  标记 → **0 命中**；仅剩第三方 `node_modules` 文档里的示例值（AWS 文档示例 AKID、
+  `jose` 的 `BEGIN PRIVATE KEY` 字符串、`zod` 测试 JWT），与本机无关。
+- **构建日志**（`build/`，不入库）里有本机 PyInstaller hooks 路径；`build/`、`dist/`、
+  `runtime/` 都在 `.gitignore`，不会进仓库。`packaging/README.md` 的 Inno Setup 示例路径
+  改成 `C:\tools` 占位，与“构建机路径一律写占位”的口径一致。
+
+### 验证
+
+```
+python scripts/check_syntax.py      872 个文件，0 错
+python scripts/check_imports.py     modules=687 imported=687，0 失败
+python scripts/check_integration.py 74 项，0 失败
+python scripts/check_coverage.py --summary   72/72，weighted=100.0%
+python scripts/check_except.py      OK（119 = 基线 119）
+python scripts/gen_stats.py --check OK
+python -m unittest discover -s tests -t .   Ran 5679 tests — OK (skipped=2)
+```
+
+另有一次活体探针（`tests/_tmp_verify_lead/`，跑完已删）：用出厂 `app.toml` 资产验证
+`[ops]` → `{turn:10, tool:10, hook:10}` + 队列 20/0/0/30s；用假 provider 验证凭据注入
+（`DEEPSEEK_API_KEY`，非官方 `base_url` 一并注入、官方端点不覆盖）；验证环境收敛会把
+`ATRIX_*_TOKEN` 之类过滤掉而保留注入项与 `PATH`；并用收敛后的环境真实拉起内置内核
+（`initialize` OK、`session/new` OK）。
+
+> 全量跑法说明：本机 PowerShell 在 `... 2>&1 | Tee-Object ...` 这类管道下会把进程退出码
+> 报成 1（上面已记录的既知坑），以 unittest 的 `OK` 结论为准；单跑模块时
+> `$LASTEXITCODE` 为 0。
+
+---
+
 ## [0.9.8] - 2026-10-19
 
 > 本版把「研究报告审计修复」与「二审整改」两批工作一起冻结成可交付发行，并配一次全仓
@@ -191,10 +314,9 @@ Windows 三种产物按 0.9.8 重建（`python packaging/build.py --with-kernel 
   写死路径会让读者以为能在仓库里找到）；`tests/test_app_doctor_capabilities.py` 与
   `tests/test_vision_threading.py` 的 docstring 去掉指向仓库外审计文件的路径。
 - **发行物复核**：onedir（24510 文件）与便携版 zip（**真解压**后 24515 文件）逐文件按
-  宿主机用户目录、其它构建机工具目录、dpx 隔离环境目录等 7 类本机/构建机路径
-  标记扫描 → **0 命中**；`setup.exe` 本体按
-  字节扫描同样 0 命中。产物里唯一的 `C:\Users\...` 是第三方 `node_modules` 文档里的示例
-  路径（`C:\\Users\\x\\y\\z`），与本机无关。
+  宿主机用户目录、其它构建机工具目录、dpx 隔离环境目录等 7 类本机/构建机路径标记扫描
+  → **0 命中**；`setup.exe` 本体按字节扫描同样 0 命中。产物里唯一的 `C:\Users\...` 是
+  第三方 `node_modules` 文档里的示例路径（`C:\\Users\\x\\y\\z`），与本机无关。
 - **未验证**：产物只在本机（Windows 10 19045 / Python 3.14.7）通过自检，无代码签名，
   真实平台/模型 E2E、容器镜像重建不在本次范围。
 

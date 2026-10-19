@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `0.9.8`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `0.9.9`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -18,12 +18,12 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行（含测试共 754 个文件 / 146,153 行） |
-| 本仓库 | 平铺布局的 `atri_x/`：686 个 `.py` 模块，约 19.4 万行（物理行，含空行/注释/docstring） |
+| 本仓库 | 平铺布局的 `atri_x/`：687 个 `.py` 模块，约 19.5 万行（物理行，含空行/注释/docstring） |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 平台适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 175 个 Python 文件（其中 166 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
-| 规模 | 982 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
+| 测试 | `tests/` 176 个 Python 文件（其中 167 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
+| 规模 | 993 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
 
 ## 功能特性
 
@@ -323,8 +323,8 @@ python -m unittest discover -s tests -t .             # 全量测试
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 870 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=686 imported=686`，0 失败 |
+| `check_syntax` | 872 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=687 imported=687`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径：只验 [PORTING.md](PORTING.md) §4 映射表里的 Python 模块是否存在，不衡量行为正确性） |
 | 全量 `unittest` | 用例数不硬编码（见下）；现场跑 `python -m unittest discover -s tests -t .`，以本机输出或 CI 记录为准 |
@@ -355,7 +355,7 @@ python -m unittest discover -s tests -t .             # 全量测试
 
 ### 性能数据说明
 
-本仓库**不提供官方性能基准**。旧文档中的「N5105 上 <10 ms 启动、约 30 MB 常驻内存」是 Go 版 v0.5.0 的历史参考数据，无法代表当前 Python 版（版本已到 0.9.8，且新增了健康接口、诊断、素材清单、`doctor` 等组件），因此不在本 README 中保留。启动与资源占用取决于配置、模型调用、生图与工具子进程、并发规模，需要时请在自己的目标机器上实测，例如：
+本仓库**不提供官方性能基准**。旧文档中的「N5105 上 <10 ms 启动、约 30 MB 常驻内存」是 Go 版 v0.5.0 的历史参考数据，无法代表当前 Python 版（版本已到 0.9.9，且新增了健康接口、诊断、素材清单、`doctor` 等组件），因此不在本 README 中保留。启动与资源占用取决于配置、模型调用、生图与工具子进程、并发规模，需要时请在自己的目标机器上实测，例如：
 
 ```bash
 python -m atri_x --version

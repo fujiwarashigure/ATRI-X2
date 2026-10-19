@@ -26,18 +26,41 @@ __all__ = [
     "status",
 ]
 
-#: 兜底遮盖规则 ``(模式, 替换)``：sk-xxx / Bearer xxx / api_key=... / URL 里的
-#: user:password@ / JWT / Telegram bot token。只覆盖常见密钥形态，宁可多遮。
+#: 兜底遮盖规则 ``(模式, 替换)``：与 :mod:`atri_x.redact.redact` 的规则集**同口径**
+#: （PEM 私钥块 / Telegram bot URL 与裸 token / sk-、GitHub PAT、AWS AKID / JWT /
+#: Basic / Cookie / DSN userinfo / URL query 签名 / key=value），只覆盖常见形态，
+#: 宁可多遮。这里是降级实现，不替代严格脱敏。
 FALLBACK_RULES: tuple[tuple[str, str], ...] = (
-    (r"(?i)\bsk-[A-Za-z0-9][A-Za-z0-9_\-]{5,}", "[REDACTED]"),
-    (r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=\-]{8,}", r"\1[REDACTED]"),
+    (
+        r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z0-9 ]*PRIVATE KEY-----",
+        "[REDACTED]",
+    ),
+    (r"(?i)(https?://[^/\s]+/bot)\d+:[A-Za-z0-9_\-]+", r"\1[REDACTED]"),
+    (r"(?i)\bbot\d{6,}:[A-Za-z0-9_\-]{20,}", "bot[REDACTED]"),
     (r"\b\d{6,}:[A-Za-z0-9_\-]{20,}\b", "[REDACTED]"),
+    (
+        r"(?i)\bsk-[A-Za-z0-9][A-Za-z0-9_\-]{5,}"
+        r"|\bgithub_pat_[A-Za-z0-9_]{20,}"
+        r"|\bgh[pousr]_[A-Za-z0-9]{20,}"
+        r"|\bxox[baprs]-[A-Za-z0-9\-]{10,}"
+        r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b",
+        "[REDACTED]",
+    ),
+    (r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=\-]{8,}", r"\1[REDACTED]"),
+    (r"(?i)(authorization\s*:\s*basic\s+)[A-Za-z0-9+/=]{8,}", r"\1[REDACTED]"),
+    (r"(?i)((?:set-)?cookie\s*:\s*)[^\r\n]+", r"\1[REDACTED]"),
     (r"\beyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}\b", "[REDACTED]"),
     (r"(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s:@]{1,64}:[^/\s@]{1,128}@", r"\1[REDACTED]@"),
     (
+        r"(?i)([?&](?:x-amz-signature|x-amz-credential|x-amz-security-token"
+        r"|x-goog-signature|signature|sig|auth[_-]?key|rkey"
+        r"|access[_-]?token|api[_-]?key)=)[^&\s]+",
+        r"\1[REDACTED]",
+    ),
+    (
         r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
         r"private[_-]?key|secret|password|passwd|token|authorization|cookie)"
-        r"\b(\s*[:=]\s*)([\"']?)[^\s\"',;&]{4,}\3",
+        r"\b[\"']?(\s*[:=]\s*)([\"']?)[^\s\"',;&]{4,}\3",
         r"\1\2\3[REDACTED]\3",
     ),
 )

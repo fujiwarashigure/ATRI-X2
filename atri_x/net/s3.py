@@ -9,14 +9,13 @@ Python 标准库没有 S3 客户端，本模块只实现 ATRI-X 媒体外置所�
 * 签名与请求构造是**纯函数**（:func:`canonical_request` / :func:`string_to_sign` /
   :func:`signing_key` / :func:`sign_request` / :func:`presign_url`），不联网即可单测，
   测试用 AWS 官方文档与 SigV4 测试套件的已知向量断言；
-* 传输走 ``http.client``（在 ``asyncio.to_thread`` 里执行），与
-  :mod:`atri_x.net.httpclient` 同样不引入第三方依赖；
+* 传输走 ``http.client``（在 :func:`atri_x.ops.executors.run_io` 的 ``atrix-io`` 池里
+  执行），与 :mod:`atri_x.net.httpclient` 同样不引入第三方依赖；
 * 同时支持 path-style（MinIO、自建网关）与 virtual-hosted-style（AWS 默认）。
 """
 
 from __future__ import annotations
 
-import asyncio
 import datetime as _dt
 import hashlib
 import hmac
@@ -26,6 +25,8 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Any, Mapping
+
+from atri_x.ops.executors import run_io
 
 __all__ = [
     "EMPTY_SHA256",
@@ -496,7 +497,7 @@ class S3Client:
         )
 
     async def _run(self, method: str, url: str, headers: Mapping[str, str], body: bytes | None) -> _Response:
-        return await asyncio.to_thread(self._send, method, url, headers, body)
+        return await run_io(self._send, method, url, headers, body)
 
     # -- 操作 ---------------------------------------------------------------
     async def put_object(

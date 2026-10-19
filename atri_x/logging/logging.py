@@ -18,9 +18,10 @@
 
 脱敏走共享契约模块 :mod:`atri_x.redact.redact`：字符串属性值走 ``redact_secrets``
 （= Go ``redact.Secrets``），异常值走 ``redact_text``（= Go ``redact.Error``）。
-消息正文（``msg``）与 Go 一样不做脱敏。该模块当前导出的名字是 ``secrets`` /
-``error``（PORTING 口径的 ``redact_secrets`` / ``redact_text`` 尚未提供），本模块两种
-命名都接。
+**非标量属性值同样要脱敏**：dict / list / tuple / set 与其它对象先 ``str()`` 再
+过 ``redact_secrets``（结构化正文里的凭据不再因为"不是 str"而明文落盘）。
+消息正文（``msg``）与 Go 一样不做脱敏。该模块同时导出 ``secrets`` / ``error``
+与 PORTING 口径的 ``redact_secrets`` / ``redact_text``，本模块两种命名都接。
 
 **降级语义（不再原样透传）**：脱敏模块取不到时 ``REDACT_AVAILABLE`` 置 False，改用
 :data:`_FALLBACK_RULES` 正则兜底（只保证"不再明文"）；:func:`announce_redact_degradation`
@@ -198,7 +199,11 @@ def quote_if_needed(value: str) -> str:
 
 
 def _attr_text(value: Any) -> str:
-    """把一个属性值渲染成文本（未加引号），并施加与 Go ``replaceAttr`` 等价的脱敏。"""
+    """把一个属性值渲染成文本（未加引号），并施加与 Go ``replaceAttr`` 等价的脱敏。
+
+    ``str`` 与异常直接走脱敏；dict / list / tuple / set 等结构化值先 ``str()`` 再
+    脱敏——它们过去落到最后一个分支原样输出，等于给凭据留了一条绕过路径。
+    """
     if isinstance(value, str):
         return redact_secrets(value)
     if isinstance(value, bool):
@@ -213,7 +218,7 @@ def _attr_text(value: Any) -> str:
         return redact_text(str(value))
     if value is None:
         return "<nil>"
-    return str(value)
+    return redact_secrets(str(value))
 
 
 def format_attrs(attrs: "list[tuple[Any, Any]]") -> str:

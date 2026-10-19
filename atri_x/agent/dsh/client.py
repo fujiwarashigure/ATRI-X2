@@ -106,6 +106,7 @@ class AcpClient:
         on_event: Callable[[AcpEvent], None] | None = None,
         on_permission: Callable[[Mapping[str, Any]], Mapping[str, Any] | None] | None = None,
         client_name: str = "atri-x",
+        isolate_env: bool = False,
     ) -> None:
         parts = shlex.split(command) if isinstance(command, str) else [str(item) for item in command]
         self._transport = JsonRpcStdio(
@@ -115,6 +116,7 @@ class AcpClient:
             request_timeout=request_timeout,
             on_notification=self._handle_notification,
             on_request=self._handle_request,
+            isolate_env=isolate_env,
         )
         self._prompt_timeout = float(prompt_timeout)
         self._on_event = on_event
@@ -339,16 +341,19 @@ class AcpClient:
                 self._turns.pop(session_id, None)
         mapping = result if isinstance(result, Mapping) else {}
         events, body, thought, used, size = buffer.snapshot()
+        raw_usage = mapping.get("usage")
         return AcpPromptResult(
             session_id=session_id,
             stop_reason=as_text(mapping.get("stopReason")),
-            usage=AcpUsage.from_mapping(mapping.get("usage")),
+            usage=AcpUsage.from_mapping(raw_usage),
             text=body,
             thought=thought,
             used_tokens=used,
             context_size=size,
             events=events,
             elapsed_seconds=time.monotonic() - started,
+            # 只有响应里真的带 usage（对象）才算"内核回报了用量"；缺字段时不猜 0。
+            usage_reported=isinstance(raw_usage, Mapping),
         )
 
     def cancel(self, session_id: str) -> None:

@@ -75,7 +75,7 @@ ATRI-X 使用以下环境来源：
 1. ATRI-X 进程环境。
 2. 配置根 `.env`。
 
-Docker Compose 的 `env_file`、`docker run -e`、systemd `EnvironmentFile` 注入的变量都属于 ATRI-X 进程环境。ATRI-X 会把名字含独立 `KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`PRIVATE` 词段的变量从 Shell / Go Skill 子进程环境中移除，但父进程和 Web 搜索、生图、媒体下载等工具仍可读取这些密钥；如果向群聊用户开放工具，不能只依赖“容器不是 root”来保护其中的 API Key。
+Docker Compose 的 `env_file`、`docker run -e`、systemd `EnvironmentFile` 注入的变量都属于 ATRI-X 进程环境。ATRI-X 会把名字含独立 `KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`PRIVATE` 词段的变量从 Shell / Go Skill 子进程环境中移除；内置 DSH 子进程同样只拿到 `[agent.dsh]` 显式注入的那一个模型凭据（见 [`docs/windows-app.md`](windows-app.md) §8.1），其余敏感变量一并过滤。但父进程和 Web 搜索、生图、媒体下载等工具仍可读取这些密钥；如果向群聊用户开放工具，不能只依赖“容器不是 root”来保护其中的 API Key。
 
 推荐把真实密钥放在系统环境或配置根 `.env`，不要直接写入 TOML 或提交到仓库。例如：
 
@@ -872,6 +872,8 @@ MUST:
 
 ## 运维超时与并发上限
 
+下面这段来自出厂的 `atri_x/config/assets_data/app.toml`：**并发上限与队列部分就是出厂默认值**；限速部分出厂默认全 `0`（= 不限速），示例里给的是一组可用的生产值。
+
 ```toml
 [ops]
 # 单次工具 / Hook / 上下文压缩超时；0 表示不限时。
@@ -891,15 +893,15 @@ rate_limit_idle_ttl_seconds = 600
 # 可选：超过并发上限时允许短暂排队。turn 已加入排队，并发满时用户是等一会儿而不是被拒绝；
 # queue_wait_timeout_seconds 必须大于 0，否则排队的请求会一直等下去。
 queue_max_size = 20
-queue_max_per_user = 2
-queue_max_per_scope = 8
-queue_wait_timeout_seconds = 10
+queue_max_per_user = 0
+queue_max_per_scope = 0
+queue_wait_timeout_seconds = 30
 queue_wait_kinds = ["turn", "tool", "hook", "compress"]
 # 可选：Provider 实际调用并发与等待队列；0 表示不限制。
 # 与 max_concurrent_turns 同步：并发 turn 会同时打同一个 provider，这里不设上限只会把压力换成 429。
 provider_max_concurrent = 10
-provider_queue_max_size = 8
-provider_wait_timeout_seconds = 10
+provider_queue_max_size = 20
+provider_wait_timeout_seconds = 30
 # 可选：Provider 连续失败后的熔断；0 表示关闭。
 circuit_breaker_failure_threshold = 0
 circuit_breaker_open_cooldown_seconds = 60
@@ -930,10 +932,14 @@ chat_hard_limit_reserve_output_tokens = 0
 - 用户 / 群聊限速按 `平台 + scope` 维度使用令牌桶。群聊会**先检查用户级额度，再检查群级总额度**：用户额度防止单个成员刷屏，群级额度保护整个群的资源；任意一项拒绝都会直接提示重试，不进入 LLM 或工具链。超级管理员不受限速影响。
 - 限速是保护机制，不保证公平调度：用户级额度按 `平台 + 用户` 统计，同一用户在多个群共享同一份额度；群级被拒绝时，本次请求已经消耗的用户额度不会退回，“单个成员是否会耗尽全群额度”取决于两组阈值怎么配。配置阈值和最近拒绝原因可以通过 `/metrics.rate_limit` 观察。
 - `/metrics.rate_limit` 会返回配置阈值、总拒绝数、用户级/群级拒绝数、最近一次拒绝原因和时间。
-- `queue_wait_kinds` 决定哪些请求类型在并发满时允许排队。`turn` 默认参与排队，所以并发满时用户是等待而不是被直接拒绝；`queue_wait_timeout_seconds` 为 0 表示不限时，排队会一直等下去，生产环境应设一个明确上限。队列满或排队超时仍然会明确拒绝。
-- `queue_max_per_user` / `queue_max_per_scope` 分别限制单个公平 key（含用户）和单个 `平台:scope` 的排队长度；`queue_max_size` 仍是全局上限。任一上限先达到都会返回明确的 `ErrQueueFull`，避免单个用户或单个群用等待队列撑爆全局容量。
-- `provider_max_concurrent` / `provider_queue_max_size` / `provider_wait_timeout_seconds` 按 provider 限制真实 LLM 调用并发；等待队满或超时会拒绝本轮，而不是把并发压力透传给 provider。
-- `/metrics.tasks` 会返回队列指标：全局排队长度、最老等待时间、平均等待时间，以及 `queue_busy_rejected` / `queue_full_rejected` / `queue_timeout_rejected` / `queue_cancel_rejected` 计数。
+- `max_concurrent_turns` / `max_concurrent_tools` / `max_concurrent_hooks` 分别限制 turn / tool / hook 三种 kind 的**同时活跃数**；`0` 表示该类不限并发。它们不是摆设：构造 Agent 时由 `atri_x/agent/core.py` 的 `_request_settings_from_ops` 映射成 `atri_x.request.Manager` 的 limits，超限的请求走下面的排队或拒绝路径。
+- **上下文压缩（`compress`）目前没有并发上限字段**：`[ops]` 里没有对应旋钮，`Manager` 里也没有 `compress` 的 limit，所以 `queue_wait_kinds` 里的 `"compress"` 实际上不会生效（它撞不到上限）。压缩的背压由 `compress_timeout_seconds` 和 provider 级闸门间接提供。
+- 超限只有两种结果：**入队等待**或**直接拒绝**。只有"该 kind 出现在 `queue_wait_kinds` 里"**且** `queue_max_size > 0` 才会入队，否则立刻拒绝并抛 `ErrConcurrencyLimit`（计入 `/metrics.tasks` 的 `queue_busy_rejected`）；只写 `queue_wait_kinds` 而容量全为 0 等于不排队。没有配置这些旋钮（全 0）时，并发上限仍然生效，但超限一律直接拒绝——不排队。
+- 排队还受三层容量约束：`queue_max_size`（全局，默认 20）；`queue_max_per_user`（单个公平 key 含用户，默认 0 = 不限）与 `queue_max_per_scope`（单个 `平台:scope`，默认 0 = 不限）；任意一层先满都返回 `ErrQueueFull`，避免单个用户或单个群用等待队列撑爆全局容量。排队最长等 `queue_wait_timeout_seconds` 秒（默认 30，**0 表示不限时**，会一直等下去，生产环境应设一个明确上限），超时返回 `ErrQueueTimeout`，调用方主动取消返回 `ErrQueueCancelled`。拒绝原因分别计入 `/metrics.tasks`：并发满被拒 `queue_busy_rejected`、队满 `queue_full_rejected`、排队超时 `queue_timeout_rejected`、排队被取消 `queue_cancel_rejected`。
+- `queue_wait_kinds` 决定哪些请求类型在并发满时允许排队。`turn` 默认参与排队，所以并发满时用户是等待而不是被直接拒绝。
+- `provider_max_concurrent` 按 provider 用信号量限制真实 LLM 调用并发；等待超过 `provider_wait_timeout_seconds` 会拒绝本轮，而不是把并发压力透传给 provider。**`provider_queue_max_size` 目前只被解析、没有消费者**（provider 级等待队列尚未实现），可先留着不影响行为。
+- CPU 密集且会**阻塞**的工作（图片压缩、视觉预处理、view_image 解码校验）走独立的 `atrix-cpu` 线程池，阻塞 IO（HTTP / S3 / CLI 子进程 / stdin 读取）走独立的 `atrix-io` 线程池，两类互不抢占 asyncio 的默认池。**注意 GIL 下这不等于多核**：实测纯 Python 图片压缩 4 线程加速比 0.97x、`json.loads` 1.03x，拆池的目的是隔离与背压，不是提速；每个池的 `max_workers` 是硬上限而非并行度承诺。
+- `/metrics.tasks` 会返回队列指标：全局排队长度、最老等待时间、平均等待时间，以及并发拒绝 / `queue_full_rejected` / `queue_timeout_rejected` / `queue_cancel_rejected` 计数。
 - 熔断按 Provider 统计连接失败、首包超时、5xx 和 stream error；连续失败达到阈值后打开，冷却后放少量半开探测。用户取消和整轮 response timeout 不计入熔断。
 
 Provider 可配置备用模型与切换时机：

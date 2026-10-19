@@ -440,6 +440,13 @@ _SECRET_SAMPLES = (
     "https://user:pa55word@example.com/hook",           # URL 里的 user:password@
     "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl",  # JWT
     "123456789:AAHsecretTokenValue1234567890",          # Telegram bot token
+    # 与严格模式对齐后补的形态（旧兜底对它们漏遮）。
+    "https://api.telegram.org/bot123456:AAHsecretTokenValue1234567890/sendMessage",
+    "AKIAIOSFODNN7EXAMPLE",                             # AWS access key id
+    "Authorization: Basic dXNlcjpwYXNzd29yZA==",        # Basic
+    "postgres://admin:s3cr3t@db:5432/app",              # DSN userinfo
+    '"password": "pw-123456"',                          # JSON 引号键
+    "-----BEGIN RSA PRIVATE KEY-----\nMIIEow==\n-----END RSA PRIVATE KEY-----",
 )
 
 
@@ -453,6 +460,54 @@ def degraded_logging_module():
             yield module
     finally:
         importlib.reload(module)
+
+
+class TestStructuredAttrRedaction(unittest.TestCase):
+    """结构化属性值（dict / list / tuple / set）也必须走脱敏。
+
+    旧实现最后一个分支是裸 ``str(value)``，等于给凭据留了一条绕过路径；
+    ``cron`` 等调用点正用 ``logger.warning(msg, extra=dict)`` 落结构化属性。
+    """
+
+    def test_dict_attr_is_redacted(self) -> None:
+        text = logging_module._attr_text({"password": "pw-123456", "api_key": "abcdef123456"})
+        self.assertIn("REDACTED", text)
+        self.assertNotIn("pw-123456", text)
+        self.assertNotIn("abcdef123456", text)
+
+    def test_nested_and_sequence_attrs_are_redacted(self) -> None:
+        cases = (
+            ["api_key=abcdef123456"],
+            ("token", "sk-abcdefghijklmnop"),
+            {"outer": {"token": "abcdef123456"}},
+            {"Authorization": "Bearer abcdef123456"},
+        )
+        for value in cases:
+            with self.subTest(value=value):
+                text = logging_module._attr_text(value)
+                self.assertNotIn("abcdef123456", text)
+                self.assertNotIn("sk-abcdefghijklmnop", text)
+                self.assertIn("REDACTED", text)
+
+    def test_ordinary_structured_attr_is_untouched(self) -> None:
+        value = {"model": "gpt-4", "count": 3}
+        self.assertEqual(logging_module._attr_text(value), str(value))
+
+    def test_logger_renders_structured_attr_redacted(self) -> None:
+        output = io.StringIO()
+        logger = logging_module.Logger(
+            "info", output, now=lambda: datetime(2026, 10, 13, 12, 0, 0)
+        )
+        logger.error(
+            "cron failed",
+            "extra",
+            {"error": "api_key=abcdef123456"},
+            "headers",
+            {"Authorization": "Bearer abcdef123456"},
+        )
+        text = output.getvalue()
+        self.assertNotIn("abcdef123456", text)
+        self.assertIn("REDACTED", text)
 
 
 class TestRedactFallback(unittest.TestCase):

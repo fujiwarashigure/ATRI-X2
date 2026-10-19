@@ -518,8 +518,8 @@ python packaging/build.py --with-kernel --installer   # 构建 + 打包一条龙
 | 静默安装 | `ATRI-X-<版本>-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=<目录> /MERGETASKS=!autostart,!desktopicon` |
 | 覆盖升级 | 直接再跑新安装包即可；**先退出正在运行的 ATRI-X**——安装器带 `AppMutex=ATRI-X-GUI`，检测到 GUI 在跑会提示「当前正在运行」并中止（自检脚本也会因此失败） |
 
-实测 0.9.8（含内置内核的 321.3 MB onedir → 57.0 MB 安装包）：静默安装 35.4 s / 24513 个文件，
-`atri-x.exe --version` 正常，静默卸载 7.9 s 且目录被清空。构建环境有两个坑（TEMP 必须在
+实测 0.9.9（含内置内核的 318.8 MB onedir → 56.5 MB 安装包）：静默安装 51.8 s / 23865 个文件，
+`atri-x.exe --version` 正常，静默卸载 14.4 s 且目录被清空。构建环境有两个坑（TEMP 必须在
 本地盘、安装根路径要够短）写在 [`packaging/README.md`](../packaging/README.md) §7.1。
 
 ### 7.2 便携版 zip（解压即用）
@@ -611,11 +611,15 @@ min_score = 0.40            # 任务复杂度阈值 0..1，越大越保守
 lambda_penalty = 1.0        # 成本闸门权重
 cost_ratio = 2.0            # DSH 单轮成本相对原生链路的估计倍数
 cost_scale_tokens = 20000   # 多大的上下文算"一次大调用"（成本压力归一化）
-model = ""                  # 下发给 DSH 的模型（session/set_config_option；空=内核默认）
+model = ""                  # 下发给 DSH 的模型（session/set_config_option；空=内核默认；
+                            # 只能填内核公布的取值，填裸模型 id 会降级为内核默认并在审计里记一条 warning）
 timeout_seconds = 180
 max_history_messages = 8    # 交接多少轮最近历史
 prompt_char_budget = 12000
 allow_permissions = false   # 保持拒绝 DSH 的权限请求（群聊场景不要打开）
+credential_provider = ""    # 用哪个 provider 的密钥喂给 DSH；空=自动（优先名字含 deepseek 的）
+credential_env = "DEEPSEEK_API_KEY"        # 注入的凭据变量名（内核默认找它）
+credential_base_url_env = "DEEPSEEK_BASE_URL"  # base_url 非官方端点时一并下发的变量名
 circuit_breaker_failures = 3
 circuit_breaker_cooldown_seconds = 300
 ```
@@ -629,9 +633,16 @@ atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函�
 ```
 
 输出里有内核是否可用、实际启动命令、熔断状态，以及每条样例的分数/是否路由/原因
-（`below_threshold` / `cost_gate` / `breaker_open` / `unavailable`）。DSH 的 token 用量
-会计入**同一套**按用户/群/日的聊天额度（`[budget_limits]`、`/usage`、日报口径不变）。
-注意：费用硬限制开启时，需要给 `[agent.dsh].model` 配置价格，否则这一轮会静默走原生。
+（`below_threshold` / `cost_gate` / `breaker_open` / `unavailable`）。
+
+**模型凭据**：ATRI-X 会把选中 provider 解析好的密钥（系统环境变量或配置目录 `.env` 都算）
+注入 DSH 子进程，所以桌面端把密钥写进 `%APPDATA%\ATRI-X\.env` 也能跑通路由；子进程**只拿到
+这一个**凭据变量，其余继承来的 `*_KEY` / `*_TOKEN` / `*SECRET*` 会被过滤掉。
+
+**用量口径**：内置内核 `0.2.0-rc.2` 的 `session/prompt` **只回 `stopReason`、不回 usage**，
+所以 DSH 轮次不再往账本里记 0：费用硬限制下按"预占 + 标记不确定（`chat_budget_uncertain`）"
+结算，软统计（`/usage`、日报）不计入该轮。费用硬限制开启时仍要给 `[agent.dsh].model` 配价格，
+否则这一次路由会在预占阶段被拒绝并静默走原生。
 
 ---
 
@@ -686,6 +697,8 @@ atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函�
   `/DIR=` 指短路径。
 - **DSH 深度路由**：默认拒绝 DSH 的权限请求，所以它只能用"不需要确认"的只读能力；
   费用硬限制开启时需要给 `[agent.dsh].model` 配价格，否则该轮静默走原生；
+  内核不回 usage，所以 DSH 轮次按"预占 + 不确定"记账、不进软用量统计；
+  `model` 必须填内核公布的取值，填错会降级为内核默认（只记一条审计 warning，不熔断）；
   熔断状态是进程内的（不跨重启）。
 - **会话历史只读**：GUI 侧边栏能切换/查看历史，但删除、归档、重命名仍走 `/delete`、
   `/archive`、`/rename` 命令（GUI 没有对应按钮）。

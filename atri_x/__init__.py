@@ -11,4 +11,4 @@ from __future__ import annotations
 __all__ = ["__version__", "NAME"]
 
 NAME = "atri-x"
-__version__ = "0.9.8"
+__version__ = "0.9.9"

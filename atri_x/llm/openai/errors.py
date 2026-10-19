@@ -16,6 +16,7 @@ from typing import Any, Mapping
 
 from atri_x.llm.errors import APIError, ErrorCategory, classify, stringify_error_field
 from atri_x.net.httpclient import HTTPError
+from atri_x.redact import secrets as redact_secrets
 
 from atri_x.llm.openai.wire import STREAM_PREFIX_BYTES, header_of, media_type_of
 
@@ -59,7 +60,12 @@ def looks_like_sse(prefix: str | bytes) -> bool:
 
 
 def response_summary(prefix: bytes | str) -> str:
-    """对应 Go ``responseSummary``：有界、脱敏的响应摘要。"""
+    """对应 Go ``responseSummary``：有界、脱敏的响应摘要。
+
+    在 Go 的"按 marker 截断 + 限长"之上，本仓额外把结果过一遍共享脱敏
+    （:func:`atri_x.redact.secrets`）——上游会在 ``message`` 里回显请求用的密钥
+    （``Incorrect API key provided: sk-…``），这段文本会进用户可见错误与审计。
+    """
     text = prefix.decode("utf-8", errors="replace") if isinstance(prefix, bytes) else str(prefix)
     text = " ".join(text.split())
     lowered = text.lower()
@@ -70,6 +76,7 @@ def response_summary(prefix: bytes | str) -> str:
             lowered = text.lower()
     if len(text) > _SUMMARY_MAX_BYTES:
         text = text[: _SUMMARY_MAX_BYTES] + "..."
+    text = redact_secrets(text)
     return text or "响应内容为空或无法识别"
 
 

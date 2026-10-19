@@ -12,7 +12,9 @@
    的 ``tarfile.extractall`` 默认更宽松；备份包来自生产环境，不能无条件信任。
 2. 脱敏规则复用 :func:`atri_x.redact.secrets`（``PORTING.md`` §3 的唯一出处），
    保证「watchdog 脱敏」与「应用自己写日志时的脱敏」是同一套规则；只在它
-   漏掉「引号内取值」那一种形态时补一条引号修复，不另立一套规则。
+   漏掉「引号内取值」那一种形态时补一条引号修复，不另立一套规则。取不到包时
+   （单拷 watchdog 到运维机）退回 :data:`_FALLBACK_RULES`，它与项目规则同口径
+   （私钥块 / JWT / AWS AKID / GitHub PAT / Basic / Cookie / DSN / query 签名）。
 """
 
 from __future__ import annotations
@@ -213,15 +215,47 @@ _QUOTED_CREDENTIAL = re.compile(
 )
 
 _FALLBACK_RULES: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"(?i)(https?://[^/\s]+/bot)\d+:[A-Za-z0-9_-]+"), r"\1[REDACTED]"),
-    (re.compile(r"(?i)(https?://)[^/\s:@]+:[^/\s@]+@"), r"\1[REDACTED]@"),
     (
         re.compile(
-            r"(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})"
+            r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z0-9 ]*PRIVATE KEY-----"
         ),
         "[REDACTED]",
     ),
+    (re.compile(r"(?i)(https?://[^/\s]+/bot)\d+:[A-Za-z0-9_-]+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)\bbot\d{6,}:[A-Za-z0-9_-]{20,}"), "bot[REDACTED]"),
+    (re.compile(r"(?i)(https?://)[^/\s:@]+:[^/\s@]+@"), r"\1[REDACTED]@"),
+    (
+        re.compile(
+            r"(?i)\b((?:postgres|postgresql|mysql|mariadb|redis|rediss|mongodb|amqp)"
+            r"(?:\+[a-z0-9]+)?://)[^/\s:@]+:[^/\s@]+@"
+        ),
+        r"\1[REDACTED]@",
+    ),
+    (
+        re.compile(
+            r"(?:sk-[A-Za-z0-9_-]{8,}"
+            r"|github_pat_[A-Za-z0-9_]{20,}"
+            r"|gh[pousr]_[A-Za-z0-9]{20,}"
+            r"|xox[baprs]-[A-Za-z0-9-]{10,}"
+            r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b)"
+        ),
+        "[REDACTED]",
+    ),
+    (
+        re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b"),
+        "[REDACTED]",
+    ),
     (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-]{6,}"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(authorization\s*:\s*basic\s+)[A-Za-z0-9+/=]{8,}"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)((?:set-)?cookie\s*:\s*)[^\r\n]+"), r"\1[REDACTED]"),
+    (
+        re.compile(
+            r"(?i)([?&](?:x-amz-signature|x-amz-credential|x-amz-security-token"
+            r"|x-goog-signature|signature|sig|auth[_-]?key|rkey"
+            r"|access[_-]?token|api[_-]?key)=)[^&\s]+"
+        ),
+        r"\1[REDACTED]",
+    ),
     (
         re.compile(
             r"(?i)((?:api[_-]?key|access[_-]?key|secret[_-]?key|client[_-]?secret"
@@ -324,12 +358,25 @@ def redact_dir(
 
 # 独立检测用的原始凭据形态。**这些模式刻意不命中 ``[REDACTED]`` 占位**：
 # 通用 ``key=value`` / ``Bearer`` / ``sk-`` 形态由脱敏规则负责，这里只用原始
-# 令牌 / JWT / bot token / 带 userinfo 的 URL 做交叉验证，避免“自己验自己”。
+# 令牌 / JWT / bot token / 带 userinfo 的 URL / AWS AKID / GitHub PAT / 私钥头 /
+# ``Authorization: Basic`` / DSN userinfo 做交叉验证，避免“自己验自己”。
 _CREDENTIAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"sk-[A-Za-z0-9_-]{12,}"),
     re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
     re.compile(r"bot[0-9]+:[A-Za-z0-9_-]{20,}"),
     re.compile(r"https?://[^/\s:@]+:[^/\s@]+@[^/\s]+"),
+    # 与 atri_x.redact 的规则集同口径的补集：这些形态一旦漏遮，复检要能发现
+    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    re.compile(
+        r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}"
+        r"|xox[baprs]-[A-Za-z0-9-]{10,})"
+    ),
+    re.compile(r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----"),
+    re.compile(r"(?i)authorization\s*:\s*basic\s+[A-Za-z0-9+/=]{8,}"),
+    re.compile(
+        r"(?i)\b(?:postgres|postgresql|mysql|mariadb|redis|rediss|mongodb|amqp)"
+        r"(?:\+[a-z0-9]+)?://[^/\s:@]+:[^/\s@]+@"
+    ),
 )
 
 

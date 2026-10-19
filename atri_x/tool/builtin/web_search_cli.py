@@ -17,7 +17,7 @@ CLI 不存在、未登录、超时或输出里没有结构化结果时统一抛 
 
 from __future__ import annotations
 
-import asyncio
+import functools
 import json
 import os
 import re
@@ -26,6 +26,7 @@ import subprocess
 import tempfile
 from typing import Any
 
+from atri_x.ops.executors import run_io
 from atri_x.tool.builtin.web_search_engines import (
     PROTOCOL_ANTIGRAVITY,
     PROTOCOL_GROK,
@@ -191,16 +192,20 @@ async def _run_cli(binary: str, args: list[str], timeout: float) -> str:
     if executable is None:
         raise EngineFailure(f"找不到可执行文件 {binary}：先安装并登录对应 CLI")
     try:
-        completed = await asyncio.to_thread(
-            subprocess.run,
-            [executable, *args],
-            cwd=_scratch_dir(),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            creationflags=0x08000000 if os.name == "nt" else 0,
+        # 子进程是"等结果"的阻塞 IO：放进 atrix-io 池，别占 asyncio 默认池。
+        # 入参带关键字，因此用 functools.partial（run_io 只转发位置参数）。
+        completed = await run_io(
+            functools.partial(
+                subprocess.run,
+                [executable, *args],
+                cwd=_scratch_dir(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                creationflags=0x08000000 if os.name == "nt" else 0,
+            )
         )
     except subprocess.TimeoutExpired as exc:
         raise EngineFailure(f"{binary} 超过 {int(timeout)} 秒没有返回") from exc

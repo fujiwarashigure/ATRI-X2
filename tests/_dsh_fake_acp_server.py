@@ -11,9 +11,19 @@
 - ``__UNKNOWN__``：先发一个客户端不认识的请求（``fs/read_text_file``），回显其错误码；
 - ``__HANG__``：不回本轮响应，等 ``session/cancel`` 到达后再以 ``cancelled`` 收尾；
 - ``__CRASH__``：``os._exit(3)`` 模拟服务端崩溃；
-- ``__CRASH_AFTER_CHUNK__``：先流出一段正文再 ``os._exit(3)``（模拟"有部分输出的崩溃"）。
+- ``__CRASH_AFTER_CHUNK__``：先流出一段正文再 ``os._exit(3)``（模拟"有部分输出的崩溃"）；
+- ``__NO_USAGE__``：以 ``end_turn`` 收尾但**不带** ``usage`` 字段（DSH 内核的真实行为，
+  用于验证"内核不回 usage → 记账按不确定处理"）。
 
 其余情况正常流式返回两段文本 + ``tool_call`` + ``usage_update`` + ``usage``。
+
+``session/set_config_option`` 默认接受任何 ``model`` 值（老测试依赖这个宽松口径）；
+设 ``FAKE_ACP_STRICT_MODEL=1`` 后只接受公布过的 ``model`` 取值，其余回
+``-32602 unknown model option`` —— 复现"用户把 ``[agent.dsh].model`` 填成裸模型 id"
+时内核的拒绝。
+
+``FAKE_ACP_STDERR_SECRET`` 非空时，像真实内核那样在 startup 往 stderr 打一行带凭据的
+日志（``api_key=<值>``），用于验证报错信息带出去之前先脱敏。
 """
 
 from __future__ import annotations
@@ -72,6 +82,16 @@ def _config_options(current: str) -> list[dict]:
     ]
 
 
+def _option_values(config_id: str) -> set[str]:
+    """某项公布过的取值（严格模式下只接受这些）。"""
+    item = next(
+        (entry for entry in _config_options(_MODEL) if entry.get("id") == config_id),
+        None,
+    )
+    options = item.get("options") if isinstance(item, dict) else None
+    return {str(option.get("value")) for option in (options or [])}
+
+
 def _response(result: dict, request_id: object) -> None:
     """回一个成功结果。"""
     _send({"jsonrpc": "2.0", "id": request_id, "result": result})
@@ -109,6 +129,11 @@ def _finish_prompt(session_id: str, request_id: object, usage: bool = True) -> N
 
 def main() -> int:
     """服务端主循环。"""
+    # 模拟内核 startup 日志（真实 dsh 会打印 "may contain configuration or credential values"）。
+    leaked = os.environ.get("FAKE_ACP_STDERR_SECRET")
+    if leaked:
+        sys.stderr.write(f"[fake-dsh] startup: api_key={leaked}\n")
+        sys.stderr.flush()
     auth_methods: list[dict] = []
     if os.environ.get("FAKE_ACP_AUTH") == "1":
         auth_methods = [{"id": "none", "name": "No authentication"}]
@@ -156,8 +181,13 @@ def main() -> int:
                 request_id,
             )
         elif method == "session/set_config_option":
-            if params.get("configId") == "model":
-                config_value = str(params.get("value"))
+            config_id = str(params.get("configId") or "")
+            value = str(params.get("value"))
+            if os.environ.get("FAKE_ACP_STRICT_MODEL") == "1" and value not in _option_values(config_id):
+                _error(f"unknown {config_id} option: {value}", request_id, code=-32602)
+                continue
+            if config_id == "model":
+                config_value = value
             _response({"configOptions": _config_options(config_value)}, request_id)
         elif method == "session/close":
             sessions.pop(str(params.get("sessionId")), None)
@@ -177,6 +207,10 @@ def main() -> int:
                 os._exit(3)
             if "__HANG__" in text:
                 pending_prompts[session_id] = request_id
+                continue
+            if "__NO_USAGE__" in text:
+                _text_chunk(session_id, "没有 usage 的回答")
+                _finish_prompt(session_id, request_id, usage=False)
                 continue
             if "__PERMISSION__" in text:
                 request_counter += 1

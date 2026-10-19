@@ -16,7 +16,8 @@ Python 侧的取舍（**有意偏离**，写在这里供集成期复核）
 --------------------------------------------------
 1. **用线程而不是子进程**：本机沙箱禁止子进程捕获管道（``stdio=pipe`` 会
    ``EPERM``），``multiprocessing`` 的默认传输也用管道；因此子进程方案在目标
-   运行环境里不可靠。本仓改成 ``asyncio.to_thread`` 执行同一份纯 Python 压缩。
+   运行环境里不可靠。本仓改成在**独立的** ``atrix-media`` 线程池里执行同一份
+   纯 Python 压缩（见 :data:`_ISOLATION_POOL_WORKERS`）。
 2. **代价**：线程与主进程共享堆，因此"内存隔离"这一层保护**没有**了；超时后
    线程也**无法**被强杀（Python 没有安全的线程 kill），只能放弃等待。
    为了不让显存/内存放大，闸门（``VISION_IMAGE_MAX_CONCURRENT_DECODES`` = 10）
@@ -39,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import json
 import sys
 import weakref
@@ -47,6 +49,7 @@ from dataclasses import dataclass
 from typing import Any, BinaryIO, Callable, Sequence
 
 from atri_x.media.types import MediaError, raise_if_cancelled, wait_cancelled
+from atri_x.ops.executors import named_pool
 
 __all__ = [
     "IMAGE_WORKER_ARG",
@@ -72,6 +75,13 @@ IMAGE_WORKER_TIMEOUT = 60.0
 #: 与 :data:`atri_x.media.image.VISION_IMAGE_MAX_CONCURRENT_DECODES` 同量级。
 #: 刻意在这里重复字面量，避免 worker ← image 的循环 import。
 _GATE_SLOTS = 10
+#: 隔离压缩线程池（``atrix-media``）的线程数：**必须 ≥ 闸门槽位**，否则闸门形同
+#: 虚设——槽位到手了但池里排不下，真实并发会被池容量偷偷压低。这里用独立池而不是
+#: :func:`atri_x.ops.executors.cpu_pool`：CPU 池固定 ``min(8, CPU 数)``（本机 8），
+#: 会把闸门上限从 10 降到 8，并让 ``tests/test_media_worker.py`` 的槽位验收用例失败。
+#: 池只负责"别和阻塞 IO / 视觉预处理抢线程"；背压仍由闸门负责。
+#: 在 import 期取值，避免测试 ``mock.patch.object(_GATE_SLOTS, 1)`` 后建池把容量锁死。
+_ISOLATION_POOL_WORKERS = _GATE_SLOTS
 #: 排队等槽位的等待者数量上限。超出即立刻抛 :class:`MediaError`（消息含
 #: ``queue full``），避免无限多的调用方堆在闸门前把内存耗光。
 IMAGE_WORKER_QUEUE_LIMIT = 64
@@ -389,13 +399,21 @@ async def run_isolated(
       MediaError（``queue timed out``）。
     * ``timeout`` 为正时超时抛 :class:`atri_x.media.types.MediaError`；线程仍在
       后台跑完（Python 无法安全终止线程，见模块 docstring）。
+    * 底层工作在独立的 ``atrix-media`` 池里跑（:data:`_ISOLATION_POOL_WORKERS`
+      个线程 ≥ 闸门槽位），既不占 asyncio 默认池，也不与阻塞 IO 抢线程。
     """
     raise_if_cancelled(ctx)
     gate = _gate()
     # 取消竞态（槽位到手但 ctx 已取消）由 _acquire_gate 自己归还，这里只管结果。
     await _acquire_gate(gate, ctx)
     try:
-        future = asyncio.ensure_future(asyncio.to_thread(task, *args))
+        loop = asyncio.get_running_loop()
+        future = asyncio.ensure_future(
+            loop.run_in_executor(
+                named_pool("atrix-media", _ISOLATION_POOL_WORKERS),
+                functools.partial(task, *args),
+            )
+        )
     except BaseException:  # pragma: no cover - 起任务失败也要还槽位
         gate.release()
         raise

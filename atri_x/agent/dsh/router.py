@@ -62,6 +62,10 @@ DEFAULT_PROMPT_CHAR_BUDGET = 12000
 #: 默认熔断参数（连续失败次数 / 冷却秒数）。
 DEFAULT_BREAKER_FAILURES = 3
 DEFAULT_BREAKER_COOLDOWN = 300.0
+#: 注入给 DSH 子进程的凭据变量名（内核的 ``dsh-llm-deepseek-api-key`` 默认找它）。
+DEFAULT_CREDENTIAL_ENV = "DEEPSEEK_API_KEY"
+#: 非官方 base_url 时一并注入的变量名（内核识别 ``DEEPSEEK_BASE_URL``）。
+DEFAULT_CREDENTIAL_BASE_URL_ENV = "DEEPSEEK_BASE_URL"
 
 #: 代码痕迹（子串；大小写敏感的部分按原样匹配）。
 _CODE_MARKERS = (
@@ -241,6 +245,12 @@ class DshRouteConfig:
     allow_permissions: bool = False
     circuit_breaker_failures: int = DEFAULT_BREAKER_FAILURES
     circuit_breaker_cooldown_seconds: float = DEFAULT_BREAKER_COOLDOWN
+    #: 用哪个 ATRI-X provider 的密钥喂给 DSH；空 = 自动（见 route_call）。
+    credential_provider: str = ""
+    #: 注入的凭据环境变量名；空 = :data:`DEFAULT_CREDENTIAL_ENV`。
+    credential_env: str = DEFAULT_CREDENTIAL_ENV
+    #: 非官方 ``base_url`` 时同时注入的变量名；空 = :data:`DEFAULT_CREDENTIAL_BASE_URL_ENV`。
+    credential_base_url_env: str = DEFAULT_CREDENTIAL_BASE_URL_ENV
 
     @classmethod
     def from_section(cls, section: Any) -> "DshRouteConfig":
@@ -284,6 +294,11 @@ class DshRouteConfig:
             circuit_breaker_cooldown_seconds=pick(
                 "circuit_breaker_cooldown_seconds",
                 defaults.circuit_breaker_cooldown_seconds,
+            ),
+            credential_provider=pick("credential_provider", defaults.credential_provider),
+            credential_env=pick("credential_env", defaults.credential_env),
+            credential_base_url_env=pick(
+                "credential_base_url_env", defaults.credential_base_url_env
             ),
         )
 

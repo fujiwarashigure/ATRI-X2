@@ -398,8 +398,8 @@
     {
       "file": "atri_x/health/server.py",
       "qualname": "Server.evaluate_ready",
-      "line_text": "except BaseException as exc: # noqa: BLE001 - 检查失败就是 not ready ready = False checks[name] = str(exc) continue",
-      "fingerprint": "72d914836972",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 检查失败就是 not ready ready = False checks[name] = redact_secrets(str(exc)) continue",
+      "fingerprint": "422626e17905",
       "count": 1
     },
     {

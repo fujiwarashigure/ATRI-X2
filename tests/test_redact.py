@@ -60,6 +60,54 @@ class TestRedact(unittest.TestCase):
         ):
             self.assertEqual(secrets(value), value)
 
+    def test_extended_credential_shapes(self) -> None:
+        """本仓在 Go 规则之外补齐的形态（见 ``redact.py`` 的模块 docstring）。"""
+        cases = (
+            ("creds AKIAIOSFODNN7EXAMPLE end", "creds [REDACTED] end"),
+            (
+                "pat github_pat_11ABCDEFG0abcdefghijkl_abcdefghijklmnopqrstuvwxyz end",
+                "pat [REDACTED] end",
+            ),
+            (
+                "auth eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.sig-part-123456 end",
+                "auth [REDACTED] end",
+            ),
+            (
+                "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+                "Authorization: Basic [REDACTED]",
+            ),
+            ("Cookie: session=abc123def456; Path=/", "Cookie: [REDACTED]"),
+            ("Set-Cookie: sid=abc123def456; Path=/", "Set-Cookie: [REDACTED]"),
+            (
+                "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----",
+                "[REDACTED]",
+            ),
+            (
+                "dsn postgres://admin:s3cr3t@db:5432/app",
+                "dsn postgres://[REDACTED]@db:5432/app",
+            ),
+            (
+                "url https://b.s3.amazonaws.com/k?X-Amz-Signature=deadbeef0123456789",
+                "url https://b.s3.amazonaws.com/k?X-Amz-Signature=[REDACTED]",
+            ),
+            ("raw bot123456:AAHfoo_bar-baz0123456789 end", "raw bot[REDACTED] end"),
+        )
+        for value, want in cases:
+            with self.subTest(value=value):
+                self.assertEqual(secrets(value), want)
+
+    def test_query_secret_does_not_swallow_following_params(self) -> None:
+        # URL query 规则先于 key=value：`&x=1` 必须留下（旧行为会被一起吃掉）。
+        self.assertEqual(
+            secrets("https://example.com/api?access_token=abcdef123456&x=1"),
+            "https://example.com/api?access_token=[REDACTED]&x=1",
+        )
+
+    def test_pii_is_not_redacted_by_design(self) -> None:
+        # 与 Go 一致：脱敏只管凭据，手机号/身份证等 PII 不在范围内。
+        for value in ("phone 13812345678", "id 110101199003071234"):
+            self.assertEqual(secrets(value), value)
+
     def test_error_redacts_and_handles_none(self) -> None:
         self.assertEqual(error(None), "")
         self.assertEqual(error(RuntimeError("api_key=abcdef123456")), "api_key=[REDACTED]")
@@ -78,6 +126,13 @@ class TestRedact(unittest.TestCase):
             re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"),
         )
         self.assertNotEqual(value, new_error_id())
+
+    def test_porting_contract_names_are_reexported(self) -> None:
+        # PORTING.md §3 的契约名必须能从包级 import（早期只在子模块里）。
+        from atri_x.redact import redact_secrets, redact_text
+
+        self.assertIs(redact_secrets, secrets)
+        self.assertIs(redact_text, secrets)
 
 
 class TestTextmatch(unittest.TestCase):

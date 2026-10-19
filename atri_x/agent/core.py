@@ -29,7 +29,13 @@ from atri_x.delivery import new_manager as new_delivery_manager
 from atri_x.hook import Event
 from atri_x.hook.manager import NoopManager
 from atri_x.platform import PlatformAdapter
-from atri_x.request import new_manager_with_limits_and_queue
+from atri_x.request import (
+    KindHook,
+    KindTool,
+    KindTurn,
+    QueueConfig,
+    new_manager_with_limits_and_queue,
+)
 from atri_x.security import Policy, default_policy
 from atri_x.session import Config as SessionConfig
 from atri_x.session import Service as SessionService
@@ -236,7 +242,12 @@ class Agent(
             opts.naming_notifier,
         )
         self.turns = TurnManager()
-        self.requests = new_manager_with_limits_and_queue(0.0, {}, None)
+        # ``[ops]`` 的并发上限与排队旋钮在这里真正接线（此前只被解析、没有消费者，
+        # 并发因此无上限）。没有配置这些旋钮的宿主仍拿到空 limits + 无队列的旧行为。
+        request_limits, request_queue = _request_settings_from_ops(opts.ops)
+        self.requests = new_manager_with_limits_and_queue(
+            0.0, request_limits, request_queue
+        )
         self.inbox: inbox_module.SessionInbox | None = None
         self.inbox_mu = threading.Lock()
         self.commands = Router(opts.command_prefixes)
@@ -679,6 +690,58 @@ def _default_budget_limits() -> Any:
     from atri_x.config import BudgetLimitsConfig
 
     return BudgetLimitsConfig()
+
+
+def _positive_int(source: Any, name: str) -> int:
+    """读一个"正整数开关"字段；缺失 / 非法 / ``<= 0`` 一律当 0（= 不限）。"""
+    try:
+        value = int(getattr(source, name, 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return value if value > 0 else 0
+
+
+def _request_settings_from_ops(ops: Any) -> tuple[dict[str, int], QueueConfig | None]:
+    """把 ``[ops]`` 的并发旋钮映射成 request manager 的 limits 与排队配置。
+
+    对应 :func:`atri_x.request.new_manager_with_limits_and_queue` 的两个入参：
+
+    * ``limits`` 只收 **> 0** 的 kind（0 / 缺失 = 不限，与
+      ``Manager._can_run_locked`` 的 ``limit <= 0`` 语义一致）。只接
+      turn / tool / hook：上下文压缩（``compress``）目前没有 ``[ops]`` 字段，
+      所以它没有并发上限。
+    * ``queue`` 只在**确有队列配置**（``queue_max_size`` /
+      ``queue_max_per_user`` / ``queue_max_per_scope`` /
+      ``queue_wait_timeout_seconds`` 任一项 > 0）时构造；否则返回 ``None``，
+      让未配置这些旋钮的宿主保持"并发满即拒绝、不排队"的旧行为。
+      单独配置 ``queue_wait_kinds`` 不算"有队列"：``Manager._acquire`` 还要
+      ``max_queue > 0`` 才会真的入队。
+
+    纯函数（不读全局状态、不构造 Manager），便于离线断言。
+    """
+    limits: dict[str, int] = {}
+    for kind, field_name in (
+        (KindTurn, "max_concurrent_turns"),
+        (KindTool, "max_concurrent_tools"),
+        (KindHook, "max_concurrent_hooks"),
+    ):
+        limit = _positive_int(ops, field_name)
+        if limit > 0:
+            limits[kind] = limit
+
+    max_queue = _positive_int(ops, "queue_max_size")
+    max_queue_per_fair_key = _positive_int(ops, "queue_max_per_user")
+    max_queue_per_scope = _positive_int(ops, "queue_max_per_scope")
+    wait_timeout = _positive_int(ops, "queue_wait_timeout_seconds")
+    if not (max_queue or max_queue_per_fair_key or max_queue_per_scope or wait_timeout):
+        return limits, None
+    return limits, QueueConfig(
+        max_queue=max_queue,
+        max_queue_per_fair_key=max_queue_per_fair_key,
+        max_queue_per_scope=max_queue_per_scope,
+        wait_timeout=float(wait_timeout),
+        wait_kinds=getattr(ops, "queue_wait_kinds", None) or frozenset(),
+    )
 
 
 def _install_command_state(agent: Agent, opts: Options) -> None:

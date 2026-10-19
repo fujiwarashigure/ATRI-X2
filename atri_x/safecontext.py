@@ -26,6 +26,7 @@ import weakref
 from typing import Any, Callable
 
 from atri_x.errors import AtriXError
+from atri_x.redact import secrets as redact_secrets
 
 __all__ = [
     "CancelToken",
@@ -44,6 +45,22 @@ __all__ = [
     "with_cancel",
     "with_timeout",
 ]
+
+
+def _print_redacted_exception() -> None:
+    """把当前异常的回溯**脱敏后**写到 stderr。
+
+    取消回调是用户/插件代码，异常正文可能带密钥；这里不再直接
+    ``traceback.print_exc``（它会原样落 stderr，绕过日志侧的脱敏）。
+    """
+    try:
+        text = traceback.format_exc()
+    except Exception:  # pragma: no cover - 取回溯本身失败不应再抛
+        return
+    try:
+        sys.stderr.write(redact_secrets(text))
+    except Exception:  # pragma: no cover - stderr 不可写时静默
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +302,7 @@ class CancelToken:
                 callback()
             except Exception as exc:  # 回调异常不能中断取消传播
                 self._callback_errors.append(exc)
-                traceback.print_exc(file=sys.stderr)
+                _print_redacted_exception()
         children, self._children = self._children, []
         for ref in children:
             child = ref()
@@ -310,7 +327,7 @@ class CancelToken:
                 callback()
             except Exception as exc:
                 self._callback_errors.append(exc)
-                traceback.print_exc(file=sys.stderr)
+                _print_redacted_exception()
             return lambda: None
         self._callbacks.append(callback)
 

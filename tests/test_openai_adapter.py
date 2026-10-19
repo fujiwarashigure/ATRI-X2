@@ -1501,6 +1501,17 @@ class TestParseError(unittest.TestCase):
         )
         self.assertEqual(error.code, "123")
 
+    def test_echoed_api_key_is_redacted(self) -> None:
+        # 上游会在 message 里回显请求用的密钥；它进用户可见错误与审计，必须遮掉。
+        error = parse_error(
+            401,
+            '{"error":{"message":"Incorrect API key provided: sk-abcdefghijklmnopqrst",'
+            '"type":"invalid_request_error","code":"invalid_api_key"}}',
+            {"Content-Type": "application/json"},
+        )
+        self.assertNotIn("sk-abcdefghijklmnopqrst", str(error))
+        self.assertIn("[REDACTED]", str(error))
+
     def test_html_leaves_no_code(self) -> None:
         error = parse_error(502, "<html><body>gateway</body></html>", {"Content-Type": "text/html"})
         self.assertEqual(error.code, "")

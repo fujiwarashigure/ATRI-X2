@@ -14,27 +14,35 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from atri_x.agent.dsh.handoff import (
     build_handoff_prompt,
     latest_user_text,
     usage_from_acp,
 )
-from atri_x.agent.dsh.route_call import maybe_route_to_dsh
+from atri_x.agent.dsh.route_call import maybe_route_to_dsh, resolve_credential_env
 from atri_x.agent.dsh.router import (
     DshRouteConfig,
     DshRouter,
     score_task,
 )
-from atri_x.agent.dsh.runtime import DshRuntime, WorkspacePaths, resolve_paths
+from atri_x.agent.dsh.runtime import (
+    DshRuntime,
+    WorkspacePaths,
+    child_environment,
+    resolve_paths,
+)
 from atri_x.agent.dsh.types import AcpUsage
 from atri_x.config import AgentDshConfig
 from atri_x.errors import InvalidError
 from atri_x.llm import LLMMessage, RoleSystem, RoleUser, text_segments
+from atri_x.storage import SessionModeWork
 
 FAKE_SERVER = Path(__file__).resolve().parent / "_dsh_fake_acp_server.py"
 TMP_ROOT = Path(__file__).resolve().parent / "_tmp_dsh_route"
@@ -211,11 +219,31 @@ class RouterDecisionTest(unittest.TestCase):
 
     def test_config_from_section_reads_dataclass(self) -> None:
         config = DshRouteConfig.from_section(
-            AgentDshConfig(enabled=False, min_score=0.7, model="m1")
+            AgentDshConfig(
+                enabled=False,
+                min_score=0.7,
+                model="m1",
+                credential_provider="deepseek",
+                credential_env="MY_DSH_KEY",
+                credential_base_url_env="MY_DSH_BASE_URL",
+            )
         )
         self.assertFalse(config.enabled)
         self.assertEqual(config.min_score, 0.7)
         self.assertEqual(config.model, "m1")
+        self.assertEqual(config.credential_provider, "deepseek")
+        self.assertEqual(config.credential_env, "MY_DSH_KEY")
+        self.assertEqual(config.credential_base_url_env, "MY_DSH_BASE_URL")
+
+    def test_config_credential_defaults(self) -> None:
+        """空串仍是「内置默认」口径：变量名回落由 ``resolve_credential_env`` 兜底。"""
+        config = DshRouteConfig.from_section(AgentDshConfig(credential_env=""))
+        self.assertEqual(config.credential_provider, "")
+        self.assertEqual(config.credential_env, "")
+        self.assertEqual(DshRouteConfig.from_section(None).credential_env, "DEEPSEEK_API_KEY")
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}, clear=False):
+            env = resolve_credential_env(SimpleNamespace(providers={}), config)
+        self.assertEqual(env, {})
 
     def test_config_from_missing_section_uses_defaults(self) -> None:
         defaults = DshRouteConfig.from_section(None)
@@ -291,6 +319,127 @@ class HandoffTest(unittest.TestCase):
         self.assertIn("home", paths.home)
 
 
+class CredentialEnvTest(unittest.TestCase):
+    """凭据注入与环境收敛（P0：DSH 侧 ``MISSING_CREDENTIAL``）。"""
+
+    def _agent(self, providers: dict[str, object], work: str = "") -> SimpleNamespace:
+        return SimpleNamespace(
+            providers=providers,
+            mode_models={SessionModeWork: SimpleNamespace(provider=work)} if work else {},
+        )
+
+    def test_child_environment_drops_sensitive_and_injects(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"ATRIX_TEST_SESSION_TOKEN": "leak", "ATRIX_TEST_PLAIN": "keep"},
+            clear=False,
+        ):
+            env = child_environment({"DEEPSEEK_API_KEY": "sk-live", "EMPTY_ONE": ""})
+        self.assertNotIn("ATRIX_TEST_SESSION_TOKEN", env)
+        self.assertEqual(env.get("ATRIX_TEST_PLAIN"), "keep")
+        self.assertEqual(env.get("DEEPSEEK_API_KEY"), "sk-live")
+        self.assertNotIn("EMPTY_ONE", env)
+        self.assertIn("PATH", env)
+
+    def test_auto_prefers_provider_named_deepseek(self) -> None:
+        agent = self._agent(
+            {
+                "deepseek": SimpleNamespace(api_key="k-deepseek", base_url="https://api.deepseek.com"),
+                "openai": SimpleNamespace(api_key="k-openai", base_url="https://api.openai.com/v1"),
+            },
+            work="openai",
+        )
+        env = resolve_credential_env(agent, DshRouteConfig())
+        # 官方 base_url 不额外下发覆盖变量。
+        self.assertEqual(env, {"DEEPSEEK_API_KEY": "k-deepseek"})
+
+    def test_auto_falls_back_to_work_provider(self) -> None:
+        agent = self._agent(
+            {"openai": SimpleNamespace(api_key="k-openai", base_url="https://api.openai.com/v1")},
+            work="openai",
+        )
+        env = resolve_credential_env(agent, DshRouteConfig())
+        self.assertEqual(env["DEEPSEEK_API_KEY"], "k-openai")
+        self.assertEqual(env["DEEPSEEK_BASE_URL"], "https://api.openai.com/v1")
+
+    def test_named_provider_and_custom_env_names(self) -> None:
+        agent = self._agent(
+            {
+                "proxy": SimpleNamespace(api_key="k-proxy", base_url="https://gw.example.com/v1"),
+                "deepseek": SimpleNamespace(api_key="k-deepseek", base_url=""),
+            }
+        )
+        config = DshRouteConfig(
+            credential_provider="proxy",
+            credential_env="MY_KEY",
+            credential_base_url_env="MY_BASE_URL",
+        )
+        env = resolve_credential_env(agent, config)
+        self.assertEqual(env, {"MY_KEY": "k-proxy", "MY_BASE_URL": "https://gw.example.com/v1"})
+
+    def test_empty_key_does_not_inject_blank(self) -> None:
+        agent = self._agent({"deepseek": SimpleNamespace(api_key="", base_url="")})
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}, clear=False):
+            self.assertEqual(resolve_credential_env(agent, DshRouteConfig()), {})
+
+    def test_empty_key_falls_back_to_inherited_value(self) -> None:
+        agent = self._agent({"deepseek": SimpleNamespace(api_key="", base_url="")})
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "inherited"}, clear=False):
+            self.assertEqual(
+                resolve_credential_env(agent, DshRouteConfig()),
+                {"DEEPSEEK_API_KEY": "inherited"},
+            )
+
+    def test_api_key_env_is_a_fallback(self) -> None:
+        """只声明了 ``api_key_env`` 的 provider 也能供上密钥。"""
+        agent = self._agent(
+            {
+                "deepseek": SimpleNamespace(
+                    api_key="", api_key_env="ATRIX_TEST_PROVIDER_KEY", base_url=""
+                )
+            }
+        )
+        with mock.patch.dict(
+            os.environ, {"ATRIX_TEST_PROVIDER_KEY": "from-env"}, clear=False
+        ):
+            self.assertEqual(
+                resolve_credential_env(agent, DshRouteConfig()),
+                {"DEEPSEEK_API_KEY": "from-env"},
+            )
+
+
+class CredentialWiringTest(unittest.TestCase):
+    """``DshRuntime`` 真的把收敛后的环境与 ``isolate_env`` 交给客户端。"""
+
+    def test_ensure_client_passes_isolated_env(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        def factory(command: object, **kwargs: object) -> object:
+            calls.append(kwargs)
+            return SimpleNamespace(alive=False, start=lambda: None)
+
+        TMP_ROOT.mkdir(parents=True, exist_ok=True)
+        runtime = DshRuntime(
+            _config(),
+            command=_fake_command(),
+            paths=WorkspacePaths(
+                workspace=str(TMP_ROOT / "env-ws"), home=str(TMP_ROOT / "env-home")
+            ),
+            client_factory=factory,
+            extra_env={"DEEPSEEK_API_KEY": "sk-live"},
+        )
+        with mock.patch.dict(os.environ, {"ATRIX_TEST_SESSION_TOKEN": "leak"}, clear=False):
+            runtime._ensure_client()
+        self.assertEqual(len(calls), 1)
+        kwargs = calls[0]
+        self.assertTrue(kwargs["isolate_env"])
+        env = kwargs["env"]
+        assert isinstance(env, dict)
+        self.assertEqual(env["DEEPSEEK_API_KEY"], "sk-live")
+        self.assertNotIn("ATRIX_TEST_SESSION_TOKEN", env)
+        self.assertEqual(env["DSH_HOME"], str(TMP_ROOT / "env-home"))
+
+
 class RuntimeTest(unittest.TestCase):
     """真子进程（假 ACP 服务端）跑通一轮 prompt。"""
 
@@ -339,6 +488,41 @@ class RuntimeTest(unittest.TestCase):
         snapshot = self.runtime.describe()
         self.assertTrue(snapshot["running"])
         self.assertEqual(snapshot["workspace"], self.paths.workspace)
+        self.assertIn("extraEnvKeys", snapshot)
+
+    def test_model_override_rejected_degrades_to_kernel_default(self) -> None:
+        """``[agent.dsh].model`` 填裸模型 id：本轮降级为内核默认，不再每轮硬失败。"""
+        runtime = DshRuntime(
+            _config(model="deepseek-v4-flash"),
+            command=_fake_command(),
+            paths=self.paths,
+            extra_env={"FAKE_ACP_STRICT_MODEL": "1"},
+        )
+        try:
+            first = asyncio.run(runtime.run("普通提问"))
+            second = asyncio.run(runtime.run("普通提问"))
+        finally:
+            runtime.close()
+        self.assertTrue(first.ok)
+        self.assertEqual(first.text, "你好，世界")
+        self.assertTrue(any("model override rejected" in item for item in first.warnings))
+        self.assertEqual(second.warnings, [])  # 同一进程内不再重复尝试
+        self.assertTrue(second.ok)
+
+    def test_reasoning_effort_override_rejected_independently(self) -> None:
+        runtime = DshRuntime(
+            _config(model="fake-model", reasoning_effort="ultra"),
+            command=_fake_command(),
+            paths=self.paths,
+            extra_env={"FAKE_ACP_STRICT_MODEL": "1"},
+        )
+        try:
+            result = asyncio.run(runtime.run("普通提问"))
+        finally:
+            runtime.close()
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.warnings), 1)
+        self.assertIn("reasoning_effort override rejected", result.warnings[0])
 
 
 class _FakeStream:
@@ -368,11 +552,18 @@ class _FakeOut:
 class _FakeAgent:
     """``maybe_route_to_dsh`` 需要的最小 Agent 面。"""
 
-    def __init__(self, config: DshRouteConfig, *, deny_budget: bool = False) -> None:
+    def __init__(
+        self,
+        config: DshRouteConfig,
+        *,
+        deny_budget: bool = False,
+        no_reservation: bool = False,
+    ) -> None:
         self.dsh_config = SimpleNamespace(**config.__dict__)
         self.services: dict[str, object] = {}
         self.state_path = str(TMP_ROOT / "state.toml")
         self.deny_budget = deny_budget
+        self.no_reservation = no_reservation
         self.budget_calls: list[tuple[str, int]] = []
         self.settled: list[tuple[object, object, bool]] = []
         self.recorded: list[tuple[str, object, str]] = []
@@ -384,7 +575,7 @@ class _FakeAgent:
         if self.deny_budget:
             raise InvalidError("额度不足")
         self.budget_calls.append((selection.model, max_output))
-        return "reservation"
+        return None if self.no_reservation else "reservation"
 
     def settle_chat_budget(self, ctx, reservation, usage, release=False):
         self.settled.append((reservation, usage, release))
@@ -404,6 +595,16 @@ class _FakeAgent:
     def has_audit(self, name: str) -> bool:
         return any(event == name for event, _attrs in self.audits)
 
+    def audit_attrs(self, name: str) -> dict[str, object]:
+        """把某条审计的扁平 ``(key, value, ...)`` 属性还原成字典。"""
+        for event, attrs in self.audits:
+            if event == name:
+                return {
+                    str(attrs[index]): attrs[index + 1]
+                    for index in range(0, len(attrs) - 1, 2)
+                }
+        return {}
+
 
 class RouteCallTest(unittest.TestCase):
     """``maybe_route_to_dsh``：预算、流式、记账、失败回退。"""
@@ -414,7 +615,7 @@ class RouteCallTest(unittest.TestCase):
     def _selection(self) -> SimpleNamespace:
         return SimpleNamespace(provider="deepseek", model="deepseek-v4-flash")
 
-    def _run(self, agent: _FakeAgent) -> object:
+    def _run(self, agent: _FakeAgent, text: str = "重构 utils.py 里的 parse 函数并补测试") -> object:
         stream = _FakeStream()
         out = _FakeOut()
         return asyncio.run(
@@ -423,7 +624,7 @@ class RouteCallTest(unittest.TestCase):
                 None,
                 "sess-1",
                 self._selection(),
-                _messages("重构 utils.py 里的 parse 函数并补测试"),
+                _messages(text),
                 stream,
                 out,
                 max_output=256,
@@ -439,9 +640,45 @@ class RouteCallTest(unittest.TestCase):
         self.assertEqual(agent.budget_calls, [("deepseek-v4-flash", 256)])
         self.assertEqual(len(agent.settled), 1)
         self.assertEqual(agent.settled[0][0], "reservation")
+        # 内核回报了 usage：按真实值结算，且不再走软账本（已有预占）。
+        self.assertEqual(agent.settled[0][1].prompt_tokens, 100)
+        self.assertEqual(agent.settled[0][1].completion_tokens, 23)
+        self.assertEqual(agent.recorded, [])
         self.assertTrue(agent.has_audit("dsh_route_succeeded"))
         self.assertTrue(agent.has_audit("dsh_route_decision"))
+        self.assertTrue(agent.audit_attrs("dsh_route_succeeded")["usage_reported"])
         self.assertEqual(out.notices, [])
+
+    def test_missing_usage_settles_as_uncertain(self) -> None:
+        """内核不回 usage 时：保留预占并标 uncertain，而不是记 0。"""
+        agent = _FakeAgent(_config(min_score=0.0))
+        result, _stream, _out = self._run(
+            agent, "__NO_USAGE__ 重构 utils.py 里的 parse 函数并补测试"
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result.text, "没有 usage 的回答")
+        self.assertEqual(len(agent.settled), 1)
+        self.assertIsNone(agent.settled[0][1])  # → budget_ledger 走 uncertain 分支
+        self.assertFalse(agent.settled[0][2])  # 不是 release
+        self.assertEqual(agent.recorded, [])
+        self.assertFalse(agent.audit_attrs("dsh_route_succeeded")["usage_reported"])
+
+    def test_soft_ledger_records_real_usage_only(self) -> None:
+        agent = _FakeAgent(_config(min_score=0.0), no_reservation=True)
+        result, _stream, _out = self._run(agent)
+        self.assertIsNotNone(result)
+        self.assertEqual(len(agent.recorded), 1)
+        self.assertEqual(agent.recorded[0][1].prompt_tokens, 100)
+        self.assertEqual(agent.settled, [])
+
+    def test_soft_ledger_skips_without_usage(self) -> None:
+        agent = _FakeAgent(_config(min_score=0.0), no_reservation=True)
+        result, _stream, _out = self._run(
+            agent, "__NO_USAGE__ 重构 utils.py 里的 parse 函数并补测试"
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(agent.recorded, [])
+        self.assertEqual(agent.settled, [])
 
     def test_below_threshold_skips_routing(self) -> None:
         agent = _FakeAgent(_config(min_score=0.99))

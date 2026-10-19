@@ -153,6 +153,24 @@ class AcpPromptTest(_ClientTestCase):
         self.assertIn("agent_message_chunk", seen)
         self.assertIn("usage_update", seen)
 
+    def test_prompt_with_usage_marks_usage_reported(self) -> None:
+        client = self.make_client()
+        session = client.new_session(str(REPO_ROOT))
+        result = client.prompt(session.session_id, "打个招呼")
+        self.assertTrue(result.usage_reported)
+        self.assertEqual(result.to_dict()["usageReported"], True)
+
+    def test_prompt_without_usage_is_not_reported(self) -> None:
+        """内核只回 ``stopReason`` 时不能把全 0 当成"真实用量是 0"。"""
+        client = self.make_client()
+        session = client.new_session(str(REPO_ROOT))
+        result = client.prompt(session.session_id, "__NO_USAGE__ 打个招呼")
+        self.assertEqual(result.stop_reason, "end_turn")
+        self.assertEqual(result.text, "没有 usage 的回答")
+        self.assertFalse(result.usage_reported)
+        self.assertEqual(result.usage.total_tokens, 0)
+        self.assertEqual(result.to_dict()["usageReported"], False)
+
     def test_second_prompt_on_busy_session_is_rejected(self) -> None:
         client = self.make_client(prompt_timeout=10.0)
         session = client.new_session(str(REPO_ROOT))
@@ -229,6 +247,21 @@ class AcpFaultTest(_ClientTestCase):
             time.sleep(0.02)
         self.assertFalse(client.alive)
 
+    def test_crash_error_redacts_stderr_credentials(self) -> None:
+        """内核 stderr 可能含凭据：进 ``AcpProcessError`` 之前必须脱敏。"""
+        secret = "sk-live-0123456789abcdef"
+        client = self.make_client(env={"FAKE_ACP_STDERR_SECRET": secret})
+        session = client.new_session(str(REPO_ROOT))
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and secret not in client.stderr_tail():
+            time.sleep(0.01)
+        self.assertIn(secret, client.stderr_tail())  # 原始尾部保留原文
+        with self.assertRaises(AcpProcessError) as caught:
+            client.prompt(session.session_id, "__CRASH__ 直接退出")
+        message = str(caught.exception)
+        self.assertNotIn(secret, message)
+        self.assertIn("[REDACTED]", message)
+
     def test_start_with_missing_binary_raises(self) -> None:
         client = AcpClient([_posix(REPO_ROOT / "no-such-dsh-binary")])
         self.clients.append(client)
@@ -274,6 +307,27 @@ class AcpSmokeTest(unittest.TestCase):
             code = smoke_main(["--command", _posix(REPO_ROOT / "no-such-dsh-binary"), "--cwd", _posix(REPO_ROOT)])
         self.assertEqual(code, 1)
         self.assertIn("error:", out.getvalue())
+
+    def test_smoke_redacts_prompt_secrets(self) -> None:
+        """冒烟会把 command / cwd / prompt 打到控制台（可能是日志），先脱敏。"""
+        command = f"{_posix(sys.executable)} -u {_posix(FAKE_SERVER)}"
+        secret = "sk-live-0123456789abcdef"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = smoke_main(
+                [
+                    "--command",
+                    command,
+                    "--cwd",
+                    _posix(REPO_ROOT),
+                    "--prompt",
+                    f"{secret} 打个招呼",
+                ]
+            )
+        text = out.getvalue()
+        self.assertEqual(code, 0, text)
+        self.assertNotIn(secret, text)
+        self.assertIn("[dsh-acp] prompt: [REDACTED]", text)
 
 
 if __name__ == "__main__":

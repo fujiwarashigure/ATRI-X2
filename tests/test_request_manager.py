@@ -6,8 +6,15 @@
 from __future__ import annotations
 
 import asyncio
+import tomllib
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
+import atri_x
+from atri_x.agent.core import _request_settings_from_ops
+from atri_x.config.app_sections import OpsConfig
 from atri_x.errors import (
     ConcurrencyLimitError,
     QueueCancelledError,
@@ -15,12 +22,14 @@ from atri_x.errors import (
     QueueTimeoutError,
 )
 from atri_x.request import (
+    KindHook,
     KindLLM,
     KindTool,
     KindTurn,
     Manager,
     QueueConfig,
     StartRequest,
+    new_manager_with_limits_and_queue,
 )
 from atri_x.safecontext import CancelToken, CancelledError, with_cancel
 
@@ -455,3 +464,137 @@ class TestManagerFairness(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.002)
         self.assertEqual(manager.list(), [])
         self.assertTrue(child.id)
+
+
+# ``[ops]`` → request manager 的接线（core.py:247）
+
+#: 出厂配置资产：用它断言"默认配置下并发上限真的生效"。
+_DEFAULT_APP_TOML = Path(atri_x.__file__).resolve().parent / "config" / "assets_data" / "app.toml"
+
+
+def _ops(**overrides: Any) -> SimpleNamespace:
+    """一份与默认资产同形的 ``[ops]`` 段（可逐字段覆盖）。"""
+    fields: dict[str, Any] = {
+        "max_concurrent_turns": 10, "max_concurrent_tools": 10,
+        "max_concurrent_hooks": 10, "queue_max_size": 20, "queue_max_per_user": 0,
+        "queue_max_per_scope": 0, "queue_wait_timeout_seconds": 30,
+        "queue_wait_kinds": [KindTurn, KindTool, KindHook, "compress"],
+    }
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
+
+
+def _map(**overrides: Any) -> tuple[dict[str, int], QueueConfig | None]:
+    """``_request_settings_from_ops`` 套在 :func:`_ops` 上，省掉重复包装。"""
+    return _request_settings_from_ops(_ops(**overrides))
+
+
+class TestRequestSettingsFromOps(unittest.TestCase):
+    """``[ops]`` → limits + queue 的纯映射。"""
+
+    def test_default_asset_yields_three_limits_and_a_bounded_queue(self) -> None:
+        raw = tomllib.loads(_DEFAULT_APP_TOML.read_text(encoding="utf-8"))
+        limits, queue = _request_settings_from_ops(
+            OpsConfig.from_dict(raw["ops"], source=str(_DEFAULT_APP_TOML))
+        )
+        self.assertEqual(limits, {KindTurn: 10, KindTool: 10, KindHook: 10})
+        self.assertNotIn("compress", limits, "compress 没有 [ops] 上限字段")
+        self.assertEqual(
+            (
+                queue.max_queue,
+                queue.max_queue_per_fair_key,
+                queue.max_queue_per_scope,
+                queue.wait_timeout,
+            ),
+            (20, 0, 0, 30.0),
+        )
+        self.assertEqual(queue.normalized_wait_kinds(), frozenset({"turn", "tool", "hook", "compress"}))
+
+    def test_unconfigured_ops_stays_unlimited_and_queue_free(self) -> None:
+        self.assertEqual(_request_settings_from_ops(None), ({}, None))
+        self.assertEqual(_request_settings_from_ops(SimpleNamespace()), ({}, None))
+        # 全 0（含只配 wait_kinds）都不算"有队列"：Manager 还要 max_queue > 0 才入队。
+        self.assertEqual(
+            _map(
+                max_concurrent_turns=0, max_concurrent_tools=0,
+                max_concurrent_hooks=0, queue_max_size=0,
+                queue_wait_timeout_seconds=0,
+            ),
+            ({}, None),
+        )
+
+    def test_only_positive_limits_and_any_capacity_knob(self) -> None:
+        self.assertEqual(
+            _map(
+                max_concurrent_turns=3, max_concurrent_tools=0,
+                max_concurrent_hooks=-5, queue_max_size=0,
+                queue_wait_timeout_seconds=0,
+            ),
+            ({KindTurn: 3}, None),
+        )
+        for overrides in (
+            {"queue_max_size": 1}, {"queue_max_per_user": 2},
+            {"queue_max_per_scope": 3}, {"queue_wait_timeout_seconds": 4},
+        ):
+            with self.subTest(**overrides):
+                self.assertIsNotNone(_map(**overrides)[1])
+
+    def test_wait_kinds_forms_and_garbage_values(self) -> None:
+        self.assertEqual(
+            _map(queue_wait_kinds=KindTurn)[1].normalized_wait_kinds(),
+            frozenset({KindTurn}),
+        )
+        self.assertEqual(
+            _map(queue_wait_kinds={KindTurn: True, KindTool: False})[1]
+            .normalized_wait_kinds(),
+            frozenset({KindTurn}),
+        )
+        self.assertEqual(
+            _map(
+                max_concurrent_turns="many", max_concurrent_tools=None,
+                max_concurrent_hooks=[], queue_max_size="lots",
+                queue_wait_timeout_seconds=0,
+            ),
+            ({}, None),
+        )
+
+
+class TestOpsWiringInManager(unittest.IsolatedAsyncioTestCase):
+    """接线后的行为：并发满 → 排队；没有配置 → 不限并发（保持旧行为）。"""
+
+    async def test_turn_over_the_limit_waits_in_the_queue(self) -> None:
+        limits, queue = _map(
+            max_concurrent_turns=1, queue_max_size=2, queue_wait_timeout_seconds=5
+        )
+        manager = new_manager_with_limits_and_queue(0.0, limits, queue)
+        _first, _ctx, done = await manager.start(
+            None, StartRequest(kind=KindTurn, fair_key="user:1", scope_key="cli:local")
+        )
+        waiter = asyncio.ensure_future(
+            manager.start(None, StartRequest(kind=KindTurn, fair_key="user:2"))
+        )
+        await _wait_queued(manager, KindTurn)
+        self.assertFalse(waiter.done(), "第 N+1 个必须先排队，不能直接登记")
+        done()
+        _second, _ctx2, done2 = await asyncio.wait_for(waiter, 5)
+        done2()
+        self.assertEqual(manager.snapshot().queue_admitted, 1)
+
+    async def test_queue_with_zero_capacity_rejects_instead_of_queueing(self) -> None:
+        limits, queue = _map(
+            max_concurrent_turns=1, queue_max_size=0, queue_wait_timeout_seconds=30
+        )
+        self.assertIsNotNone(queue, "wait_timeout > 0 也算有队列配置")
+        manager = new_manager_with_limits_and_queue(0.0, limits, queue)
+        _first, _ctx, done = await manager.start(None, StartRequest(kind=KindTurn))
+        with self.assertRaises(ConcurrencyLimitError):
+            await manager.start(None, StartRequest(kind=KindTurn))
+        self.assertEqual(manager.snapshot().queue_busy_rejected, 1)
+        done()
+
+    async def test_ops_none_keeps_unlimited_concurrency(self) -> None:
+        manager = new_manager_with_limits_and_queue(0.0, *_request_settings_from_ops(None))
+        for _ in range(25):  # 远超默认上限 10
+            await manager.start(None, StartRequest(kind=KindTurn))
+        self.assertEqual(len(manager.list()), 25)
+        manager.cancel_all()

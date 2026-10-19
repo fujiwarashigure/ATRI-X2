@@ -12,7 +12,8 @@
   一致）；``select { case output <- msg: default: }`` → ``put_nowait`` + ``QueueFull`` 兜底。
 * ``sync.Mutex`` → :class:`asyncio.Lock`（只保护跨 await 的读写；纯同步的
   :meth:`Adapter.send_tui_message` 跑在事件循环线程上，不需要加锁）。
-* ``bufio.Scanner`` 的阻塞读 → ``asyncio.to_thread`` 里的 ``readline``，并支持注入
+* ``bufio.Scanner`` 的阻塞读 → :func:`atri_x.ops.executors.run_io`（``atrix-io`` 池）
+  里的 ``readline``，并支持注入
   输入/输出流（Go 直接绑 ``os.Stdin`` / ``os.Stdout``）。
 * ``isatty.IsTerminal(os.Stdin.Fd())`` → :meth:`Adapter.is_interactive`（拿不到
   ``fileno`` 时按"非终端"处理，与 Go 在非终端上的行为一致）。
@@ -44,6 +45,7 @@ from atri_x.delivery.delivery import (
     text as text_output,
 )
 from atri_x.errors import InvalidError
+from atri_x.ops.executors import run_io
 from atri_x.runtime.status import Snapshot, format_compact
 
 #: 平台名。对应 Go ``(*Adapter).Name`` 的返回值。
@@ -161,7 +163,7 @@ class Adapter:
         while True:
             if ctx_error(ctx) is not None:
                 raise_ctx_error(ctx)
-            line = await asyncio.to_thread(self._read_line)
+            line = await run_io(self._read_line)
             if line is None:
                 return
             if line == "/exit":

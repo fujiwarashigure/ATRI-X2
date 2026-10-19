@@ -216,8 +216,8 @@ dist/installer/ATRI-X-<版本>-setup.exe
 
 `build_installer.py --verify` 做的事：把安装包**复制到本地临时目录**、静默装到短路径
 （默认 `C:\Users\<user>\AtriXVerify`）、断言两个 exe + `install.json` + `unins000.exe`
-都在、跑一次 `atri-x.exe --version`、再静默卸载并等目录被清空。实测 0.9.8（含内置内核的
-321.3 MB onedir → 57.0 MB 安装包）：安装 35.4 s / 24513 个文件，卸载 7.9 s。
+都在、跑一次 `atri-x.exe --version`、再静默卸载并等目录被清空。实测 0.9.9（含内置内核的
+318.8 MB onedir → 56.5 MB 安装包）：安装 51.8 s / 23865 个文件，卸载 14.4 s。
 
 ### 7.1 构建环境的两个坑（实测）
 

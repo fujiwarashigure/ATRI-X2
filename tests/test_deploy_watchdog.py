@@ -8,7 +8,7 @@
 1. 已知秘密必须消失（``sk-`` key / Bearer / JSON 凭据 / Telegram bot token / URL userinfo）；
 2. 非敏感内容（``plain=keepme``）必须保留；
 3. **重复脱敏必须幂等**（第二次跑内容字节不变）；
-4. 独立凭据检测必须发现通用规则覆盖不到的原始 JWT；
+4. 独立凭据检测必须能发现原始 JWT（检测器不复用脱敏规则；对齐后脱敏也会遮掉它）；
 5. 已知凭据值检测必须发现环境变量里的秘密。
 
 **有意偏差（重要）**：上游第 5 条只要求“检测到并报警”（``--redact-dir`` 返回
@@ -25,6 +25,7 @@ Windows 部分用 ``atri_x.py`` 的 ``main()`` 直接调用（不经过 ``.cmd``
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -102,6 +103,15 @@ class WatchdogFixture(unittest.TestCase):
             timeout=180,
         )
 
+    def load_libfs(self):
+        """把复制到临时目录的 ``_libfs.py`` 当独立模块加载（它只依赖标准库）。"""
+        path = self.deploy / "_libfs.py"
+        spec = importlib.util.spec_from_file_location("deploy_libfs_under_test", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
 
 class TestRedactDir(WatchdogFixture):
     """``--redact-dir``：脱敏 + 三项复检。"""
@@ -139,12 +149,39 @@ class TestRedactDir(WatchdogFixture):
         self.assertIn("[REDACTED]", content)
 
     def test_independent_detection_flags_raw_jwt(self) -> None:
-        """通用规则刻意不覆盖裸 JWT；独立检测必须报出来并留下失败标记。"""
+        """独立检测不复用脱敏规则，裸 JWT 必须被它直接报出来。
+
+        项目规则对齐后也会遮掉 JWT，所以 ``--redact-dir`` 仍应通过复检——
+        这里同时锁住「检测器独立」与「缺口已补」两条性质。
+        """
         directory = self.diag_dir("diag-jwt", {"notes.txt": f"raw={RAW_JWT}\n"})
+        hits = self.load_libfs().detect_credential_patterns(str(directory))
+        self.assertTrue(hits)
+        self.assertIn("疑似未脱敏内容", hits[0])
+
         result = self.run_watchdog("--redact-dir", str(directory))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertTrue((directory / "REDACTION-FAILED").exists())
-        self.assertIn("疑似未脱敏内容", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((directory / "REDACTION-FAILED").exists())
+        self.assertNotIn(RAW_JWT, (directory / "notes.txt").read_text(encoding="utf-8"))
+
+    def test_independent_detection_covers_extended_shapes(self) -> None:
+        """新增的独立检测形态（AKID / Basic / 私钥头 / DSN）必须真的报警。"""
+        samples = {
+            "akia.txt": "creds AKIAIOSFODNN7EXAMPLE end\n",
+            "basic.txt": "Authorization: Basic dXNlcjpwYXNzd29yZA==\n",
+            "key.pem": "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----\n",
+            "dsn.txt": "postgres://admin:s3cr3t@db:5432/app\n",
+        }
+        directory = self.diag_dir("diag-ext", samples)
+        hits = self.load_libfs().detect_credential_patterns(str(directory))
+        self.assertEqual(len(hits), len(samples))
+
+        result = self.run_watchdog("--redact-dir", str(directory))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for filename, text in samples.items():
+            content = (directory / filename).read_text(encoding="utf-8")
+            self.assertNotIn(text.strip(), content, f"{filename} 里仍是明文")
+        self.assertFalse((directory / "REDACTION-FAILED").exists())
 
     def test_known_secret_from_environment_is_scrubbed(self) -> None:
         """环境变量里的自定义秘密：Python 版直接清除，而不是只报警。"""

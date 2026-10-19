@@ -657,7 +657,10 @@ class AgentDshConfig(StrictConfig):
     - ``max_history_messages`` / ``prompt_char_budget``：交给 DSH 的历史消息条数与字符预算；
     - ``workspace`` / ``home``：DSH 会话工作区与 ``DSH_HOME``；空串落在配置目录下；
     - ``allow_permissions``：是否放行 DSH 的权限请求（默认拒绝，安全优先）；
-    - ``circuit_breaker_failures`` / ``circuit_breaker_cooldown_seconds``：连续失败熔断。
+    - ``circuit_breaker_failures`` / ``circuit_breaker_cooldown_seconds``：连续失败熔断；
+    - ``credential_provider`` / ``credential_env`` / ``credential_base_url_env``：把
+      ATRI-X 解析好的模型凭据注入 DSH 子进程（见 :mod:`atri_x.agent.dsh.runtime` 的
+      环境收敛）。DSH 侧凭据不落盘也能跑通，Windows 图形端只写 ``.env`` 的场景尤其需要。
     """
 
     enabled: bool = True
@@ -676,6 +679,13 @@ class AgentDshConfig(StrictConfig):
     allow_permissions: bool = False
     circuit_breaker_failures: int = 3
     circuit_breaker_cooldown_seconds: float = 300.0
+    #: 用哪个 ATRI-X provider 的密钥喂给 DSH；空 = 自动（优先名字含 deepseek 的 provider，
+    #: 其次当前 work provider）。
+    credential_provider: str = ""
+    #: 注入的凭据环境变量名（内核默认找 DEEPSEEK_API_KEY）；空 = 内置默认。
+    credential_env: str = "DEEPSEEK_API_KEY"
+    #: 选中 provider 的 base_url 非官方默认时，一并注入的变量名；空 = 内置默认。
+    credential_base_url_env: str = "DEEPSEEK_BASE_URL"
 
 
 @dataclass

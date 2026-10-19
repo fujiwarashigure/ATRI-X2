@@ -32,6 +32,7 @@ from typing import Any, Sequence
 from atri_x.agent.dsh.client import AcpClient
 from atri_x.agent.dsh.command import DEFAULT_COMMAND_FALLBACK, format_command, resolve_command
 from atri_x.agent.dsh.types import AcpError, AcpEvent
+from atri_x.redact import secrets
 
 __all__ = ["main"]
 
@@ -135,8 +136,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     cwd = _resolve_cwd(args.cwd)
     command = _resolve_command(args.command)
-    _write(f"[dsh-acp] command: {_format_command(command)}")
-    _write(f"[dsh-acp] cwd: {cwd}")
+    _write(f"[dsh-acp] command: {secrets(_format_command(command))}")
+    _write(f"[dsh-acp] cwd: {secrets(cwd)}")
     client = AcpClient(
         command,
         prompt_timeout=args.timeout,
@@ -156,7 +157,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             client.set_config_option(session.session_id, "reasoning_effort", args.reasoning_effort)
             effort = args.reasoning_effort
         _write(f"[dsh-acp] config: model={model or '-'} reasoning_effort={effort or '-'}")
-        _write(f"[dsh-acp] prompt: {args.prompt}")
+        _write(f"[dsh-acp] prompt: {secrets(args.prompt)}")
         result = client.prompt(session.session_id, args.prompt)
         _write(f"[dsh-acp] stopReason={result.stop_reason} elapsed={result.elapsed_seconds:.2f}s")
         usage = result.usage
@@ -180,12 +181,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write("[dsh-acp] ok")
         return 0
     except AcpError as exc:
-        _write(f"[dsh-acp] error: {exc}")
+        _write(f"[dsh-acp] error: {secrets(str(exc))}")
         tail = client.stderr_tail()
         if tail:
             _write("[dsh-acp] stderr tail:")
             for line in tail.splitlines()[-20:]:
-                _write("  " + line)
+                _write("  " + secrets(line))
         return 1
     finally:
         client.stop()

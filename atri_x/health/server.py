@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Mapping
 
 from atri_x.health.state import Snapshot, State
+from atri_x.redact import secrets as redact_secrets
 
 #: 对应 Go ``defaultReadHeaderTimeout``。
 DEFAULT_READ_HEADER_TIMEOUT_SECONDS = 5.0
@@ -549,7 +550,7 @@ class Server:
                 checker.check(ctx)
             except BaseException as exc:  # noqa: BLE001 - 检查失败就是 not ready
                 ready = False
-                checks[name] = str(exc)
+                checks[name] = redact_secrets(str(exc))
                 continue
             checks[name] = "ok"
         return ready, checks

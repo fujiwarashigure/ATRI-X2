@@ -31,13 +31,15 @@ from typing import Any, Awaitable, Callable, Mapping, Sequence
 from atri_x.agent.dsh.client import AcpClient
 from atri_x.agent.dsh.command import format_command, resolve_command
 from atri_x.agent.dsh.router import DshRouteConfig
-from atri_x.agent.dsh.types import AcpEvent, AcpUsage, as_text
+from atri_x.agent.dsh.types import AcpError, AcpEvent, AcpUsage, as_text
+from atri_x.processenv import new as new_process_env
 
 __all__ = [
     "DshRunResult",
     "DshRuntime",
     "WorkspacePaths",
     "allow_permission",
+    "child_environment",
     "config_dir_of",
     "resolve_paths",
 ]
@@ -97,6 +99,32 @@ def allow_permission(params: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return None
 
 
+def child_environment(extra_env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """给 DSH 子进程构造环境：先收敛掉继承来的凭据，再放回显式注入项。
+
+    子进程不该无脑继承整份 ``os.environ``（内核日志里就会出现宿主的密钥变量），
+    因此复用 :mod:`atri_x.processenv` 的 :meth:`Environment.without_sensitive_keys`
+    过滤 ``*_KEY`` / ``*_TOKEN`` / ``*SECRET*`` 之类的名字，再叠回调用方
+    **明确要注入**的变量（例如 ATRI-X 自己从 ``.env`` 解析出来的 provider 密钥）。
+    ``extra_env`` 的值覆盖继承值，空值不进环境。
+    """
+    entries = [f"{name}={value}" for name, value in os.environ.items()]
+    filtered = new_process_env(entries).without_sensitive_keys()
+    overlay = {
+        str(name): str(value)
+        for name, value in (extra_env or {}).items()
+        if str(name).strip() and str(value)
+    }
+    if overlay:
+        filtered = filtered.overlay(overlay)
+    out: dict[str, str] = {}
+    for entry in filtered.environ():
+        name, sep, value = entry.partition("=")
+        if sep and name:
+            out[name] = value
+    return out
+
+
 @dataclass
 class DshRunResult:
     """一次路由执行的结果（与 ACP 结果解耦，便于测试构造）。"""
@@ -109,6 +137,10 @@ class DshRunResult:
     elapsed_seconds: float = 0.0
     tool_titles: list[str] = field(default_factory=list)
     server: str = ""
+    #: 内核是否真的回报了 ``usage``；为 ``False`` 时上面的 ``usage`` 只是全 0 占位。
+    usage_reported: bool = False
+    #: 本轮被内核拒绝的会话配置（例如 ``model`` 填了裸模型 id）：降级说明，供审计。
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -121,9 +153,11 @@ class DshRunResult:
             "sessionId": self.session_id,
             "stopReason": self.stop_reason,
             "usage": self.usage.to_dict(),
+            "usageReported": self.usage_reported,
             "elapsedSeconds": round(self.elapsed_seconds, 3),
             "toolCalls": len(self.tool_titles),
             "server": self.server,
+            "warnings": list(self.warnings),
         }
 
 
@@ -137,15 +171,24 @@ class DshRuntime:
         command: Sequence[str] | str | None = None,
         paths: WorkspacePaths | None = None,
         client_factory: Callable[..., AcpClient] | None = None,
+        extra_env: Mapping[str, str] | None = None,
     ) -> None:
         self.config = config or DshRouteConfig()
         self._command = command
         self.paths = paths or WorkspacePaths(workspace=os.getcwd(), home="")
         self._client_factory = client_factory or AcpClient
+        self._extra_env = {
+            str(name): str(value)
+            for name, value in (extra_env or {}).items()
+            if str(name).strip() and str(value)
+        }
         self._lock = threading.Lock()
         self._client: AcpClient | None = None
         self._active_session = ""
         self._closed = False
+        #: 会话配置覆盖被内核拒绝过一次之后就不再重试（见 :meth:`_apply_overrides`）。
+        self._model_override_rejected = False
+        self._effort_override_rejected = False
 
     # -- 生命周期 -------------------------------------------------------------
     @property
@@ -170,7 +213,7 @@ class DshRuntime:
         if not command:
             raise RuntimeError("DSH 启动命令不可用（没有内置内核，PATH 上也没有 dsh）")
         os.makedirs(self.paths.workspace, exist_ok=True)
-        env = dict(os.environ)
+        env = child_environment(self._extra_env)
         if self.paths.home:
             os.makedirs(self.paths.home, exist_ok=True)
             env["DSH_HOME"] = self.paths.home
@@ -178,6 +221,7 @@ class DshRuntime:
             command,
             cwd=self.paths.workspace,
             env=env,
+            isolate_env=True,
             prompt_timeout=float(self.config.timeout_seconds or 180.0),
             on_permission=allow_permission if self.config.allow_permissions else None,
         )
@@ -297,13 +341,9 @@ class DshRuntime:
         session = client.new_session(self.paths.workspace)
         self._active_session = session.session_id
         tool_titles: list[str] = []
+        warnings: list[str] = []
         try:
-            model = (self.config.model or "").strip()
-            if model and session.current_value("model") != model:
-                client.set_config_option(session.session_id, "model", model)
-            effort = (self.config.reasoning_effort or "").strip()
-            if effort and session.current_value("reasoning_effort") != effort:
-                client.set_config_option(session.session_id, "reasoning_effort", effort)
+            warnings = self._apply_overrides(client, session)
             result = client.prompt(
                 session.session_id,
                 prompt,
@@ -326,6 +366,8 @@ class DshRuntime:
                 server=(
                     f"{info.agent_name}/{info.agent_version}" if info is not None else ""
                 ),
+                usage_reported=bool(result.usage_reported),
+                warnings=warnings,
             )
         finally:
             self._active_session = ""
@@ -333,6 +375,39 @@ class DshRuntime:
                 client.close_session(session.session_id)
             except Exception:  # noqa: BLE001 - 关会话失败不覆盖本轮结果
                 pass
+
+    def _apply_overrides(self, client: AcpClient, session: Any) -> list[str]:
+        """下发 ``model`` / ``reasoning_effort``；被内核拒绝时**一次性降级**。
+
+        内核只接受它自己 ``session/set_config_option`` 公布的取值；用户把
+        ``[agent.dsh].model`` 填成裸模型 id（例如 ``deepseek-v4-flash``）时会回
+        ``AcpError [-32602] unknown model option``。这里捕获它、放弃本次覆盖、继续用
+        内核默认模型跑完本轮，并把说明记进 :attr:`DshRunResult.warnings`（走审计）。
+
+        两者各自独立降级；同一进程内失败过就不再重试（否则等于每轮都白失败一次，
+        连续失败还会把熔断打开，表现为"静默回原生"）。审计只需要一次说明，所以
+        标志置位后连 warning 也不再产生。
+        """
+        warnings: list[str] = []
+        model = (self.config.model or "").strip()
+        if model and not self._model_override_rejected and session.current_value("model") != model:
+            try:
+                client.set_config_option(session.session_id, "model", model)
+            except AcpError as exc:
+                self._model_override_rejected = True
+                warnings.append(f"model override rejected: {exc}")
+        effort = (self.config.reasoning_effort or "").strip()
+        if (
+            effort
+            and not self._effort_override_rejected
+            and session.current_value("reasoning_effort") != effort
+        ):
+            try:
+                client.set_config_option(session.session_id, "reasoning_effort", effort)
+            except AcpError as exc:
+                self._effort_override_rejected = True
+                warnings.append(f"reasoning_effort override rejected: {exc}")
+        return warnings
 
     # -- 诊断 -----------------------------------------------------------------
     def describe(self) -> dict[str, Any]:
@@ -345,4 +420,6 @@ class DshRuntime:
             "workspace": self.paths.workspace,
             "home": self.paths.home,
             "closed": self._closed,
+            # 只报变量名，不回显任何凭据值。
+            "extraEnvKeys": sorted(self._extra_env),
         }

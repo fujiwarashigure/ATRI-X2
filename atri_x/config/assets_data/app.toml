@@ -314,8 +314,10 @@ max_rounds_per_turn = 10
 # cost_ratio = 2.0                 # estimated DSH cost vs native chain for one turn
 # cost_scale_tokens = 20000        # prompt size that counts as "one large call" for cost pressure
 # command = ""                     # explicit launch command; empty = DSH_ACP_COMMAND -> bundled kernel -> dsh on PATH
-# model = ""                       # session/set_config_option model (empty = kernel default)
-# reasoning_effort = ""            # session/set_config_option reasoning_effort
+# model = ""                       # session/set_config_option model; MUST be a value the kernel publishes
+#                                  # (e.g. "deepseek/deepseek-v4-flash"), NOT a bare model id: an unknown value
+#                                  # degrades to the kernel default for that turn instead of failing every turn
+# reasoning_effort = ""            # session/set_config_option reasoning_effort (same published-value rule)
 # timeout_seconds = 180
 # max_history_messages = 8         # recent messages handed to DSH together with the current one
 # prompt_char_budget = 12000       # character budget for the whole handed-over prompt
@@ -324,6 +326,10 @@ max_rounds_per_turn = 10
 # allow_permissions = false        # keep DSH permission requests denied (recommended)
 # circuit_breaker_failures = 3
 # circuit_breaker_cooldown_seconds = 300
+# credential_provider = ""         # which provider's key is injected into the DSH child process;
+#                                  # empty = auto (provider whose name contains "deepseek", else the work provider)
+# credential_env = "DEEPSEEK_API_KEY"        # env var name the key is injected as
+# credential_base_url_env = "DEEPSEEK_BASE_URL"  # injected too when the provider base_url is not official
 
 [ops]
 # 单次工具 / Hook / 上下文压缩的超时。0 表示不限时；生产建议设置明确上限。

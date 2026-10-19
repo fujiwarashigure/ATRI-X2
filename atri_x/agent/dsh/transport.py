@@ -28,6 +28,7 @@ from atri_x.agent.dsh.types import (
     as_code,
     as_text,
 )
+from atri_x.redact import secrets
 
 __all__ = ["JsonRpcStdio"]
 
@@ -60,6 +61,10 @@ class JsonRpcStdio:
     """一行一帧的 JSON-RPC 2.0 客户端传输（线程安全）。
 
     :param command: 启动命令（已拆好的 argv）。
+    :param env: 叠加到子进程环境上的变量；``isolate_env=True`` 时它就是**完整**环境。
+    :param isolate_env: 只用 ``env``（不再继承 ``os.environ``）。用于调用方已经把
+        环境收敛过（过滤凭据、只放回明确注入的那一项）的场景，默认 ``False`` 保持
+        「继承 + 叠加」的老语义。
     :param on_notification: 服务端通知处理器，参数 ``(method, params)``；在读线程调用。
     :param on_request: 服务端请求处理器，返回 ``result`` 字典；``None`` 表示用
         ``-32601 method not found`` 应答。在读线程调用，必须快速返回。
@@ -75,6 +80,7 @@ class JsonRpcStdio:
         on_notification: Callable[[str, Mapping[str, Any]], None] | None = None,
         on_request: Callable[[str, Mapping[str, Any]], Mapping[str, Any] | None] | None = None,
         stderr_tail_lines: int = STDERR_TAIL_LINES,
+        isolate_env: bool = False,
     ) -> None:
         parts = [str(item) for item in command]
         if not parts:
@@ -82,6 +88,7 @@ class JsonRpcStdio:
         self._command = parts
         self._cwd = cwd
         self._env = dict(env or {})
+        self._isolate_env = bool(isolate_env)
         self._request_timeout = float(request_timeout)
         self._on_notification = on_notification
         self._on_request = on_request
@@ -104,8 +111,7 @@ class JsonRpcStdio:
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
                 return
-        env = dict(os.environ)
-        env.update(self._env)
+        env = dict(self._env) if self._isolate_env else {**dict(os.environ), **self._env}
         kwargs: dict[str, Any] = {}
         if os.name == "nt":
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
@@ -253,8 +259,11 @@ class JsonRpcStdio:
         """读线程结束意味着子进程不能再服务：所有等待中的请求统一失败。"""
         proc = self._proc
         code = None if proc is None else proc.poll()
+        # stderr 是内核自己的诊断日志，它的 startup 横幅明确写着
+        # "may contain configuration or credential values"，带出去之前先脱敏。
+        tail = secrets(self.stderr_tail())
         self._fail_pending(
-            AcpProcessError(f"dsh acp server exited (exit code {code}); stderr tail: {self.stderr_tail()}")
+            AcpProcessError(f"dsh acp server exited (exit code {code}); stderr tail: {tail}")
         )
         with self._lock:
             self._stopped = True

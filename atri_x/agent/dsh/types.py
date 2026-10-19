@@ -219,7 +219,12 @@ class AcpEvent:
 
 @dataclass(frozen=True)
 class AcpPromptResult:
-    """一轮 prompt 的结果：停止原因、token 用量、正文与思考文本。"""
+    """一轮 prompt 的结果：停止原因、token 用量、正文与思考文本。
+
+    ``usage_reported`` 说明**响应里到底有没有** ``usage`` 字段：DSH 内核的
+    ``session/prompt`` 目前只回 ``stopReason``，这时 ``usage`` 是全 0 的占位值
+    （不能当作"真实用量是 0"）。记账方必须用这个布尔区分"没用量"和"用量为零"。
+    """
 
     session_id: str
     stop_reason: str
@@ -230,6 +235,7 @@ class AcpPromptResult:
     context_size: int = 0
     events: tuple[AcpEvent, ...] = ()
     elapsed_seconds: float = 0.0
+    usage_reported: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """序列化（事件默认不展开）。"""
@@ -237,6 +243,7 @@ class AcpPromptResult:
             "sessionId": self.session_id,
             "stopReason": self.stop_reason,
             "usage": self.usage.to_dict(),
+            "usageReported": self.usage_reported,
             "text": self.text,
             "thought": self.thought,
             "usedTokens": self.used_tokens,
