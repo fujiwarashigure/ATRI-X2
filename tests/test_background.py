@@ -296,47 +296,162 @@ class TestBackgroundTypes(unittest.TestCase):
 
 
 class TestBackgroundShellRisk(unittest.TestCase):
-    """cron / Atrinis 后台 shell 的风险裁决（对应 Go ``confirmBackgroundSandboxShell``）。"""
+    """cron / Atrinis 后台 shell 的风险裁决（对应 Go ``confirmBackgroundSandboxShell``）。
+
+    裁决是 fail-closed：没有命令文本、静态确认不出来、PowerShell 主机、结构违规、
+    风险非 low、白名单未命中 —— 全部拒绝并带可区分的原因。
+    """
+
+    def setUp(self) -> None:
+        # 本机 ``is_power_shell_env()`` 恒为 True（真实环境就是 PowerShell）：白名单 /
+        # 结构 / 等级这些 bash 口径的分支要在显式构造的 bash 主机下验证。
+        from unittest import mock
+
+        self._risk_patch = mock.patch(
+            "atri_x.tool.builtin.shell_risk.is_power_shell_env", return_value=False
+        )
+        self._sandbox_patch = mock.patch(
+            "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=False
+        )
+        self._risk_patch.start()
+        self._sandbox_patch.start()
+
+    def tearDown(self) -> None:
+        self._risk_patch.stop()
+        self._sandbox_patch.stop()
 
     def _sandbox(self, kind: str = "cron", background: bool = True) -> SandboxContext:
         return SandboxContext(root="r", dir="r/cron/x", background=background, background_kind=kind)
 
+    def test_reject_without_cmd_text(self) -> None:
+        decision = confirm_background_sandbox_shell(self._sandbox(), "shell", RiskLow)
+        self.assertTrue(decision.handled, "后台特例必须自己处理，不得转去等用户确认")
+        self.assertFalse(decision.confirm)
+        self.assertIn("命令文本", decision.reason)
+
     def test_critical_is_rejected_without_waiting_for_user(self) -> None:
         decision = confirm_background_sandbox_shell(
-            self._sandbox(), "shell", RiskCritical
+            self._sandbox(), "shell", RiskCritical, cmd_text="rm -rf /"
         )
         self.assertTrue(decision.handled, "后台特例必须自己处理，不得转去等用户确认")
         self.assertFalse(decision.confirm)
-        self.assertEqual(decision, ShellRiskDecision(confirm=False, handled=True))
+        self.assertTrue(decision.reason, "拒绝必须带原因（写进审计）")
         self.assertIn("critical", BACKGROUND_SHELL_CRITICAL_MESSAGE)
 
-    def test_non_critical_is_auto_confirmed(self) -> None:
-        for risk in (RiskLow, RiskHigh):
-            decision = confirm_background_sandbox_shell(self._sandbox(), "shell", risk)
-            self.assertTrue(decision.handled)
-            self.assertTrue(decision.confirm, f"{risk} 应自动确认")
-        confirm, handled = confirm_background_sandbox_shell(
-            self._sandbox("atrinis"), "shell", RiskHigh
+    def test_allowlisted_low_risk_is_auto_confirmed(self) -> None:
+        decision = confirm_background_sandbox_shell(
+            self._sandbox(), "shell", RiskLow, cmd_text="ls -la"
         )
+        self.assertTrue(decision.handled)
+        self.assertTrue(decision.confirm, "低风险 + 白名单应自动确认")
+        confirm, handled = decision
         self.assertTrue(confirm and handled)
+        self.assertIn("白名单", decision.reason)
+
+    def test_high_risk_is_rejected_even_without_critical(self) -> None:
+        decision = confirm_background_sandbox_shell(
+            self._sandbox(), "shell", RiskHigh, cmd_text="git clean -fd"
+        )
+        self.assertTrue(decision.handled)
+        self.assertFalse(decision.confirm, "high 不再自动确认（Go 旧口径的缺口）")
+        self.assertIn("低风险", decision.reason)
+
+    def test_command_outside_allowlist_is_rejected_with_reason(self) -> None:
+        # ``uname`` 低风险但不在白名单里：命中"白名单未命中"分支（``python tool.py``
+        # 会先被判 medium，拿到的原因是风险超限）。
+        decision = confirm_background_sandbox_shell(
+            self._sandbox("atrinis"), "shell", RiskLow, cmd_text="uname -a"
+        )
+        self.assertTrue(decision.confirm is False and decision.handled is True)
+        self.assertIn("白名单", decision.reason)
+        self.assertIn("uname", decision.reason)
+
+    def test_structural_violations_are_rejected(self) -> None:
+        for command, needle in (
+            ("ls | grep TODO", "管道"),
+            ("ls > out.txt", "重定向"),
+            ("cat $(ls)", "替换"),
+            ("ls &", "后台执行符"),
+        ):
+            with self.subTest(command=command):
+                decision = confirm_background_sandbox_shell(
+                    self._sandbox(), "shell", RiskLow, cmd_text=command
+                )
+                self.assertFalse(decision.confirm, command)
+                self.assertIn(needle, decision.reason)
+
+    def test_power_shell_host_is_rejected(self) -> None:
+        from unittest import mock
+
+        with mock.patch(
+            "atri_x.tool.builtin.shell_risk.is_power_shell_env", return_value=True
+        ), mock.patch(
+            "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=True
+        ):
+            decision = confirm_background_sandbox_shell(
+                self._sandbox(), "shell", RiskLow, cmd_text="ls -la"
+            )
+        self.assertFalse(decision.confirm)
+        self.assertIn("PowerShell", decision.reason)
+
+    def test_dynamic_command_is_rejected(self) -> None:
+        decision = confirm_background_sandbox_shell(
+            self._sandbox(), "shell", RiskLow, cmd_text='"$CMD" --version'
+        )
+        self.assertFalse(decision.confirm)
+        self.assertTrue(decision.reason)
+
+    def test_unparsable_command_is_rejected(self) -> None:
+        decision = confirm_background_sandbox_shell(
+            self._sandbox(), "shell", RiskLow, cmd_text="if true; then"
+        )
+        self.assertFalse(decision.confirm)
+        self.assertTrue(decision.reason)
+
+    def test_allow_all_restores_go_behaviour_but_still_needs_static_input(self) -> None:
+        class _Policy:
+            allow: frozenset[str] = frozenset()
+            allow_all = True
+
+        # Go 旧口径：非 critical 自动确认（白名单/结构都不再看）
+        high = confirm_background_sandbox_shell(
+            self._sandbox(), "shell", RiskHigh, cmd_text="git clean -fd", policy=_Policy()
+        )
+        self.assertTrue(high.confirm and high.handled)
+        # 但"没有命令文本 / 静态确认不出来"仍然拒绝
+        empty = confirm_background_sandbox_shell(
+            self._sandbox(), "shell", RiskHigh, cmd_text="  ", policy=_Policy()
+        )
+        self.assertFalse(empty.confirm)
+        self.assertIn("命令文本", empty.reason)
+        dynamic = confirm_background_sandbox_shell(
+            self._sandbox(), "shell", RiskHigh, cmd_text='"$CMD"', policy=_Policy()
+        )
+        self.assertFalse(dynamic.confirm)
+        self.assertIn("静态确认", dynamic.reason)
 
     def test_only_cron_and_atrinis_background_shell_is_special_cased(self) -> None:
         self.assertEqual(
-            confirm_background_sandbox_shell(self._sandbox(), "read_file", RiskCritical),
-            ShellRiskDecision(),
-        )
-        self.assertEqual(
-            confirm_background_sandbox_shell(self._sandbox("other"), "shell", RiskHigh),
-            ShellRiskDecision(),
-        )
-        self.assertEqual(
             confirm_background_sandbox_shell(
-                self._sandbox(background=False), "shell", RiskHigh
+                self._sandbox(), "read_file", RiskCritical, cmd_text="rm -rf /"
             ),
             ShellRiskDecision(),
         )
         self.assertEqual(
-            confirm_background_sandbox_shell(None, "shell", RiskCritical), ShellRiskDecision()
+            confirm_background_sandbox_shell(
+                self._sandbox("other"), "shell", RiskHigh, cmd_text="ls -la"
+            ),
+            ShellRiskDecision(),
+        )
+        self.assertEqual(
+            confirm_background_sandbox_shell(
+                self._sandbox(background=False), "shell", RiskHigh, cmd_text="ls -la"
+            ),
+            ShellRiskDecision(),
+        )
+        self.assertEqual(
+            confirm_background_sandbox_shell(None, "shell", RiskCritical, cmd_text="ls"),
+            ShellRiskDecision(),
         )
 
     def test_audit_event_names_match_go(self) -> None:

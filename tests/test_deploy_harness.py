@@ -733,5 +733,109 @@ class TestStabilityReadyGate(HarnessCase):
         test._print_trend()  # 只是不能抛异常
 
 
+class TestFakeDockerStrictness(HarnessCase):
+    """假 docker 的 fail-closed 契约与命中计数。
+
+    过去 ``_route`` / ``_route_exec`` 的兜底分支返回退出码 0：假实现不认识的命令
+    会被当成"成功"，于是被测脚本新增一条 docker 调用时测试照样全绿。现在未识别
+    命令一律 ``AssertionError``（消息带全 argv），并且每次命中都记账。
+    """
+
+    def test_unknown_head_is_assertion_error_with_argv(self) -> None:
+        docker = FakeDocker()
+        with self.assertRaises(AssertionError) as caught:
+            docker._run(["volume", "prune", "-f"])
+        message = str(caught.exception)
+        for part in ("volume", "prune", "-f"):
+            self.assertIn(part, message)
+        self.assertIn("_route", message)
+
+    def test_unknown_image_subcommand_is_not_green(self) -> None:
+        docker = FakeDocker()
+        with self.assertRaises(AssertionError) as caught:
+            docker._run(["image", "ls"])
+        self.assertIn("'ls'", str(caught.exception))
+
+    def test_unknown_volume_subcommand_is_not_green(self) -> None:
+        docker = FakeDocker()
+        with self.assertRaises(AssertionError):
+            docker._run(["volume", "inspect", "v"])
+
+    def test_unknown_exec_command_is_not_green(self) -> None:
+        docker = FakeDocker()
+        with self.assertRaises(AssertionError) as caught:
+            docker._run(["exec", "c", "python", "-m", "atri_x", "doctor", "--no-model"])
+        message = str(caught.exception)
+        self.assertIn("_route_exec", message)
+        self.assertIn("doctor", message)
+
+    def test_unknown_command_counts_no_hit(self) -> None:
+        docker = FakeDocker()
+        with self.assertRaises(AssertionError):
+            docker._run(["system", "df"])
+        self.assertEqual(docker.rule_hits(), {})
+
+    def test_rule_hits_record_each_route(self) -> None:
+        """命中计数能回答"这次调用命中了哪条规则、几次"。"""
+        docker = FakeDocker()
+        code, _test = self.run_smoke(docker)
+        self.assertEqual(code, 0)
+        self.assertEqual(docker.rule_hits("version"), 1)
+        self.assertEqual(docker.rule_hits("build"), 1)
+        self.assertEqual(docker.rule_hits("volume.create"), 1)
+        self.assertEqual(docker.rule_hits("run.seed"), 1)
+        self.assertEqual(docker.rule_hits("run.detached"), 1)
+        self.assertEqual(docker.rule_hits("exec.pip"), 1)
+        # 健康探测会跑两处：wait_healthy 的层探测 + 断言步骤
+        self.assertGreaterEqual(docker.rule_hits("exec.health-probe"), 1)
+        self.assertEqual(docker.rule_hits("inspect.user"), 1)
+        # 自建镜像路径不做 docker image inspect；那条路由由 --image 用例覆盖
+        self.assertEqual(docker.rule_hits("image.inspect"), 0)
+        # rm 两次：启动前清同名残留 + 收尾清理
+        self.assertEqual(docker.rule_hits("rm"), 2)
+        self.assertEqual(docker.rule_hits("rmi"), 1)
+        self.assertEqual(docker.rule_hits("volume.rm"), 1)
+        # 未命中的规则名读出来是 0（而不是 KeyError），全部命中次数等于调用次数
+        self.assertEqual(docker.rule_hits("logs"), 0)
+        self.assertEqual(sum(docker.rule_hits().values()), len(docker.calls))
+        self.assertEqual(docker.hit_log[0], "version")
+
+    def test_hit_counting_exposes_retry_loops(self) -> None:
+        """探测回落会按层命中：第一层失败后第二层命中，计数看得见。"""
+        docker = FakeDocker(probe_codes=(1,), layer_http_code=0)
+        self.run_smoke(docker)
+        self.assertGreaterEqual(docker.rule_hits("exec.health-probe"), 1)
+        self.assertEqual(docker.rule_hits("exec.http-live"), 1)
+        self.assertEqual(docker.rule_hits("exec.tcp"), 0)
+
+    def test_rule_hits_returns_a_copy(self) -> None:
+        docker = FakeDocker()
+        docker._run(["version"])
+        snapshot = docker.rule_hits()
+        snapshot["version"] = 99
+        self.assertEqual(docker.rule_hits("version"), 1)
+
+    def test_image_inspect_route_is_counted_in_the_image_path(self) -> None:
+        docker = FakeDocker()
+        code, _test = self.run_smoke(docker, image="atri-x:0.9.0")
+        self.assertEqual(code, 0)
+        self.assertEqual(docker.rule_hits("image.inspect"), 1)
+        self.assertEqual(docker.rule_hits("build"), 0)
+
+    def test_exec_user_option_does_not_shift_command_parsing(self) -> None:
+        """``docker exec --user X <container> <cmd>`` 里的 --user 不能被当成命令。"""
+        docker = FakeDocker()
+        done = docker._run(["exec", "--user", "10001:10001", "c", "python", "-m", "pip", "list"])
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual(docker.rule_hits("exec.pip"), 1)
+
+    def test_real_capture_is_still_forbidden(self) -> None:
+        """FakeDocker 的 capture 注入点被误用时必须报错（不碰真实子进程）。"""
+        docker = FakeDocker()
+        with self.assertRaises(AssertionError) as caught:
+            docker._capture(["docker", "ps"])
+        self.assertIn("不应触到真实子进程", str(caught.exception))
+
+
 if __name__ == "__main__":  # pragma: no cover - 手工单跑
     unittest.main()

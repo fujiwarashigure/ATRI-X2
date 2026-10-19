@@ -10,6 +10,14 @@
   **同步调用、不等返回值**；Python 侧 ``Agent.start_group_services`` 返回常驻
   ``asyncio.Task``（``while True: sleep``，群服务默认启用），因此这里同样只调用、
   不 ``await`` —— 否则 ``build_agent`` 永远不返回（见函数内注释）。
+
+Python 版补上的三条**生产接线**（此前只在测试里显式传参才成立）：
+
+* ``rate_limit_*``：按 ``[ops]`` 的 per-minute/burst 构造入站限流器并随 ``opts``
+  传给 bootstrap；``0`` 表示未配置（不构造、由 ``/diagnostics`` 如实标注）。
+* ``hook_service``：把 ``app/runtime.py`` 建好的控制面传下去，``/hooks`` 才可用。
+* 装配报告：``AgentServicesReport.to_dict()`` 落成结构化日志并挂到宿主，
+  ``/diagnostics.agent_services`` 与 doctor 的能力自检复用同一份快照。
 """
 
 from __future__ import annotations
@@ -193,36 +201,36 @@ async def build_agent(
     # 把三组同僚实现的服务真正装到 Agent 上（``atri_x/agent/bootstrap.py``）。
     # 不做这一步 ``atri_x/agent/seams.py`` 只会走**保守降级**：预算、限流、上下文
     # 压缩、工具预载全部静默失效 —— Agent 能构造、测试也全绿，只是能力悄悄没了。
-    # installer 是幂等的，缺件只记 warning 不抛，所以这里不阻断启动。
+    # installer 是幂等的，缺件只记 warning 不抛，所以这里默认不阻断启动；
+    # ``[runtime] fail_fast_agent_services = true`` 时改为让启动失败（见下）。
     #
     # ``opts`` 必须显式带上工具运行时：``bootstrap._wire_extra_host_fields`` 读的是
     # ``opts["registry"]``（对应 Go ``core.go:428-434`` 的
     # ``SetToolRuntime(opts.ToolRegistry, opts.Skills)``），而它拿不到
     # ``agent.Options`` —— 只传 ``agent`` 会让 ``registry is None`` 直接 return，
     # 内置工具注册表就静默丢掉（模型一个工具都看不到）。
-    try:
-        from atri_x.agent.bootstrap import install_agent_services
-
-        report = install_agent_services(
-            agent,
-            opts={
-                "registry": tool_runtime.registry,
-                "skills": tool_runtime.skill_manager,
-            },
+    #
+    # 同一个 ``opts`` 还负责另外两条**生产接线**（此前只写进 ``AgentOptions``，
+    # 而 ``Agent.__init__`` 并不落这两个字段，于是能力在真实路径上根本不存在）：
+    #
+    # * ``rate_limit_*``：按 ``[ops]`` 的 per-minute/burst 构造令牌桶。配置为 0
+    #   （默认）时不传任何键 = 显式"未配置"，由 ``/diagnostics`` 如实区分。
+    # * ``hook_service``：``app/runtime.py`` 的 ``build_hook_service`` 已经建好控制面
+    #   （对应 Go ``buildHookService``），不传下去 ``deps.hooks`` 恒为 ``None``、
+    #   ``/hooks`` 会一直回 "hook service is not configured"。
+    install_options = _agent_install_options(tool_runtime, hook_service, getattr(cfg, "ops", None))
+    _announce_redaction(foundation.logger)
+    report_payload = _install_agent_services(agent, install_options, foundation.logger)
+    _publish_capabilities(agent, report_payload, install_options, foundation.logger)
+    if _fail_fast_agent_services(cfg) and not report_payload.get("ok", False):
+        failed = report_payload.get("failed") or []
+        detail = ", ".join(
+            "%s: %s" % (item[0], item[1]) for item in failed if len(item) >= 2
+        ) or "assembly raised before a report could be produced"
+        raise RuntimeError(
+            "agent services are incomplete and runtime.fail_fast_agent_services=true: "
+            + detail
         )
-    except Exception as exc:  # noqa: BLE001 - 装配失败不能阻断启动
-        foundation.logger.warn(
-            "agent service installation failed",
-            event="agent_service_install",
-            error=f"{type(exc).__name__}: {exc}",
-        )
-    else:
-        if report.failed:
-            foundation.logger.warn(
-                "agent service installation incomplete",
-                event="agent_service_install",
-                failed=[name for name, _detail in report.failed],
-            )
     # Go：``agt.StartGroupServices(ctx)`` / ``agt.StartRuntimeStateWatch(ctx)``
     # 都是**同步调用、不等待**，两者各自在内部起一个后台循环。
     # 这里不能 ``await`` ``start_group_services`` 的返回值：它是常驻 Task
@@ -236,6 +244,201 @@ async def build_agent(
     if callable(watch):
         watch(ctx)
     return agent
+
+
+def _agent_install_options(
+    tool_runtime: Any, hook_service: Any, ops_cfg: Any
+) -> dict[str, Any]:
+    """装配 ``install_agent_services`` 需要的 ``opts``（只放真的配了的东西）。"""
+    options: dict[str, Any] = {
+        "registry": tool_runtime.registry,
+        "skills": tool_runtime.skill_manager,
+    }
+    options.update(_rate_limit_options(ops_cfg))
+    if hook_service is not None:
+        options["hook_service"] = hook_service
+    return options
+
+
+def _rate_limit_options(ops_cfg: Any) -> dict[str, Any]:
+    """按 ``[ops]`` 的 ``*_messages_per_minute`` / ``*_burst`` 构造入站限流器。
+
+    ``0`` 表示不限制（见 ``atri_x/config/assets_data/app.toml`` 的 ``[ops]`` 注释），
+    因此**一个阈值都不配时不返回任何键**：宿主编排保持"没有限流器"，由
+    ``/diagnostics`` 的 ``rate_limit.configured=False`` 如实表达，而不是伪装成
+    "限流已启用、0 次拒绝"。
+    """
+    if ops_cfg is None:
+        return {}
+    user_per_minute = _non_negative_int(getattr(ops_cfg, "user_messages_per_minute", 0))
+    group_per_minute = _non_negative_int(
+        getattr(ops_cfg, "group_messages_per_minute", 0)
+    )
+    if user_per_minute <= 0 and group_per_minute <= 0:
+        return {}
+
+    from atri_x.ops.ratelimit import Limit, new as new_limiter
+
+    idle_ttl = float(_non_negative_int(getattr(ops_cfg, "rate_limit_idle_ttl_seconds", 0)))
+    options: dict[str, Any] = {}
+    if user_per_minute > 0:
+        burst = max(1, _non_negative_int(getattr(ops_cfg, "user_burst", 0)))
+        options["rate_limit_user"] = new_limiter(
+            Limit(rate_per_second=user_per_minute / 60.0, burst=burst, idle_ttl=idle_ttl)
+        )
+        options["rate_limit_user_per_minute"] = user_per_minute
+        options["rate_limit_user_burst"] = burst
+    if group_per_minute > 0:
+        burst = max(1, _non_negative_int(getattr(ops_cfg, "group_burst", 0)))
+        options["rate_limit_group"] = new_limiter(
+            Limit(rate_per_second=group_per_minute / 60.0, burst=burst, idle_ttl=idle_ttl)
+        )
+        options["rate_limit_group_per_minute"] = group_per_minute
+        options["rate_limit_group_burst"] = burst
+    return options
+
+
+def _non_negative_int(value: Any) -> int:
+    """宽松取非负整数（配置里写成字符串/None 时按 0）。"""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _announce_redaction(logger: Any) -> None:
+    """脱敏降级时在启动日志里报一次 ERROR（模块侧保证进程内只报一次）。"""
+    try:
+        from atri_x.logging.logging import announce_redact_degradation
+
+        announce_redact_degradation(logger)
+    except Exception as exc:  # noqa: BLE001 - 自检失败不能阻断启动
+        if logger is not None:
+            logger.warn(
+                "redaction self-check failed",
+                event="redact_unavailable",
+                error="%s: %s" % (type(exc).__name__, exc),
+            )
+
+
+def _install_agent_services(
+    agent: Any, options: dict[str, Any], logger: Any
+) -> dict[str, Any]:
+    """跑装配并把结果落成一条结构化日志 + 机器可读快照。
+
+    旧实现对 ``report.failed`` 只打名字、对 ``skipped``/``warnings`` 完全不打，
+    而 ``to_dict()`` 在生产路径零消费。这里把四类结果（含每项原因）一次写全：
+    正常情况下是 INFO，有任何跳过/失败/告警时升到 WARN；装配整体抛异常时
+    也要留一条可以查的报告，而不是让 ``/diagnostics`` 变成空白。
+    """
+    try:
+        from atri_x.agent.bootstrap import install_agent_services
+
+        report = install_agent_services(agent, opts=options)
+        payload = report.to_dict()
+    except Exception as exc:  # noqa: BLE001 - 装配失败默认不阻断启动（fail-fast 另判）
+        payload = _failed_services_payload("%s: %s" % (type(exc).__name__, exc))
+    _log_install_report(logger, payload)
+    _set_attribute(agent, "agent_services_report", payload)
+    return payload
+
+
+def _failed_services_payload(error: str) -> dict[str, Any]:
+    """装配整体失败时的报告形状（与 :meth:`AgentServicesReport.to_dict` 对齐）。"""
+    return {
+        "installed": [],
+        "skipped": [],
+        "failed": [("install", error)],
+        "warnings": ["agent service installation raised: " + error],
+        "services": [],
+        "models": "",
+        "reused": False,
+        "ok": False,
+    }
+
+
+def _log_install_report(logger: Any, payload: dict[str, Any]) -> None:
+    """把装配报告落成一条结构化日志（四类结果全量，每项带原因）。"""
+    if logger is None:
+        return
+    failed = list(payload.get("failed") or [])
+    fields: dict[str, Any] = {
+        "event": "agent_service_install",
+        "ok": bool(payload.get("ok", False)),
+        "installed": list(payload.get("installed") or []),
+        "skipped": list(payload.get("skipped") or []),
+        "failed": failed,
+        "warnings": list(payload.get("warnings") or []),
+    }
+    degraded = bool(failed or fields["skipped"] or fields["warnings"])
+    if degraded:
+        logger.warn("agent services assembled with degraded entries", **fields)
+    else:
+        logger.info("agent services assembled", **fields)
+
+
+def _publish_capabilities(
+    agent: Any,
+    services_payload: dict[str, Any],
+    options: dict[str, Any],
+    logger: Any,
+) -> None:
+    """把能力自检快照挂到宿主上，并同步给 ``/doctor`` 用的 :class:`DoctorService`。
+
+    ``/diagnostics`` 直接从 ``agent.agent_services_report`` 读装配报告；doctor
+    （``/doctor`` 命令）自己没法重建 Agent，于是复用同一份快照 —— 拿不到快照时
+    它会把检查标成 ``skipped``，绝不伪造"通过"。
+    """
+    redaction = _redaction_status()
+    capabilities = {
+        "agent_services": services_payload,
+        "rate_limit_configured": any(
+            options.get(name) is not None
+            for name in ("rate_limit_user", "rate_limit_group")
+        ),
+        "hook_service": options.get("hook_service") is not None,
+        "redaction_available": bool(redaction.get("available", True)),
+        "redaction": redaction,
+    }
+    _set_attribute(agent, "agent_capabilities", capabilities)
+    doctor = getattr(agent, "doctor", None)
+    binder = getattr(doctor, "bind_capabilities", None)
+    if callable(binder):
+        try:
+            binder(capabilities)
+        except Exception as exc:  # noqa: BLE001 - 绑定失败不能阻断启动
+            if logger is not None:
+                logger.warn(
+                    "doctor capability binding failed",
+                    event="doctor_capabilities",
+                    error="%s: %s" % (type(exc).__name__, exc),
+                )
+
+
+def _redaction_status() -> dict[str, Any]:
+    """脱敏自检快照；导入失败按"不可用"处理（保守方向）。"""
+    try:
+        from atri_x.logging.logging import redact_status
+
+        return dict(redact_status())
+    except Exception:  # noqa: BLE001 - 自检失败不能阻断启动
+        return {"available": False, "mode": "unknown"}
+
+
+def _set_attribute(target: Any, name: str, value: Any) -> None:
+    """给宿主挂字段；只读/``__slots__`` 宿主静默跳过。"""
+    if target is None:
+        return
+    try:
+        setattr(target, name, value)
+    except AttributeError:  # pragma: no cover - 只读宿主
+        pass
+
+
+def _fail_fast_agent_services(cfg: Any) -> bool:
+    """``[runtime] fail_fast_agent_services``（默认 ``False``，保持既有行为）。"""
+    runtime_cfg = getattr(cfg, "runtime", None)
+    return bool(getattr(runtime_cfg, "fail_fast_agent_services", False))
 
 
 def _model_profiles(cfg: Any, models: Any) -> tuple[dict[str, Any], dict[str, str]]:

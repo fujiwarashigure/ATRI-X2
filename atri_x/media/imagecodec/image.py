@@ -10,7 +10,9 @@
   CMYK 解码时转成 RGB，因此 ``decode().mode`` 只会是上面五种。
 * :func:`sniff` 永远走纯 Python 头部解析：两种后端判定完全一致，并且是
   :func:`decode` 的统一前置闸门（格式白名单、边长/总像素上限）。
-* Pillow 只是可选加速后端：``import PIL`` 失败即回落纯 Python；也可用环境变量
+* Pillow 只是可选加速后端：``import PIL`` 失败即回落纯 Python（探测唯一出处是
+  :mod:`atri_x.media.imagecodec.backend_probe`，doctor / ``/diagnostics`` 与打包
+  脚本共用它的结论）；也可用环境变量
   ``ATRI_X_IMAGECODEC_BACKEND=pure|pillow|auto`` 或 :func:`set_backend` 强制。
 * 纯后端只实现 PNG 与 baseline JPEG。GIF/WebP/BMP 能被 :func:`sniff` 正确
   识别，但没有 Pillow 时 :func:`decode` 抛 :class:`UnsupportedImageError`。
@@ -28,8 +30,14 @@ from ...errors import AtriXError
 
 #: 单边最大像素数（PNG/JPEG 规范上限）。
 MAX_EDGE = 65535
-#: 解码后总像素上限，默认 100 MPix（解压炸弹防线，可被 decode 参数覆盖）。
-DEFAULT_MAX_PIXELS = 100_000_000
+#: 解码后总像素上限，默认 24 MPix（解压炸弹防线，可被 decode 参数覆盖）。
+#: 与视觉预处理上限（``media.image.VISION_IMAGE_MAX_INPUT_PIXELS``）对齐：纯 Python
+#: 解码器的成本与峰值内存都按"像素数 × 字节/像素"增长，100 MPix 的旧上限允许
+#: 合法文件就把进程打到 GiB 级（见研究报告 §3.3）。
+DEFAULT_MAX_PIXELS = 24_000_000
+#: 单次解码的内存预算（估算值：输出像素缓冲 + 解码器中间平面）。
+#: 超过预算时抛 :class:`ImageTooLargeError`，而不是先分配再校验。
+DEFAULT_MAX_DECODE_BYTES = 192 * 1024 * 1024
 
 _MODE_CHANNELS: dict[str, int] = {"RGB": 3, "RGBA": 4, "L": 1, "LA": 2, "P": 1}
 #: PNG 颜色类型 → 合法位深（sniff 与 png.py 共用）。
@@ -62,6 +70,19 @@ class ImageTooLargeError(ImageDecodeError):
     """声明尺寸超过上限（解压炸弹）。"""
 
 
+def pixel_limit(max_pixels: int | None) -> int:
+    """归一化像素上限：``None`` 取默认值，非正数按调用方错误拒绝。
+
+    ``max_pixels=0`` 过去等价于"关闭像素闸门"（合法文件都能过），属于静默
+    fail-open；这里改为受控的 :class:`ValueError`，调用方必须显式给正整数。
+    """
+    if max_pixels is None:
+        return DEFAULT_MAX_PIXELS
+    if max_pixels <= 0:
+        raise ValueError(f"max_pixels 必须是正整数，收到 {max_pixels!r}")
+    return max_pixels
+
+
 @dataclass
 class ImageInfo:
     """头部嗅探结果（不含像素）。"""
@@ -78,22 +99,18 @@ class ImageInfo:
 _BACKEND_REQUEST = os.environ.get("ATRI_X_IMAGECODEC_BACKEND", "auto").strip().lower()
 if _BACKEND_REQUEST not in ("auto", "pure", "pillow"):
     _BACKEND_REQUEST = "auto"
-_pil_module: Any = None
-_pil_probed = False
 
 
 def _pil_image() -> Any:
-    """返回 ``PIL.Image`` 模块；不可用时返回 ``None``（只探测一次）。"""
-    global _pil_module, _pil_probed
-    if not _pil_probed:
-        _pil_probed = True
-        try:  # pragma: no cover - 取决于运行环境
-            from PIL import Image as pil_image  # type: ignore[import-not-found]
+    """``PIL.Image`` 模块；不可用时返回 ``None``。
 
-            _pil_module = pil_image
-        except Exception:
-            _pil_module = None
-    return _pil_module
+    ``import PIL`` 的唯一实现在 :mod:`.backend_probe`（doctor / ``/diagnostics``
+    与打包脚本看的是同一份探测结果）。这里**按需导入**：包 ``__init__`` 不预导入
+    ``backend_probe``，``python -m ...backend_probe`` 才不会被 runpy 判成已导入。
+    """
+    from .backend_probe import pillow_module
+
+    return pillow_module()
 
 
 def backend() -> str:
@@ -333,6 +350,7 @@ def _sniff_png(raw: bytes) -> ImageInfo:
 def _sniff_jpeg(raw: bytes) -> ImageInfo:
     end = len(raw)
     pos = 2
+    info: ImageInfo | None = None
     while pos + 4 <= end:
         if raw[pos] != 0xFF:
             raise ImageDecodeError("JPEG 段标记损坏")
@@ -350,16 +368,25 @@ def _sniff_jpeg(raw: bytes) -> ImageInfo:
         if length < 2 or pos + length > end:
             raise ImageDecodeError("JPEG 段长度越界")
         if marker in _SOF_MARKERS:
+            if info is not None:
+                # 尺寸闸门与解码器必须看到同一个 SOF；多个帧头说明尺寸有歧义，
+                # 一律拒绝（旧实现 sniff 取第一个、解码器取最后一个 → 可绕闸门）。
+                raise ImageDecodeError("JPEG 出现多个 SOF 帧头（尺寸有歧义，拒绝）")
             if length < 8:
                 raise ImageDecodeError("JPEG SOF 段过短")
             precision, height, width, components = struct.unpack_from(">BHHB", raw, pos + 2)
             if precision not in (8, 12, 16) or width <= 0 or height <= 0:
                 raise ImageDecodeError(f"JPEG 声明无效：{width}x{height} 精度 {precision}")
             mode = {1: "L", 3: "RGB", 4: "CMYK"}.get(components, "unknown")
-            return ImageInfo("jpeg", width, height, mode, "image/jpeg", False, False)
-        if marker == 0xDA:
-            raise ImageDecodeError("JPEG 在 SOS 之前没有 SOF 段")
+            info = ImageInfo("jpeg", width, height, mode, "image/jpeg", False, False)
+        elif marker == 0xDA:
+            if info is None:
+                raise ImageDecodeError("JPEG 在 SOS 之前没有 SOF 段")
+            return info
         pos += length
+    if info is not None:
+        # SOF 已就绪但文件在 SOS 前截断：仍能给出尺寸（解码阶段会报截断）。
+        return info
     raise ImageDecodeError("JPEG 未找到 SOF 段")
 
 
@@ -482,19 +509,25 @@ def _check_limits(info: ImageInfo, max_pixels: int | None) -> None:
         raise ImageTooLargeError(
             f"图像边长 {info.width}x{info.height} 超过 {MAX_EDGE} 上限"
         )
+    limit = pixel_limit(max_pixels)
     pixels = info.width * info.height
-    limit = DEFAULT_MAX_PIXELS if max_pixels is None else max_pixels
-    if limit and pixels > limit:
+    if pixels > limit:
         raise ImageTooLargeError(
             f"图像 {info.width}x{info.height}（{pixels} 像素）超过 {limit} 像素上限"
         )
 
 
-def decode(data: bytes, *, max_pixels: int | None = None) -> Image:
+def decode(
+    data: bytes, *, max_pixels: int | None = None, strict_crc: bool = False
+) -> Image:
     """解码为像素缓冲；Pillow 可用时走加速路径，否则纯 Python。
 
     受支持的格式：PNG（全位深/隔行/调色板，纯 Python）与 baseline JPEG
     （纯 Python）。GIF/WebP/BMP 只有 Pillow 后端能解码。
+
+    ``strict_crc=True`` 时 PNG 校验全部块的 CRC（默认只强制关键块
+    IHDR/PLTE/IDAT/IEND；辅助块损坏记录在 ``Image.info["crc_mismatches"]``）。
+    为保证 CRC 真的被校验，该参数会绕过 Pillow 直接走纯解码器。
     """
     raw = _as_bytes(data)
     if not raw:
@@ -503,18 +536,20 @@ def decode(data: bytes, *, max_pixels: int | None = None) -> Image:
     if info.format == "unknown":
         raise UnsupportedImageError("无法识别的图像格式（无 Pillow 时仅支持 PNG/JPEG）")
     _check_limits(info, max_pixels)
-    if backend() == "pillow":
+    if backend() == "pillow" and not (strict_crc and info.format == "png"):
         image = _pil_decode(raw)
         if image is not None:
             return image
-    return _pure_decode(raw, info, max_pixels)
+    return _pure_decode(raw, info, max_pixels, strict_crc)
 
 
-def _pure_decode(raw: bytes, info: ImageInfo, max_pixels: int | None) -> Image:
+def _pure_decode(
+    raw: bytes, info: ImageInfo, max_pixels: int | None, strict_crc: bool = False
+) -> Image:
     from . import jpeg_decode, png
 
     if info.format == "png":
-        return png.decode_png(raw, max_pixels=max_pixels)
+        return png.decode_png(raw, max_pixels=max_pixels, strict_crc=strict_crc)
     if info.format == "jpeg":
         return jpeg_decode.decode_jpeg(raw, max_pixels=max_pixels)
     raise UnsupportedImageError(
@@ -674,6 +709,7 @@ def compress(
 
 
 __all__ = [
+    "DEFAULT_MAX_DECODE_BYTES",
     "DEFAULT_MAX_PIXELS",
     "MAX_EDGE",
     "PNG_DEPTHS",
@@ -689,6 +725,7 @@ __all__ = [
     "decode",
     "encode_jpeg",
     "encode_png",
+    "pixel_limit",
     "resize",
     "resize_to_fit",
     "set_backend",

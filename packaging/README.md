@@ -41,7 +41,10 @@ Desktop 一键运维时用 [`deploy/windows/`](../deploy/windows/README.md)。
 ```bash
 python packaging/build.py                    # onedir（默认）→ dist/windows/atri-x/
 python packaging/build.py --onefile          # 单文件（只出控制台版）
-python packaging/build.py --with-pillow      # 保留 Pillow（图像编解码加速）
+python packaging/build.py --with-pillow      # 只保留 Pillow（图像编解码加速）
+python packaging/build.py --with-extras      # 只保留 numpy/PyYAML
+python packaging/build.py --with-all-optional  # 三个可选依赖全留（旧 --with-pillow 语义）
+python packaging/build.py --check-env        # 只打印构建环境探测结果（Pillow 是否可导入等）
 python packaging/build.py --no-gui           # 只出控制台版
 python packaging/build.py --with-kernel      # 强制把 runtime/dsh-kernel 打进去
 python packaging/build.py --no-kernel        # 即使 runtime/ 存在也不打
@@ -63,7 +66,11 @@ python packaging/build.py --no-verify        # 只构建
 | `--portable-verify` | 关 | 打便携版 zip 并**解压自检**（隐含 `--with-portable`） |
 | `--portable-output` | `dist/portable` | 便携版 zip 输出目录 |
 | `--release` | 关 | 一条命令出**两种交付物**：便携版 zip + 安装包，并各自自检（= `--with-portable --portable-verify --with-installer --installer-verify`） |
-| `--with-pillow` | 关 | 不排除 Pillow/numpy/PyYAML；默认排除（见 §5 冻结限制表） |
+| `--with-pillow` | 关 | 只不排除 Pillow（其余可选依赖仍排除）。构建环境里 `import PIL` 不可用会以 exit 2 失败，除非同时给 `--allow-missing-pillow`（只警告） |
+| `--with-extras` | 关 | 只不排除 numpy/PyYAML |
+| `--with-all-optional` | 关 | 三个可选依赖全留（等价于旧的 `--with-pillow` 语义，也等价于 `ATRIX_PKG_KEEP_OPTIONAL=1`） |
+| `--allow-missing-pillow` | 关 | 构建环境缺 Pillow 时降级为警告而不是失败（产物会退回纯标准库编解码） |
+| `--check-env` | 关 | 只探测构建环境（Pillow 版本、计划排除的包）并退出，不构建 |
 | `--dist` | `dist/windows` | 输出目录（已在 `.gitignore`） |
 | `--work` | `build/pyinstaller` | PyInstaller 工作目录（已在 `.gitignore`） |
 
@@ -71,7 +78,7 @@ python packaging/build.py --no-verify        # 只构建
 > `atri_x` / `tests` / `scripts`，`deploy/` 同理），改完请自己跑：
 > `python -m py_compile packaging/build.py packaging/build_portable.py packaging/build_installer.py packaging/entry.py packaging/assemble_kernel.py packaging/kernel_manifest.py`
 
-产物（onedir：不含内置内核时 40.1 MB / 50 个文件；含内置内核时 318.7 MB / 23862 个文件）：
+产物（onedir：不含内置内核时 40.1 MB / 50 个文件；含内置内核时 321.3 MB / 24510 个文件）：
 
 ```
 dist/windows/atri-x/
@@ -139,7 +146,7 @@ python packaging/build.py --with-kernel
 | 限制 | 说明 | 对策 |
 |---|---|---|
 | **没有 Python 解释器** | exec 型 Hook / Go 源码 Skill / 任何 `python xxx.py` 子进程都找不到解释器 | 需要 Python Hook 就装系统 Python；或改用进程 Hook / Worker Hook 的可执行文件 |
-| 排除 Pillow | 图像编解码退回纯 Python（慢但可用） | `--with-pillow` 重新打包 |
+| 排除 Pillow | 图像编解码退回纯 Python（慢但可用） | `--with-pillow` 重新打包；打包前可用 `--check-env` 确认构建环境真的装了 Pillow |
 | 内置内核要自己组装 | 内核从"已装 DSH 的机器"拷，不联网安装 | 换 DSH 版本后重跑 `assemble_kernel.py`；不想要就 `--no-kernel` |
 | 无自动更新 | 冻结包不能 `git pull` | 重装覆盖（`python -m atri_x.dist.install install --force`）或整目录替换 |
 | 无代码签名 | SmartScreen 首次运行会警告 | 正式分发需买签名证书；`--onefile` 误报更多，优先 onedir |
@@ -185,7 +192,7 @@ QQ OneBot 的配置与协议端（NapCat / LLOneBot）步骤见
 ```bash
 # 1) 装 Inno Setup（用户级便携模式；不需要管理员）
 #    官方安装包支持 /PORTABLE=1 /CURRENTUSER，装到任意目录
-#"innosetup-7.1.0-x64.exe" /PORTABLE=1 /CURRENTUSER /VERYSILENT /DIR="D:\tools\InnoSetup7"
+#"innosetup-7.1.0-x64.exe" /PORTABLE=1 /CURRENTUSER /VERYSILENT /DIR="C:\tools\InnoSetup7"
 
 # 2) 打包（ISCC 按 --iscc → ATRIX_ISCC → packaging/tools/ISCC.exe → 常见安装路径 查找）
 python packaging/build_installer.py
@@ -209,8 +216,8 @@ dist/installer/ATRI-X-<版本>-setup.exe
 
 `build_installer.py --verify` 做的事：把安装包**复制到本地临时目录**、静默装到短路径
 （默认 `C:\Users\<user>\AtriXVerify`）、断言两个 exe + `install.json` + `unins000.exe`
-都在、跑一次 `atri-x.exe --version`、再静默卸载并等目录被清空。实测（含内置内核的
-318.7 MB onedir → 56.4 MB 安装包）：安装 39.7 s / 23865 个文件，卸载 13.5 s。
+都在、跑一次 `atri-x.exe --version`、再静默卸载并等目录被清空。实测 0.9.8（含内置内核的
+321.3 MB onedir → 57.0 MB 安装包）：安装 35.4 s / 24513 个文件，卸载 7.9 s。
 
 ### 7.1 构建环境的两个坑（实测）
 
@@ -220,7 +227,7 @@ dist/installer/ATRI-X-<版本>-setup.exe
    Low IL 进程；它**写不了 Medium IL 的 `%TEMP%`**，Inno 会在第一步报
    「安装程序无法创建目录 `%TEMP%\is-XXXX.tmp`，错误 5: 拒绝访问」并以 exit=1 退出
    （无日志、无残留）。同一份产物**复制到工作区外**（桌面/下载/任意本地目录）后完全正常：
-   实测 exit=0、40+ s 装完 23865 个文件、`--version` 与 `config check` 均通过。
+   实测 exit=0、35+ s 装完 24513 个文件、`--version` 与 `config check` 均通过。
    - `icacls "<安装包>" /setintegritylevel Medium` **提不动**（需要 `SeRelabelPrivilege`），
      就地改标签这条路走不通；`Copy-Item` 复制到工作区外即可拿到 Medium 标签。
    - 自查：`icacls "<安装包>" | findstr Mandatory`，出现 `Low Mandatory Level` 就是本问题。

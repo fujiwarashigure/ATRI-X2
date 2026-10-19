@@ -17,9 +17,16 @@
 ``ATRIX_PKG_RUNTIME_DIR``
     可选：要打进包里的运行时目录（一般是仓库根的 ``runtime``，内含 ``dsh-kernel``）。
     onedir 下会复制到 ``<产物>/_internal/runtime``，由 :mod:`atri_x.sidecar` 解析。
+``ATRIX_PKG_KEEP_PILLOW``
+    ``1`` 时不排除 Pillow（图像编解码的可选加速后端；缺失时 ``atri_x`` 走纯 Python
+    兜底）。**只影响 Pillow**，不会顺带把 numpy/PyYAML 打进包。
+``ATRIX_PKG_KEEP_EXTRAS``
+    ``1`` 时不排除 numpy / PyYAML。``atri_x`` 运行时不 import 它们，只有被可选探测
+    拖进来时才需要，因此默认排除。
 ``ATRIX_PKG_KEEP_OPTIONAL``
-    ``1`` 时不排除 Pillow / numpy / PyYAML。默认排除——``atri_x`` 运行时是
-    纯标准库，Pillow 只是图像编解码的可选加速后端（缺失时走纯 Python 兜底）。
+    ``1`` **等价于上面两个都置 1**（= Pillow + numpy + PyYAML 三包全留）。保留这一
+    旧语义只为向后兼容老脚本；新脚本请用 ``ATRIX_PKG_KEEP_PILLOW`` /
+    ``ATRIX_PKG_KEEP_EXTRAS`` 精准开关。三者都没设置时维持原默认：三包全排除。
 
 要点
 ----
@@ -47,6 +54,9 @@ from PyInstaller.utils.hooks import collect_submodules  # noqa: E402
 NAME = os.environ.get("ATRIX_PKG_NAME") or "atri-x"
 ONEFILE = os.environ.get("ATRIX_PKG_ONEFILE") == "1"
 KEEP_OPTIONAL = os.environ.get("ATRIX_PKG_KEEP_OPTIONAL") == "1"
+#: 逐包判定（``KEEP_OPTIONAL`` 是"三包全留"的旧语义，向后兼容）。
+KEEP_PILLOW = KEEP_OPTIONAL or os.environ.get("ATRIX_PKG_KEEP_PILLOW") == "1"
+KEEP_EXTRAS = KEEP_OPTIONAL or os.environ.get("ATRIX_PKG_KEEP_EXTRAS") == "1"
 WITH_GUI = os.environ.get("ATRIX_PKG_GUI", "1") != "0"
 ICON = os.environ.get("ATRIX_PKG_ICON") or None
 RUNTIME_DIR = (os.environ.get("ATRIX_PKG_RUNTIME_DIR") or "").strip()
@@ -65,8 +75,13 @@ if RUNTIME_DIR and os.path.isdir(RUNTIME_DIR):
     datas.append((RUNTIME_DIR, "runtime"))
 
 #: 运行时零第三方依赖：这些包只有在本机装了、且被可选导入探测到时才会被拖进来。
-#: ``tkinter`` 不能排除——窗口版要用。
-excludes = [] if KEEP_OPTIONAL else ["numpy", "PIL", "yaml"]
+#: ``tkinter`` 不能排除——窗口版要用。``PIL`` 与 numpy/PyYAML 分开判定：
+#: ``--with-pillow``（``ATRIX_PKG_KEEP_PILLOW=1``）只保留 Pillow。
+excludes = [
+    name
+    for name, keep in (("numpy", KEEP_EXTRAS), ("PIL", KEEP_PILLOW), ("yaml", KEEP_EXTRAS))
+    if not keep
+]
 
 a = Analysis(
     [os.path.join(SPECPATH, "entry.py")],

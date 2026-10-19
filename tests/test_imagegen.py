@@ -650,16 +650,23 @@ class TestPromptLibrary(unittest.TestCase):
             self.assertEqual(count, report.upstream_counts.get(name), name)
 
     def test_extract_check_detects_drift(self) -> None:
-        target = _extract_library.default_paths()[1]
-        with open(target, "r", encoding="utf-8") as handle:
-            payload = json.load(handle)
+        # 这条和上面那条一样依赖上游 Go 仓库：``check()`` 在上游文件缺失时
+        # 于 ``_extract_library.py:176-177`` 提前返回（``upstream_available=False``、
+        # ``problems=[]``），"漂移"根本无从判定。上游不在同级目录时只能 skip，
+        # 不能把"没法比对"当成"检测通过"。
+        upstream, target = _extract_library.default_paths()
+        if not os.path.isfile(upstream):
+            self.skipTest(f"上游不可用：{upstream}（无法比对，检测不出漂移）")
         broken_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".imagegen-test-drift"
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "tests",
+            "_tmp_imagegen_drift",
         )
         os.makedirs(broken_dir, mode=0o777, exist_ok=True)
         broken = os.path.join(broken_dir, "library.json")
         try:
-            payload = dict(payload)
+            with open(target, "r", encoding="utf-8") as handle:
+                payload = dict(json.load(handle))
             payload["entries"] = payload["entries"][:-1]
             with open(broken, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, ensure_ascii=False)

@@ -105,6 +105,17 @@ rg -n "locator:agent-chat" AGENTS.md devdocs/*.md
   python scripts/check_coverage.py --summary
   ```
 
+- 可选棘轮（改动涉及异常处理 / 取消传播时跑）：
+
+  ```bash
+  python scripts/check_except.py   # 逐「文件＋函数＋handler 指纹」比对基线：新增位置或次数变多即失败
+  ```
+
+  基线 `scripts/except_baseexception_baseline.json` 是**位置级**的（v2：`file` + `qualname` +
+  归一化 handler 指纹 + `count`），所以"总数不变但旧问题被删、新问题被加进来"同样会被抓到；
+  位置消失或次数减少会提示收紧基线。确实要调整基线时跑 `python scripts/check_except.py --update`
+  并复查它打印的 diff 摘要；`--self-test` 可验证脚本自身五种判定。
+
 - 修复 bug 时，优先用测试或最小复现证明问题，再验证修复。
 - 修改文档时，用 `rg -n` 检查关键链接、locator 和禁改说明是否还在；链接必须指向本仓库里真实存在的路径。
 - 如果本次只改 Markdown，不需要跑测试，但仍要跑 `python scripts/check_syntax.py`（它同时检查中文有没有被编码毁掉）。

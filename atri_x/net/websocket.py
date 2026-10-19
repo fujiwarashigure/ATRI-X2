@@ -6,7 +6,11 @@ Python 标准库没有 WebSocket，本模块补齐 ATRI-X 需要的路径：OneB
 同步 API（:func:`connect_sync` / :func:`accept_sync` / :class:`SyncWebSocket`）用后台事件循环
 线程托管同一套异步实现；:func:`accept` 走 ``http.server.BaseHTTPRequestHandler`` 兼容路径
 （须在 handler 内跑完会话）。客户端必须掩码、服务端不得掩码；控制帧不得分片且 ≤125 字节；
-消息上限默认 8 MiB，超限以 1009 关闭。
+消息上限默认 8 MiB、单条消息分片数上限 :data:`MAX_MESSAGE_FRAGMENTS`，超限都以 1009 关闭。
+
+``read_timeout``（连接/服务端/客户端都可传，默认 ``None`` 保持不超时）作用在**单帧读取**上：
+一次传输 ``read()`` 超过该值即视为连接已死，按 1006 断开（:meth:`WebSocketConnection.recv`
+还对整条消息加同样上限，防止对端以"每帧刚好不超时"的方式长挂连接）。
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Iterator, Mapping, P
 
 __all__ = [
     "OP_CONT", "OP_TEXT", "OP_BINARY", "OP_CLOSE", "OP_PING", "OP_PONG", "DEFAULT_MAX_SIZE",
+    "MAX_MESSAGE_FRAGMENTS",
     "CLOSE_NORMAL", "CLOSE_GOING_AWAY", "CLOSE_PROTOCOL_ERROR", "CLOSE_UNSUPPORTED",
     "CLOSE_POLICY_VIOLATION", "CLOSE_TOO_LARGE", "CLOSE_INTERNAL_ERROR", "ConnectionClosed",
     "Frame", "FrameDecoder", "HandshakeError", "HandshakeRequest", "ProtocolError",
@@ -40,7 +45,14 @@ OP_CONT, OP_TEXT, OP_BINARY, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x
 CLOSE_NORMAL, CLOSE_GOING_AWAY, CLOSE_PROTOCOL_ERROR, CLOSE_UNSUPPORTED = 1000, 1001, 1002, 1003
 CLOSE_POLICY_VIOLATION, CLOSE_TOO_LARGE, CLOSE_INTERNAL_ERROR = 1008, 1009, 1011
 DEFAULT_MAX_SIZE = 8 * 1024 * 1024
+#: 单条消息允许的分片数上限。1 字节一帧时 8 MiB 消息要 840 万帧，帧数不设上限
+#: 等于把消息上限交给对端决定；65536 帧对合法客户端（通常几帧到几十帧）足够宽。
+MAX_MESSAGE_FRAGMENTS = 65536
 _READ_CHUNK = 65536
+#: ``apply_mask`` 走大整数异或的长度阈值（低于它时逐字节生成器的固定开销更小）。
+_MASK_FAST_PATH = 64
+#: 分片重组每处理这么多帧就让出一次事件循环，避免长消息独占 CPU。
+_FRAGMENT_YIELD_INTERVAL = 256
 _FORBIDDEN_CLOSE_CODES = frozenset({1004, 1005, 1006, 1015})
 _DATA_OPCODES = frozenset({OP_CONT, OP_TEXT, OP_BINARY})
 _CONTROL_OPCODES = frozenset({OP_CLOSE, OP_PING, OP_PONG})
@@ -79,9 +91,23 @@ class ConnectionClosed(WebSocketError):
 
 # --- 帧编解码（无 I/O，可单测） ---------------------------------------------
 def apply_mask(data: bytes, key: bytes) -> bytes:
-    """按 RFC 6455 用 4 字节掩码异或；``key`` 为空时原样返回。"""
+    """按 RFC 6455 用 4 字节掩码异或；``key`` 为空时原样返回。
+
+    掩码与解掩码是同一个操作（异或自反），两条路径共用本函数。小数据走逐字节
+    生成器（省掉建大整数的固定开销），≥ :data:`_MASK_FAST_PATH` 字节走 C 级
+    大整数异或：8 MiB 实测 0.44 s → 0.03 s（约 19 MB/s → 310 MB/s，16 倍）。
+    掩码键按 RFC 是 4 字节；1~3 字节的短键继续走逐字节路径，保持既有的
+    ``index & 3`` 取值语义（越界即 ``IndexError``），不换语义。
+    """
     if not key:
         return data
+    length = len(data)
+    periodic = key if len(key) == 4 else (key[:4] if len(key) > 4 else b"")
+    if periodic and length >= _MASK_FAST_PATH:
+        pattern = (periodic * ((length + 3) // 4))[:length]
+        return (int.from_bytes(data, "big") ^ int.from_bytes(pattern, "big")).to_bytes(
+            length, "big"
+        )
     return bytes(byte ^ key[index & 3] for index, byte in enumerate(data))
 
 
@@ -152,6 +178,10 @@ class FrameDecoder:
             if len(buffer) < 10:
                 return None
             length, offset = struct.unpack_from("!Q", buffer, 2)[0], 10
+            if length & (1 << 63):
+                # RFC 6455 §5.2：64 位长度字段的最高位 MUST 为 0；置位是协议错误
+                # （1002），不是"消息太大"（1009）。
+                raise ProtocolError("64 位长度字段最高位为 1", code=CLOSE_PROTOCOL_ERROR)
         if length > self.max_frame_size:
             raise ProtocolError(f"帧长度 {length} 超过上限 {self.max_frame_size}",
                                 code=CLOSE_TOO_LARGE)
@@ -174,6 +204,22 @@ def accept_key(key: str) -> str:
     """由 ``Sec-WebSocket-Key`` 计算 ``Sec-WebSocket-Accept``。"""
     digest = hashlib.sha1((key + GUID).encode("ascii")).digest()  # noqa: S324 - RFC 6455 规定
     return base64.b64encode(digest).decode("ascii")
+
+
+def _decode_ws_key(value: str) -> bytes:
+    """解码 ``Sec-WebSocket-Key``；格式非法时返回 ``b""``。
+
+    RFC 6455 §4.2.1 要求该头是**16 字节随机数的 base64**。header 值可能带首尾
+    空白（:func:`_parse_head` 已 strip，这里再兜一次），也可能缺尾部 ``=`` 填充，
+    因此按 4 的倍数补齐后再严格解码（``validate=True`` 拒绝非 base64 字符）。
+    """
+    text = (value or "").strip()
+    if not text:
+        return b""
+    try:
+        return base64.b64decode(text + "=" * (-len(text) % 4), validate=True)
+    except ValueError:  # binascii.Error 是 ValueError 的子类
+        return b""
 
 
 @dataclass
@@ -229,10 +275,13 @@ def server_handshake(
     """校验客户端握手并生成 101 响应，返回 ``(响应文本, 元信息)``。
 
     校验方法/版本、``Upgrade: websocket``、``Connection: Upgrade``、
-    ``Sec-WebSocket-Version: 13`` 与非空 ``Sec-WebSocket-Key``；``origins`` 非空时还要求
-    ``Origin`` 命中（支持 ``"*"``）；子协议取双方都支持的第一个。失败抛
+    ``Sec-WebSocket-Version: 13`` 与 ``Sec-WebSocket-Key``（必须是解码后恰 16 字节的
+    合法 base64，见 RFC 6455 §4.2.1）；``origins`` 非空时还要求 ``Origin`` 命中
+    （支持 ``"*"``）；子协议取双方都支持的第一个。失败抛
     :class:`HandshakeError`（带 ``status``）。
     """
+    key_text = request.header("sec-websocket-key").strip()
+    key_bytes = _decode_ws_key(key_text)
     checks = [
         (request.method.upper() == "GET", "握手必须是 GET 请求", 405),
         (request.http_version in ("HTTP/1.1", "HTTP/1.0"),
@@ -240,7 +289,8 @@ def server_handshake(
         (_has_token(request.header("upgrade"), "websocket"), "缺少 Upgrade: websocket 头", 400),
         (_has_token(request.header("connection"), "upgrade"), "缺少 Connection: Upgrade 头", 400),
         (request.header("sec-websocket-version") == "13", "Sec-WebSocket-Version 必须为 13", 426),
-        (bool(request.header("sec-websocket-key")), "缺少 Sec-WebSocket-Key 头", 400),
+        (bool(key_text), "缺少 Sec-WebSocket-Key 头", 400),
+        (len(key_bytes) == 16, "Sec-WebSocket-Key 必须是 16 字节的 base64", 400),
     ]
     for ok, message, status in checks:
         if not ok:
@@ -251,7 +301,7 @@ def server_handshake(
     supported = list(subprotocols)
     chosen = next((item for item in request.subprotocols() if item in supported), "")
     lines = ["HTTP/1.1 101 Switching Protocols", "Upgrade: websocket", "Connection: Upgrade",
-             f"Sec-WebSocket-Accept: {accept_key(request.header('sec-websocket-key'))}"]
+             f"Sec-WebSocket-Accept: {accept_key(key_text)}"]
     if chosen:
         lines.append(f"Sec-WebSocket-Protocol: {chosen}")
     return "\r\n".join(lines) + "\r\n\r\n", {"subprotocol": chosen, "origin": origin}
@@ -321,7 +371,8 @@ class WebSocketConnection:
     """一条已握手的 WebSocket 连接（客户端与服务端共用）。
 
     ``recv()`` 自动处理 PING/PONG 与关闭握手；``close_code`` / ``close_reason`` 在连接
-    结束后可读。``max_size`` 是单条消息上限（默认 8 MiB），超限以 1009 关闭。
+    结束后可读。``max_size`` 是单条消息上限（默认 8 MiB）、单条消息分片数上限是
+    :data:`MAX_MESSAGE_FRAGMENTS`，两者超限都以 1009 关闭。
     """
 
     def __init__(
@@ -377,45 +428,58 @@ class WebSocketConnection:
         """接收一条完整消息：文本返回 ``str``、二进制返回 ``bytes``。
         自动回 PONG、自动完成关闭握手（对端 close 后抛 :class:`ConnectionClosed`）。
         ``timeout`` 缺省用连接的 ``read_timeout``；读超时视为连接已死（关闭并抛 1006）。
+        该上限同时作用在**单帧读取**（:meth:`_read_frame`）与**整条消息**上。
         """
         limit = timeout if timeout is not None else self.read_timeout
         try:
             if limit is None:
-                return await self._next_message()
+                return await self._next_message(None)
             try:
-                return await asyncio.wait_for(self._next_message(), limit)
+                return await asyncio.wait_for(self._next_message(limit), limit)
             except TimeoutError:
-                self.close_code, self.close_reason = 1006, "读超时"
-                await self._shutdown()
+                await self._note_read_timeout()
                 raise ConnectionClosed(1006, "读超时") from None
         except ProtocolError as exc:
             # 协议违规：按 RFC 6455 用对应码（1002/1007/1009）关闭后再抛错。
             await self._fail(exc.code, str(exc))
             raise ConnectionClosed(exc.code, str(exc)) from None
 
-    async def _next_message(self) -> str | bytes:
-        """读取下一条数据消息；控制帧就地处理，分片在此重组。"""
+    async def _next_message(self, timeout: float | None = None) -> str | bytes:
+        """读取下一条数据消息；控制帧就地处理，分片在此重组。
+
+        分片按**增量**累加总长与帧数（不是每帧重算 ``sum``），因此重组代价与分片数
+        线性相关；总长超过 ``max_size`` 或帧数超过 :data:`MAX_MESSAGE_FRAGMENTS` 以
+        1009 关闭；每处理 :data:`_FRAGMENT_YIELD_INTERVAL` 帧让出一次事件循环，
+        避免长消息（或"1 字节一帧"的洪泛）独占 CPU 直到读完。
+        """
         fragments: list[bytes] = []
+        total = count = 0
         opcode = OP_TEXT
         while True:
-            frame = await self._read_frame()
+            frame = await self._read_frame(timeout)
             if frame.opcode in _CONTROL_OPCODES:
                 await self._handle_control(frame)
                 continue
             if frame.opcode == OP_CONT:
                 if not fragments:
                     raise ProtocolError("收到没有起始帧的 continuation 帧")
-                fragments.append(frame.payload)
             else:
                 if fragments:
                     raise ProtocolError("上一条分片消息尚未结束")
-                opcode, fragments = frame.opcode, [frame.payload]
-                if frame.fin:
-                    return self._decode(opcode, fragments)
-            if sum(len(chunk) for chunk in fragments) > self.max_size:
+                opcode = frame.opcode
+            fragments.append(frame.payload)
+            total += len(frame.payload)
+            count += 1
+            if total > self.max_size:
                 raise ProtocolError(f"消息超过上限 {self.max_size} 字节", code=CLOSE_TOO_LARGE)
+            if count > MAX_MESSAGE_FRAGMENTS:
+                raise ProtocolError(
+                    f"消息分片数超过上限 {MAX_MESSAGE_FRAGMENTS}", code=CLOSE_TOO_LARGE
+                )
             if frame.fin:
                 return self._decode(opcode, fragments)
+            if count % _FRAGMENT_YIELD_INTERVAL == 0:
+                await asyncio.sleep(0)
 
     async def _handle_control(self, frame: Frame) -> None:
         if frame.opcode == OP_PING:
@@ -453,10 +517,14 @@ class WebSocketConnection:
         except UnicodeDecodeError as exc:
             raise ProtocolError("close reason 不是合法 UTF-8", code=1007) from exc
 
-    async def _read_frame(self) -> Frame:
-        """取下一个帧（必要时读传输），并做 RSV/控制帧/opcode 校验。"""
+    async def _read_frame(self, timeout: float | None = None) -> Frame:
+        """取下一个帧（必要时读传输），并做 RSV/控制帧/opcode 校验。
+
+        ``timeout`` 是**单帧**读取上限：一次传输 ``read()`` 超过它即视为连接已死，
+        按 1006 断开（:meth:`recv` 缺省传连接的 ``read_timeout``）。
+        """
         while not self._pending:
-            data = await self._transport.read(_READ_CHUNK)
+            data = await self._read_chunk(timeout)
             if not data:
                 self.close_code = self.close_code or 1006
                 await self._shutdown()
@@ -474,6 +542,22 @@ class WebSocketConnection:
                 self._pending.append(frame)
         self._last_rx = asyncio.get_running_loop().time()
         return self._pending.popleft()
+
+    async def _read_chunk(self, timeout: float | None) -> bytes:
+        """读一段传输字节；``timeout`` 非空时超时按受控方式断开（抛 1006）。"""
+        read = self._transport.read(_READ_CHUNK)
+        if timeout is None:
+            return await read
+        try:
+            return await asyncio.wait_for(read, timeout)
+        except TimeoutError:
+            await self._note_read_timeout()
+            raise ConnectionClosed(1006, "读超时") from None
+
+    async def _note_read_timeout(self) -> None:
+        """记录读超时并断开传输（幂等，重复调用只会拿到已关闭的传输）。"""
+        self.close_code, self.close_reason = 1006, "读超时"
+        await self._shutdown()
 
     async def close(self, code: int = CLOSE_NORMAL, reason: str = "") -> None:
         """发起关闭握手：发 close 帧、等对端回应（``close_timeout`` 后强制断开）。"""

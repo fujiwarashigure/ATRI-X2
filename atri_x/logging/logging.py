@@ -20,12 +20,18 @@
 （= Go ``redact.Secrets``），异常值走 ``redact_text``（= Go ``redact.Error``）。
 消息正文（``msg``）与 Go 一样不做脱敏。该模块当前导出的名字是 ``secrets`` /
 ``error``（PORTING 口径的 ``redact_secrets`` / ``redact_text`` 尚未提供），本模块两种
-命名都接；都没接通时 ``REDACT_AVAILABLE`` 为 False（原样透传，不自行实现脱敏）。
+命名都接。
+
+**降级语义（不再原样透传）**：脱敏模块取不到时 ``REDACT_AVAILABLE`` 置 False，改用
+:data:`_FALLBACK_RULES` 正则兜底（只保证"不再明文"）；:func:`announce_redact_degradation`
+启动期报一次 ERROR，:func:`redact_status` 供 ``/diagnostics`` 与 ``doctor`` 自检。
 """
 
 from __future__ import annotations
 
 import os
+import re
+import sys
 import threading
 from collections.abc import Callable
 from copy import copy
@@ -35,14 +41,19 @@ from typing import Any, TextIO
 from atri_x.errors import ClosedError
 from atri_x.storage.times import format_time
 
-# 脱敏由 atri_x.redact.redact 提供（共享契约模块）。优先按 PORTING 口径的名字
-# （redact_secrets / redact_text）取，其次按该模块实际导出的名字（secrets / error，
-# 与 Go 的 redact.Secrets / redact.Error 对应）。两者都取不到时降级为原样返回
-# （不在本模块自行实现脱敏规则），并把 REDACT_AVAILABLE 置 False 供自检。
+# 脱敏由 atri_x.redact.redact 提供（优先 PORTING 口径的名字，其次 secrets / error）；
+# 两者都取不到时降级为正则兜底（见 atri_x.logging.redact_fallback）并置
+# REDACT_AVAILABLE=False。
 try:
     from atri_x.redact import redact as _redact
 except ImportError:  # pragma: no cover - 脱敏模块缺失时
     _redact = None
+
+from atri_x.logging.redact_fallback import (
+    announce_once as _announce_fallback,
+    fallback_redact as _fallback_redact,
+    status as _fallback_status,
+)
 
 redact_secrets = None
 redact_text = None
@@ -50,16 +61,24 @@ if _redact is not None:
     redact_secrets = getattr(_redact, "redact_secrets", None) or getattr(_redact, "secrets", None)
     redact_text = getattr(_redact, "redact_text", None) or getattr(_redact, "error", None)
 
-#: 是否接通了真实的脱敏模块（False = 当前只做原样透传）。
+#: 是否接通了真实的脱敏模块（False = 当前走 :mod:`atri_x.logging.redact_fallback`）。
 REDACT_AVAILABLE = callable(redact_secrets) and callable(redact_text)
 
-if not REDACT_AVAILABLE:  # pragma: no cover - 并行开发期的降级分支
+if not REDACT_AVAILABLE:  # pragma: no cover - 脱敏模块缺失时才生效
+    redact_secrets = _fallback_redact
+    redact_text = _fallback_redact
 
-    def redact_secrets(value: str) -> str:
-        return value
 
-    def redact_text(value: str) -> str:
-        return value
+def announce_redact_degradation(logger: Any = None) -> bool:
+    """降级时打一条 ERROR（进程内只发一次）；严格脱敏时返回 ``True``。"""
+    if REDACT_AVAILABLE:
+        return True
+    return _announce_fallback(logger)
+
+
+def redact_status() -> dict[str, Any]:
+    """脱敏接线自检快照（``/diagnostics`` 与 ``doctor`` 共用）。"""
+    return _fallback_status(REDACT_AVAILABLE)
 
 
 #: Go ``logging.DefaultRetentionDays``。
@@ -550,6 +569,7 @@ __all__ = [
     "Logger",
     "Manager",
     "audit_floor_level",
+    "announce_redact_degradation",
     "cleanup_old_logs",
     "format_attrs",
     "is_managed_log_file",
@@ -566,5 +586,6 @@ __all__ = [
     "quote_go",
     "quote_if_needed",
     "redact_secrets",
+    "redact_status",
     "redact_text",
 ]

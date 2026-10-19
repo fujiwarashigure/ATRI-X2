@@ -5,10 +5,15 @@
 与 Go 的差异（仅形式）：Go 的 ``Execute`` 返回 ``ExecutionResult``（内含 ``Err``），
 而不是 ``(T, error)``——调用方需要那条"失败也要回灌给 LLM"的消息，因此 Python
 同样返回结构体并保留 ``err`` 字段，而不是抛异常。
+
+**取消是例外**：``asyncio.CancelledError``（含 ``atri_x.media`` 的协作取消）不折叠成
+``err``，而是照常抛出。否则"用户已经取消"会被记成"这次工具失败"，``runner`` 会继续
+跑同一批剩下的调用 —— 取消要中止编排，不是业务错误。
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -64,6 +69,8 @@ class Executor:
         request = CallRequest(id=call.id, name=call.name, arguments=call.arguments)
         try:
             assessment = await assess_risk(ctx, tool, request)
+        except asyncio.CancelledError:
+            raise
         except BaseException as exc:
             return _execution_error(call, message, InvalidError(f"assess risk: {exc}"))
         policy = self.policy
@@ -94,6 +101,8 @@ class Executor:
             )
         try:
             result = await tool.call(ctx, request)
+        except asyncio.CancelledError:
+            raise
         except BaseException as exc:
             return _execution_error(call, message, exc)
         if result is None:

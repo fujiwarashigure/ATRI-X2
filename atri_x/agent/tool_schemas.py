@@ -98,10 +98,10 @@ async def tools_for_session(agent: Any, ctx: Any, session: Any) -> list[ToolSche
 
 
 def _toolrun_view(agent: Any, ctx: Any, session: Any) -> Any:
-    try:
-        from atri_x.toolrun.toolrun import Context as ToolRunContext
-    except ImportError:  # pragma: no cover - 同僚模块缺失时降级
-        return None
+    # ``atri_x.toolrun.toolrun`` 是硬依赖；原来吞 ImportError 返回 None 会让
+    # 工具视图静默退化（研究报告 §5.1）。
+    from atri_x.toolrun.toolrun import Context as ToolRunContext
+
     return ToolRunContext(
         mode=session.mode,
         session=session,

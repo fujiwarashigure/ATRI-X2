@@ -14,13 +14,17 @@ import hashlib
 import http.server
 import itertools
 import os
+import random
 import shutil
 import socket
 import struct
 import threading
+import time
 import unittest
 from collections.abc import Iterator
+from unittest import mock
 
+from atri_x.net import websocket as ws_module
 from atri_x.net.websocket import (
     CLOSE_GOING_AWAY,
     CLOSE_NORMAL,
@@ -73,6 +77,48 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+class _FakeTransport:
+    """按脚本喂字节的传输桩（不打桩 TCP）。
+
+    ``read()`` 按 ``limit`` 切片返回准备好的字节；脚本用完后按 ``eof`` 决定是返回
+    ``b""``（对端断开）还是永远挂起（模拟空闲/死连接）。数据可用时 ``read()`` 不 await，
+    因此测试里的让出点只可能来自被测代码自己。
+    """
+
+    def __init__(self, chunks: list[bytes] | None = None, *, eof: bool = False) -> None:
+        self.chunks, self.eof, self.index = list(chunks or []), eof, 0
+        self.written: list[bytes] = []
+        self.closed = False
+        self._pending = b""
+
+    async def read(self, limit: int) -> bytes:
+        while not self._pending and self.index < len(self.chunks):
+            self._pending, self.index = self.chunks[self.index], self.index + 1
+        if not self._pending:
+            if self.eof:
+                return b""
+            await asyncio.sleep(3600)
+        data, self._pending = self._pending[:limit], self._pending[limit:]
+        return data
+
+    async def write(self, data: bytes) -> None:
+        self.written.append(data)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _fragmented(fragment_count: int, payload: bytes = b"a") -> bytes:
+    """构造一条由 ``fragment_count`` 个分片组成的文本消息（最后一个带 FIN）。"""
+    if fragment_count <= 1:
+        return encode_frame(OP_TEXT, payload, mask=False, fin=True)
+    out = bytearray(encode_frame(OP_TEXT, payload, mask=False, fin=False))
+    for index in range(fragment_count - 1):
+        fin = index == fragment_count - 2
+        out += encode_frame(OP_CONT, payload, mask=False, fin=fin)
+    return bytes(out)
+
+
 def _valid_request(**overrides: str) -> HandshakeRequest:
     headers = {
         "host": "127.0.0.1:9000",
@@ -95,6 +141,41 @@ class TestFrameCodec(unittest.TestCase):
         self.assertNotEqual(masked, data)
         self.assertEqual(apply_mask(masked, key), data)
         self.assertEqual(apply_mask(data, b""), data)
+
+    def test_apply_mask_matches_naive_implementation(self) -> None:
+        """批量异或（≥64 字节的快速路径）必须与逐字节实现逐位一致。"""
+        rng = random.Random(20260214)
+        for size in (0, 1, 4, 63, 64, 65, 127, 256, 1024, 65537):
+            with self.subTest(size=size):
+                data = rng.randbytes(size)
+                key = rng.randbytes(4)
+                expected = bytes(byte ^ key[index & 3] for index, byte in enumerate(data))
+                self.assertEqual(apply_mask(data, key), expected)
+                self.assertEqual(apply_mask(expected, key), data)  # 异或自反
+
+    def test_apply_mask_key_length_semantics(self) -> None:
+        """4 字节键（以及更长的键只看前 4 字节）与逐字节 ``index & 3`` 语义一致。"""
+        data = bytes(range(64)) * 2
+        for key in (b"\x07\x08\x09\x0a", b"\x07\x08\x09\x0a\x0b\x0c"):
+            with self.subTest(key=key):
+                expected = bytes(byte ^ key[index & 3] for index, byte in enumerate(data))
+                self.assertEqual(apply_mask(data, key), expected)
+        # 1~3 字节的短键保持旧语义（越界即 IndexError），不能悄悄换成"周期键"
+        with self.assertRaises(IndexError):
+            apply_mask(bytes(64), b"\x01")
+
+    def test_64bit_length_with_msb_set_is_protocol_error(self) -> None:
+        """RFC 6455 §5.2：最高位为 1 是协议错误（1002），不是"消息太大"（1009）。"""
+        header = bytes([0x80 | OP_BINARY, 127]) + (1 << 63).to_bytes(8, "big")
+        with self.assertRaises(ProtocolError) as ctx:
+            FrameDecoder(expect_mask=False).feed(header + b"x")
+        self.assertEqual(ctx.exception.code, CLOSE_PROTOCOL_ERROR)
+
+    def test_64bit_length_over_limit_without_msb_is_too_large(self) -> None:
+        header = bytes([0x80 | OP_BINARY, 127]) + (1 << 40).to_bytes(8, "big")
+        with self.assertRaises(ProtocolError) as ctx:
+            FrameDecoder(expect_mask=False, max_frame_size=1 << 20).feed(header + b"x")
+        self.assertEqual(ctx.exception.code, CLOSE_TOO_LARGE)
 
     def test_length_forms_roundtrip(self) -> None:
         for size in (0, 1, 125, 126, 127, 65535, 65536):
@@ -203,6 +284,38 @@ class TestHandshakeHelpers(unittest.TestCase):
                     server_handshake(request, **kwargs)
                 self.assertEqual(ctx.exception.status, status)
 
+    def test_sec_websocket_key_must_decode_to_16_bytes(self) -> None:
+        """RFC 6455 §4.2.1：``Sec-WebSocket-Key`` 必须解码成恰好 16 字节。"""
+        bad_keys = [
+            "abc",  # 长度不是 4 的倍数且解码不出 16 字节
+            "k",
+            "!!!!",  # 非 base64 字符
+            "x" * 24,  # 合法 base64 但解出 18 字节
+            base64.b64encode(b"12345678").decode("ascii"),  # 解出 8 字节
+            base64.b64encode(b"0123456789abcdef").decode("ascii") + "AA",  # 解出 17 字节
+        ]
+        for key in bad_keys:
+            with self.subTest(key=key):
+                with self.assertRaises(HandshakeError) as ctx:
+                    server_handshake(_valid_request(**{"sec-websocket-key": key}))
+                self.assertEqual(ctx.exception.status, 400)
+                self.assertIn("Sec-WebSocket-Key", str(ctx.exception))
+
+    def test_sec_websocket_key_tolerates_padding_and_whitespace(self) -> None:
+        """缺尾部 ``=`` 填充、值前后带空白的 key 仍可受理；Accept 按**原样** key 计算。"""
+        padded = base64.b64encode(b"0123456789abcdef").decode("ascii")
+        unpadded = padded.rstrip("=")
+        self.assertEqual(len(unpadded) % 4, 2)
+        for key in (padded, unpadded, f"  {unpadded}  "):
+            with self.subTest(key=key):
+                response, _ = server_handshake(_valid_request(**{"sec-websocket-key": key}))
+                self.assertIn(f"Sec-WebSocket-Accept: {accept_key(key.strip())}\r\n", response)
+
+    def test_sec_websocket_key_canonical_value_still_works(self) -> None:
+        # RFC 6455 §1.3 的示例 key 必须继续被受理（回归：新校验不能误伤合法客户端）
+        response, _ = server_handshake(_valid_request())
+        self.assertIn("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n", response)
+
     def test_origin_allow_list(self) -> None:
         request = HandshakeRequest("GET", "/ws", "HTTP/1.1", _valid_request().headers,
                                    origin="https://ok.example")
@@ -235,6 +348,179 @@ class TestHandshakeHelpers(unittest.TestCase):
         self.assertIn(b"HTTP/1.1 426 Upgrade Required", response)
         self.assertIn(b"Sec-WebSocket-Version: 13", response)
         self.assertTrue(response.endswith(b"need 13"))
+
+
+class TestFragmentReassemblyLimits(unittest.TestCase):
+    """分片重组的成本上限：帧数上限、增量计数、以及长消息必须让出事件循环。
+
+    回归的是一个 P1 DoS：旧实现每收到一个分片就 ``sum(len(chunk) for chunk in fragments)``
+    重算总长（O(F²)），32k 个 1 字节分片要 14 s CPU；现在按帧数线性、帧数有上限，
+    而且每 256 帧 ``await asyncio.sleep(0)``。
+    """
+
+    def _connection(self, chunks: list[bytes], **kwargs) -> tuple[WebSocketConnection, _FakeTransport]:
+        transport = _FakeTransport(chunks)
+        return WebSocketConnection(transport, is_client=True, **kwargs), transport
+
+    def test_fragment_count_over_limit_closes_with_1009(self) -> None:
+        limit = 8
+        connection, transport = self._connection([_fragmented(limit + 1)])
+
+        async def scenario() -> ConnectionClosed:
+            with mock.patch.object(ws_module, "MAX_MESSAGE_FRAGMENTS", limit):
+                with self.assertRaises(ConnectionClosed) as ctx:
+                    await asyncio.wait_for(connection.recv(), 5)
+            return ctx.exception
+
+        error = _run(scenario())
+        self.assertEqual(error.code, CLOSE_TOO_LARGE)
+        self.assertIn("分片数超过上限", error.reason)
+        # 关闭帧必须真的发出去，且带 1009（协议要求 closed with status code）
+        frames = FrameDecoder(expect_mask=True).feed(b"".join(transport.written))
+        self.assertEqual(frames[0].opcode, OP_CLOSE)
+        self.assertEqual(struct.unpack("!H", frames[0].payload[:2])[0], CLOSE_TOO_LARGE)
+        self.assertTrue(transport.closed)
+
+    def test_fragment_count_at_limit_is_accepted(self) -> None:
+        limit = 8
+        connection, _ = self._connection([_fragmented(limit)])
+
+        async def scenario() -> str:
+            with mock.patch.object(ws_module, "MAX_MESSAGE_FRAGMENTS", limit):
+                return await asyncio.wait_for(connection.recv(), 5)
+
+        self.assertEqual(_run(scenario()), "a" * limit)
+
+    def test_32k_fragments_complete_well_under_a_second(self) -> None:
+        """32k 个 1 字节分片：旧实现 13.5 s CPU（O(F²)），现在必须是线性量级。"""
+        fragment_count = 32768
+        connection, _ = self._connection([_fragmented(fragment_count)])
+
+        async def scenario() -> tuple[str, float]:
+            started = time.perf_counter()
+            message = await asyncio.wait_for(connection.recv(), 30)
+            return message, time.perf_counter() - started
+
+        message, elapsed = _run(scenario())
+        self.assertEqual(message, "a" * fragment_count)
+        self.assertLess(elapsed, 1.0, f"32k 分片重组用了 {elapsed:.2f}s（应 <1s）")
+
+    def test_over_real_fragment_limit_is_rejected_quickly(self) -> None:
+        """真实上限（65536）的两倍分片数：必须 1 s 内以 1009 拒绝，而不是慢慢算。"""
+        self.assertEqual(ws_module.MAX_MESSAGE_FRAGMENTS, 65536)
+        fragment_count = 2 * ws_module.MAX_MESSAGE_FRAGMENTS
+        connection, transport = self._connection([_fragmented(fragment_count)])
+
+        async def scenario() -> tuple[ConnectionClosed, float]:
+            started = time.perf_counter()
+            with self.assertRaises(ConnectionClosed) as ctx:
+                await asyncio.wait_for(connection.recv(), 30)
+            return ctx.exception, time.perf_counter() - started
+
+        error, elapsed = _run(scenario())
+        self.assertEqual(error.code, CLOSE_TOO_LARGE)
+        self.assertIn("分片数超过上限 65536", error.reason)
+        self.assertLess(elapsed, 1.0, f"超限拒绝用了 {elapsed:.2f}s（应 <1s）")
+        frames = FrameDecoder(expect_mask=True).feed(b"".join(transport.written))
+        self.assertEqual(struct.unpack("!H", frames[0].payload[:2])[0], CLOSE_TOO_LARGE)
+
+    def test_long_fragment_chain_yields_to_event_loop(self) -> None:
+        """每 ``_FRAGMENT_YIELD_INTERVAL`` 帧让出一次循环，长消息不得独占 CPU。
+
+        传输桩在数据可用时**不 await**，而且这里直接调 ``_next_message``（不经 ``recv``
+        的 ``wait_for`` 包装），所以循环回调唯一能跑起来的机会就是重组代码自己让出。
+        """
+        fragment_count = ws_module._FRAGMENT_YIELD_INTERVAL + 44
+        connection, _ = self._connection([_fragmented(fragment_count)])
+
+        async def scenario() -> tuple[str, int]:
+            loop = asyncio.get_running_loop()
+            ticks = 0
+            running = True
+
+            def bump() -> None:
+                nonlocal ticks
+                ticks += 1
+                if running:
+                    loop.call_soon(bump)
+
+            loop.call_soon(bump)
+            message = await connection._next_message(None)
+            running = False
+            return message, ticks
+
+        message, ticks = _run(scenario())
+        self.assertEqual(message, "a" * fragment_count)
+        self.assertGreaterEqual(ticks, 1)
+
+
+class TestReadTimeout(unittest.TestCase):
+    """``read_timeout`` 用假传输验证（不依赖 TCP 时序），作用在**单帧**读取上。"""
+
+    def test_recv_times_out_and_closes_with_1006(self) -> None:
+        transport = _FakeTransport([])  # 永远不返回数据
+        connection = WebSocketConnection(transport, is_client=True, read_timeout=0.05)
+
+        async def scenario() -> ConnectionClosed:
+            with self.assertRaises(ConnectionClosed) as ctx:
+                await asyncio.wait_for(connection.recv(), 2)
+            return ctx.exception
+
+        error = _run(scenario())
+        self.assertEqual(error.code, 1006)
+        self.assertEqual(error.reason, "读超时")
+        self.assertTrue(transport.closed)
+
+    def test_explicit_recv_timeout_overrides_connection_default(self) -> None:
+        transport = _FakeTransport([])
+        connection = WebSocketConnection(transport, is_client=True, read_timeout=None)
+
+        async def scenario() -> ConnectionClosed:
+            with self.assertRaises(ConnectionClosed) as ctx:
+                await asyncio.wait_for(connection.recv(timeout=0.05), 2)
+            return ctx.exception
+
+        self.assertEqual(_run(scenario()).code, 1006)
+
+    def test_stalled_frame_read_times_out_mid_message(self) -> None:
+        """只收到半帧就沉默（对端不再发字节）：单帧读超时必须生效，而不是无限等。"""
+        truncated = encode_frame(OP_TEXT, b"half", mask=False, fin=False)[:4]
+        transport = _FakeTransport([truncated])
+        connection = WebSocketConnection(transport, is_client=True, read_timeout=0.05)
+
+        async def scenario() -> ConnectionClosed:
+            with self.assertRaises(ConnectionClosed) as ctx:
+                await asyncio.wait_for(connection._read_frame(0.05), 2)
+            return ctx.exception
+
+        error = _run(scenario())
+        self.assertEqual((error.code, error.reason), (1006, "读超时"))
+        self.assertTrue(transport.closed)
+
+    def test_half_message_then_silence_times_out(self) -> None:
+        """整条消息层面同理：收到未结束的分片后沉默，``recv`` 必须断开。"""
+        transport = _FakeTransport([encode_frame(OP_TEXT, b"half", mask=False, fin=False)])
+        connection = WebSocketConnection(transport, is_client=True, read_timeout=0.05)
+
+        async def scenario() -> ConnectionClosed:
+            with self.assertRaises(ConnectionClosed) as ctx:
+                await asyncio.wait_for(connection.recv(), 2)
+            return ctx.exception
+
+        self.assertEqual(_run(scenario()).code, 1006)
+
+    def test_no_read_timeout_still_waits(self) -> None:
+        """默认 ``read_timeout=None`` 保持旧行为：不主动超时（用例自己掐断）。"""
+        connection = WebSocketConnection(_FakeTransport([]), is_client=True)
+
+        async def scenario() -> str:
+            try:
+                await asyncio.wait_for(connection.recv(), 0.05)
+            except (TimeoutError, asyncio.TimeoutError):
+                return "still-waiting"
+            return "returned"
+
+        self.assertEqual(_run(scenario()), "still-waiting")
 
 
 class TestLoopback(unittest.TestCase):
@@ -518,6 +804,27 @@ class TestLoopback(unittest.TestCase):
             return sock.recv(4096)
         finally:
             sock.close()
+
+    def test_short_sec_websocket_key_gets_400(self) -> None:
+        """真实回环上，非 16 字节 base64 的 ``Sec-WebSocket-Key`` 必须回 400（不是 101）。"""
+        handler, _, _ = self._echo_server()
+
+        async def scenario() -> list[bytes]:
+            server = await serve(handler, "127.0.0.1", 0)
+            try:
+                head = ("GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\n"
+                        "Connection: Upgrade\r\nSec-WebSocket-Version: 13\r\n")
+                out = []
+                for key in ("abc", "k", "!!!!", base64.b64encode(b"12345678").decode()):
+                    out.append(await asyncio.to_thread(
+                        self._plain_get, server.port, head + f"Sec-WebSocket-Key: {key}\r\n\r\n"))
+                return out
+            finally:
+                await server.close()
+
+        for response in _run(scenario()):
+            self.assertIn(b"400", response.split(b"\r\n")[0])
+            self.assertNotIn(b"101", response.split(b"\r\n")[0])
 
 
 class TestSyncApi(unittest.TestCase):

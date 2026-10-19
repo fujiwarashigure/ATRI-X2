@@ -258,6 +258,14 @@ python -m unittest tests.test_deploy_harness tests.test_deploy_harness_cli -v   
 2. **进程级注入**（`tests/test_deploy_harness_cli.py`）：`ATRIX_DEPLOY_FAKE_CAPTURE`
    （仓库既有的注入点）让**真实的** `DockerCLI` 走 `_lib.run_capture` 拿到假输出，
    于是可以真的以子进程跑 `python deploy/smoke.py`，断言退出码、命令形状与 JSON 报告。
+   该注入点是 **fail-closed** 的：设置 `ATRIX_DEPLOY_FAKE_CAPTURE` 即为严格模式，
+   规则文件缺失 / JSON 损坏 / 条目非法 / **没有任何规则命中所跑命令** 一律
+   `AssertionError`（消息带全 argv 与规则文件路径），**绝不回落去真跑 docker/git**。
+   规则条目用结构化谓词 `argv`（完全相等）或 `argv_prefix`（前缀）匹配，`match`
+   子串仅作兼容；三者同格为「与」关系。夹具自己的本地脚本用逐条 `"real": true`
+   显式放行，全局逃生开关 `ATRIX_DEPLOY_FAKE_ALLOW_REAL=1` 默认关闭。
+   `FakeDocker`（类级注入）同样严格：未识别的 docker 子命令 / exec 命令直接
+   `AssertionError`，不再兜底返回 0，并用 `hits` / `hit_log` 记录命中。
 
 另外还有两条**防漂移**断言：`smoke.py` 的三层探测命令必须逐字出现在
 `deploy/Dockerfile` 的 `HEALTHCHECK` 与 `deploy/docker-compose.yml` 的

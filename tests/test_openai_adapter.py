@@ -28,6 +28,7 @@ from atri_x.llm.llm import (
 )
 from atri_x.llm.openai.openai import (
     CHAT_RESERVED_REQUEST_FIELDS,
+    STREAM_QUEUE_MAXSIZE,
     OpenAIClient,
     RequestOptions,
     parse_error,
@@ -35,6 +36,7 @@ from atri_x.llm.openai.openai import (
 )
 from atri_x.llm.openai.stream import MAX_STREAM_LINE_BYTES
 from atri_x.llm.openai.wire import retry_delay, to_usage
+from atri_x.net.httpclient import HTTPStream
 
 # ---------------------------------------------------------------------------
 # 假服务端
@@ -225,6 +227,34 @@ class _StreamCase(unittest.IsolatedAsyncioTestCase):
         kwargs.setdefault("model", "test")
         kwargs.setdefault("messages", [LLMMessage(role=Role.USER, segments=text_segments("Hi"))])
         return ChatRequest(**kwargs)
+
+    def spy_open_stream(self, client: OpenAIClient) -> dict[str, Any]:
+        """包一层 ``client._http.open_stream``，记录参数与返回的 stream。"""
+        seen: dict[str, Any] = {"calls": [], "streams": []}
+        original = client._http.open_stream
+
+        async def spy(*args: Any, **kwargs: Any) -> HTTPStream:
+            stream = await original(*args, **kwargs)
+            seen["calls"].append((args, kwargs))
+            seen["streams"].append(stream)
+            return stream
+
+        client._http.open_stream = spy  # type: ignore[method-assign]
+        return seen
+
+    def spy_request(self, client: OpenAIClient) -> dict[str, Any]:
+        """包一层 ``client._http.request``，记录参数与返回的响应。"""
+        seen: dict[str, Any] = {"calls": [], "responses": []}
+        original = client._http.request
+
+        async def spy(*args: Any, **kwargs: Any) -> Any:
+            response = await original(*args, **kwargs)
+            seen["calls"].append((args, kwargs))
+            seen["responses"].append(response)
+            return response
+
+        client._http.request = spy  # type: ignore[method-assign]
+        return seen
 
 
 # ---------------------------------------------------------------------------
@@ -660,6 +690,242 @@ class TestRetry(_StreamCase):
         await self.collect(client.chat_stream(None, self.request()))
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].attempt, 1)
+
+
+# ---------------------------------------------------------------------------
+# 传输接线（切回 HTTPClient 之后的钉子）
+# ---------------------------------------------------------------------------
+
+
+class TestTransportWiring(_StreamCase):
+    """适配器必须走 ``HTTPClient``，不再自建 / 不再有第二套传输实现。"""
+
+    def test_temporary_transport_module_is_removed(self) -> None:
+        """临时传输模块必须删干净（否则「同一职责两套实现」会回来）。"""
+        import importlib
+
+        with self.assertRaises(ModuleNotFoundError):
+            importlib.import_module("atri_x.llm.openai.transport")
+
+    async def test_chat_stream_goes_through_httpclient_open_stream(self) -> None:
+        server = self.sse_server(sse("[DONE]"))
+        client = self.make_client(server.url, "k")
+        ctx = object()
+        seen = self.spy_open_stream(client)
+
+        await self.collect(client.chat_stream(ctx, self.request()))
+
+        self.assertEqual(server.records[0]["path"], "/chat/completions")
+        self.assertEqual(len(seen["calls"]), 1)
+        args, kwargs = seen["calls"][0]
+        self.assertEqual(args, ("POST", client.endpoint()))
+        self.assertEqual(kwargs["read_timeout"], 0)  # 正文不做 socket 级读截止
+        self.assertIs(kwargs["follow_redirects"], True)  # 与 Go 缺省 http.Client 一致
+        self.assertIs(kwargs["cancel"], ctx)
+        self.assertEqual(kwargs["queue_maxsize"], STREAM_QUEUE_MAXSIZE)
+        self.assertIsInstance(seen["streams"][0], HTTPStream)
+
+    async def test_list_models_goes_through_httpclient_request(self) -> None:
+        server = self.start_server(
+            lambda handler, record: write_body(handler, '{"data":[{"id":"m1"}]}')
+        )
+        client = self.make_client(server.url, "k")
+        seen = self.spy_request(client)
+
+        self.assertEqual(await client.list_models(None), ["m1"])
+        args, kwargs = seen["calls"][0]
+        self.assertEqual(args, ("GET", client.models_endpoint()))
+        self.assertIsNone(kwargs["body"])
+        self.assertIsNone(kwargs["cancel"])  # ctx=None 时原样透传
+        # HTTPClient 自带重试必须关着，重试由适配器的 _do_with_retry 负责。
+        self.assertIsNone(kwargs.get("retry"))
+
+    async def test_same_origin_redirect_keeps_method_body_and_auth(self) -> None:
+        """显式 follow_redirects=True：网关 307（补斜杠/换路径）不再让适配器拿到 3xx 空体。"""
+
+        def responder(handler: BaseHTTPRequestHandler, record: dict[str, Any]) -> None:
+            if record["path"] == "/chat/completions":
+                handler.send_response(307)
+                handler.send_header("Location", "/v1/chat/completions")
+                handler.send_header("Content-Length", "0")
+                handler.end_headers()
+                return
+            write_sse(
+                handler,
+                sse('{"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}', "[DONE]"),
+            )
+
+        server = self.start_server(responder)
+        client = self.make_client(server.url, "k")
+        content, _, _, _, _, error = await self.collect(client.chat_stream(None, self.request()))
+
+        self.assertIsNone(error)
+        self.assertEqual(content, "hi")
+        self.assertEqual(
+            [record["path"] for record in server.records],
+            ["/chat/completions", "/v1/chat/completions"],
+        )
+        # 307 保留方法与 body；同源跳转保留 Authorization。
+        self.assertEqual(server.records[1]["method"], "POST")
+        self.assertEqual(server.records[1]["body"], server.records[0]["body"])
+        self.assertEqual(server.records[1]["headers"]["Authorization"], "Bearer k")
+
+
+class TestTransportTimeouts(_StreamCase):
+    """切换传输后 SSE 超时语义不变：先沉默 → first_chunk；分行后卡住 → idle。"""
+
+    async def test_first_chunk_timeout_when_server_stays_silent(self) -> None:
+        server = self.start_server(lambda handler, record: write_headers_only(handler, hold=0.6))
+        client = self.make_client(
+            server.url,
+            "k",
+            options=RequestOptions(
+                first_chunk_timeout=0.15, stream_idle_timeout=5.0, max_retries=0,
+                retry_initial_delay=0.01,
+            ),
+        )
+        with self.assertRaises(APIError) as caught:
+            await self.collect(client.chat_stream(None, self.request()))
+        self.assertIn("first stream chunk timeout", str(caught.exception))
+        self.assertEqual(caught.exception.category, ErrorCategory.TIMEOUT)
+
+    async def test_body_read_is_not_capped_by_first_chunk_timeout(self) -> None:
+        """分片间隔可以长过 first_chunk_timeout（它只管连接/响应头）。
+
+        服务端首包立即到、第二行 0.6s 后才来；``first_chunk_timeout=0.2``、
+        ``stream_idle_timeout=5``。旧的自建 LineStream 在 getresponse() 后
+        ``settimeout(None)``，所以能过；切到 HTTPStream 后靠 ``read_timeout=0``
+        保住同一语义 —— 这条用例钉住它（socket 上若残留建连超时，第二行会被掐断）。
+        """
+        server = self.sse_server(
+            sse(
+                '{"choices":[{"index":0,"delta":{"content":"a"},"finish_reason":null}]}',
+                "[DONE]",
+            ),
+            delay=0.6,
+        )
+        client = self.make_client(
+            server.url,
+            "k",
+            options=RequestOptions(
+                first_chunk_timeout=0.2, stream_idle_timeout=5.0, max_retries=0,
+                retry_initial_delay=0.01,
+            ),
+        )
+        content, _, _, _, _, error = await self.collect(client.chat_stream(None, self.request()))
+        self.assertIsNone(error)
+        self.assertEqual(content, "a")
+
+    async def test_idle_timeout_still_governs_the_body_after_first_chunk(self) -> None:
+        server = self.sse_server(
+            sse('{"choices":[{"index":0,"delta":{"content":"start"},"finish_reason":null}]}'),
+            delay=0.4,
+        )
+        client = self.make_client(
+            server.url,
+            "k",
+            options=RequestOptions(
+                first_chunk_timeout=0.3, stream_idle_timeout=0.15, max_retries=0,
+                retry_initial_delay=0.01,
+            ),
+        )
+        content, _, _, _, _, error = await self.collect(client.chat_stream(None, self.request()))
+        self.assertEqual(content, "start")
+        self.assertIsNotNone(error)
+        assert error is not None
+        self.assertIn("idle timeout", str(error))
+        self.assertEqual(as_api_error(error).category, ErrorCategory.TIMEOUT)  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# 非 200 的错误体 / 非流式重试（切换传输后语义不变的钉子）
+# ---------------------------------------------------------------------------
+
+
+class TestErrorBodyPath(_StreamCase):
+    """非 200：必须把错误体读完（再抛结构化 APIError），并把流关掉。"""
+
+    async def test_non_200_reads_error_body_and_closes_stream(self) -> None:
+        server = self.start_server(
+            lambda handler, record: write_body(
+                handler,
+                '{"error":{"message":"invalid api key for tenant","type":"auth_error"}}',
+                status=401,
+            )
+        )
+        client = self.make_client(server.url, "k")
+        seen = self.spy_open_stream(client)
+
+        with self.assertRaises(APIError) as caught:
+            await self.collect(client.chat_stream(None, self.request()))
+
+        # 错误体真的被读了（消息来自 body 而不是状态码兜底文本）。
+        self.assertIn("invalid api key for tenant", str(caught.exception))
+        self.assertEqual(caught.exception.status_code, 401)
+        self.assertEqual(caught.exception.category, ErrorCategory.AUTH)
+        self.assertEqual(server.attempts, 1)  # 401 不可重试
+        self.assertEqual(len(seen["streams"]), 1)
+        self.assertTrue(seen["streams"][0]._stop.is_set(), "错误路径必须关闭流")
+
+    async def test_retryable_status_error_reads_body_from_stream(self) -> None:
+        """可重试状态码走 _retryable_status_error：同样要能读完流式错误体。"""
+        server = self.start_server(
+            lambda handler, record: write_body(
+                handler, '{"error":{"message":"upstream exploded"}}', status=502
+            )
+        )
+        client = self.make_client(
+            server.url,
+            "k",
+            options=RequestOptions(
+                first_chunk_timeout=2.0, stream_idle_timeout=2.0, max_retries=1,
+                retry_initial_delay=0.01,
+            ),
+        )
+        with self.assertRaises(APIError) as caught:
+            await self.collect(client.chat_stream(None, self.request()))
+        self.assertIn("upstream exploded", str(caught.exception))
+        self.assertEqual(caught.exception.category, ErrorCategory.SERVER)
+        self.assertEqual(server.attempts, 2)
+
+
+class TestNonStreamingRetry(_StreamCase):
+    """非流式请求：重试次数与退避只由 ``_do_with_retry`` 提供，不能叠加。"""
+
+    async def test_retry_count_and_backoff_are_not_doubled(self) -> None:
+        events: list[Any] = []
+
+        def responder(handler: BaseHTTPRequestHandler, record: dict[str, Any]) -> None:
+            if len(server.records) < 3:
+                write_body(handler, '{"error":{"message":"temporary upstream error"}}', status=502)
+                return
+            write_body(handler, '{"choices":[{"message":{"role":"assistant","content":"ok"}}]}')
+
+        server = self.start_server(responder)
+        client = self.make_client(
+            server.url,
+            "k",
+            options=RequestOptions(
+                first_chunk_timeout=2.0,
+                stream_idle_timeout=2.0,
+                max_retries=2,
+                retry_initial_delay=0.02,
+                on_retry=lambda ctx, event: events.append(event),
+            ),
+        )
+        seen = self.spy_request(client)
+        response = await client.chat(None, self.request())
+
+        self.assertEqual(response.message.content_text(), "ok")
+        self.assertEqual(server.attempts, 3)  # 双重退避会变成 3x3 次
+        self.assertEqual([event.attempt for event in events], [1, 2])
+        self.assertEqual([event.delay for event in events], [0.02, 0.04])
+        self.assertEqual([event.max_retries for event in events], [2, 2])
+        self.assertEqual(len(seen["calls"]), 3)
+        for _, kwargs in seen["calls"]:
+            # HTTPClient 自带重试必须关着（默认 RetryPolicy(max_retries=0)）。
+            self.assertIsNone(kwargs.get("retry"))
+            self.assertIsNone(kwargs.get("retry_notifier"))
 
 
 # ---------------------------------------------------------------------------

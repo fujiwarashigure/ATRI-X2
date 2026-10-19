@@ -43,7 +43,13 @@ from atri_x.llm.llm import (
     ToolCallDelta,
     ToolCallRequest,
 )
-from atri_x.net.httpclient import HTTPClient, HTTPError, HTTPStream
+from atri_x.net.httpclient import (
+    DEFAULT_MAX_REDIRECTS,
+    HTTPClient,
+    HTTPError,
+    HTTPStream,
+    Response,
+)
 
 # 错误分类/摘要与请求构造拆到同包模块；这里再导出一次，保持「对外入口仍是
 # OpenAIClient（且 parse_error 等仍可从 openai 模块取到）」。
@@ -60,7 +66,6 @@ from atri_x.llm.openai.stream import (
     StreamLineReader,
     prepare_stream_body,
 )
-from atri_x.llm.openai.transport import BufferedResponse, LineStream, buffered_request
 from atri_x.llm.openai.wire import (
     CHAT_RESERVED_REQUEST_FIELDS,
     DATA_DONE,
@@ -102,6 +107,7 @@ __all__ = [
     "OpenAIClient",
     "RequestOptions",
     "STREAM_PREFIX_BYTES",
+    "STREAM_QUEUE_MAXSIZE",
     "StreamLineReader",
     "classify",
     "looks_like_html",
@@ -110,6 +116,10 @@ __all__ = [
     "response_summary",
     "to_openai_messages",
 ]
+
+#: SSE 行队列上限：读取线程队列满就等（背压），消费端卡住时不会无限吃内存。
+#: 消费端（``StreamLineReader``）是逐行排空的，2048 行足够抹平抖动。
+STREAM_QUEUE_MAXSIZE = 2048
 
 
 class OpenAIClient:
@@ -293,42 +303,51 @@ class OpenAIClient:
         finally:
             await stream.close()
 
-    async def open_stream_request(self, ctx: Any, body: dict[str, Any]) -> LineStream:
+    async def open_stream_request(self, ctx: Any, body: dict[str, Any]) -> HTTPStream:
         """打开 SSE 连接（对应 Go 里 ``doWithRetry`` 包住的 ``client.Do``）。
 
-        TODO(httpclient): 这里本应直接用 ``self._http.open_stream(...)``；当前
-        ``httpclient.HTTPStream._pump`` 在工作线程里调用 ``asyncio.get_running_loop()``
-        必然抛 ``RuntimeError``，导致 ``open_stream`` 永久挂起，所以走同包的
-        :class:`~atri_x.llm.openai.transport.LineStream`（同样的对外契约，
-        连接/代理/TLS 仍复用 httpclient 的 ``_open_connection``/``_send``）。
-        httpclient 修好后把下面这段换成 ``self._http.open_stream`` 即可。
+        走 :meth:`HTTPClient.open_stream`——本适配器唯一的流式传输实现。超时语义与
+        Go 一致：
 
-        另外 ``read_timeout=0`` 的语义：关掉 socket 级读超时，首包/空闲判定完全由
-        StreamLineReader 负责，与 Go 只用 timer（没有读截止时间）的语义一致。
+        * ``timeout=first_chunk_timeout``：连接/响应头的总预算（含跟随重定向的每一跳）；
+        * ``read_timeout=0``：**正文不做 socket 级读截止**。Go 对正文没有读截止时间，
+          首包与逐行空闲由 :func:`prepare_stream_body` 和 :class:`StreamLineReader`
+          的 timer 负责；socket 上再压一个截止会把「首包之后正常间隔的分片」误判成
+          读失败（例如 ``first_chunk_timeout=0.5`` 而 ``stream_idle_timeout=30``）。
+
+        新能力的取舍：
+
+        * ``follow_redirects=True``（与 Go 缺省 ``http.Client`` 一致）：网关的
+          http→https、补斜杠这类 3xx 以前会让适配器拿到空体而失败；跨源跳转由
+          httpclient 丢弃 ``Authorization``/``Cookie``，所以最坏是那一次 401，
+          不会把 API key 带出去。
+        * ``queue_maxsize``：读取线程有背压，消费端卡住时不会无限吃内存；``close()``
+          会唤醒阻塞在队列上的消费端（错误路径与 ``_stream`` 的 finally 都依赖它）。
+        * ``cancel=ctx``：连接阶段就能被取消令牌中断（对应 Go 的 ``ctx.Err()``），
+          与 ``StreamLineReader`` 的检查同一语义。
         """
-        payload = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        stream = LineStream(
-            url=self.endpoint(),
-            method="POST",
+        return await self._http.open_stream(
+            "POST",
+            self.endpoint(),
             headers={**self._transport_headers(json_body=True), "Accept": "text/event-stream"},
-            payload=payload,
-            proxy=self._http.proxy,
-            verify_tls=self._http.verify_tls,
+            json=body,
             timeout=self.first_chunk_timeout,
+            read_timeout=0,
+            cancel=ctx,
+            follow_redirects=True,
+            max_redirects=DEFAULT_MAX_REDIRECTS,
+            queue_maxsize=STREAM_QUEUE_MAXSIZE,
         )
-        await stream.open()
-        return stream
 
     async def _buffered_request(
         self, ctx: Any, method: str, url: str, body: Any = None
-    ) -> BufferedResponse:
-        """一次性请求（``/models``、非流式 chat）。
+    ) -> Response:
+        """一次性请求（``/models``、非流式 chat），走 :meth:`HTTPClient.request`。
 
-        TODO(httpclient): 这里本应直接用 ``self._http.request(...)``；当前
-        ``HTTPClient._blocking_request`` 把 ``_send()`` 的 ``None`` 当成状态码，
-        ``Response.status`` 恒为 ``None``，``request()`` 里的重试策略比较会抛
-        ``TypeError``。因此走同包的 ``transport.buffered_request``（同样的对外
-        契约，连接/代理/TLS 仍复用 httpclient）。httpclient 修好后即可换回。
+        **重试只由 :meth:`_do_with_retry` 负责**：这里不传 ``retry``（HTTPClient 默认
+        ``RetryPolicy(max_retries=0)``）也不传 ``retry_notifier``，否则会与适配器自己的
+        退避叠加成双重重试，重试次数与 ``RetryEvent`` 都会翻倍。
+        ``follow_redirects`` / ``cancel`` 与流式路径同一取舍。
         """
         payload = (
             None
@@ -338,14 +357,15 @@ class OpenAIClient:
         headers = self._transport_headers(json_body=body is not None)
         return await self._do_with_retry(
             ctx,
-            lambda: buffered_request(
-                url=url,
-                method=method,
+            lambda: self._http.request(
+                method,
+                url,
                 headers=headers,
-                payload=payload,
-                proxy=self._http.proxy,
-                verify_tls=self._http.verify_tls,
+                body=payload,
                 timeout=self.first_chunk_timeout,
+                cancel=ctx,
+                follow_redirects=True,
+                max_redirects=DEFAULT_MAX_REDIRECTS,
             ),
         )
 
@@ -536,7 +556,7 @@ class OpenAIClient:
 
     async def _retryable_status_error(self, response: Any) -> BaseException:
         """对应 Go ``retryableStatusError``：读完错误体再关闭并结构化。"""
-        if isinstance(response, (LineStream, HTTPStream)):
+        if isinstance(response, HTTPStream):
             try:
                 raw = await response.read_all()
             finally:

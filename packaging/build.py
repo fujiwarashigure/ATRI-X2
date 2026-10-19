@@ -13,12 +13,22 @@
 
     python packaging/build.py                       # onedir -> dist/windows/atri-x/（含窗口版）
     python packaging/build.py --onefile             # 单文件（只出控制台版）
-    python packaging/build.py --with-pillow         # 不排除 Pillow（图像编解码加速）
+    python packaging/build.py --with-pillow         # 只把 Pillow（图像编解码加速）打进包
+    python packaging/build.py --with-extras         # 顺带保留 numpy/PyYAML（atri_x 不 import）
+    python packaging/build.py --with-all-optional   # 旧的 --with-pillow 语义：三包全留
+    python packaging/build.py --check-env           # 只打印构建环境与可选依赖计划，不构建
     python packaging/build.py --with-kernel         # 把 runtime/dsh-kernel 打进包
     python packaging/build.py --no-gui              # 只出控制台版
     python packaging/build.py --verify-only         # 只核验已有产物
     python packaging/build.py --no-verify           # 只构建，不核验
     python packaging/build.py --release             # 一条命令出「便携版 zip + 安装包」并逐项自检
+
+可选依赖的开关语义、常量与 spec 契约都在 ``packaging/optional_deps.py``。产物里的图像
+后端用**离线**命令核验（构建期不做假断言）::
+
+    dist/windows/atri-x/atri-x.exe -m atri_x.media.imagecodec.backend_probe --json
+
+``"backend": "pillow"`` = 产物带了加速后端；``"stdlib"`` = 只有纯 Python 后端。
 
 内置运行时默认**自动探测**：仓库根存在 ``runtime/dsh-kernel/kernel.json`` 就打包进去，
 可用 ``--with-kernel`` / ``--no-kernel`` 强制开启/关闭。
@@ -35,14 +45,21 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Sequence, TextIO
+from typing import Any, Sequence, TextIO
+
+#: 脚本目录：既是 ``entry.py`` / ``atri-x.spec`` 的位置，也是 ``optional_deps`` 的导入根。
+PACKAGING_DIR = Path(__file__).resolve().parent
+if str(PACKAGING_DIR) not in sys.path:
+    sys.path.insert(0, str(PACKAGING_DIR))
+
+import optional_deps  # noqa: E402 - 需要先修 sys.path
 
 #: 仓库根（本文件的上一级）。
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = PACKAGING_DIR.parent
 #: 冻结入口。
-ENTRY_PATH = Path(__file__).resolve().parent / "entry.py"
+ENTRY_PATH = PACKAGING_DIR / "entry.py"
 #: PyInstaller 描述文件。
-SPEC_PATH = Path(__file__).resolve().parent / "atri-x.spec"
+SPEC_PATH = PACKAGING_DIR / "atri-x.spec"
 
 #: 默认产物目录（仓库根的 ``dist/`` 与 ``build/`` 已在 .gitignore 里）。
 DEFAULT_DIST = REPO_ROOT / "dist" / "windows"
@@ -78,9 +95,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     artifact = artifact_path(args.dist, name, onefile=args.onefile)
     with_kernel = resolve_kernel_flag(args)
     with_gui = (not args.onefile) and (not args.no_gui)
+    with_pillow = args.with_pillow or args.with_all_optional
+
+    plan, problems = optional_deps.plan_and_problems(args, SPEC_PATH)
+    if problems:
+        for problem in problems:
+            _err("optional    : %s" % problem)
+        return 2
+    _out("optional    : %s" % optional_deps.plan_detail(plan))
+    if args.with_all_optional:
+        _out("note        : --with-all-optional 是旧 --with-pillow 语义（三包全留）")
+
+    if args.check_env:
+        code, stdout, stderr = optional_deps.env_report(
+            optional_deps.backend_probe(REPO_ROOT),
+            keep_pillow=with_pillow,
+            allow_missing=bool(args.allow_missing_pillow),
+            pyinstaller=pyinstaller_version() or "<not installed>",
+            artifact=str(artifact_path(args.dist, args.name, onefile=args.onefile)),
+        )
+        _write(sys.stdout, stdout)
+        _write(sys.stderr, stderr)
+        return code
 
     if args.verify_only:
-        return verify(artifact, name, with_kernel=with_kernel, with_gui=with_gui)
+        return verify(artifact, name, with_kernel=with_kernel, with_gui=with_gui, with_pillow=with_pillow)
 
     version = pyinstaller_version()
     if version is None:
@@ -98,7 +137,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.onefile and with_kernel:
         _out("note        : onefile 模式不打包内置运行时（体积与启动时间都不可接受）")
 
-    code = run_build(args, name, with_kernel=with_kernel, with_gui=with_gui)
+    code, stdout, stderr = optional_deps.pillow_env_verdict(
+        keep_pillow=with_pillow,
+        allow_missing=bool(args.allow_missing_pillow),
+        info=optional_deps.backend_probe(REPO_ROOT),
+    )
+    _write(sys.stdout, stdout)
+    _write(sys.stderr, stderr)
+    if code != 0:
+        return code
+
+    code = run_build(args, name, with_kernel=with_kernel, with_gui=with_gui, plan=plan)
     if code != 0:
         _err("PyInstaller failed with exit code %d" % code)
         return code
@@ -112,7 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _out("verify      : skipped (--no-verify)")
         code = 0
     else:
-        code = verify(artifact, name, with_kernel=with_kernel, with_gui=with_gui)
+        code = verify(artifact, name, with_kernel=with_kernel, with_gui=with_gui, with_pillow=with_pillow)
     if code != 0:
         return code
     want_portable = args.with_portable or args.portable_verify or args.release
@@ -191,6 +240,11 @@ def resolve_kernel_flag(args: argparse.Namespace) -> bool:
     return RUNTIME_MARKER.is_file()
 
 
+# ---------------------------------------------------------------------------
+# 可选依赖：开关 → spec excludes（计划、契约与判定都在 optional_deps，这里只映射/打印）
+# ---------------------------------------------------------------------------
+
+
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     """解析命令行。"""
     parser = argparse.ArgumentParser(
@@ -200,11 +254,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--onefile", action="store_true", help="build a single .exe")
     parser.add_argument("--name", default="atri-x", help="artifact name (default: atri-x)")
     parser.add_argument("--icon", default="", help="optional .ico path")
-    parser.add_argument(
-        "--with-pillow",
-        action="store_true",
-        help="keep optional Pillow/numpy/PyYAML instead of excluding them",
-    )
+    optional_deps.add_cli_options(parser)
     parser.add_argument(
         "--dist", type=Path, default=DEFAULT_DIST, help="output directory (default: dist/windows)"
     )
@@ -299,8 +349,19 @@ def pyinstaller_version() -> str | None:
     return text[0].strip() if text else "unknown"
 
 
-def run_build(args: argparse.Namespace, name: str, *, with_kernel: bool, with_gui: bool) -> int:
-    """调用 PyInstaller 构建；返回退出码。"""
+def run_build(
+    args: argparse.Namespace,
+    name: str,
+    *,
+    with_kernel: bool,
+    with_gui: bool,
+    plan: dict[str, Any],
+) -> int:
+    """调用 PyInstaller 构建；返回退出码。
+
+    ``plan`` 由 :func:`optional_deps.plan_and_problems` 给出：三个可选依赖环境变量都
+    从这里落下去，保证日志里的 excludes 就是 spec 实际用的那一份。
+    """
     dist = Path(args.dist).resolve()
     work = Path(args.work).resolve()
     # 先删目标产物目录：上一次的残留文件混进来，会让"产物级核验"核验到旧文件。
@@ -315,10 +376,14 @@ def run_build(args: argparse.Namespace, name: str, *, with_kernel: bool, with_gu
     env["ATRIX_PKG_NAME"] = name
     env["ATRIX_PKG_ONEFILE"] = "1" if args.onefile else "0"
     env["ATRIX_PKG_ICON"] = str(Path(args.icon).resolve()) if args.icon else ""
-    env["ATRIX_PKG_KEEP_OPTIONAL"] = "1" if args.with_pillow else "0"
+    env[optional_deps.KEEP_PILLOW_ENV] = "1" if plan["keep_pillow"] else "0"
+    env[optional_deps.KEEP_EXTRAS_ENV] = "1" if plan["keep_extras"] else "0"
+    env[optional_deps.KEEP_OPTIONAL_ENV] = "1" if plan["legacy_all"] else "0"
     env["ATRIX_PKG_GUI"] = "1" if with_gui else "0"
     env["ATRIX_PKG_RUNTIME_DIR"] = str(RUNTIME_DIR) if (with_kernel and RUNTIME_DIR.is_dir()) else ""
 
+    _out("excludes    : %s" % (", ".join(plan["excludes"]) or "<none>"))
+    _out("  keep      : pillow=%s numpy/PyYAML=%s" % (plan["keep_pillow"], plan["keep_extras"]))
     cmd = [
         sys.executable,
         "-m",
@@ -366,7 +431,12 @@ def report(artifact: Path, onefile: bool) -> None:
 
 
 def verify(
-    artifact: Path, name: str, *, with_kernel: bool = False, with_gui: bool = False
+    artifact: Path,
+    name: str,
+    *,
+    with_kernel: bool = False,
+    with_gui: bool = False,
+    with_pillow: bool = False,
 ) -> int:
     """产物级核验：跑 exe 本身，而不是看构建退出码。
 
@@ -379,11 +449,22 @@ def verify(
     * ``-m atri_x.sidecar status``：内置运行时是否可解析（没内置时跳过）；
     * 窗口版 ``--selftest``：证明 tkinter 真的进包、Tk 能建窗口（只看退出码，
       窗口版没有控制台）。
+
+    图像后端**不做假的产物级断言**：这里只打印部署侧离线核验命令
+    （``<产物> -m atri_x.media.imagecodec.backend_probe --json``），不在没跑过冻结
+    产物的机器上把"应该是 pillow"写成"验证过是 pillow"。
     """
     if not artifact.exists():
         _err("artifact not found: %s" % artifact)
         return 1
     _out("verify      : %s" % artifact)
+    if with_pillow:
+        _out(
+            '  pillow    : requested; offline check: "%s" -m %s --json'
+            % (artifact, optional_deps.BACKEND_PROBE_MODULE)
+        )
+    else:
+        _out("  pillow    : excluded (pure-Python image codec only)")
 
     version = run_exe(artifact, ["--version"], timeout=120)
     if version["code"] != 0:

@@ -8,8 +8,22 @@ DRI 重启间隔 + RSTn 校验。
 
 **IDCT 精度说明**：``_COS`` 是预计算的双精度余弦基，行列各做一次可分离变换，
 全零行/列稀疏跳过；源码域误差远小于 0.5 LSB，最后四舍五入并钳位到 0..255。
-定点 YCbCr→RGB 与 libjpeg 系数一致（含 +0.5 舍入），实测与 libjpeg 解码
-同一文件的平均差 ≤ 0.01、最大差 ≤ 1。
+定点 YCbCr→RGB 与 libjpeg 系数一致（含 +0.5 舍入）。
+
+**与 libjpeg 的实测差异口径**：基准是 Pillow/libjpeg 的解码结果，固定样本 + 每个样本
+的平均/最大误差上限见 ``tests/test_imagecodec_jpeg_precision.py``（本机 Pillow 12.3.0、
+质量 90 实测，上限留了约 2~4 倍余量；该用例在本机就是唯一可复现的口径来源）：
+
+* 4:4:4：平均差 ≤0.5、最大 ≤6（实测 ≤0.12 / 2）；
+* 4:2:2：平均差 ≤1.5、最大 ≤10（实测 ≤0.63 / 4）；
+* 4:2:0：平均差 ≤2.5、最大 ≤12（实测 ≤1.08 / 4）；
+* 灰度（``L``）：实测逐像素相同（0 / 0），上限 ≤0.5 / 4；
+* **极小尺寸 + 平滑梯度**（如 3x5）在色度上采样边界上与 libjpeg 的 fancy upsampling
+  差异明显：实测平均 ~11.8、最大 ~53，用例上限放宽到平均 ≤20 / 最大 ≤80。
+
+**与 Go ``image/jpeg`` 未做差分验证**：上面只对齐了 libjpeg（Pillow）；Go 标准库解码器
+的上采样与取整细节与 libjpeg 不同，"对齐 Pillow"不等于"对齐 Go"。原文档"平均 ≤0.01、
+最大 ≤1"只在 4:4:4 平滑图上成立，已按实测改正（研究报告 §3.3 问题 7）。
 
 **不支持**（抛 :class:`UnsupportedImageError`，异常信息写明原因）：渐进式
 SOF2、算术编码 SOF9/SOF10、无损 SOF3、12/16 位精度、多扫描文件、非整数
@@ -23,12 +37,13 @@ import struct
 from dataclasses import dataclass, field
 
 from .image import (
-    DEFAULT_MAX_PIXELS,
+    DEFAULT_MAX_DECODE_BYTES,
     MAX_EDGE,
     Image,
     ImageDecodeError,
     ImageTooLargeError,
     UnsupportedImageError,
+    pixel_limit,
 )
 
 #: zigzag 序号 → 自然（行优先）序号。
@@ -304,6 +319,8 @@ def _parse_sof(marker: int, segment: bytes) -> _Frame:
         if not (1 <= h <= 4 and 1 <= v <= 4):
             raise UnsupportedImageError(f"JPEG 采样因子 {h}x{v} 越界")
         components.append(_Component(segment[6 + 3 * i], h, v, segment[8 + 3 * i]))
+    if len({component.id for component in components}) != count:
+        raise ImageDecodeError("JPEG SOF 分量 ID 重复")
     return _Frame(marker, width, height, components)
 
 
@@ -593,6 +610,10 @@ def decode_jpeg(data: bytes, *, max_pixels: int | None = None) -> Image:
         elif marker == 0xC4:
             _parse_dht(segment, dc_tables, ac_tables)
         elif marker in _SOF_MARKERS:
+            if frame is not None:
+                # sniff()/image_dimensions() 与解码器必须看同一个 SOF；多帧头
+                # 说明尺寸有歧义（旧实现嗅探取第一个、解码取最后一个 → 可绕过闸门）。
+                raise ImageDecodeError("JPEG 出现多个 SOF 帧头（尺寸有歧义，拒绝）")
             frame = _parse_sof(marker, segment)
         elif marker == 0xDD:
             if len(segment) < 2:
@@ -626,8 +647,8 @@ def _decode_scan(
     width, height = frame.width, frame.height
     if width > MAX_EDGE or height > MAX_EDGE:
         raise ImageTooLargeError(f"JPEG 边长 {width}x{height} 超过 {MAX_EDGE} 上限")
-    limit = DEFAULT_MAX_PIXELS if max_pixels is None else max_pixels
-    if limit and width * height > limit:
+    limit = pixel_limit(max_pixels)
+    if width * height > limit:
         raise ImageTooLargeError(
             f"JPEG {width}x{height}（{width * height} 像素）超过 {limit} 像素上限"
         )
@@ -657,6 +678,12 @@ def _decode_scan(
         if component.tq not in quant:
             raise ImageDecodeError(f"JPEG 分量 {cid} 引用了未定义的量化表")
         scan.append((component, dc_table, ac_table))
+    if [component.id for component, _dc, _ac in scan] != [
+        component.id for component in frame.components
+    ]:
+        # 扫描顺序与帧头不一致时，MCU 内各分量的数据单元分配会错位，解出的
+        # 是"看起来正常但颜色全错"的图像（Pillow 直接拒绝，这里对齐它的口径）。
+        raise ImageDecodeError("JPEG SOS 分量顺序与 SOF 不一致（拒绝解出错误图像）")
     ss, se, ahal = segment[1 + 2 * count], segment[2 + 2 * count], segment[3 + 2 * count]
     if ss != 0 or se != 63 or ahal != 0:
         raise UnsupportedImageError(
@@ -664,15 +691,57 @@ def _decode_scan(
             f"该扫描是 Ss={ss},Se={se},Ah={ahal >> 4},Al={ahal & 15}"
         )
 
-    hmax, vmax = frame.hmax, frame.vmax
-    mcu_cols = (width + 8 * hmax - 1) // (8 * hmax)
-    mcu_rows = (height + 8 * vmax - 1) // (8 * vmax)
+    # 非交错扫描（本实现只接受"扫描分量数 == 帧分量数"，因此单分量帧就是这种情况）：
+    # T.81 A.2.2 规定每个 MCU 是**一个**数据单元，采样因子不参与网格计算。旧的
+    # "按 hmax/vmax 划 MCU" 写法会让灰度图里 h/v != 1 的文件（例如 Pillow 用
+    # ``subsampling=1/2`` 存的 L 图）多读 h*v 个块，合法文件被误报"熵数据截断"。
+    single_component = len(scan) == 1
+    if single_component:
+        mcu_cols = (width + 7) // 8
+        mcu_rows = (height + 7) // 8
+    else:
+        hmax, vmax = frame.hmax, frame.vmax
+        mcu_cols = (width + 8 * hmax - 1) // (8 * hmax)
+        mcu_rows = (height + 8 * vmax - 1) // (8 * vmax)
+    scan_end = _find_scan_end(raw, scan_start)
+    # 分配前先做"熵数据下界"校验：每个 8x8 数据单元至少需要 1 bit DC 符号
+    # + 1 bit AC 符号，所以合法扫描的熵数据不可能少于 2 bit/块。旧实现在这里
+    # 先按 SOF 声明尺寸分配全部分量平面、再读熵数据，于是"几百字节输入声明
+    # 巨大尺寸"就能换来几百 MiB 峰值内存（研究报告 §3.3 的 P0）。
+    blocks_per_mcu = 1 if single_component else sum(
+        component.h * component.v for component in frame.components
+    )
+    blocks = mcu_cols * mcu_rows * blocks_per_mcu
+    min_entropy_bytes = (2 * blocks + 7) // 8
+    entropy_bytes = scan_end - scan_start
+    if entropy_bytes < min_entropy_bytes:
+        raise ImageDecodeError(
+            f"JPEG 熵编码数据截断：声明 {width}x{height} 至少需要 "
+            f"{min_entropy_bytes} 字节熵数据，实际只有 {max(0, entropy_bytes)} 字节"
+        )
+    if single_component:
+        allocation = sum(mcu_cols * 8 * mcu_rows * 8 for _ in frame.components)
+    else:
+        allocation = sum(
+            (mcu_cols * 8 * component.h) * (mcu_rows * 8 * component.v)
+            for component in frame.components
+        )
+    allocation += width * height * 3
+    if allocation > DEFAULT_MAX_DECODE_BYTES:
+        raise ImageTooLargeError(
+            f"JPEG {width}x{height} 解码约需 {allocation} 字节内存，"
+            f"超过 {DEFAULT_MAX_DECODE_BYTES} 字节预算"
+        )
     for component in frame.components:
-        component.stride = mcu_cols * 8 * component.h
-        component.plane = bytearray(component.stride * mcu_rows * 8 * component.v)
+        if single_component:
+            component.stride = mcu_cols * 8
+            component.plane = bytearray(component.stride * mcu_rows * 8)
+        else:
+            component.stride = mcu_cols * 8 * component.h
+            component.plane = bytearray(component.stride * mcu_rows * 8 * component.v)
         component.predictor = 0
 
-    reader = _BitReader(raw, scan_start, _find_scan_end(raw, scan_start))
+    reader = _BitReader(raw, scan_start, scan_end)
     expected_rst = 0
     mcu_index = 0
     for row in range(mcu_rows):
@@ -684,13 +753,14 @@ def _decode_scan(
                     component.predictor = 0
             for component, dc_table, ac_table in scan:
                 table = quant[component.tq]
-                for v in range(component.v):
-                    block_y = (row * component.v + v) * 8
-                    for h in range(component.h):
+                block_h, block_v = (1, 1) if single_component else (component.h, component.v)
+                for v in range(block_v):
+                    block_y = (row * block_v + v) * 8
+                    for h in range(block_h):
                         coeffs, component.predictor = _decode_block(
                             reader, dc_table, ac_table, table, component.predictor
                         )
-                        _store_block(component, _idct(coeffs), (col * component.h + h) * 8, block_y)
+                        _store_block(component, _idct(coeffs), (col * block_h + h) * 8, block_y)
             mcu_index += 1
     return _to_image(frame, adobe_transform)
 

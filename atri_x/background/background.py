@@ -21,8 +21,9 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from atri_x.llm.llm import MessageSegment
-from atri_x.security import Actor, RiskCritical
+from atri_x.security import Actor, RiskCritical, compare_risk
 from atri_x.tool.sandbox import BackgroundKind, SandboxContext
+from atri_x.tool.tool import RiskAssessment
 
 __all__ = [
     "BACKGROUND_SHELL_AUDIT_AUTO_CONFIRMED",
@@ -205,10 +206,13 @@ class ShellRiskDecision:
     对应 Go ``confirmBackgroundSandboxShell`` 的 ``(bool, bool)`` 返回值：
     ``confirm`` = 是否放行本次调用，``handled`` = 本次调用是否已由后台特例处理
     （``handled`` 为真时调用方**不要**再去等用户确认）。
+
+    ``reason`` 是本仓新增的裁决原因（写进审计，必须能区分"为什么拒绝/为什么放行"）。
     """
 
     confirm: bool = False
     handled: bool = False
+    reason: str = ""
 
     def __iter__(self):
         """允许 ``confirm, handled = decision`` 的元组式解包（对齐 Go 的双返回值）。"""
@@ -216,18 +220,31 @@ class ShellRiskDecision:
 
 
 def confirm_background_sandbox_shell(
-    sandbox: SandboxContext | None, tool_name: str, risk: str
+    sandbox: SandboxContext | None,
+    tool_name: str,
+    risk: str,
+    *,
+    cmd_text: str = "",
+    policy: Any = None,
 ) -> ShellRiskDecision:
-    """cron / Atrinis 后台任务的 shell 风险裁决。
+    """cron / Atrinis 后台任务的 shell 风险裁决（fail-closed）。
 
     对应 Go：``internal/agent/cron_tools.go`` 的 ``confirmBackgroundSandboxShell``
     （Agent 的方法）。本仓把"纯决策"部分放在共享的 background 包里，Agent 侧只需按
     :class:`ShellRiskDecision` 记审计（``BACKGROUND_SHELL_AUDIT_*``）并在拒绝时把
-    :data:`BACKGROUND_SHELL_CRITICAL_MESSAGE` 写进工具结果——**不等待用户确认**：
+    :data:`BACKGROUND_SHELL_CRITICAL_MESSAGE` 写进工具结果——**不等待用户确认**。
+
+    与 Go 的差异（研究报告 §6 的 P0）：Go 只看评估阶段传进来的 ``risk``，一旦评估
+    阶段没有沙盒 ctx（或评估失败），确认阶段就只剩"自动确认"。本仓在确认阶段用
+    ``cmd_text`` **重新**做一遍静态裁决，任何一步确认不了都拒绝：
 
     * 非后台、非 shell、或后台种类不是 cron / Atrinis → ``handled=False``（走既有流程）；
-    * critical → ``handled=True, confirm=False``（直接返回提醒，不等用户）；
-    * 其余风险（含 high）→ ``handled=True, confirm=True``（自动确认）。
+    * 没有命令文本 / 静态确认不出来（解析失败、命令名是变量） → 拒绝；
+    * 后台策略拒绝（PowerShell 主机 / 结构违规 / 风险非 low / 白名单未命中） → 拒绝；
+    * 其余 → 自动确认（不等用户）。
+
+    ``policy.allow_all=True`` 时恢复 Go 的旧口径（critical 才拒绝、其余自动确认），
+    但"没有命令文本 / 静态确认不出来"仍然拒绝。
     """
     if sandbox is None or not sandbox.background:
         return ShellRiskDecision()
@@ -235,6 +252,60 @@ def confirm_background_sandbox_shell(
         return ShellRiskDecision()
     if sandbox.background_kind not in (KindCron, KindAtrinis):
         return ShellRiskDecision()
+
+    # 延迟 import：``atri_x.tool.builtin`` 会拉起整个内置工具包，本模块是共享契约，
+    # 不在 import 期引入这层依赖（同一个包，重复 import 由 sys.modules 兜住）。
+    from atri_x.tool.builtin.shell_risk import classify_shell_command, shell_command_names
+    from atri_x.tool.builtin.shell_sandbox import (
+        BackgroundShellPolicy,
+        apply_background_shell_policy,
+        apply_shell_sandbox_risk,
+    )
+
+    text = (cmd_text or "").strip()
+    if text == "":
+        return ShellRiskDecision(
+            confirm=False,
+            handled=True,
+            reason="后台 shell 调用缺少命令文本，无法静态确认",
+        )
+    _, confirmed = shell_command_names(text)
+    if not confirmed:
+        return ShellRiskDecision(
+            confirm=False,
+            handled=True,
+            reason="命令内容无法静态确认（含动态命令名或无法解析），后台无人值守拒绝",
+        )
+    if policy is None:
+        policy = BackgroundShellPolicy()
+    assessment = classify_shell_command(text)
+    assessment = apply_shell_sandbox_risk(text, assessment)
+    before = list(assessment.reasons)
+    assessment = apply_background_shell_policy(text, assessment, policy)
+    if compare_risk(RiskCritical, assessment.level) <= 0:
+        return ShellRiskDecision(
+            confirm=False, handled=True, reason=_decision_reason(assessment, before)
+        )
     if risk == RiskCritical:
-        return ShellRiskDecision(confirm=False, handled=True)
-    return ShellRiskDecision(confirm=True, handled=True)
+        # 评估阶段（可能带着确认阶段拿不到的上下文）已经判过 critical：不允许复核
+        # 把它降级成自动确认。
+        return ShellRiskDecision(
+            confirm=False,
+            handled=True,
+            reason="评估阶段已判为 critical 风险，后台无人值守拒绝",
+        )
+    return ShellRiskDecision(
+        confirm=True,
+        handled=True,
+        reason="低风险且命中后台只读白名单，自动确认",
+    )
+
+
+def _decision_reason(assessment: RiskAssessment, before: list[str]) -> str:
+    """取裁决原因：优先用后台策略/沙盒刚加上去的那一条，否则用评估阶段已有的。"""
+    added = [reason for reason in assessment.reasons if reason not in before]
+    if added:
+        return added[-1]
+    if assessment.reasons:
+        return assessment.reasons[0]
+    return "后台无人值守风险超限，默认拒绝"

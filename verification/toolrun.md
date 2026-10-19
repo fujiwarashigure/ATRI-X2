@@ -43,6 +43,36 @@
 
 ## 发现
 
+### TR-0（P0，2026-10 已修）`start_tool_request` 的返回元数三方不一致 —— 真实接入后**所有工具调用都执行不到**
+
+- 严重度：**P0**（执行契约不一致：工具链整条失效，且已登记的 request 永不结束）
+- 三方对照（修复前，`HEAD=5e90eff` 同样如此）：
+  - 协议声明：`atri_x/toolrun/runner.py` 的 `RunnerDeps.start_tool_request` →
+    `tuple[Any, datetime, Callable[[], None]]`，**3 项**；
+  - 真实实现：`atri_x/agent/toolrun_adapter.py::AgentToolRunDeps.start_tool_request`
+    → `return tool_ctx, started_at, done`，**3 项**；
+  - 调用方：`runner.run()` → `run_ctx, _, done, start_err = await deps.start_tool_request(...)`，
+    **4 项**。
+- 后果：解包抛 `ValueError: not enough values to unpack (expected 4, got 3)`，被紧随其后的
+  `except BaseException as exc: start_err, done, run_ctx = exc, _noop, ctx` 吞掉，记成
+  `tool call X failed: not enough values to unpack ...` —— 该次调用**到不了工具执行阶段**；
+  而 `AgentToolRunDeps` 里已经 `requests.start(...)` 登记的 request 因为拿不到 `done`，
+  永久停留在"进行中"。
+- 为什么原单测发现不了：`tests/test_toolrun.py::FakeDeps.start_tool_request` 当时返回
+  **4 项**（`return ctx, None, done, None`），与错误的调用方互相掩盖。
+- 修复：
+  1. `runner.run()` 改按三元组解包，启动失败走异常分支（协议 docstring 写明契约）；
+  2. 登记成功后的整段执行包进 `try/finally`，由 `_release_request()` 保证 `done()` 恰好
+     调用一次：成功 / 执行抛错 / 二次授权拒绝 / `before_execute` 拒绝 / 媒体参数保留失败 /
+     取消 / 提前 `return` 全覆盖；
+  3. 取消传播：`preflight`、`confirm`、`start_tool_request`、媒体参数保留、输出投递、
+     `complete_tool_call`、`_assess_for_run` 等边界补 `except asyncio.CancelledError: raise`
+     —— 取消不再被记成"工具失败"后继续跑同一批剩下的调用；
+  4. `FakeDeps` 改为返回三元组，新增 `StartToolRequestContractTests`（含"真实适配器的
+     `done` 真的传到 requests"与"旧四元组实现必须失败"两条反向/正向用例）与
+     `StartToolRequestLifecycleTests`（`done` 恰好一次的六条路径）。
+- 复跑：`python -m unittest tests.test_toolrun` → **75 tests OK**。
+
 ### TR-1（P1）确认阶段被拒绝的工具调用，被记成"成功"（`call_err=None` → `success=1`）
 
 - 严重度：**P1**（落库的审计字段错误 + 影响"成功过的工具调用"判定）
@@ -71,7 +101,7 @@
   1. `tool_call_records` 的成功率/审计数据对"超管门槛""风险门槛"两类拒绝全部记反；
   2. `SuccessfulIDs`（`storage/sqlite/tool_call_repository.py:65-89`）被
      `atri_x/agent/context_compact.py:230` 用于"只保留成功过的工具调用" —— 被安全策略拒绝的调用会被当成成功调用进入压缩后的上下文/新会话种子，模型会以为工具真的执行过；
-  3. 与 Go 的**差异只出现在 confirm 拒绝这一条路径**：其余拒绝/失败路径 Python 传的都是真实异常（allowlist `ValueError` `:237`、authorize `ValueError` `:252`/`:341`、preflight `exc` `:270`、start_tool_request `start_err` `:324`、before_execute `before` `:360`、媒体参数 `exc` `:382`、执行 `result.err`、hook `hook_err`），与 Go 的 `fmt.Errorf` 一一对应。
+  3. 与 Go 的**差异只出现在 confirm 拒绝这一条路径**：其余拒绝/失败路径 Python 传的都是真实异常（allowlist `ValueError` `:237`、authorize `ValueError` `:252`/`:341`、preflight `exc` `:270`、start_tool_request `start_err` `:324`、before_execute `before` `:360`、媒体参数 `exc` `:382`、执行 `result.err`、hook `hook_err`），与 Go 的 `fmt.Errorf` 一一对应。行号对应修复前的 `5e90eff`；TR-0 修复后 `start_err` 只来自 `start_tool_request` 抛出的异常，解包本身不再产生 `start_err`。
 - 修复建议：让 `_confirm` 像 Go 一样把"拒绝原因"作为错误一起返回（例如返回 `(ConfirmResult, BaseException|None)`，或在四个拒绝分支构造 `ValueError(...)` 由 `run` 取出），再把该对象传给 `record_tool_call`。
 - 是否建议现在修：**强烈建议现在修**（改动局限在 `runner.py::_confirm` 与一处调用，影响审计与压缩上下文正确性）。
 

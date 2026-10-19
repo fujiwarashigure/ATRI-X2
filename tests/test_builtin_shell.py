@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import unittest
+from unittest import mock
 
 from atri_x.errors import InvalidError
 from atri_x.processenv import Environment
@@ -21,7 +22,12 @@ from atri_x.tool.builtin.shell_risk import (
     classify_shell_command,
 )
 from atri_x.tool.builtin.shell_sandbox import (
+    DEFAULT_BACKGROUND_SHELL_ALLOW,
+    BackgroundShellPolicy,
+    apply_background_shell_policy,
     apply_bash_shell_sandbox_risk,
+    background_shell_policy_from_config,
+    is_unattended_background,
     sandbox_path_violation,
     validate_bash_shell_sandbox_command,
 )
@@ -210,6 +216,302 @@ class TestShellExecution(unittest.TestCase):
             )
         )
         self.assertIn("done", result.content)
+
+
+class TestShellRiskHardening(unittest.TestCase):
+    """研究报告 §6.2 的包装器/内层脚本绕过回归（全部曾判 low）。"""
+
+    BYPASS = (
+        "env rm -rf /",
+        "command rm -rf /",
+        "nohup rm -rf /",
+        "timeout 5 rm -rf /",
+        "nice -n 19 rm -rf /",
+        "setsid rm -rf /",
+        "busybox rm -rf /",
+        "xargs rm -rf",
+        "ls | xargs rm -rf",
+        "find / -exec rm -rf {} +",
+        "find / -delete",
+        "eval 'rm -rf /'",
+        "awk 'BEGIN{system(\"rm -rf /\")}'",
+        "trap 'rm -rf /' EXIT; sleep 1",
+        "bash -c 'rm -rf /'",
+        "chroot / rm -rf /",
+        "ssh localhost 'rm -rf /'",
+        "watch -n1 rm -rf /",
+        "truncate -s 0 /etc/passwd",
+        "shred -u /etc/passwd",
+    )
+
+    def test_wrapper_and_inner_script_bypasses_are_critical(self) -> None:
+        for command in self.BYPASS:
+            with self.subTest(command=command):
+                level = classify_bash_shell_command(command).level
+                self.assertIn(level, ("critical", "high"), command)
+
+    def test_benign_commands_stay_low(self) -> None:
+        for command in (
+            "ls -la",
+            "cat ./notes.txt",
+            "git status",
+            "git log --oneline -5",
+            "echo hello",
+            "env",
+            "command -v rm",
+            "grep -rn TODO ./src",
+            "sed -n 1,10p ./file.txt",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(classify_bash_shell_command(command).level, "low", command)
+
+    def test_git_global_options_do_not_hide_subcommand(self) -> None:
+        self.assertEqual(classify_bash_shell_command("git -C / clean -fdx").level, "high")
+        self.assertEqual(
+            classify_bash_shell_command("git --git-dir=/x clean -fdx").level, "high"
+        )
+        self.assertEqual(classify_bash_shell_command("git -C / status").level, "low")
+
+    def test_unknown_wrapper_depth_is_high(self) -> None:
+        level = classify_bash_shell_command("env " * 12 + "ls").level
+        self.assertIn(level, ("high", "critical"))
+
+    def test_wrapper_unwrap_helpers(self) -> None:
+        from atri_x.tool.builtin.shell_risk import shell_command_names, unwrap_wrapper
+
+        self.assertEqual(unwrap_wrapper("env", ["FOO=1", "ls", "-la"]), ("command", ["ls", "-la"]))
+        self.assertEqual(unwrap_wrapper("cat", ["notes.txt"]), None)
+        names, confirmed = shell_command_names("env cat ./a.txt && ls")
+        self.assertEqual(names, ["cat", "ls"])
+        self.assertTrue(confirmed)
+        names, confirmed = shell_command_names('"$CMD" --version')
+        self.assertFalse(confirmed)
+
+
+class TestShellSandboxRecursion(unittest.TestCase):
+    def test_wrapped_and_c_script_paths_are_checked(self) -> None:
+        violations = validate_bash_shell_sandbox_command("env cat /etc/passwd")
+        self.assertTrue(any("绝对路径" in item for item in violations), violations)
+        violations = validate_bash_shell_sandbox_command("bash -c 'cat /etc/passwd'")
+        self.assertTrue(any("绝对路径" in item for item in violations), violations)
+        violations = validate_bash_shell_sandbox_command("env ls ../escape")
+        self.assertTrue(any("逃逸" in item for item in violations), violations)
+        self.assertEqual(validate_bash_shell_sandbox_command("env cat notes/a.txt"), [])
+
+
+class TestBackgroundShellPolicy(unittest.TestCase):
+    def setUp(self) -> None:
+        # 本机是 PowerShell 主机（is_power_shell_env() 恒 True）；白名单/等级分支
+        # 要在 bash 口径下验证，单个用例再用自己的 patch 覆盖。
+        self._patcher = mock.patch(
+            "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=False
+        )
+        self._patcher.start()
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+
+    def test_default_allowlist_allows_only_low_risk_readonly(self) -> None:
+        policy = BackgroundShellPolicy()
+        keep = apply_background_shell_policy(
+            "ls -la", RiskAssessment(level="low"), policy
+        )
+        self.assertEqual(keep.level, "low")
+        self.assertIn("ls", DEFAULT_BACKGROUND_SHELL_ALLOW)
+
+    def test_high_risk_command_is_denied(self) -> None:
+        policy = BackgroundShellPolicy()
+        denied = apply_background_shell_policy(
+            "git clean -fd", RiskAssessment(level="high"), policy
+        )
+        self.assertEqual(denied.level, "critical")
+        self.assertTrue(any("低风险只读" in reason for reason in denied.reasons))
+
+    def test_command_outside_allowlist_is_denied(self) -> None:
+        denied = apply_background_shell_policy(
+            "python tool.py", RiskAssessment(level="low"), policy=BackgroundShellPolicy()
+        )
+        self.assertEqual(denied.level, "critical")
+        self.assertTrue(any("白名单" in reason for reason in denied.reasons))
+
+    def test_dynamic_command_is_denied(self) -> None:
+        denied = apply_background_shell_policy(
+            "$CMD --version", RiskAssessment(level="high"), BackgroundShellPolicy()
+        )
+        self.assertEqual(denied.level, "critical")
+
+    def test_allow_all_restores_legacy_behaviour(self) -> None:
+        policy = BackgroundShellPolicy(allow_all=True)
+        kept = apply_background_shell_policy(
+            "python tool.py", RiskAssessment(level="low"), policy
+        )
+        self.assertEqual(kept.level, "low")
+
+    def test_power_shell_host_is_denied(self) -> None:
+        with mock.patch(
+            "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=True
+        ):
+            denied = apply_background_shell_policy(
+                "ls", RiskAssessment(level="low"), BackgroundShellPolicy()
+            )
+        self.assertEqual(denied.level, "critical")
+        self.assertTrue(any("PowerShell" in reason for reason in denied.reasons))
+
+    def test_policy_from_config(self) -> None:
+        class _Security:
+            background_shell_allow = ["deploy.sh"]
+            background_shell_allow_all = False
+
+        policy = background_shell_policy_from_config(_Security())
+        self.assertEqual(policy.allow, frozenset({"deploy.sh"}))
+        default_policy = background_shell_policy_from_config(None)
+        self.assertEqual(default_policy.allow, DEFAULT_BACKGROUND_SHELL_ALLOW)
+
+    def test_unattended_detection(self) -> None:
+        from atri_x.tool.sandbox import SandboxContext
+
+        self.assertTrue(
+            is_unattended_background(
+                SandboxContext(background=True, background_kind="cron")
+            )
+        )
+        self.assertTrue(
+            is_unattended_background(
+                SandboxContext(background=True, background_kind="atrinis")
+            )
+        )
+        self.assertFalse(is_unattended_background(SandboxContext(background=True)))
+        self.assertFalse(is_unattended_background(SandboxContext()))
+
+    def test_shell_tool_assess_risk_denies_background_command(self) -> None:
+        from atri_x.tool.sandbox import SandboxContext, with_sandbox_context
+
+        tool = ShellTool()
+        ctx = with_sandbox_context(
+            _shell_ctx(),
+            SandboxContext(root=TMP_ROOT, dir=TMP_ROOT, background=True, background_kind="cron"),
+        )
+        with mock.patch(
+            "atri_x.tool.builtin.shell_risk.is_power_shell_env", return_value=False
+        ), mock.patch(
+            "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=False
+        ):
+            assessment = _run(
+                tool.assess_risk(ctx, _call("shell", {"cmd": "python tool.py"}))
+            )
+            allowed = _run(tool.assess_risk(ctx, _call("shell", {"cmd": "ls -la"})))
+        self.assertEqual(assessment.level, "critical")
+        self.assertNotEqual(allowed.level, "critical")
+
+
+class BackgroundExecutionRecheckTests(unittest.TestCase):
+    """执行前的后台策略复核（研究报告 §6 的 P0：不能只靠评估阶段 / 工具 schema）。
+
+    ``ShellTool.call()`` 在真正启动进程**之前**用执行时的 ctx 重新裁决一次：评估阶段
+    可能没有沙盒 ctx、也可能被前台的"本会话自动确认"放行，所以"排队之后、执行之前"
+    必须自己再判一遍，拒绝时抛 :class:`ForbiddenError` 且不碰进程/工作目录。
+    """
+
+    def _unattended_ctx(self, kind: str = "cron"):
+        from atri_x.tool.sandbox import SandboxContext, with_sandbox_context
+
+        return with_sandbox_context(
+            _shell_ctx(),
+            SandboxContext(
+                root=TMP_ROOT, dir=TMP_ROOT, background=True, background_kind=kind
+            ),
+        )
+
+    def test_call_denies_before_touching_the_work_dir(self) -> None:
+        from atri_x.errors import ForbiddenError
+
+        tool = ShellTool()
+        ctx = self._unattended_ctx()
+        with mock.patch(
+            "atri_x.tool.builtin.shell_risk.is_power_shell_env", return_value=False
+        ), mock.patch(
+            "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=False
+        ), mock.patch(
+            "atri_x.tool.builtin.shell.resolve_shell_work_dir",
+            new=mock.AsyncMock(side_effect=AssertionError("不该走到执行准备")),
+        ) as work_dir:
+            with self.assertRaises(ForbiddenError) as caught:
+                _run(tool.call(ctx, _call("shell", {"cmd": "python tool.py"})))
+        work_dir.assert_not_called()
+        self.assertIn("background shell denied", str(caught.exception))
+
+    def test_denial_helper_allows_foreground_and_allowlisted(self) -> None:
+        from atri_x.tool.builtin.shell import background_execution_denial
+
+        policy = BackgroundShellPolicy()
+        with mock.patch(
+            "atri_x.tool.builtin.shell_risk.is_power_shell_env", return_value=False
+        ), mock.patch(
+            "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=False
+        ):
+            self.assertEqual(
+                "", background_execution_denial(_shell_ctx(), "python tool.py", policy)
+            )
+            self.assertEqual(
+                "",
+                background_execution_denial(self._unattended_ctx(), "ls -la", policy),
+            )
+            self.assertNotEqual(
+                "",
+                background_execution_denial(
+                    self._unattended_ctx("atrinis"), "uname -a", policy
+                ),
+            )
+
+
+class ShellMediaCancellationTests(unittest.IsolatedAsyncioTestCase):
+    """取消传播：媒体准备 / 清理不能把 ``CancelledError`` 变成普通错误（研究报告 §6）。"""
+
+    #: ``media:<64 位小写十六进制>``（见 ``atri_x/media/types.py::valid_id``）。
+    MEDIA_ID = "media:" + "ab" * 32
+
+    async def test_media_variables_propagate_cancellation(self) -> None:
+        from atri_x.tool.builtin import shell as shell_mod
+
+        class _MediaCall:
+            async def cached_export(self, media_id):
+                raise asyncio.CancelledError()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await shell_mod._media_variables(
+                _MediaCall(), [{"media": self.MEDIA_ID}]
+            )
+
+    async def test_media_variables_still_wrap_ordinary_errors(self) -> None:
+        from atri_x.tool.builtin import shell as shell_mod
+
+        class _MediaCall:
+            async def cached_export(self, media_id):
+                raise RuntimeError("boom")
+
+        with self.assertRaises(InvalidError):
+            await shell_mod._media_variables(
+                _MediaCall(), [{"media": self.MEDIA_ID}]
+            )
+
+    async def test_close_media_call_propagates_cancellation(self) -> None:
+        from atri_x.tool.builtin import shell as shell_mod
+
+        class _MediaCall:
+            async def close(self):
+                raise asyncio.CancelledError()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await shell_mod._close_media_call(_MediaCall())
+
+    async def test_close_media_call_swallows_ordinary_errors(self) -> None:
+        from atri_x.tool.builtin import shell as shell_mod
+
+        class _MediaCall:
+            async def close(self):
+                raise RuntimeError("close failed")
+
+        await shell_mod._close_media_call(_MediaCall())
 
 
 def _shell_ctx():

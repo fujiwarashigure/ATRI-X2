@@ -1,0 +1,784 @@
+{
+  "version": 2,
+  "count": 119,
+  "note": "except BaseException 且不 raise 的处理器：按「文件+函数+归一化处理器指纹」定位",
+  "entries": [
+    {
+      "file": "atri_x/__main__.py",
+      "qualname": "_run_application_async",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return _run_outcome(exc)",
+      "fingerprint": "1b43bb4a6ce2",
+      "count": 2
+    },
+    {
+      "file": "atri_x/__main__.py",
+      "qualname": "_run_application_async",
+      "line_text": "except BaseException as exc: # noqa: BLE001 if not isinstance(exc, CLIClientFallbackError): return _run_outcome(exc)",
+      "fingerprint": "987738b80cb4",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/asr.py",
+      "qualname": "_authorize_model",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return exc",
+      "fingerprint": "a585a367f9d9",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/asr.py",
+      "qualname": "_transcribe_segment",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return \"\", exc",
+      "fingerprint": "c3067a91fc8b",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/asr.py",
+      "qualname": "_transcribe_segment",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：失败原样回传 return \"\", exc",
+      "fingerprint": "cc79277af5b3",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/chat.py",
+      "qualname": "consume_context_compact_seed",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 种子消费失败只记日志 logger = getattr(agent, \"logger\", None) if logger is not None: logger.log( \"warn\", \"consume compact con",
+      "fingerprint": "f24294521f26",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/chat_stream.py",
+      "qualname": "_persist_pending_lenient",
+      "line_text": "except BaseException: # noqa: BLE001 - 与 Go 的 errors.Join 相比只保留原错误 return",
+      "fingerprint": "39171e645728",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/chat_stream.py",
+      "qualname": "_release_all",
+      "line_text": "except BaseException: # noqa: BLE001 - 清理失败不影响主流程 pass",
+      "fingerprint": "ae842321ef57",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/chat_stream.py",
+      "qualname": "_release_all",
+      "line_text": "except BaseException: # noqa: BLE001 pass",
+      "fingerprint": "d3f36bd055d2",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/chat_tools.py",
+      "qualname": "_elapsed_ms",
+      "line_text": "except BaseException: # noqa: BLE001 - 时间不可比时不写耗时 return 0",
+      "fingerprint": "5c15e9bdf74a",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/chat_tools.py",
+      "qualname": "record_tool_call",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 记账失败不影响回合 logger = getattr(agent, \"logger\", None) if logger is not None: logger.log( \"warn\", \"record tool call fai",
+      "fingerprint": "d5584719b539",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/chat_tools.py",
+      "qualname": "tool_call_risk",
+      "line_text": "except BaseException: # noqa: BLE001 - 风险评估失败按 unknown 记账 return \"unknown\"",
+      "fingerprint": "0ec9221dae87",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/command_runtime.py",
+      "qualname": "CommandExecutor.handle",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 命令错误原样冒泡 return True, exc",
+      "fingerprint": "2a081c1a481f",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/command_runtime.py",
+      "qualname": "CommandExecutor.handle",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 会话缺失不是命令失败 session_err = exc",
+      "fingerprint": "3dcd5a304c9b",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/core.py",
+      "qualname": "_notice_sender._send",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 命令回执失败原样上报 return exc",
+      "fingerprint": "2473dee58f22",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/cron.py",
+      "qualname": "_ctx_done",
+      "line_text": "except BaseException: # noqa: BLE001 return False",
+      "fingerprint": "f970205f670f",
+      "count": 2
+    },
+    {
+      "file": "atri_x/agent/cron.py",
+      "qualname": "background_session_taken_over",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return False, exc",
+      "fingerprint": "d877ba182720",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/cron_background.py",
+      "qualname": "_skill_detail",
+      "line_text": "except BaseException: # noqa: BLE001 - 与 Go 相同：详情失败按\"没有详情\"处理 block = DetailBlock()",
+      "fingerprint": "b50b97401c9e",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/group_knowledge.py",
+      "qualname": "_send_answer",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：只记审计 _audit( agent, \"group_knowledge_send_error\", platform=scope.platform, scope=scope.platform_scope_id, ",
+      "fingerprint": "3f991e9d1604",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/group_runtime.py",
+      "qualname": "_save_runtime_state",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：只记警告 _warn(agent, \"persist group runtime state failed\", exc)",
+      "fingerprint": "568d8a6c483b",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/group_runtime.py",
+      "qualname": "notify_group_runtime_change",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：只记警告 _warn(agent, \"notify group runtime state failed\", exc)",
+      "fingerprint": "a0390cd33278",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/group_services_reminders.py",
+      "qualname": "_send_notice_async",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：记审计后继续下一条 return exc",
+      "fingerprint": "7b5a033d7df7",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/group_services_reminders.py",
+      "qualname": "dispatch_due_reminders",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：只记审计 _audit( host, \"group_services_write_error\", kind=\"reminder_dispatch\", error=str(exc), result=\"failed\"",
+      "fingerprint": "07a5617826bf",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/hooks.py",
+      "qualname": "handle_platform_connected",
+      "line_text": "except BaseException as exc: # noqa: BLE001 logger = getattr(agent, \"logger\", None) if logger is not None: logger.warn( \"hook notice send failed\", point=str(Poi",
+      "fingerprint": "091ab6d1628a",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/hooks.py",
+      "qualname": "handle_platform_connected",
+      "line_text": "except BaseException: # noqa: BLE001 - hook 管理器已经记过日志 return",
+      "fingerprint": "2838d0087454",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/hooks.py",
+      "qualname": "notify_hook",
+      "line_text": "except BaseException as exc: # noqa: BLE001 # Hook 管理器已经带着规则上下文记过这次失败，这里再记一遍会重复。 if _is_cancelled(exc): return if event.point != PointErrorOccurred: await notif",
+      "fingerprint": "8de199475d27",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/hooks.py",
+      "qualname": "observe_hook_run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 logger = getattr(agent, \"logger\", None) if logger is not None: logger.warn( \"hook request tracking failed\", hook=lab",
+      "fingerprint": "706c4d10d59e",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/hooks.py",
+      "qualname": "route_hook",
+      "line_text": "except BaseException: # noqa: BLE001 - 续链跟踪失败不阻断路由 pass",
+      "fingerprint": "693a82ef3a73",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/hooks.py",
+      "qualname": "send_hook_failure_notice",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 通知失败只记日志 logger = getattr(agent, \"logger\", None) if logger is not None: logger.warn( \"hook failure notice failed\",",
+      "fingerprint": "aee23f0c2e0f",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/inbound_media.py",
+      "qualname": "associate_inbound_history",
+      "line_text": "except BaseException as exc: # noqa: BLE001 _warn(agent, \"associate inbound history media failed\", exc)",
+      "fingerprint": "1047cc80625a",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/inbound_media.py",
+      "qualname": "associate_inbound_history",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：查不到就跳过 _warn(agent, \"associate inbound history media failed\", exc) return",
+      "fingerprint": "ab42ff4563ed",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/inbound_media.py",
+      "qualname": "materialize_platform_segment",
+      "line_text": "except BaseException: # noqa: BLE001 - 与 Go 相同：失败的段不阻断消息 return unavailable_platform_segment(segment)",
+      "fingerprint": "9860cdb8f94b",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/inbox.py",
+      "qualname": "_run_inbox_batch",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 批次错误回给等待者 batch.finish(exc) return",
+      "fingerprint": "64f20f36ad99",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/media_output.py",
+      "qualname": "cache_media_receipt",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 汇总后一次抛出 errors.append(exc)",
+      "fingerprint": "4699e6835089",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/media_output.py",
+      "qualname": "send_prepared_media",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：只记错误 logger = getattr(host, \"logger\", None) if logger is not None: error = getattr(logger, \"error\", None) ",
+      "fingerprint": "159da3e65c55",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/member_panel.py",
+      "qualname": "_current_member_session",
+      "line_text": "except BaseException: # noqa: BLE001 - 与 Go 相同：拿不到就是\"无会话\" return None",
+      "fingerprint": "17456da76212",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/platform_signals.py",
+      "qualname": "_enqueue_platform_connected",
+      "line_text": "except BaseException: # noqa: BLE001 - 入队失败不应冲掉事件循环 pass",
+      "fingerprint": "6d50fd2443ef",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/tool_cache.py",
+      "qualname": "cached_tool_name_set",
+      "line_text": "except BaseException: # noqa: BLE001 - 与 Go 相同：读不出来就用调用方手上的副本 pass",
+      "fingerprint": "aaf4a72cce5b",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/tool_cache.py",
+      "qualname": "persist_cached_tools",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：只记警告，不影响本轮 _warn(agent, \"persist cached tools failed\", session, exc)",
+      "fingerprint": "eefa486538ea",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/tool_cache.py",
+      "qualname": "persist_shown_rule_card_formats",
+      "line_text": "except BaseException as exc: # noqa: BLE001 _warn(agent, \"persist rule card formats failed\", session, exc)",
+      "fingerprint": "8c0a7aa3f6fb",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/tool_cache.py",
+      "qualname": "persist_tool_tags",
+      "line_text": "except BaseException as exc: # noqa: BLE001 _warn(agent, \"persist tool tags failed\", session, exc)",
+      "fingerprint": "e27d49cf334c",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/vision.py",
+      "qualname": "_authorize_model",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return exc",
+      "fingerprint": "a585a367f9d9",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/vision.py",
+      "qualname": "_has_deadline",
+      "line_text": "except BaseException: # noqa: BLE001 return False",
+      "fingerprint": "f970205f670f",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/vision.py",
+      "qualname": "describe_vision_segment",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：失败回传 return \"\", exc",
+      "fingerprint": "877a356b3d00",
+      "count": 1
+    },
+    {
+      "file": "atri_x/agent/vision.py",
+      "qualname": "describe_vision_segment",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return \"\", exc",
+      "fingerprint": "c3067a91fc8b",
+      "count": 1
+    },
+    {
+      "file": "atri_x/app/breaker_llm.py",
+      "qualname": "BreakerLLM._pipe",
+      "line_text": "except BaseException as fallback_err: error = _combined_error( self.provider, self.fallback_provider_name(), error, fallback_err, ) chunk = _with_error(chunk, e",
+      "fingerprint": "c05f4b7f8bb4",
+      "count": 1
+    },
+    {
+      "file": "atri_x/app/platforms.py",
+      "qualname": "_drain",
+      "line_text": "except BaseException: # noqa: BLE001 - 关停期吞掉 pass",
+      "fingerprint": "1a7542f78e72",
+      "count": 1
+    },
+    {
+      "file": "atri_x/app/platforms.py",
+      "qualname": "run_platforms.supervise",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 平台异常退出要上报 error = exc",
+      "fingerprint": "aa5f24c5a3ab",
+      "count": 1
+    },
+    {
+      "file": "atri_x/app/runner.py",
+      "qualname": "Runner._shutdown",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 收集后统一重抛 errors.append(exc)",
+      "fingerprint": "bc4b632735de",
+      "count": 1
+    },
+    {
+      "file": "atri_x/app/runner.py",
+      "qualname": "Runner.run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与清理异常合并后重抛 body_error = exc",
+      "fingerprint": "cb01e65719f8",
+      "count": 1
+    },
+    {
+      "file": "atri_x/app/runtime.py",
+      "qualname": "DefaultRuntimeFactory.build",
+      "line_text": "except BaseException: # noqa: BLE001 - 清理失败不覆盖原错误 pass",
+      "fingerprint": "990033f10458",
+      "count": 1
+    },
+    {
+      "file": "atri_x/app/runtime_support.py",
+      "qualname": "HookRuntimeLifecycle.close",
+      "line_text": "except BaseException as exc: # noqa: BLE001 errors.append(exc)",
+      "fingerprint": "267df08771df",
+      "count": 3
+    },
+    {
+      "file": "atri_x/artist/service.py",
+      "qualname": "Service._record_for",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 读不了要变成可见 warning return None, False, exc",
+      "fingerprint": "46ec3407bb56",
+      "count": 1
+    },
+    {
+      "file": "atri_x/completion/fork.py",
+      "qualname": "ForkMessageSource.complete",
+      "line_text": "except BaseException: return []",
+      "fingerprint": "264d38f79d23",
+      "count": 2
+    },
+    {
+      "file": "atri_x/completion/risk.py",
+      "qualname": "RiskConfirmationSource.complete",
+      "line_text": "except BaseException: return []",
+      "fingerprint": "264d38f79d23",
+      "count": 2
+    },
+    {
+      "file": "atri_x/gui/widgets.py",
+      "qualname": "run_async.runner",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 交给界面显示 box.put((None, exc))",
+      "fingerprint": "480c424a92bf",
+      "count": 1
+    },
+    {
+      "file": "atri_x/health/server.py",
+      "qualname": "Server.evaluate_ready",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 检查失败就是 not ready ready = False checks[name] = str(exc) continue",
+      "fingerprint": "72d914836972",
+      "count": 1
+    },
+    {
+      "file": "atri_x/hook/manager.py",
+      "qualname": "DefaultManager.notify",
+      "line_text": "except BaseException as exc: # noqa: BLE001 done() self._finish_active(active_id) event.metadata.pop(\"match\", None) self._log_hook(run_ctx, \"notify\", reg, event",
+      "fingerprint": "88ed4e32da3f",
+      "count": 1
+    },
+    {
+      "file": "atri_x/hook/rules/exec.py",
+      "qualname": "run_exec.fail",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 等待失败不覆盖原因 wait_error = exc",
+      "fingerprint": "2e13acee22fd",
+      "count": 1
+    },
+    {
+      "file": "atri_x/hook/runtime/tool_bridge.py",
+      "qualname": "call_tool",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 审计后原样上抛 error = exc",
+      "fingerprint": "70ec116ee0e3",
+      "count": 1
+    },
+    {
+      "file": "atri_x/hook/runtime/worker.py",
+      "qualname": "Worker._run_reload_task",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 热重载失败只记日志 log_warning( self.manager.opts.logger, \"hook plugin reload failed\", hook=self.config.id, error=str(exc),",
+      "fingerprint": "4868c5cd5f93",
+      "count": 1
+    },
+    {
+      "file": "atri_x/hook/runtime/worker.py",
+      "qualname": "Worker.run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 启动失败一律标记并杀进程 self.set_status(Status.FAILED, str(exc)) await self.kill() return",
+      "fingerprint": "84535c414cc4",
+      "count": 1
+    },
+    {
+      "file": "atri_x/hook/runtime/worker.py",
+      "qualname": "Worker.stop",
+      "line_text": "except BaseException: # noqa: BLE001 - 关停请求失败不阻断关闭 pass",
+      "fingerprint": "083fa57a1ddc",
+      "count": 1
+    },
+    {
+      "file": "atri_x/media/lifecycle.py",
+      "qualname": "cleanup.run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 收集后统一汇报 failures.append(exc)",
+      "fingerprint": "0a8aeaa97ed5",
+      "count": 1
+    },
+    {
+      "file": "atri_x/media/reference.py",
+      "qualname": "ReferencedReader.close",
+      "line_text": "except BaseException as exc: # noqa: BLE001 failures.append(exc)",
+      "fingerprint": "f27b656df3fc",
+      "count": 2
+    },
+    {
+      "file": "atri_x/net/httpclient.py",
+      "qualname": "HTTPStream._pump",
+      "line_text": "except BaseException as exc: # noqa: BLE001 if not self._stop.is_set(): self._stream_error = exc",
+      "fingerprint": "0b602bfe73f5",
+      "count": 1
+    },
+    {
+      "file": "atri_x/net/httpclient.py",
+      "qualname": "HTTPStream._pump",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 交给消费端判定 self._open_error = exc self._close_conn() self._ready.set() self._deliver(_STREAM_EOF) return",
+      "fingerprint": "997bd29f2764",
+      "count": 1
+    },
+    {
+      "file": "atri_x/net/websocket.py",
+      "qualname": "serve.on_connect",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 交给 on_error，避免静默吞错 if on_error is not None: on_error(exc)",
+      "fingerprint": "bdfa4bafdddf",
+      "count": 1
+    },
+    {
+      "file": "atri_x/platform/cli/clipboard.py",
+      "qualname": "read_tui_clipboard.command",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 一致地把错误带给 UI return TuiClipboardMsg(err=exc)",
+      "fingerprint": "b83b3b86927a",
+      "count": 1
+    },
+    {
+      "file": "atri_x/session/naming.py",
+      "qualname": "_call_title_generator.runner",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 跨线程回传 box[\"error\"] = exc",
+      "fingerprint": "42af081797c9",
+      "count": 1
+    },
+    {
+      "file": "atri_x/signal/result.py",
+      "qualname": "map_results._complete",
+      "line_text": "except BaseException as exc: # 对应 Go 的 panic 恢复 emission.finish(0, Result(err=SignalResultMapperError(str(exc))))",
+      "fingerprint": "7b2413ada22b",
+      "count": 1
+    },
+    {
+      "file": "atri_x/signal/signal.py",
+      "qualname": "Signal._dispatch",
+      "line_text": "except BaseException as err: # 准入失败：结果里带上错误 finish(err) return err",
+      "fingerprint": "bb7f187e0a84",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/artist_extract.py",
+      "qualname": "ArtistExtractTool._analyse_image",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return None, [\"视觉风格分析结果无法解析：\" + str(exc)]",
+      "fingerprint": "7918b9b1e3fb",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/artist_extract.py",
+      "qualname": "ArtistExtractTool._analyse_image",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - Go 把失败翻成告警 if _is_cancellation(exc): return None, [\"视觉风格分析被取消或超时：\" + str(exc)] return None, [\"视觉风格分析失败：\" + str(exc",
+      "fingerprint": "86a4bb7643bd",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/artist_extract.py",
+      "qualname": "ArtistExtractTool.call",
+      "line_text": "except BaseException: # noqa: BLE001 - Go 把任何读取错误都翻成同一句话 return Result(content=\"读取图片失败：媒体不存在或已过期。\")",
+      "fingerprint": "7b8c14dfa4e2",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/character.py",
+      "qualname": "CharacterManageTool.call",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - Go 把失败翻成一句话 return Result(content=str(exc))",
+      "fingerprint": "4336c3c29776",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/get_media.py",
+      "qualname": "GetMediaTool.call",
+      "line_text": "except BaseException: # noqa: BLE001 - 传输错误可能带凭据 URL # Transport errors may contain credential URLs or local # paths; never echo them to the LLM. line = prefix ",
+      "fingerprint": "d503447655a7",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate.py",
+      "qualname": "ImageGenerateTool.call",
+      "line_text": "except BaseException as exc: # noqa: BLE001 writeback_errors.append(f\"{name}：{exc}\")",
+      "fingerprint": "2b2488ccfff3",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate.py",
+      "qualname": "ImageGenerateTool.call",
+      "line_text": "except BaseException as exc: # noqa: BLE001 failures.append(f\"第 {index + 1} 张保存失败：{exc}\") continue",
+      "fingerprint": "5fcc29f40886",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate.py",
+      "qualname": "ImageGenerateTool.call",
+      "line_text": "except BaseException: # noqa: BLE001 - Go 里库加载失败就不给提示 hints = \"\"",
+      "fingerprint": "7c9d984a8e65",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate.py",
+      "qualname": "ImageGenerateTool.call",
+      "line_text": "except BaseException: # noqa: BLE001 - Go 里改写失败就退回原文 value = \"\"",
+      "fingerprint": "7f15452654ad",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate.py",
+      "qualname": "ImageGenerateTool.call",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return Result(content=str(exc))",
+      "fingerprint": "aabc79bb8524",
+      "count": 2
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate.py",
+      "qualname": "ImageGenerateTool.call",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - Go 把错误翻成结果正文 return Result(content=str(exc))",
+      "fingerprint": "ba6aaa2aa130",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate.py",
+      "qualname": "ImageGenerateTool.call",
+      "line_text": "except BaseException: # noqa: BLE001 library = None",
+      "fingerprint": "d549c803e070",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate.py",
+      "qualname": "generate_images",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return [None], [exc]",
+      "fingerprint": "b9142c502064",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate.py",
+      "qualname": "generate_images.run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 errors[index] = exc",
+      "fingerprint": "244f531c29ed",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_generate_context.py",
+      "qualname": "search_image_context",
+      "line_text": "except BaseException: # noqa: BLE001 - Go 只吞掉错误并返回空 return []",
+      "fingerprint": "202b7539f725",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_to_prompt.py",
+      "qualname": "ImageToPromptTool.call",
+      "line_text": "except BaseException as exc: # noqa: BLE001 return self._error_result(exc, \"反推提示词失败：\")",
+      "fingerprint": "1db71b030fd6",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_to_prompt.py",
+      "qualname": "ImageToPromptTool.call",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - Go 翻成可执行提示 return Result( content=( \"视觉模型没有返回可解析的结构化分析（\" + str(exc) + \"）。可以改用 format=text 重试。\" ) )",
+      "fingerprint": "34e3572dc536",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/image_to_prompt.py",
+      "qualname": "ImageToPromptTool.call",
+      "line_text": "except BaseException: # noqa: BLE001 - Go 把任何读取错误翻成同一句话 return Result(content=\"读取图片失败：媒体不存在或已过期\")",
+      "fingerprint": "75d6cc659d5c",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/shell_warnings.py",
+      "qualname": "ShellAdvice.check_write_args",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 原样上抛给调用方 self.block_err = exc return True",
+      "fingerprint": "4ed0c81d3ef6",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/shell_warnings.py",
+      "qualname": "ShellAdvice.inspect_shell_redirect",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 原样上抛给调用方 self.block_err = exc return",
+      "fingerprint": "3e5b01292659",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/builtin/view_image.py",
+      "qualname": "ViewImageTool._view_messages",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 传输错误可能带凭据 URL _raise_if_cancelled(exc) segments.append(_text_segment(label + \" 图片获取失败\")) continue",
+      "fingerprint": "745bd6f0093d",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/detail.py",
+      "qualname": "add_discovery_detail",
+      "line_text": "except BaseException as exc: errors.append(DiscoveryError(name=name, reason=str(exc))) visiting.pop(name, None) return details, errors",
+      "fingerprint": "db7e375900f1",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/executor.py",
+      "qualname": "Executor.execute",
+      "line_text": "except BaseException as exc: return _execution_error(call, message, exc)",
+      "fingerprint": "4138ddb7be71",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/executor.py",
+      "qualname": "Executor.execute",
+      "line_text": "except BaseException as exc: return _execution_error(call, message, InvalidError(f\"assess risk: {exc}\"))",
+      "fingerprint": "ed8aa368a85b",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/media_runtime.py",
+      "qualname": "MediaCall._release_refs",
+      "line_text": "except BaseException as exc: # pragma: no cover - 存储层错误 self.failures.append(exc) continue",
+      "fingerprint": "2076d92dc708",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/skill/manager.py",
+      "qualname": "Manager.ensure_loaded",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 失败要记录给等待者 err = exc",
+      "fingerprint": "439ed8daa7ee",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/skill/manager.py",
+      "qualname": "Manager.reload",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 失败要记录而不是丢失 err = exc",
+      "fingerprint": "e48023157c5f",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/skill/manager.py",
+      "qualname": "Manager.remove",
+      "line_text": "except BaseException as exc: # noqa: BLE001 err = exc",
+      "fingerprint": "907da81751c7",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/skill/manager.py",
+      "qualname": "Manager.start_delayed_reload._run",
+      "line_text": "except BaseException: # noqa: BLE001 - 后台任务不向外抛 return",
+      "fingerprint": "e91a8ed27b84",
+      "count": 1
+    },
+    {
+      "file": "atri_x/tool/skill/process.py",
+      "qualname": "_partial_output",
+      "line_text": "except BaseException: # noqa: BLE001 - 进程被杀时结果可能不可用 return b\"\", b\"\"",
+      "fingerprint": "fc12ce530f6f",
+      "count": 1
+    },
+    {
+      "file": "atri_x/toolrun/runner.py",
+      "qualname": "_assess_for_run",
+      "line_text": "except BaseException: # noqa: BLE001 assessment = None",
+      "fingerprint": "9bbad20691cf",
+      "count": 1
+    },
+    {
+      "file": "atri_x/toolrun/runner.py",
+      "qualname": "run",
+      "line_text": "except BaseException as hook_err: # noqa: BLE001 result.err = hook_err result.message.segments = text_segments( f\"tool call {call.name} failed: hook: {hook_err}",
+      "fingerprint": "55ab671b45fa",
+      "count": 1
+    },
+    {
+      "file": "atri_x/toolrun/runner.py",
+      "qualname": "run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 message = _tool_message( call.name, call.id, f\"tool call {call.name} failed: {exc}\" ) content = segments_content_tex",
+      "fingerprint": "6a30488b20da",
+      "count": 1
+    },
+    {
+      "file": "atri_x/toolrun/runner.py",
+      "qualname": "run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 message = _tool_message( call.name, call.id, f\"tool call {call.name} failed: retain media arguments: {exc}\", ) conte",
+      "fingerprint": "88831110810d",
+      "count": 1
+    },
+    {
+      "file": "atri_x/toolrun/runner.py",
+      "qualname": "run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - Hook 失败要回灌给模型 prepared_calls.append(original) message = _tool_message( original.name, original.id, f\"tool call {or",
+      "fingerprint": "8e5db5fa7622",
+      "count": 1
+    },
+    {
+      "file": "atri_x/toolrun/runner.py",
+      "qualname": "run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：confirm 返回 err 一起记 confirm = ConfirmResult(allowed=False) error = exc",
+      "fingerprint": "a8a82f0a5b53",
+      "count": 1
+    },
+    {
+      "file": "atri_x/toolrun/runner.py",
+      "qualname": "run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 result.err = exc result.message.segments = text_segments( f\"tool call {call.name} failed: output: {exc}\" )",
+      "fingerprint": "ce1b341868bc",
+      "count": 1
+    },
+    {
+      "file": "atri_x/toolrun/runner.py",
+      "qualname": "run",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：启动失败即 err start_err, run_ctx, done = exc, ctx, _noop",
+      "fingerprint": "efc91f8606e0",
+      "count": 1
+    },
+    {
+      "file": "atri_x/vision/cache.py",
+      "qualname": "Inflight._leader",
+      "line_text": "except BaseException as exc: # 崩溃也要交给 waiter，不能带走事件循环 result, err = Result(), exc",
+      "fingerprint": "bffa88aa6719",
+      "count": 1
+    }
+  ]
+}

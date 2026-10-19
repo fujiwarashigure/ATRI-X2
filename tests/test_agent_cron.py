@@ -311,6 +311,28 @@ class RunBackgroundTests(unittest.TestCase):
 
 
 class CronToolsTests(unittest.TestCase):
+    """``cron_tools.confirm_background_sandbox_shell`` 的裁决 + 审计。
+
+    本机 ``is_power_shell_env()`` 恒为 True（真实环境就是 PowerShell）：白名单 / 结构
+    这些 bash 口径的分支必须显式构造 bash 主机；PowerShell 分支单独用 patch 构造。
+    """
+
+    def setUp(self) -> None:
+        from unittest import mock
+
+        self._risk_patch = mock.patch(
+            "atri_x.tool.builtin.shell_risk.is_power_shell_env", return_value=False
+        )
+        self._sandbox_patch = mock.patch(
+            "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=False
+        )
+        self._risk_patch.start()
+        self._sandbox_patch.start()
+
+    def tearDown(self) -> None:
+        self._risk_patch.stop()
+        self._sandbox_patch.stop()
+
     def _ctx(self, kind: str = KindCron, background: bool = True) -> Any:
         sandbox = SandboxContext(
             root="data/sandbox",
@@ -320,11 +342,21 @@ class CronToolsTests(unittest.TestCase):
         )
         return with_sandbox_context({}, sandbox)
 
-    def test_auto_confirm_non_critical(self) -> None:
+    def _call(self, cmd: str = "ls -la") -> ToolCallRequest:
+        return ToolCallRequest(id="c1", name="shell", arguments=json.dumps({"cmd": cmd}))
+
+    def audit_fields(self, agent: FakeAgent, event: str) -> list[dict]:
+        out = []
+        for call in agent.audit_calls:
+            if not call or call[0] != event:
+                continue
+            out.append(dict(zip(call[1::2], call[2::2])))
+        return out
+
+    def test_auto_confirm_low_risk_allowlisted(self) -> None:
         agent = FakeAgent()
-        call = ToolCallRequest(id="c1", name="shell", arguments='{"command":"ls"}')
         decision = cron_tools.confirm_background_sandbox_shell(
-            agent, self._ctx(), "s1", call, "high"
+            agent, self._ctx(), "s1", self._call("ls -la"), "low"
         )
         self.assertTrue(decision.confirm)
         self.assertTrue(decision.handled)
@@ -332,12 +364,27 @@ class CronToolsTests(unittest.TestCase):
         self.assertTrue(confirm and handled)
         events = [item[0] for item in agent.audit_calls]
         self.assertIn(BACKGROUND_SHELL_AUDIT_AUTO_CONFIRMED, events)
+        fields = self.audit_fields(agent, BACKGROUND_SHELL_AUDIT_AUTO_CONFIRMED)[0]
+        self.assertIn("白名单", fields["reason"], "审计必须带可区分的原因")
+
+    def test_high_risk_is_rejected(self) -> None:
+        agent = FakeAgent()
+        call = self._call("git clean -fd")
+        decision = cron_tools.confirm_background_sandbox_shell(
+            agent, self._ctx(), "s1", call, "high"
+        )
+        self.assertFalse(decision.confirm)
+        self.assertTrue(decision.handled)
+        events = [item[0] for item in agent.audit_calls]
+        self.assertIn(BACKGROUND_SHELL_AUDIT_REJECTED, events)
+        fields = self.audit_fields(agent, BACKGROUND_SHELL_AUDIT_REJECTED)[0]
+        self.assertIn("低风险", fields["reason"])
 
     def test_reject_critical_and_message(self) -> None:
         from atri_x.llm import LLMMessage
 
         agent = FakeAgent()
-        call = ToolCallRequest(id="c1", name="shell", arguments='{"command":"rm -rf /"}')
+        call = self._call("rm -rf /")
         message = LLMMessage(role="tool", name="shell", tool_call_id="c1")
         decision = cron_tools.confirm_background_sandbox_shell(
             agent, self._ctx(), "s1", call, "critical", message
@@ -347,10 +394,91 @@ class CronToolsTests(unittest.TestCase):
         self.assertEqual(message.segments[0].text, BACKGROUND_SHELL_CRITICAL_MESSAGE)
         events = [item[0] for item in agent.audit_calls]
         self.assertIn(BACKGROUND_SHELL_AUDIT_REJECTED, events)
+        fields = self.audit_fields(agent, BACKGROUND_SHELL_AUDIT_REJECTED)[0]
+        self.assertTrue(fields["reason"])
+
+    def test_missing_cmd_text_is_rejected(self) -> None:
+        agent = FakeAgent()
+        call = ToolCallRequest(id="c1", name="shell", arguments="{}")
+        decision = cron_tools.confirm_background_sandbox_shell(
+            agent, self._ctx(), "s1", call, "low"
+        )
+        self.assertTrue(decision.handled)
+        self.assertFalse(decision.confirm, "拿不到命令文本必须 fail-closed")
+        fields = self.audit_fields(agent, BACKGROUND_SHELL_AUDIT_REJECTED)[0]
+        self.assertIn("命令文本", fields["reason"])
+
+    def test_unparsable_arguments_are_rejected(self) -> None:
+        agent = FakeAgent()
+        call = ToolCallRequest(id="c1", name="shell", arguments="{not json")
+        decision = cron_tools.confirm_background_sandbox_shell(
+            agent, self._ctx(), "s1", call, "low"
+        )
+        self.assertFalse(decision.confirm)
+
+    def test_allowlist_miss_reason_is_audited(self) -> None:
+        agent = FakeAgent()
+        # ``uname`` 是低风险只读命令，但不在内置白名单里 —— 这样才会走到
+        # "白名单未命中"那条拒绝分支（``python tool.py`` 会先被判 medium 风险，
+        # 命中的是风险超限分支，拿不到白名单原因）。
+        decision = cron_tools.confirm_background_sandbox_shell(
+            agent, self._ctx(kind=KindAtrinis), "s1", self._call("uname -a"), "low"
+        )
+        self.assertFalse(decision.confirm)
+        fields = self.audit_fields(agent, BACKGROUND_SHELL_AUDIT_REJECTED)[0]
+        self.assertIn("白名单", fields["reason"])
+        self.assertIn("uname", fields["reason"])
+        self.assertEqual("shell", fields["tool"])
+        self.assertEqual("s1", fields["session_id"])
+        self.assertEqual(KindAtrinis, fields["kind"])
+        self.assertEqual("data/sandbox/atrinis", fields["sandbox_dir"])
+
+    def test_structure_violation_reason_is_audited(self) -> None:
+        agent = FakeAgent()
+        decision = cron_tools.confirm_background_sandbox_shell(
+            agent, self._ctx(), "s1", self._call("ls | grep TODO"), "low"
+        )
+        self.assertFalse(decision.confirm)
+        fields = self.audit_fields(agent, BACKGROUND_SHELL_AUDIT_REJECTED)[0]
+        self.assertIn("管道", fields["reason"])
+
+    def test_power_shell_host_reason_is_audited(self) -> None:
+        from unittest import mock
+
+        agent = FakeAgent()
+        with mock.patch(
+            "atri_x.tool.builtin.shell_risk.is_power_shell_env", return_value=True
+        ), mock.patch(
+            "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=True
+        ):
+            decision = cron_tools.confirm_background_sandbox_shell(
+                agent, self._ctx(), "s1", self._call("ls -la"), "low"
+            )
+        self.assertFalse(decision.confirm)
+        fields = self.audit_fields(agent, BACKGROUND_SHELL_AUDIT_REJECTED)[0]
+        self.assertIn("PowerShell", fields["reason"])
+
+    def test_policy_from_registry_shell_tool_is_used(self) -> None:
+        """确认阶段必须用装配层配到 ``ShellTool`` 上的策略，否则显式放行会失效。"""
+        from tests.agent_fakes import FakeRegistry
+
+        class _Policy:
+            allow: frozenset[str] = frozenset()
+            allow_all = True
+
+        class _ShellTool:
+            background_shell_policy = _Policy()
+
+        registry = FakeRegistry({"shell": _ShellTool()})
+        agent = FakeAgent(registry=registry)
+        decision = cron_tools.confirm_background_sandbox_shell(
+            agent, self._ctx(), "s1", self._call("python tool.py"), "high"
+        )
+        self.assertTrue(decision.confirm, "allow_all 必须能从注册表里的 shell 工具读到")
 
     def test_not_handled_for_foreground(self) -> None:
         agent = FakeAgent()
-        call = ToolCallRequest(id="c1", name="shell", arguments="{}")
+        call = self._call("ls -la")
         decision = cron_tools.confirm_background_sandbox_shell(
             agent, self._ctx(background=False), "s1", call, "high"
         )
@@ -359,7 +487,7 @@ class CronToolsTests(unittest.TestCase):
 
     def test_not_handled_for_unknown_kind(self) -> None:
         agent = FakeAgent()
-        call = ToolCallRequest(id="c1", name="shell", arguments="{}")
+        call = self._call("ls -la")
         decision = cron_tools.confirm_background_sandbox_shell(
             agent, self._ctx(kind="other"), "s1", call, "high"
         )
@@ -375,9 +503,141 @@ class CronToolsTests(unittest.TestCase):
 
     def test_pure_decision_helper(self) -> None:
         sandbox = SandboxContext(background=True, background_kind=KindAtrinis)
-        decision = cron_tools.background_shell_decision(sandbox, "shell", "critical")
+        decision = cron_tools.background_shell_decision(
+            sandbox, "shell", "critical", cmd_text="rm -rf /"
+        )
         self.assertTrue(decision.handled)
         self.assertFalse(decision.confirm)
+        allowed = cron_tools.background_shell_decision(
+            sandbox, "shell", "low", cmd_text="ls -la"
+        )
+        self.assertTrue(allowed.confirm)
+
+    def test_shell_command_text_reads_only_cmd_key(self) -> None:
+        self.assertEqual(
+            "ls -la",
+            cron_tools.shell_command_text(
+                ToolCallRequest(id="c1", name="shell", arguments='{"cmd":" ls -la "}')
+            ),
+        )
+        for arguments in ("{}", "", "{not json", '{"cmd":3}', '["cmd"]'):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(
+                    "",
+                    cron_tools.shell_command_text(
+                        ToolCallRequest(id="c1", name="shell", arguments=arguments)
+                    ),
+                )
+
+
+class BackgroundConfirmationOrderTests(unittest.TestCase):
+    """后台 shell 的裁决必须先于前台的"本会话自动确认"（runner.py 的 ``_confirm``）。
+
+    runner.py 属 Lead 的写范围，这里只钉行为：``deps.confirm_background_tool`` 返回
+    ``handled=True`` 时，``needs_tool_confirmation`` / ``confirm_tool_call`` 都不该被
+    调用 —— 也就永远走不到 ``toolrun_adapter`` 里的 ``_auto_confirmed``。
+    """
+
+    def _confirm(self, background_result, *, strict=True):
+        """跑一次 ``runner._confirm``。
+
+        ``strict=True`` 时前台确认路径（``risk_detail`` / ``confirm_tool_call``）被调用
+        即断言失败 —— 用来证明后台已裁决的调用**不会**走到前台的"本会话自动确认"。
+        ``strict=False`` 让前台路径正常返回，用来证明 ``handled=False`` 时会正常回落。
+        """
+        import asyncio
+
+        from atri_x.errors import ForbiddenError
+        from atri_x.llm import ToolCallRequest as Call
+        from atri_x.llm import ToolFunctionSchema, ToolSchema
+        from atri_x.security import Actor, Policy, RoleSuperadmin, RiskHigh
+        from atri_x.tool.tool import Info, RiskAssessment
+        from atri_x.toolrun import ConfirmResult
+        from atri_x.toolrun import runner as runner_mod
+        from atri_x.toolrun.toolrun import ResolvedTool
+
+        seen: list[str] = []
+
+        class _Native:
+            def info(self) -> Info:
+                return Info(name="shell", description="shell", risk=RiskHigh)
+
+            def schema(self) -> ToolSchema:
+                return ToolSchema(function=ToolFunctionSchema(name="shell"))
+
+        class _Manager:
+            policy = Policy()
+
+            async def risk_detail(self, ctx, resolved, call):
+                seen.append("risk_detail")
+                if strict:
+                    raise AssertionError("后台已裁决，不该再走前台确认细节")
+                return "detail"
+
+        class _Deps:
+            async def confirm_background_tool(self, ctx, session_id, call, resolved, assessment):
+                seen.append("confirm_background_tool")
+                return background_result
+
+            async def confirm_tool_call(self, ctx, session_id, call, assessment, detail):
+                seen.append("confirm_tool_call")
+                if strict:
+                    raise AssertionError("后台已裁决，不该再问用户（前台自动确认路径）")
+                return ConfirmResult(allowed=True, extra=detail)
+
+            class _Policy:
+                def can_use_tool(self, actor, risk, owner_scoped=False):
+                    return True
+
+                def needs_tool_confirmation(self, actor, risk):
+                    seen.append("needs_tool_confirmation")
+                    return True
+
+        deps = _Deps()
+        call = Call(id="1", name="shell", arguments='{"cmd":"ls -la"}')
+        resolved = ResolvedTool(
+            name="shell", available=True, source="native", native=_Native()
+        )
+        decision = asyncio.run(
+            runner_mod._confirm(
+                _Manager(),
+                deps,
+                {},
+                Actor(role=RoleSuperadmin),
+                "s1",
+                call,
+                resolved,
+                RiskAssessment(level=RiskHigh),
+            )
+        )
+        del ForbiddenError
+        return decision, seen
+
+    def test_background_handled_denial_never_reaches_foreground_confirm(self) -> None:
+        from atri_x.toolrun import ConfirmResult
+
+        decision, seen = self._confirm((ConfirmResult(allowed=False), True))
+        self.assertFalse(decision.allowed)
+        self.assertEqual(["confirm_background_tool"], seen)
+
+    def test_background_handled_allowance_never_reaches_foreground_confirm(self) -> None:
+        from atri_x.toolrun import ConfirmResult
+
+        decision, seen = self._confirm((ConfirmResult(allowed=True), True))
+        self.assertTrue(decision.allowed)
+        self.assertEqual(["confirm_background_tool"], seen)
+
+    def test_unhandled_background_falls_through_to_foreground_confirm(self) -> None:
+        from atri_x.toolrun import ConfirmResult
+
+        decision, seen = self._confirm((ConfirmResult(), False), strict=False)
+        self.assertTrue(decision.allowed)
+        # ``needs_tool_confirmation`` 走的是 ``_Manager.policy`` 的真实 Policy（不会记账），
+        # 所以这里只看前台确认真的被走到了。
+        self.assertEqual(
+            ["confirm_background_tool", "risk_detail", "confirm_tool_call"],
+            seen,
+        )
 
 
 if __name__ == "__main__":

@@ -206,6 +206,8 @@ class RegisterOptions:
     child_process_env: Environment = field(default_factory=Environment)
     config_dir: str = ""
     web_search: Any = None
+    #: 后台（cron / Atrinis）无人值守的 shell 放行策略；``None`` 用 ShellTool 内置默认。
+    background_shell_policy: Any = None
     character_store: Any = None
     image_profiles: dict[str, ImageProfile] = field(default_factory=dict)
     default_image_profile: str = ""
@@ -338,6 +340,8 @@ def register_all(registry: Registry, opts: RegisterOptions) -> None:
     if not shell_env.configured():
         shell_env = opts.process_env
     shell = new_shell_tool_with_environment(shell_env, file_guard)
+    if opts.background_shell_policy is not None:
+        shell.background_shell_policy = opts.background_shell_policy
     shell.media = media_runtime
     registry.register(shell)
     registry.register(new_atriwisp_creator_tool(info))

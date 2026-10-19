@@ -65,6 +65,58 @@ class FakeAgent:
         self.sent.append(text)
 
 
+class ConfirmationChannelTests(unittest.TestCase):
+    """研究报告 §5.3：确认通道缺失时必须 fail-closed（旧实现返回 allowed=True）。"""
+
+    def test_missing_confirmation_channel_denies(self) -> None:
+        import asyncio
+
+        from atri_x.tool.tool import RiskAssessment
+
+        agent = FakeAgent()
+        deps = adapter.AgentToolRunDeps(agent=agent, output=agent)
+        call = ToolCallRequest(
+            id="c1", name="shell", arguments=json.dumps({"cmd": "rm -rf /"})
+        )
+        result = asyncio.run(
+            deps.confirm_tool_call(
+                None, "s1", call, RiskAssessment(level="high"), "detail"
+            )
+        )
+        self.assertFalse(result.allowed)
+        self.assertIsNotNone(result.error)
+        self.assertIn("tool_confirmation_unavailable", str(result.error))
+
+    def test_auto_confirmed_session_still_allowed(self) -> None:
+        import asyncio
+
+        from atri_x.tool.tool import RiskAssessment
+
+        class ConfirmableAgent(FakeAgent):
+            def __init__(self) -> None:
+                super().__init__()
+                self.auto_confirm_session: dict[str, bool] = {}
+
+            def is_session_auto_confirmed(self, session_id: str) -> bool:
+                return bool(self.auto_confirm_session.get(session_id))
+
+            def set_session_auto_confirmed(self, session_id: str) -> None:
+                self.auto_confirm_session[session_id] = True
+
+        agent = ConfirmableAgent()
+        agent.set_session_auto_confirmed("s1")
+        deps = adapter.AgentToolRunDeps(agent=agent, output=agent)
+        call = ToolCallRequest(
+            id="c1", name="shell", arguments=json.dumps({"cmd": "rm -rf /"})
+        )
+        result = asyncio.run(
+            deps.confirm_tool_call(
+                None, "s1", call, RiskAssessment(level="high"), "detail"
+            )
+        )
+        self.assertTrue(result.allowed)
+
+
 class RiskConfirmationCommandTests(unittest.TestCase):
     def test_command_table_matches_go(self) -> None:
         commands = rc.risk_confirmation_commands("/")

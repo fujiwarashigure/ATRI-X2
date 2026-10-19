@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from atri_x.app.config_check import check_config
 from atri_x.app.doctor_checks import (
@@ -42,6 +42,7 @@ from atri_x.app.doctor_checks import (
 )
 from atri_x.config import load as load_config
 from atri_x.errors import ErrHealthzDisabled
+from atri_x.media.imagecodec.backend_probe import image_backend_info
 from atri_x.redact import error as redact_error
 
 __all__ = [
@@ -64,7 +65,13 @@ def _now() -> datetime:
 
 @dataclass
 class DoctorOptions:
-    """对应 Go ``DoctorOptions``。"""
+    """对应 Go ``DoctorOptions``。
+
+    ``capabilities`` 是 Python 版新增：启动期 :func:`atri_x.app.runtime_agent.build_agent`
+    把自己的能力自检快照绑到 :class:`DoctorService` 上，``/doctor`` 命令因此能检查
+    "能力装上了吗"而不必再装配一个 Agent。``python -m atri_x doctor``（无 Agent）
+    没有快照，相应检查会标 ``skipped`` 而不是伪造通过。
+    """
 
     config_path: str = ""
     e2e: bool = False
@@ -72,6 +79,7 @@ class DoctorOptions:
     skip_model: bool = False
     require_platform: bool = False
     timeout: float = 0.0
+    capabilities: dict[str, Any] | None = None
 
 
 @dataclass
@@ -107,13 +115,28 @@ class DoctorService:
         self.config_path = config_path
         #: Go 固定 20s；这里留成字段便于测试调小。
         self.timeout = timeout
+        #: 启动期能力自检快照（见 :meth:`bind_capabilities`）。
+        self.capabilities: dict[str, Any] | None = None
+
+    def bind_capabilities(self, capabilities: dict[str, Any] | None) -> None:
+        """绑定启动期能力快照（可选）。
+
+        由 :func:`atri_x.app.runtime_agent.build_agent` 在装配完成后调用；拿不到快照时
+        ``/doctor`` 的能力检查标 ``skipped``，不会把"没检查"伪装成"通过"。
+        """
+        self.capabilities = (
+            dict(capabilities) if isinstance(capabilities, dict) else None
+        )
 
     async def doctor(self, ctx: Any = None) -> str:
         """对应 Go ``Doctor``。"""
         report = await run_doctor(
             ctx,
             DoctorOptions(
-                config_path=self.config_path, skip_model=True, timeout=self.timeout
+                config_path=self.config_path,
+                skip_model=True,
+                timeout=self.timeout,
+                capabilities=self.capabilities,
             ),
         )
         return format_doctor_report(report)
@@ -177,6 +200,9 @@ async def run_doctor(ctx: Any = None, opts: DoctorOptions | None = None) -> Doct
     except Exception as exc:  # noqa: BLE001 - 加载失败即报告里的第一条失败项
         add("config", "load", "failed", err=exc)
         report.config_ok = False
+        # 能力自检不依赖配置：脱敏、装配报告、Hook 控制面照样能查（限流需要配置，
+        # 这里会明确标"配置未加载"而不是伪造"未配置"）。
+        _run_capability_checks(report, add, None, options.capabilities)
         report.finished_at = _now()
         return report
 
@@ -218,6 +244,8 @@ async def run_doctor(ctx: Any = None, opts: DoctorOptions | None = None) -> Doct
         report.config_ok = False
     else:
         add("config", "model_credentials", "passed", label)
+
+    _run_capability_checks(report, add, cfg, options.capabilities)
 
     health_url = ""
     try:
@@ -309,6 +337,247 @@ async def run_doctor(ctx: Any = None, opts: DoctorOptions | None = None) -> Doct
 
     report.finished_at = _now()
     return report
+
+
+# ---------------------------------------------------------------------------
+# 能力自检（Python 版新增）
+# ---------------------------------------------------------------------------
+
+#: 五项核心装配（与 :data:`atri_x.agent.bootstrap._CORE_INSTALLERS` 同名）。
+_CORE_SERVICE_NAMES: tuple[str, ...] = (
+    "models",
+    "context_runtime",
+    "budget",
+    "ratelimit",
+    "tool_directive",
+)
+
+#: 未配置入站限流时的说明（``[ops]`` 里两个 per-minute 阈值都为 0 = 不限制）。
+_RATE_LIMIT_DISABLED_DETAIL = (
+    "not configured: [ops] user/group_messages_per_minute are 0 (0 = unlimited)"
+)
+
+
+def _run_capability_checks(
+    report: DoctorReport, add: Callable[..., None], cfg: Any, capabilities: Any
+) -> None:
+    """能力自检：核心装配、脱敏、入站限流、Hook 控制面、图像后端。
+
+    有启动期快照（``/doctor`` 在 service 模式下由 runtime_agent 绑定）时按快照断言；
+    没有快照（``python -m atri_x doctor``）时只做静态可判定的事，其余标 ``skipped``。
+    检查不到 ≠ 通过：这里绝不把"没有证据"写成 ``passed``。
+    """
+    snapshot = capabilities if isinstance(capabilities, dict) else None
+    _check_agent_services(report, add, snapshot)
+    _check_redaction(report, add, snapshot)
+    _check_inbound_rate_limit(report, add, cfg, snapshot)
+    _check_hook_service(report, add, snapshot)
+    _check_image_backend(report, add)
+
+
+def _check_image_backend(report: DoctorReport, add: Callable[..., None]) -> None:
+    """报告实际生效的图像后端（Pillow 加速 / 纯标准库）。
+
+    探测唯一出处是 :func:`atri_x.media.imagecodec.backend_probe.image_backend_info`。
+    纯标准库是**受支持**的默认形态（功能完整、速度较慢），所以这里只报告事实、
+    不判失败；``version`` 是本机装着的 Pillow 版本，装了但被
+    ``ATRI_X_IMAGECODEC_BACKEND=pure`` 强制关掉时会同时出现。
+    """
+    del report  # 后端选择不影响 config_ok
+    info = image_backend_info()
+    version = str(info.get("version") or "")
+    if str(info.get("backend") or "") == "pillow":
+        add("media", "image_backend", "passed", "pillow %s" % (version or "unknown"))
+        return
+    detail = "stdlib (pure-Python codec); "
+    detail += "Pillow %s installed but not in effect" % version if version else "Pillow not installed"
+    add("media", "image_backend", "skipped", detail)
+
+
+def _check_agent_services(
+    report: DoctorReport, add: Callable[..., None], snapshot: dict[str, Any] | None
+) -> None:
+    """五项核心装配器是否全部 ``installed``（有快照才做运行期断言）。"""
+    services = (snapshot or {}).get("agent_services")
+    if isinstance(services, dict):
+        installed = _entry_names(services.get("installed"))
+        missing = [name for name in _CORE_SERVICE_NAMES if name not in installed]
+        reasons = "; ".join(
+            "%s: %s" % (pair[0], pair[1])
+            for pair in services.get("failed") or []
+            if isinstance(pair, (list, tuple)) and len(pair) >= 2
+        )
+        if missing or services.get("failed"):
+            detail = "core assemblers missing: " + (", ".join(missing) or "-")
+            if reasons:
+                detail += "; failed: " + reasons
+            add("agent", "services", "failed", detail)
+            report.config_ok = False
+            return
+        add(
+            "agent",
+            "services",
+            "passed",
+            "core assemblers installed: " + ",".join(_CORE_SERVICE_NAMES),
+        )
+        return
+
+    available, total = _core_assembler_availability()
+    detail = (
+        "no live assembly report (doctor runs without an Agent); "
+        "core installer modules importable: %d/%d" % (available, total)
+    )
+    if available < total:
+        add("agent", "services", "failed", detail)
+        report.config_ok = False
+        return
+    add("agent", "services", "skipped", detail)
+
+
+def _check_redaction(
+    report: DoctorReport, add: Callable[..., None], snapshot: dict[str, Any] | None
+) -> None:
+    """日志脱敏是否接通（``REDACT_AVAILABLE``）。"""
+    status = (snapshot or {}).get("redaction")
+    if not isinstance(status, dict):
+        status = _redaction_status()
+    if bool(status.get("available", False)):
+        add("security", "redaction", "passed", "strict redaction is wired (atri_x.redact)")
+        return
+    add(
+        "security",
+        "redaction",
+        "failed",
+        "degraded to regex fallback: atri_x.redact is unavailable; "
+        "log attributes may leak secrets",
+    )
+    report.config_ok = False
+
+
+def _check_inbound_rate_limit(
+    report: DoctorReport,
+    add: Callable[..., None],
+    cfg: Any,
+    snapshot: dict[str, Any] | None,
+) -> None:
+    """入站限流是否配置（``[ops]`` 的两个 per-minute 阈值；0 = 不限制）。"""
+    del report  # 未配置按文档语义是合法选择，不算失败
+    if snapshot is not None and "rate_limit_configured" in snapshot:
+        configured = bool(snapshot.get("rate_limit_configured"))
+    elif cfg is None:
+        add(
+            "ops",
+            "inbound_rate_limit",
+            "skipped",
+            "config is not loaded; rate limit configuration is unknown",
+        )
+        return
+    else:
+        configured = _rate_limit_configured_from_config(cfg)
+    if configured:
+        detail = _rate_limit_config_detail(cfg) or "limiter objects are wired"
+        add("ops", "inbound_rate_limit", "passed", detail)
+        return
+    add("ops", "inbound_rate_limit", "skipped", _RATE_LIMIT_DISABLED_DETAIL)
+
+
+def _check_hook_service(
+    report: DoctorReport, add: Callable[..., None], snapshot: dict[str, Any] | None
+) -> None:
+    """Hook 控制面（``deps.hooks``）是否接线。"""
+    if snapshot is None or "hook_service" not in snapshot:
+        add(
+            "agent",
+            "hook_service",
+            "skipped",
+            "requires a live Agent; doctor ran without one",
+        )
+        return
+    if bool(snapshot.get("hook_service")):
+        add(
+            "agent",
+            "hook_service",
+            "passed",
+            "hook control service is wired (deps.hooks)",
+        )
+        return
+    add(
+        "agent",
+        "hook_service",
+        "failed",
+        "hook control service is not wired: /hooks would report "
+        "'hook service is not configured'",
+    )
+    report.config_ok = False
+
+
+def _entry_names(entries: Any) -> set[str]:
+    """把 ``report.to_dict()`` 里的 ``[(name, detail), ...]`` 折成名字集合。"""
+    names: set[str] = set()
+    for entry in entries or ():
+        if isinstance(entry, str):
+            names.add(entry)
+        elif isinstance(entry, (list, tuple)) and entry:
+            names.add(str(entry[0]))
+    return names
+
+
+def _core_assembler_availability() -> tuple[int, int]:
+    """静态探测核心装配器入口是否都在（不执行装配，也不构造 Agent）。"""
+    from importlib import import_module
+
+    try:
+        from atri_x.agent.bootstrap import _CORE_INSTALLERS as installers
+    except Exception:  # noqa: BLE001 - 装配表都取不到时按"全部不可用"处理
+        return 0, len(_CORE_SERVICE_NAMES)
+    available = 0
+    for _name, module_name, function_name in installers:
+        try:
+            module = import_module(module_name)
+        except Exception:  # noqa: BLE001 - 缺模块就是不可用，异常细节不重要
+            continue
+        if callable(getattr(module, function_name, None)):
+            available += 1
+    return available, len(installers)
+
+
+def _redaction_status() -> dict[str, Any]:
+    """脱敏自检快照；导入失败按"不可用"处理（保守方向）。"""
+    try:
+        from atri_x.logging.logging import redact_status
+
+        return dict(redact_status())
+    except Exception:  # noqa: BLE001 - 自检失败按不可用处理，不阻断 doctor
+        return {"available": False, "mode": "unknown"}
+
+
+def _rate_limit_configured_from_config(cfg: Any) -> bool:
+    """从 ``[ops]`` 读入站限流是否配置（与 runtime_agent 的构造条件一致）。"""
+    ops = getattr(cfg, "ops", None)
+    for name in ("user_messages_per_minute", "group_messages_per_minute"):
+        try:
+            if int(getattr(ops, name, 0) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _rate_limit_config_detail(cfg: Any) -> str:
+    """把已配置的阈值渲染成一行（``user=12/min, group=60/min``）。"""
+    ops = getattr(cfg, "ops", None)
+    parts: list[str] = []
+    for label, name in (
+        ("user", "user_messages_per_minute"),
+        ("group", "group_messages_per_minute"),
+    ):
+        try:
+            value = int(getattr(ops, name, 0) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            parts.append("%s=%d/min" % (label, value))
+    return ", ".join(parts)
 
 
 async def _platform_connection(

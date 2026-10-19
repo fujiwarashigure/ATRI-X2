@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from atri_x.agent.turn_output import (
     BackgroundTurnOutput,
@@ -51,6 +52,15 @@ from atri_x.agent.chat_tools import (
 )
 from atri_x.agent.segments import materialize_media
 from atri_x.agent.status import runtime_done_status
+# 这五个模块在 ``atri_x/agent/core.py`` 里已经是模块级硬导入，原来包在这里的
+# ``except ImportError`` 兜底永远不可达，只会把"模块坏了"变成静默降级（研究报告 §5.1）。
+from atri_x.agent.context_runtime import ensure_context_runtime
+from atri_x.agent.prompt import PromptBuildRequest
+from atri_x.agent.tool_cache import mutate_session_metadata
+from atri_x.agent.tool_transcript import (
+    assistant_raw_text_metadata,
+    stored_message_segments,
+)
 
 from atri_x.agent.chat import (
     EMPTY_ASSISTANT_TEXT,
@@ -121,6 +131,9 @@ async def _run_chat_body(
                 ),
             ),
         )
+    except asyncio.CancelledError:
+        # 取消不是"钩子失败"：转成 RuntimeError 会让上层把它当业务错误上报。
+        raise
     except BaseException as exc:  # noqa: BLE001 - 钩子失败即本轮失败
         raise RuntimeError(f"llm turn hook: {exc}") from exc
     selection.provider = turn_event.llm.provider
@@ -392,6 +405,8 @@ async def _run_chat_body(
             platform_output_text = await agent.prepare_assistant_output(
                 ctx, PointAgentTurnOutputPrepared, platform_output_text
             )
+        except asyncio.CancelledError:
+            raise
         except BaseException as exc:  # noqa: BLE001 - 钩子失败即本轮失败
             raise RuntimeError(f"turn output hook: {exc}") from exc
         if not buffer_output:
@@ -510,48 +525,20 @@ async def _load_context(agent: Any, ctx: Any, session_id: str) -> Any:
         if hasattr(result, "__await__"):
             result = await result
         return result
-    try:
-        from atri_x.agent.context_runtime import ensure_context_runtime
-
-        return await ensure_context_runtime(agent).load(ctx, session_id)
-    except ImportError:  # pragma: no cover - 同僚模块缺失时的最小加载
-        from atri_x.contextmgr import Loader, LoadedContext
-
-        store = getattr(agent, "store", None)
-        if store is None:
-            return LoadedContext()
-        return Loader(store).load(ctx, session_id)
+    return await ensure_context_runtime(agent).load(ctx, session_id)
 
 
 def _prompt_build_request(
     agent: Any, ctx: Any, session: Any, scope: Any, messages: list[Message], summary: Any
 ) -> Any:
     """构造 ``PromptBuildRequest``。对应 Go ``PromptBuildRequest`` 字面量。"""
-    try:
-        from atri_x.agent.prompt import PromptBuildRequest
-
-        return PromptBuildRequest(
-            session=session,
-            scope=scope,
-            meta=agent.conversation_meta(ctx, scope),
-            messages=messages,
-            summary=summary,
-        )
-    except ImportError:  # pragma: no cover - 同僚模块缺失
-        return _FallbackPromptBuildRequest(
-            session=session, scope=scope, meta=None, messages=messages, summary=summary
-        )
-
-
-@dataclass
-class _FallbackPromptBuildRequest:
-    """``PromptBuildRequest`` 的最小替身（字段名与 Go 一致）。"""
-
-    session: Any = None
-    scope: Any = None
-    meta: Any = None
-    messages: list[Any] = None  # type: ignore[assignment]
-    summary: Any = None
+    return PromptBuildRequest(
+        session=session,
+        scope=scope,
+        meta=agent.conversation_meta(ctx, scope),
+        messages=messages,
+        summary=summary,
+    )
 
 
 def _receipt_of(err: BaseException) -> Any:
@@ -561,49 +548,17 @@ def _receipt_of(err: BaseException) -> Any:
 
 
 def _stored_segments(segments: list[Any]) -> str:
-    """把分段序列化成落库形态。同僚模块缺失时退回纯文本。"""
-    try:
-        from atri_x.agent.tool_transcript import stored_message_segments
-
-        return stored_message_segments(segments)
-    except ImportError:  # pragma: no cover - 同僚模块缺失
-        from atri_x.llm import segments_content_text as content_text
-
-        return content_text(segments)
+    """把分段序列化成落库形态。对应 Go ``storedMessageSegments``。"""
+    return stored_message_segments(segments)
 
 
 def _assistant_metadata(content: str, raw_text: str) -> str:
-    """助手消息的 metadata（含原始文本）。同僚模块缺失时留空。"""
-    try:
-        from atri_x.agent.tool_transcript import assistant_raw_text_metadata
-
-        return assistant_raw_text_metadata(content, raw_text)
-    except ImportError:  # pragma: no cover - 同僚模块缺失
-        return ""
+    """助手消息的 metadata（含原始文本）。"""
+    return assistant_raw_text_metadata(content, raw_text)
 
 
 async def _mutate_metadata(
     agent: Any, ctx: Any, session: Any, mutate: Any
 ) -> None:
-    """改会话 metadata。同僚模块缺失时退化为直接写回会话对象。"""
-    try:
-        from atri_x.agent.tool_cache import mutate_session_metadata
-
-        await mutate_session_metadata(agent, ctx, session, mutate)
-        return
-    except ImportError:  # pragma: no cover - 同僚模块缺失
-        pass
-    from atri_x.agent.session_metadata import (
-        decode_session_metadata,
-        encode_session_metadata_into,
-    )
-
-    metadata = decode_session_metadata(getattr(session, "metadata", "") or "")
-    if not mutate(metadata):
-        return
-    session.metadata = encode_session_metadata_into(
-        getattr(session, "metadata", "") or "", metadata
-    )
-    store = getattr(agent, "store", None)
-    if store is not None:
-        store.sessions().mutate(session.id, lambda current: setattr(current, "metadata", session.metadata))
+    """改会话 metadata。对应 Go ``mutateSessionMetadata``。"""
+    await mutate_session_metadata(agent, ctx, session, mutate)

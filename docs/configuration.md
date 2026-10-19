@@ -801,6 +801,11 @@ max_rounds_per_turn = 10
 [security]
 user_max_tool_risk = "low"
 superadmin_confirm_risk = "high"
+# 后台（cron / Atrinis）无人值守时允许自动执行的 shell 命令名；
+# 不写 = 用内置只读白名单，写空数组 = 后台 shell 全部拒绝
+background_shell_allow = ["ls", "cat", "git"]
+# 显式恢复旧行为（后台 shell 只拦 critical，其余自动放行）；默认 false
+background_shell_allow_all = false
 
 [security.superadmins]
 cli = ["local"]
@@ -809,6 +814,8 @@ cli = ["local"]
 - 普通用户只能发现和调用允许风险范围内的工具；工具通过权限校验后，`high`/`critical` 风险调用还需要当前用户确认。
 - `OwnerScoped` 工具只能访问调用者自己的数据，因此普通用户可以调用；其中 `high`/`critical` 风险操作仍需本人确认。
 - 超级管理员的确认阈值由 `superadmin_confirm_risk` 配置。
+- 后台（cron / Atrinis）无人值守的 shell **默认拒绝**：只有"整条命令判为 `low` + 真实命令名都在白名单里"才会自动执行；`background_shell_allow` 不写时用内置只读表（`ls` / `cat` / `git status` 这类），需要跑脚本或构建命令时把它加进白名单。风险分级会解开 `env` / `command` / `nohup` / `timeout` / `nice` / `setsid` / `xargs` / `busybox` / `chroot` / `ssh` / `watch` 等包装器，并递归解析 `bash -c` / `eval` / `trap` / `find -exec` / `awk 'system(...)'` 里的脚本文本，因此包装器遮不住危险命令。Windows（PowerShell）主机没有 bash AST 可判，后台默认直接拒绝。
+- `background_shell_allow_all = true` 会恢复旧行为（只拦 `critical`，其余自动确认执行）。它等于把无人值守的 shell 交给模型自行决定，除非明确知情否则不要打开。
 - CLI 默认本地用户 `local` 是超级管理员。
 - `tool_tags.toml` 用来配置 `@tool:<tag>` 可注入的工具组，以及 tag 激活后追加到 system prompt 的工具使用策略。
 - 如果向普通用户开放生图，建议保持 `services.toml` 的 `[image_generation] superadmin_only = true`，或在中转站按 Key 设置额度、限速和每日上限；详见[生图服务](image-generation.md#权限与费用)。

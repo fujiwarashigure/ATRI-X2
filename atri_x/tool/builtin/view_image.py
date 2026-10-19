@@ -267,7 +267,10 @@ class ViewImageTool:
         if meta is not None and getattr(meta, "mime_type", ""):
             mime_type = meta.mime_type
         try:
-            prepare_vision_image_context(ctx, data, mime_type, 0, 0)
+            # 解码校验是纯 CPU（大图可达十几秒）：放进工作线程，别冻住事件循环。
+            await asyncio.to_thread(
+                prepare_vision_image_context, ctx, data, mime_type, 0, 0
+            )
         except BaseException as exc:  # noqa: BLE001
             _raise_if_cancelled(exc)
             raise InvalidError("媒体不是有效或支持的图片") from exc

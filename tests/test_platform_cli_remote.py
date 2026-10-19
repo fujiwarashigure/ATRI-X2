@@ -14,6 +14,7 @@ import asyncio
 import inspect
 import os
 import unittest
+from unittest import mock
 
 from atri_x.agent.status import publish_runtime_status
 from atri_x.agent.turn_output import start_message_stream
@@ -29,7 +30,8 @@ from atri_x.delivery.delivery import (
 )
 from atri_x.errors import AtriXError, InvalidError
 from atri_x.net import websocket as ws
-from atri_x.platform.cli.config import Config, ClientConfig, ServerConfig
+from atri_x.platform.cli import remote_server as remote_server_module
+from atri_x.platform.cli.config import Config, ClientConfig, ServerConfig, DEFAULT_REMOTE_PATH
 from atri_x.platform.cli.protocol import (
     REMOTE_MSG_CHAT,
     REMOTE_MSG_COMPLETE_RESULT,
@@ -38,6 +40,7 @@ from atri_x.platform.cli.protocol import (
     REMOTE_MSG_HELLO_OK,
     REMOTE_MSG_INPUT,
     REMOTE_MSG_NOTICE,
+    REMOTE_MSG_SESSIONS,
     REMOTE_MSG_STATUS,
     RemoteMessage,
     level_text,
@@ -48,6 +51,9 @@ from atri_x.platform.cli.remote_client import (
     new_remote_client,
 )
 from atri_x.platform.cli.remote_server import (
+    MAX_CONCURRENT_INPUTS,
+    READ_HEADER_TIMEOUT,
+    READ_TIMEOUT,
     RemoteClientConn,
     RemoteMessageStream,
     RemoteServer,
@@ -939,6 +945,146 @@ class TestRemoteClient(unittest.IsolatedAsyncioTestCase):
                 await asyncio.wait_for(runner, WAIT)
             except (AtriXError, asyncio.CancelledError, asyncio.TimeoutError):
                 runner.cancel()
+
+
+class TestRemoteServerGuardrails(RemoteServerTestCase):
+    """Python 版护栏（Go 侧没有）：单帧读超时、``input`` 并发上限、token 定长比较。
+
+    回归的是端口暴露面：``ws.serve`` 不传 ``read_timeout`` 时一条不说话的连接可以永久
+    占住服务端任务；``input`` 帧没有并发上限时一个客户端能无限并发触发 LLM 请求。
+    """
+
+    async def test_run_passes_read_timeout_to_serve(self) -> None:
+        captured: dict = {}
+
+        class _FakeServer:
+            port = 0
+
+            async def close(self) -> None:
+                return None
+
+        async def fake_serve(handler, host, port, **kwargs):
+            captured.update(kwargs)
+            captured["host"], captured["port"] = host, port
+            return _FakeServer()
+
+        ctx = CancelToken()
+        server = new_remote_server(RemoteServerOptions(config=server_config(), config_dir=""))
+        with mock.patch.object(remote_server_module.ws, "serve", fake_serve):
+            runner = asyncio.ensure_future(server.run(ctx, RecordingHandler()))
+            for _ in range(200):
+                if captured:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertEqual(captured.get("read_timeout"), READ_TIMEOUT)
+            self.assertEqual(captured.get("handshake_timeout"), READ_HEADER_TIMEOUT)
+            self.assertEqual(captured.get("path"), DEFAULT_REMOTE_PATH)
+            ctx.cancel("guard test done")
+            with self.assertRaises(AtriXError):
+                await asyncio.wait_for(runner, WAIT)
+        self.assertEqual(server.pending_tasks(), set())
+
+    async def test_idle_authenticated_connection_is_dropped_by_read_timeout(self) -> None:
+        """鉴权之后的空闲连接必须被单帧读超时踢掉（用很小的 READ_TIMEOUT 验行为）。"""
+        with mock.patch.object(remote_server_module, "READ_TIMEOUT", 0.2):
+            await self.start_server(RecordingHandler())
+            try:
+                connection = await self.connect()
+                self.assertEqual((await self.handshake(connection)).type, REMOTE_MSG_HELLO_OK)
+                with self.assertRaises(ws.ConnectionClosed):
+                    await asyncio.wait_for(connection.recv(), WAIT)
+            finally:
+                await self.stop_server()
+
+    async def test_input_frames_are_concurrency_limited(self) -> None:
+        gate = asyncio.Event()
+        started: list[str] = []
+
+        class BlockingHandler:
+            async def handle_message(self, ctx, value: str) -> None:
+                started.append(value)
+                await gate.wait()
+
+        await self.start_server(BlockingHandler())
+        try:
+            connection = await self.connect()
+            await self.handshake(connection)
+            for index in range(MAX_CONCURRENT_INPUTS + 2):
+                await connection.send_text(
+                    _json(RemoteMessage(type=REMOTE_MSG_INPUT, text=f"m{index}"))
+                )
+            # 超限的 2 帧按现有协议风格回 error
+            for _ in range(2):
+                raw = await asyncio.wait_for(connection.recv(), WAIT)
+                message = RemoteMessage.from_json(_decode(raw))
+                self.assertEqual(message.type, REMOTE_MSG_ERROR)
+                self.assertIn("too many concurrent inputs", message.text)
+            for _ in range(200):
+                if len(started) >= MAX_CONCURRENT_INPUTS:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertEqual(len(started), MAX_CONCURRENT_INPUTS)  # 只有上限个真正跑起来
+            gate.set()
+            for _ in range(200):
+                if not self.server.pending_tasks():
+                    break
+                await asyncio.sleep(0.01)
+            self.assertEqual(self.server.pending_tasks(), set())
+            # 名额必须都还回来，否则后续 input 会被永久拒绝
+            self.assertFalse(self.server._input_slots.locked())  # noqa: SLF001
+        finally:
+            gate.set()
+            await self.stop_server()
+
+    async def test_input_limit_is_logged_and_does_not_block_reading(self) -> None:
+        """超限只回错并记日志：读循环继续，``sessions`` 这类帧仍能被受理。"""
+
+        class RecordingLogger:
+            def __init__(self) -> None:
+                self.warnings: list[str] = []
+
+            def warning(self, message: str, *args) -> None:
+                self.warnings.append(message % args if args else message)
+
+        gate = asyncio.Event()
+
+        class BlockingHandler:
+            async def handle_message(self, ctx, value: str) -> None:
+                await gate.wait()
+
+        await self.start_server(BlockingHandler())
+        try:
+            logger = RecordingLogger()
+            self.server.logger = logger
+            connection = await self.connect()
+            await self.handshake(connection)
+            for index in range(MAX_CONCURRENT_INPUTS + 1):
+                await connection.send_text(
+                    _json(RemoteMessage(type=REMOTE_MSG_INPUT, text=f"m{index}"))
+                )
+            raw = await asyncio.wait_for(connection.recv(), WAIT)
+            self.assertEqual(RemoteMessage.from_json(_decode(raw)).type, REMOTE_MSG_ERROR)
+            self.assertTrue(logger.warnings)
+            self.assertIn("inputs already in flight", logger.warnings[0])
+            # 读循环没有被挡住：sessions 帧照常回结果
+            await connection.send_text(_json(RemoteMessage(type=REMOTE_MSG_SESSIONS, id="s-1")))
+            raw = await asyncio.wait_for(connection.recv(), WAIT)
+            self.assertEqual(RemoteMessage.from_json(_decode(raw)).type, "sessions_result")
+        finally:
+            gate.set()
+            await self.stop_server()
+
+    async def test_valid_token_rejects_prefix_and_non_ascii(self) -> None:
+        server = await self.start_server(RecordingHandler())
+        try:
+            self.assertTrue(server.valid_token("local", "secret-token"))
+            self.assertFalse(server.valid_token("local", "secret-toke"))  # 前缀
+            self.assertFalse(server.valid_token("local", "secret-token "))  # 尾随空白
+            self.assertFalse(server.valid_token("local", "秘密"))
+            # 客户端 JSON 里的孤立代理对：compare_digest 不能因此抛 UnicodeEncodeError
+            self.assertFalse(server.valid_token("local", "\ud800"))
+        finally:
+            await self.stop_server()
 
 
 if __name__ == "__main__":  # pragma: no cover

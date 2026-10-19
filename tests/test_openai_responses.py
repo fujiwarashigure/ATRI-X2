@@ -25,6 +25,7 @@ from atri_x.llm.openai.responses import (
     ResponsesAdapter,
 )
 from atri_x.llm.openai.wire import RequestOptions
+from atri_x.net.httpclient import HTTPStream
 from tests.test_openai_adapter import (
     FakeServer,
     _StreamCase,
@@ -531,6 +532,42 @@ class TestResponsesRequestEnvelope(_ResponsesCase):
         client = self.make_responses(server.url, "test-key")
         self.assertEqual(await client.list_models(None), ["m1"])
         self.assertEqual(server.records[0]["path"], "/models")
+
+
+class TestResponsesTransportWiring(_ResponsesCase):
+    """Responses 适配器继承同一套传输：流式也必须走 ``HTTPClient.open_stream``。"""
+
+    async def test_stream_goes_through_httpclient_open_stream(self) -> None:
+        server = self.responses_server(
+            ['data: {"type":"response.completed","response":{"status":"completed"}}']
+        )
+        client = self.make_responses(server.url + "/v1", "test-key")
+        ctx = object()
+        seen = self.spy_open_stream(client)
+
+        _, _, finish, _, _, error = await self.collect(client.chat_stream(ctx, self.request()))
+
+        self.assertIsNone(error)
+        self.assertEqual(finish, "stop")
+        self.assertEqual(server.records[0]["path"], "/v1/responses")
+        self.assertEqual(len(seen["calls"]), 1)
+        args, kwargs = seen["calls"][0]
+        self.assertEqual(args, ("POST", client.endpoint()))
+        self.assertEqual(kwargs["read_timeout"], 0)
+        self.assertIs(kwargs["follow_redirects"], True)
+        self.assertIs(kwargs["cancel"], ctx)
+        self.assertIsInstance(seen["streams"][0], HTTPStream)
+
+    async def test_models_goes_through_httpclient_request(self) -> None:
+        """``/models`` 是父类实现的非流式路径：也必须走 HTTPClient.request。"""
+        server = self.start_server(lambda handler, record: write_body(handler, '{"data":[]}'))
+        client = self.make_responses(server.url, "test-key")
+        seen = self.spy_request(client)
+
+        self.assertEqual(await client.list_models(None), [])
+        args, kwargs = seen["calls"][0]
+        self.assertEqual(args, ("GET", client.models_endpoint()))
+        self.assertIsNone(kwargs.get("retry"))
 
 
 if __name__ == "__main__":

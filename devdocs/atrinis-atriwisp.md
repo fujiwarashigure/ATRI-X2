@@ -442,7 +442,7 @@ data/sandbox/atrinis/<atriwisp-name>/
 
 风险策略建议：
 
-- native 工具继续使用 ATRI-X 的 Security Policy、风险评估和高风险确认；cron/Atrinis 后台 sandbox 中的 shell 非 critical 自动确认，critical 会提示改用相对路径并限制在 sandbox 内。
+- native 工具继续使用 ATRI-X 的 Security Policy、风险评估和高风险确认；cron/Atrinis 后台 sandbox 中的 shell 采用**默认拒绝 + 只读白名单**（`security.background_shell_allow`，`security.background_shell_allow_all` 可恢复旧的"非 critical 自动确认"行为），包装器与 `-c` 内层脚本会被递归解析，PowerShell 主机默认直接拒绝。
 - Atriwisp 工具在 Atrinis 侧按无人值守外部工具处理，默认视为 low，不触发 ATRI-X 高风险确认；执行影响由 Atriwisp 所在环境自行负责。
 - 恢复历史 Atriwisp session 时，即使原 Atriwisp 工具已不可用，ToolRun 仍保留缓存 schema；若 LLM 再调用，应返回工具已失效或当前不可用提示。
 - 工具结果、拒绝原因、风险等级、source 和 canonical name 继续进入工具调用记录与审计。

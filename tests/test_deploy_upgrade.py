@@ -14,6 +14,23 @@
 
 未设置这两个变量时钩子是空操作，生产路径零开销。
 
+**但伪造表本身不够**：``deploy/_proc.py:compose_command()`` 先做存在性探测
+``has_command("docker")``（= ``shutil.which``），这一步**不经过**上面两个钩子。
+宿主机没装 Docker 时它直接 ``die("未找到 Docker Compose")``，伪造表根本到不了，
+整套用例就退化成"必须在装了 Docker 的机器上才能跑"。因此夹具额外在 PATH 最前面
+放一组**空壳** ``docker`` / ``docker-compose`` / ``git``：它们只用于让 ``which``
+命中（``which`` 跟 ``PATHEXT`` 走，空壳不会被执行），真正要跑的命令仍然先命中伪造表。
+这样"有 Docker 的机器"和"没 Docker 的机器"跑的是同一条代码路径。
+
+**严格模式（本轮加固）**：``ATRIX_DEPLOY_FAKE_CAPTURE`` 一旦设置，规则文件缺失 /
+JSON 损坏 / 未命中任何规则都会抛 ``AssertionError``（消息带全 argv 与规则文件路径），
+**绝不回落到真实执行**——过去未命中会静默去跑真实 ``docker`` / ``git``。规则条目支持
+结构化的 ``argv``（完整序列，完全相等）与 ``argv_prefix``（前缀），``match`` 子串
+保留兼容；同一个条目里声明的多个谓词是「与」关系，先匹配先赢。夹具自己的本地替身
+脚本（``backup.py`` / ``restore_verify.py``，见 :meth:`UpgradeFixture.helper_passthroughs`）
+用逐条 ``"real": true`` 白名单允许真跑，而不是全局打开
+``ATRIX_DEPLOY_FAKE_ALLOW_REAL=1``——后者会让任何未命中命令落到真机。
+
 要守住的三条关键行为（上游各自对应一个用例）：
 
 1. ``ATRIX_GIT_REF`` 必须先在 ``deploy/`` 下 ``rev-parse --show-toplevel`` 求出
@@ -37,42 +54,53 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_SRC = REPO_ROOT / "deploy"
 TMP_ROOT = REPO_ROOT / "tmp_deploy_upgrade_test"
 LIB_MODULES = ("_lib.py", "_libfs.py", "_envutil.py", "_proc.py", "_netutil.py", "_console.py")
 
+if str(DEPLOY_SRC) not in sys.path:
+    sys.path.insert(0, str(DEPLOY_SRC))
+
+import _proc  # noqa: E402  （伪造模式的直调单测用）
+
 #: 默认的伪造命令表：Compose 可用、有一个运行中的容器、镜像 tag/id 固定。
-#: 表按顺序匹配，**先匹配先赢**，所以 ``rev-parse --show-toplevel`` 必须排在
-#: 泛化的 ``git -C`` 之前。
+#: **结构化匹配**：``argv``（完整序列，完全相等）/ ``argv_prefix``（前缀）/
+#: ``match``（子串，兼容旧写法）在同一格里是「与」关系；条目之间先匹配先赢。
+#: 这里的每一条都被 upgrade.py / rollback.py 真实调用到（未命中会直接
+#: AssertionError），所以删掉任何一条都应当让对应用例变红。
 DEFAULT_FAKES = [
-    {"match": "docker compose version", "code": 0},
-    {"match": "rev-parse --show-toplevel", "code": 0, "stdout": ""},  # 由夹具填仓库根
-    {"match": "git -C", "code": 0},
-    {"match": "ps -q", "code": 0, "stdout": "fake-container-id\n"},
-    {"match": "Config.Image", "code": 0, "stdout": "atri-x:old-tag\n"},
-    {"match": "{{.Image}}", "code": 0, "stdout": "sha256:old-image-id\n"},
-    {"match": "RepoDigests", "code": 0, "stdout": ""},
-    {"match": "State.Health", "code": 0, "stdout": "healthy\n"},
-    {"match": "docker info", "code": 0},
-    {"match": "image inspect", "code": 0},
-    {"match": "docker tag", "code": 0},
-    {"match": "docker save", "code": 0},
-    {"match": "docker load", "code": 0},
-    {"match": "docker run", "code": 0},
-    # compose 的子命令要显式伪造，否则会真的去连 Docker 守护进程
-    # （报 npipe://./pipe/dockerDesktopLinuxEngine 找不到）。
-    # ⚠️ 匹配串**不能**写成 "compose up"：脚本生成的命令是
+    # Compose 前端探测（完整 argv：别把别的 version 探针也吃掉）
+    {"argv": ["docker", "compose", "version"], "code": 0},
+    # git：rev-parse 的 stdout 由 write_fakes 注入夹具仓库根
+    {"argv_prefix": ["git", "-C"], "match": "rev-parse --show-toplevel", "code": 0, "stdout": ""},
+    {"argv_prefix": ["git", "-C"], "match": "fetch --tags --force", "code": 0},
+    {"argv_prefix": ["git", "-C"], "match": "checkout --detach", "code": 0},
+    # compose 子命令：脚本生成的命令是
     #     docker compose -f <file> up -d --force-recreate atri-x
-    # `-f <file>` 夹在 `compose` 与子命令之间，所以 "compose up" 永远匹配不上。
-    # 用子命令自己的参数形态（`up -d` / `build atri-x` …）最稳。
-    {"match": "up -d", "code": 0},
-    {"match": "compose build atri-x", "code": 0},
-    {"match": "stop atri-x", "code": 0},
-    {"match": "compose restart", "code": 0},
-    {"match": "compose down", "code": 0},
-    {"match": "config check", "code": 0},
+    # `-f <file>` 夹在 `compose` 与子命令之间，所以前缀只能钉到 ``-f``，
+    # 子命令形态用 match 钉住（例如 "up -d"）；写 "compose up" 永远匹配不上。
+    {"argv_prefix": ["docker", "compose", "-f"], "match": "ps -q", "code": 0,
+     "stdout": "fake-container-id\n"},
+    {"argv_prefix": ["docker", "compose", "-f"], "match": "config check", "code": 0},
+    {"argv_prefix": ["docker", "compose", "-f"], "match": "up -d", "code": 0},
+    {"argv_prefix": ["docker", "compose", "-f"], "match": "build atri-x", "code": 0},
+    {"argv_prefix": ["docker", "compose", "-f"], "match": "stop atri-x", "code": 0},
+    # docker 直连命令
+    {"argv_prefix": ["docker", "inspect"], "match": "{{.Config.Image}}", "code": 0,
+     "stdout": "atri-x:old-tag\n"},
+    {"argv_prefix": ["docker", "inspect"], "match": "{{.Image}}", "code": 0,
+     "stdout": "sha256:old-image-id\n"},
+    {"argv_prefix": ["docker", "inspect"], "match": "State.Health", "code": 0,
+     "stdout": "healthy\n"},
+    {"argv_prefix": ["docker", "image", "inspect"], "match": "RepoDigests", "code": 0, "stdout": ""},
+    {"argv_prefix": ["docker", "image", "inspect"], "code": 0},
+    {"argv_prefix": ["docker", "tag"], "code": 0},
+    {"argv_prefix": ["docker", "save"], "code": 0},
+    {"argv_prefix": ["docker", "load"], "code": 0},
+    {"argv_prefix": ["docker", "run"], "code": 0},
 ]
 
 
@@ -87,6 +115,10 @@ class UpgradeFixture(unittest.TestCase):
         for path in (self.deploy, self.deploy / "backups", self.deploy / "data"):
             path.mkdir(parents=True, exist_ok=True)
         (self.repo / ".git").mkdir(exist_ok=True)
+
+        #: 空壳外部命令目录（只用于 ``shutil.which`` 命中，见模块 docstring）。
+        self.bin = self.tmp / "bin"
+        self.write_tool_stubs()
 
         for name in ("upgrade.py", "rollback.py", *LIB_MODULES):
             shutil.copy2(DEPLOY_SRC / name, self.deploy / name)
@@ -118,6 +150,39 @@ class UpgradeFixture(unittest.TestCase):
         shutil.rmtree(TMP_ROOT, ignore_errors=True)
 
     # ---------- 伪造与记录 ----------
+    def write_tool_stubs(self) -> None:
+        """写一组空壳 ``docker`` / ``docker-compose`` / ``git``，只为 ``which`` 命中。
+
+        存在的理由：``compose_command()`` 用 ``shutil.which`` 判断前端是否可用，
+        那一步不走伪造钩子。空壳因此**不需要**有任何行为——命令本身必须命中
+        ``ATRIX_DEPLOY_FAKE_CAPTURE`` 的伪造表；严格模式下漏了伪造表会直接
+        ``AssertionError``，根本走不到空壳（Windows 的 ``CreateProcess`` 也不会
+        执行 ``.cmd``，空壳本来就跑不起来），所以不存在"空壳兜底把问题掩盖掉"。
+        """
+        self.bin.mkdir(parents=True, exist_ok=True)
+        shell_body = "#!/bin/sh\nexit 0\n"
+        for name in ("docker", "docker-compose", "git"):
+            script = self.bin / name
+            script.write_text(shell_body, encoding="utf-8", newline="\n")
+            # POSIX 上 which 要求可执行位；Windows 上 chmod 是空操作。
+            script.chmod(0o755)
+            # Windows：shutil.which 按 PATHEXT 查找，文件名必须带 .cmd。
+            (self.bin / f"{name}.cmd").write_bytes(b"@echo off\r\nexit /b 0\r\n")
+
+    def helper_passthroughs(self) -> list[dict]:
+        """夹具自己的本地替身脚本：逐条 ``real: true`` 允许真正执行。
+
+        ``upgrade.py`` / ``rollback.py`` 会用 ``_lib.run_capture`` 去跑
+        ``backup.py`` / ``restore_verify.py``；它们是 :meth:`setUp` 写进夹具仓库的
+        小脚本，副作用（生成备份 tar 等）正是用例要断言的东西，所以必须真跑。
+        用逐条白名单而不是全局 ``ATRIX_DEPLOY_FAKE_ALLOW_REAL=1``：后者会让
+        **任何**未命中命令（包括真 docker）落到真机，等于把 fail-closed 关掉。
+        """
+        return [
+            {"argv_prefix": [sys.executable, str(self.deploy / name)], "real": True}
+            for name in ("backup.py", "restore_verify.py")
+        ]
+
     def write_fakes(self, fakes: list[dict]) -> None:
         """写伪造命令表；``rev-parse`` 的 stdout 由夹具注入仓库根。
 
@@ -132,7 +197,18 @@ class UpgradeFixture(unittest.TestCase):
             if item.get("match") == "rev-parse --show-toplevel" and not item.get("stdout"):
                 item["stdout"] = f"{self.repo}\n"
             prepared.append(item)
-        self.fake_file.write_text(json.dumps(prepared, ensure_ascii=False), encoding="utf-8")
+        prepared.extend(self.helper_passthroughs())
+        self.fake_file.write_text(
+            json.dumps(prepared, ensure_ascii=False), encoding="utf-8", newline="\n"
+        )
+
+    def without_rule(self, **predicate) -> list[dict]:
+        """复制默认伪造表并**删掉**所有满足 ``predicate`` 的条目（负向用例用）。"""
+        return [
+            entry
+            for entry in DEFAULT_FAKES
+            if not all(entry.get(key) == value for key, value in predicate.items())
+        ]
 
     def commands(self) -> list[str]:
         """读记录下来的外部命令列表。"""
@@ -149,8 +225,13 @@ class UpgradeFixture(unittest.TestCase):
         """跑脚本；把记录与伪造钩子通过环境变量传下去。"""
         merged = dict(os.environ)
         merged["PYTHONIOENCODING"] = "utf-8"
+        # 空壳命令目录放到 PATH 最前：让 has_command("docker"/"git") 在没有真
+        # Docker / git 的机器上也成立（命令本身仍由伪造表接管）。
+        merged["PATH"] = str(self.bin) + os.pathsep + merged.get("PATH", "")
         merged["ATRIX_DEPLOY_RECORD"] = str(self.record)
         merged["ATRIX_DEPLOY_FAKE_CAPTURE"] = str(self.fake_file)
+        # 默认关掉"允许回落到真实执行"的逃生开关，保证用例验证的是 fail-closed。
+        merged["ATRIX_DEPLOY_FAKE_ALLOW_REAL"] = ""
         merged["ATRIX_UPGRADE_SKIP_DOCTOR"] = "1"
         if env:
             merged.update(env)
@@ -191,7 +272,7 @@ class TestUpgradeVersionGuard(UpgradeFixture):
 
     def test_missing_container_fails_with_guidance(self) -> None:
         self.write_fakes(
-            [dict(entry, stdout="", code=0) if entry["match"] == "ps -q" else entry
+            [dict(entry, stdout="", code=0) if entry.get("match") == "ps -q" else entry
              for entry in DEFAULT_FAKES]
         )
         result = self.run_script("upgrade.py", env={"ATRIX_VERSION": "0.6.3"})
@@ -380,13 +461,214 @@ class TestRollbackPrechecks(UpgradeFixture):
             newline="\n",
         )
         self.write_fakes(
-            [{"match": "docker load", "code": 1, "stderr": "load failed\n"}, *DEFAULT_FAKES]
+            [{"argv_prefix": ["docker", "load"], "code": 1, "stderr": "load failed\n"}, *DEFAULT_FAKES]
         )
         result = self.run_script("rollback.py", env={"ROLLBACK_CONFIRM": "1"})
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("载入上一版镜像失败", result.stderr)
         self.assertTrue((self.deploy / "data").is_dir())
         self.assertEqual(list(self.deploy.glob("data.before-rollback-*")), [])
+
+
+class TestFakeRulesAreRequired(UpgradeFixture):
+    """负向：故意删掉一条规则 → 升级必须失败，且不碰真实 docker。
+
+    这条负向演示同时钉住两件事：
+
+    * 伪造模式是 fail-closed 的（``deploy/_proc.py`` 未命中抛 ``AssertionError``）；
+    * 删掉的那条规则确实"有用"——否则它只是夹具里的死条目。
+    """
+
+    def test_removed_docker_save_rule_fails_closed(self) -> None:
+        self.write_fakes(self.without_rule(argv_prefix=["docker", "save"]))
+        result = self.run_script("upgrade.py", env={"ATRIX_VERSION": "0.6.3"})
+        self.assertNotEqual(result.returncode, 0)
+        # 断言消息里有全 argv 与规则文件路径，便于定位漏掉的规则
+        self.assertIn("AssertionError", result.stderr)
+        self.assertIn("ATRIX_DEPLOY_FAKE_CAPTURE", result.stderr)
+        self.assertIn("docker save", result.stderr)
+        self.assertIn(str(self.fake_file), result.stderr)
+        # 记录文件最后一条正是那条未命中的命令：脚本停在这里，没有继续往下跑
+        commands = self.commands()
+        self.assertTrue(commands, "夹具没有记录到任何外部命令")
+        self.assertTrue(commands[-1].startswith("docker save"), commands[-3:])
+        # 失败发生在 save_previous_image：回滚信息与后续构建都不该发生
+        self.assertFalse((self.deploy / "rollback" / "rollback.env").exists())
+        self.assertEqual(self.matching("build atri-x"), [])
+        self.assertEqual(self.matching("up -d"), [])
+
+    def test_removed_compose_version_rule_fails_closed(self) -> None:
+        self.write_fakes(self.without_rule(argv=["docker", "compose", "version"]))
+        result = self.run_script("upgrade.py", env={"ATRIX_VERSION": "0.6.3"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("AssertionError", result.stderr)
+        self.assertIn("docker compose version", result.stderr)
+        self.assertEqual(self.matching("build atri-x"), [])
+
+    def test_rule_with_wrong_argv_prefix_does_not_match(self) -> None:
+        """结构化匹配真的在比对参数序列：前缀不对就不命中（而不是退化成子串）。"""
+        rules = self.without_rule(argv_prefix=["docker", "save"])
+        rules.append({"argv_prefix": ["docker", "save", "--definitely-not"], "code": 0})
+        self.write_fakes(rules)
+        result = self.run_script("upgrade.py", env={"ATRIX_VERSION": "0.6.3"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("AssertionError", result.stderr)
+        self.assertIn("docker save", result.stderr)
+
+
+class TestFakeCaptureStrictMode(unittest.TestCase):
+    """``deploy/_proc.py`` 伪造模式的直接单测（不跑脚本，不碰真机）。"""
+
+    def setUp(self) -> None:
+        shutil.rmtree(TMP_ROOT, ignore_errors=True)
+        self.tmp = TMP_ROOT
+        self.tmp.mkdir(parents=True, exist_ok=True)
+        self.rules = self.tmp / "rules.json"
+
+    def tearDown(self) -> None:
+        shutil.rmtree(TMP_ROOT, ignore_errors=True)
+
+    def write_rules(self, payload) -> None:
+        text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+        self.rules.write_text(text, encoding="utf-8", newline="\n")
+
+    def fake_env(self, **extra):
+        """伪造模式环境；默认显式关掉全局逃生开关。"""
+        env = {
+            "ATRIX_DEPLOY_FAKE_CAPTURE": str(self.rules),
+            "ATRIX_DEPLOY_FAKE_ALLOW_REAL": "",
+        }
+        env.update(extra)
+        return mock.patch.dict(os.environ, env)
+
+    def spy_run(self):
+        return mock.patch.object(
+            _proc.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")
+        )
+
+    def test_missing_rule_file_fails_and_never_runs(self) -> None:
+        with self.fake_env(), self.spy_run() as run:
+            with self.assertRaises(AssertionError) as caught:
+                _proc.run_capture(["docker", "ps"])
+            run.assert_not_called()
+        message = str(caught.exception)
+        self.assertIn("docker ps", message)
+        self.assertIn(str(self.rules), message)
+
+    def test_corrupt_json_fails_and_never_runs(self) -> None:
+        self.write_rules("{ this is not json")
+        with self.fake_env(), self.spy_run() as run:
+            with self.assertRaises(AssertionError) as caught:
+                _proc.run_capture(["docker", "ps"])
+            run.assert_not_called()
+        self.assertIn("JSON", str(caught.exception))
+
+    def test_unmatched_argv_raises_with_full_argv(self) -> None:
+        self.write_rules([{"argv": ["docker", "version"], "code": 0}])
+        argv = ["docker", "volume", "prune", "-f"]
+        with self.fake_env(), self.spy_run() as run:
+            with self.assertRaises(AssertionError) as caught:
+                _proc.run_capture(argv)
+            run.assert_not_called()
+        message = str(caught.exception)
+        self.assertIn("全部未命中", message)
+        for part in argv:
+            self.assertIn(part, message)
+        self.assertIn(str(self.rules), message)
+
+    def test_structured_argv_is_exact_and_prefix_is_prefix(self) -> None:
+        self.write_rules(
+            [
+                {"argv": ["docker", "version", "--format", "{{.Server.Version}}"],
+                 "code": 0, "stdout": "27.3.1\n"},
+                {"argv_prefix": ["docker", "compose", "-f"], "code": 3, "stdout": "prefix\n"},
+            ]
+        )
+        with self.fake_env(), self.spy_run() as run:
+            exact = _proc.run_capture(["docker", "version", "--format", "{{.Server.Version}}"])
+            prefix = _proc.run_capture(["docker", "compose", "-f", "x.yml", "ps", "-q"])
+            run.assert_not_called()
+            with self.assertRaises(AssertionError):
+                # argv 是完全相等：多一个参数就不该命中
+                _proc.run_capture(["docker", "version", "--format", "{{.Server.Version}}", "--debug"])
+        self.assertEqual((exact.returncode, exact.stdout), (0, "27.3.1\n"))
+        self.assertEqual((prefix.returncode, prefix.stdout), (3, "prefix\n"))
+
+    def test_match_substring_still_supported(self) -> None:
+        self.write_rules([{"match": "volume create", "code": 0, "stdout": "made\n"}])
+        with self.fake_env(), self.spy_run() as run:
+            done = _proc.run_capture(["docker", "volume", "create", "v1"])
+            run.assert_not_called()
+        self.assertEqual(done.stdout, "made\n")
+
+    def test_all_declared_predicates_must_hold(self) -> None:
+        self.write_rules([{"argv_prefix": ["docker", "save"], "match": "never", "code": 0}])
+        with self.fake_env(), self.spy_run() as run:
+            with self.assertRaises(AssertionError):
+                _proc.run_capture(["docker", "save", "-o", "x.tar"])
+            run.assert_not_called()
+
+    def test_real_rule_allows_execution(self) -> None:
+        self.write_rules([{"argv_prefix": [sys.executable, "helper.py"], "real": True}])
+        argv = [sys.executable, "helper.py", "arg"]
+        with self.fake_env(), self.spy_run() as run:
+            done = _proc.run_capture(argv)
+        self.assertEqual(done.returncode, 0)
+        run.assert_called_once()
+        self.assertEqual(list(run.call_args.args[0]), argv)
+
+    def test_allow_real_env_is_the_only_global_escape_hatch(self) -> None:
+        self.write_rules([{"match": "nothing", "code": 0}])
+        with self.fake_env(ATRIX_DEPLOY_FAKE_ALLOW_REAL="1"), self.spy_run() as run:
+            _proc.run_capture(["docker", "ps"])
+        run.assert_called_once()
+
+    def test_invalid_entries_are_fixture_errors(self) -> None:
+        cases = (
+            ([{"code": 0}], "没有匹配谓词"),
+            ([{"argv": ["docker"], "code": 0, "typo": 1}], "未知键"),
+            ([{"argv": [], "code": 0}], "非空字符串列表"),
+            ([{"argv": [1, 2], "code": 0}], "非空字符串列表"),
+            ([{"match": "x", "real": "yes"}], "true/false"),
+            ([{"match": "x", "real": True, "code": 0}], "real=true"),
+            ([{"match": "x", "code": "zero"}], "不是整数"),
+            ({"count": 1}, "顶层必须是 JSON 数组"),
+        )
+        for payload, expected in cases:
+            with self.subTest(expected=expected):
+                self.write_rules(payload)
+                with self.fake_env(), self.spy_run() as run:
+                    with self.assertRaises(AssertionError) as caught:
+                        _proc.run_capture(["docker", "ps"])
+                    run.assert_not_called()
+                self.assertIn(expected, str(caught.exception))
+
+    def test_run_inherit_is_strict_too(self) -> None:
+        self.write_rules([{"argv": ["docker", "compose", "version"], "code": 0}])
+        with self.fake_env(), self.spy_run() as run:
+            with self.assertRaises(AssertionError):
+                _proc.run_inherit(["docker", "save", "-o", "x.tar"])
+            run.assert_not_called()
+
+    def test_bad_entry_after_a_matching_one_is_still_rejected(self) -> None:
+        """整份规则表先校验：命中后面的拼写错误不能因为"先命中先赢"被跳过。"""
+        self.write_rules(
+            [
+                {"argv": ["docker", "ps"], "code": 0},
+                {"argv": ["docker", "ps"], "code": 0, "stduout": "typo"},
+            ]
+        )
+        with self.fake_env(), self.spy_run() as run:
+            with self.assertRaises(AssertionError) as caught:
+                _proc.run_capture(["docker", "ps"])
+            run.assert_not_called()
+        self.assertIn("未知键", str(caught.exception))
+
+    def test_no_fake_env_is_a_no_op(self) -> None:
+        with mock.patch.dict(os.environ, {"ATRIX_DEPLOY_FAKE_CAPTURE": ""}), self.spy_run() as run:
+            done = _proc.run_capture(["docker", "ps"])
+        self.assertEqual(done.returncode, 0)
+        run.assert_called_once()
 
 
 class TestDeclarativeFiles(unittest.TestCase):

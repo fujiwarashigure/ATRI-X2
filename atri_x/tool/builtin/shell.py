@@ -23,9 +23,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from atri_x.errors import InvalidError
+from atri_x.errors import ForbiddenError, InvalidError
 from atri_x.llm.llm import ToolSchema
 from atri_x.processenv import Environment
+from atri_x.security import compare_risk
 from atri_x.shellparse import ShellParseError, SimpleCommand, iter_nodes, parse
 from atri_x.tool.builder import Builder, required
 from atri_x.tool.builtin.common import first_file_guard
@@ -40,12 +41,24 @@ from atri_x.tool.builtin.shell_env import (
     resolve_windows_shell,
 )
 from atri_x.tool.builtin.shell_risk import classify_shell_command
-from atri_x.tool.builtin.shell_sandbox import apply_shell_sandbox_risk
+from atri_x.tool.builtin.shell_sandbox import (
+    BackgroundShellPolicy,
+    apply_background_shell_policy,
+    apply_shell_sandbox_risk,
+    is_unattended_background,
+)
 from atri_x.tool.builtin.shell_syntax import command_base, literal_word
 from atri_x.tool.builtin.shell_warnings import analyze_shell_advice
 from atri_x.tool.media_runtime import MediaCall, MediaInput, MediaRuntime
 from atri_x.tool.sandbox import sandbox_context_from_context
-from atri_x.tool.tool import CallRequest, Info, Result, RiskAssessment, RiskHigh
+from atri_x.tool.tool import (
+    CallRequest,
+    Info,
+    Result,
+    RiskAssessment,
+    RiskCritical,
+    RiskHigh,
+)
 from atri_x.tool.workspace import current_workspace_dir
 
 DEFAULT_SHELL_TIMEOUT = 10.0
@@ -83,6 +96,8 @@ class ShellTool:
         self.media: MediaRuntime | None = None
         self.file_guard = file_guard
         self.process_env = environment or Environment()
+        #: 后台（cron / Atrinis）无人值守时的放行策略；由装配层按 ``[security]`` 覆盖。
+        self.background_shell_policy = BackgroundShellPolicy()
 
     def name(self) -> str:
         return "shell"
@@ -108,6 +123,11 @@ class ShellTool:
         sandbox, ok = sandbox_context_from_context(ctx)
         if ok and sandbox.background:
             assessment = apply_shell_sandbox_risk(cmd_text, assessment)
+            if is_unattended_background(sandbox):
+                # 无人值守：默认拒绝 + 只读白名单（研究报告 §6 的 P0）。
+                assessment = apply_background_shell_policy(
+                    cmd_text, assessment, self.background_shell_policy
+                )
         if assessment.level == "":
             assessment.level = self.info().risk
         return assessment
@@ -122,8 +142,17 @@ class ShellTool:
             raise advice.block_err
 
     async def call(self, ctx: Any, req: CallRequest) -> Result:
-        """对应 Go ``ShellTool.Call``。"""
+        """对应 Go ``ShellTool.Call``。
+
+        与 Go 的差异（研究报告 §6 的 P0）：真正启动进程**之前**用执行时的 ctx 再做
+        一次后台策略复核（``background_execution_denial``）。评估阶段可能没有沙盒
+        ctx、也可能被确认阶段绕过（"本会话自动确认"），所以"排队之后、执行之前"必须
+        自己重新裁决；拒绝时抛 :class:`ForbiddenError`，不启动进程。
+        """
         args, cmd_text = decode_shell_args(req)
+        denial = background_execution_denial(ctx, cmd_text, self.background_shell_policy)
+        if denial != "":
+            raise ForbiddenError(f"background shell denied: {denial}")
         timeout = (
             args.timeout_ms / 1000 if args.timeout_ms > 0 else DEFAULT_SHELL_TIMEOUT
         )
@@ -220,6 +249,27 @@ async def resolve_shell_work_dir(ctx: Any) -> str:
             raise InvalidError(f"create shell sandbox: {exc}") from exc
         return os.path.normpath(sandbox.dir)
     return await current_workspace_dir(ctx)
+
+
+def background_execution_denial(
+    ctx: Any, cmd_text: str, policy: BackgroundShellPolicy
+) -> str:
+    """执行前的后台策略复核：返回拒绝原因，空串表示放行（非无人值守后台也放行）。
+
+    这里**不依赖工具 schema、也不依赖评估阶段的结果**：重新做一遍
+    ``classify + 沙盒加固 + 后台策略``，把"评估时看到的是 low、排队期间换成了别的
+    命令"或"确认阶段被前台自动确认放行"这两类绕过都堵在执行点上。
+    """
+    sandbox, ok = sandbox_context_from_context(ctx)
+    if not ok or not is_unattended_background(sandbox):
+        return ""
+    assessment = classify_shell_command(cmd_text)
+    assessment = apply_shell_sandbox_risk(cmd_text, assessment)
+    assessment = apply_background_shell_policy(cmd_text, assessment, policy)
+    if compare_risk(RiskCritical, assessment.level) > 0:
+        return ""
+    reasons = [reason for reason in assessment.reasons if reason]
+    return reasons[-1] if reasons else "后台无人值守策略拒绝执行"
 
 
 def reject_shell_directory_change(cmd_text: str) -> None:
@@ -353,7 +403,11 @@ async def _media_variables(
         media_id = MediaInput.from_dict(item).media_id
         try:
             path = await _cached_export(media_call, media_id)
-        except BaseException as exc:  # noqa: BLE001 - 统一转成可回喂的错误
+        except asyncio.CancelledError:
+            # 取消必须传播：转成 InvalidError 会让上游以为"只是媒体准备失败"，
+            # 把已经取消的调用继续当成普通错误处理。
+            raise
+        except Exception as exc:  # noqa: BLE001 - 统一转成可回喂的错误
             raise InvalidError(f"prepare shell media: {exc}") from exc
         variables[f"ATRIX_MEDIA_{position + 1}"] = path
     return variables
@@ -400,7 +454,8 @@ async def _close_media_call(media_call: Any) -> None:
         result = closer()
         if hasattr(result, "__await__"):
             await result
-    except BaseException:  # noqa: BLE001 - Go 用 errors.Join，这里不覆盖主错误
+    except Exception:  # noqa: BLE001 - Go 用 errors.Join，这里不覆盖主错误
+        # 只吞普通异常：CancelledError 属于取消传播，不能被"关闭失败"顺手抹掉。
         pass
 
 

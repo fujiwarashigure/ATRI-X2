@@ -19,13 +19,14 @@ import struct
 import zlib
 
 from .image import (
-    DEFAULT_MAX_PIXELS,
+    DEFAULT_MAX_DECODE_BYTES,
     MAX_EDGE,
     PNG_DEPTHS,
     Image,
     ImageDecodeError,
     ImageTooLargeError,
     UnsupportedImageError,
+    pixel_limit,
 )
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -67,46 +68,99 @@ def _bytewise_add(left: int, right: int, mask: int) -> int:
     return ((left & mask) + (right & mask)) ^ ((left ^ right) & ~mask)
 
 
-def _unfilter(raw: bytes | bytearray, row_bytes: int, height: int, bpp: int) -> bytearray:
-    """逐行还原滤波器 0-4，返回 ``height * row_bytes`` 的连续缓冲。"""
-    out = bytearray(height * row_bytes)
-    prev = bytearray(row_bytes)
-    mask = int.from_bytes(b"\x7f" * row_bytes, "big") if row_bytes else 0
-    pos = 0
-    for y in range(height):
-        if pos + row_bytes + 1 > len(raw):
-            raise ImageDecodeError("PNG 像素数据截断（滤波器行不完整）")
-        ftype = raw[pos]
-        pos += 1
-        line = bytearray(raw[pos : pos + row_bytes])
-        pos += row_bytes
-        if ftype == 1:
-            for i in range(bpp, row_bytes):
-                line[i] = (line[i] + line[i - bpp]) & 0xFF
-        elif ftype == 2:
-            if row_bytes >= 8:
-                value = _bytewise_add(
-                    int.from_bytes(line, "big"), int.from_bytes(prev, "big"), mask
-                )
-                line = bytearray(value.to_bytes(row_bytes, "big"))
-            else:
-                for i in range(row_bytes):
-                    line[i] = (line[i] + prev[i]) & 0xFF
-        elif ftype == 3:
-            for i in range(bpp):
-                line[i] = (line[i] + (prev[i] >> 1)) & 0xFF
-            for i in range(bpp, row_bytes):
-                line[i] = (line[i] + ((line[i - bpp] + prev[i]) >> 1)) & 0xFF
-        elif ftype == 4:
-            for i in range(bpp):
+def _row_mask(row_bytes: int) -> int:
+    """``_bytewise_add`` 用的字节掩码；``row_bytes < 8`` 时返回 0（走逐字节路径）。"""
+    if row_bytes < 8:
+        return 0
+    return int.from_bytes(b"\x7f" * row_bytes, "big")
+
+
+def _unfilter_row(
+    line: bytearray, prev: bytearray, bpp: int, ftype: int, mask: int
+) -> None:
+    """就地还原一行滤波器 0-4；``prev`` 是上一行还原后的原始字节。"""
+    row_bytes = len(line)
+    if ftype == 0:
+        return
+    if ftype == 1:
+        for i in range(bpp, row_bytes):
+            line[i] = (line[i] + line[i - bpp]) & 0xFF
+    elif ftype == 2:
+        if mask:
+            value = _bytewise_add(
+                int.from_bytes(line, "big"), int.from_bytes(prev, "big"), mask
+            )
+            line[:] = value.to_bytes(row_bytes, "big")
+        else:
+            for i in range(row_bytes):
                 line[i] = (line[i] + prev[i]) & 0xFF
-            for i in range(bpp, row_bytes):
-                line[i] = (line[i] + _paeth(line[i - bpp], prev[i], prev[i - bpp])) & 0xFF
-        elif ftype != 0:
-            raise ImageDecodeError(f"PNG 滤波器类型 {ftype} 无效")
-        out[y * row_bytes : (y + 1) * row_bytes] = line
-        prev = line
-    return out
+    elif ftype == 3:
+        for i in range(bpp):
+            line[i] = (line[i] + (prev[i] >> 1)) & 0xFF
+        for i in range(bpp, row_bytes):
+            line[i] = (line[i] + ((line[i - bpp] + prev[i]) >> 1)) & 0xFF
+    elif ftype == 4:
+        for i in range(bpp):
+            line[i] = (line[i] + prev[i]) & 0xFF
+        for i in range(bpp, row_bytes):
+            line[i] = (line[i] + _paeth(line[i - bpp], prev[i], prev[i - bpp])) & 0xFF
+    else:
+        raise ImageDecodeError(f"PNG 滤波器类型 {ftype} 无效")
+
+
+class _RowFeeder:
+    """按行增量解压 IDAT，避免把整幅解压后的原始缓冲同时留在内存里。
+
+    旧实现一次性 ``decompress(expected + 1)`` 得到 ``height * row_bytes`` 的原始缓冲，
+    再分配同样大的还原缓冲和输出缓冲，峰值约 2×原始 + 1×输出（16 位 RGBA 达
+    20 字节/像素）。这里改成"要一行解一行"：同时存活的只有若干行 + 输出缓冲。
+    """
+
+    __slots__ = ("decomp", "idat", "pos", "inbuf", "pending", "produced", "expected", "done")
+
+    def __init__(self, idat: bytes, expected: int) -> None:
+        self.decomp = zlib.decompressobj()
+        self.idat = idat
+        self.pos = 0
+        self.inbuf = b""
+        self.pending = bytearray()
+        self.produced = 0
+        self.expected = expected
+        self.done = False
+
+    def take(self, count: int) -> bytearray | None:
+        """取恰好 ``count`` 字节；数据不足返回 ``None``。"""
+        pending = self.pending
+        while len(pending) < count:
+            if self.done:
+                return None
+            if self.inbuf:
+                data = self.inbuf
+            elif self.pos < len(self.idat):
+                data = self.idat[self.pos : self.pos + 65536]
+                self.pos += len(data)
+            else:
+                data = b""
+            try:
+                if data:
+                    out = self.decomp.decompress(data, count - len(pending))
+                    self.inbuf = self.decomp.unconsumed_tail
+                else:
+                    out = self.decomp.flush()
+                    self.inbuf = b""
+                    self.done = True
+            except zlib.error as exc:
+                raise ImageDecodeError(f"PNG IDAT 解压失败：{exc}") from exc
+            if out:
+                self.produced += len(out)
+                if self.produced > self.expected:
+                    raise ImageDecodeError("PNG 像素数据超出 IHDR 声明尺寸（疑似解压炸弹）")
+                pending += out
+            elif not data:
+                return None
+        row = bytearray(pending[:count])
+        del pending[:count]
+        return row
 
 
 def _extract_row(row: bytes | bytearray, count: int, depth: int, color: int) -> bytearray:
@@ -170,6 +224,7 @@ def decode_png(
     transparency: bytes | None = None
     idat = bytearray()
     gamma: float | None = None
+    crc_mismatches: list[bytes] = []
     pos = 8
     end = len(raw)
     while pos + 8 <= end:
@@ -180,11 +235,13 @@ def decode_png(
         if data_end + 4 > end:
             raise ImageDecodeError(f"PNG 块 {kind!r} 长度 {length} 越界（文件截断）")
         chunk = raw[data_start:data_end]
-        if strict_crc:
-            (want,) = struct.unpack_from(">I", raw, data_end)
-            got = zlib.crc32(chunk, zlib.crc32(kind)) & 0xFFFFFFFF
-            if got != want:
+        # 关键块（首字母大写）的 CRC 始终强制校验；辅助块默认只记录，strict_crc 才拒绝。
+        (want,) = struct.unpack_from(">I", raw, data_end)
+        got = zlib.crc32(chunk, zlib.crc32(kind)) & 0xFFFFFFFF
+        if got != want:
+            if strict_crc or (kind[0] & 0x20) == 0:
                 raise ImageDecodeError(f"PNG 块 {kind!r} CRC 校验失败")
+            crc_mismatches.append(kind)
         if kind == b"IHDR":
             if length != 13:
                 raise ImageDecodeError(f"PNG IHDR 长度 {length} 应为 13")
@@ -213,8 +270,8 @@ def decode_png(
         raise ImageDecodeError(f"PNG 声明尺寸无效：{width}x{height}")
     if width > MAX_EDGE or height > MAX_EDGE:
         raise ImageTooLargeError(f"PNG 边长 {width}x{height} 超过 {MAX_EDGE} 上限")
-    limit = DEFAULT_MAX_PIXELS if max_pixels is None else max_pixels
-    if limit and width * height > limit:
+    limit = pixel_limit(max_pixels)
+    if width * height > limit:
         raise ImageTooLargeError(
             f"PNG {width}x{height}（{width * height} 像素）超过 {limit} 像素上限"
         )
@@ -229,59 +286,75 @@ def decode_png(
 
     channels = _CHANNELS[color]
     bpp = max(1, (channels * depth) // 8)
-    expected = _expected_raw_size(width, height, channels, depth, interlace)
-    decompressor = zlib.decompressobj()
-    try:
-        pixels = decompressor.decompress(bytes(idat), expected + 1)
-    except zlib.error as exc:
-        raise ImageDecodeError(f"PNG IDAT 解压失败：{exc}") from exc
-    if len(pixels) > expected:
-        raise ImageDecodeError("PNG 像素数据超出 IHDR 声明尺寸（疑似解压炸弹）")
-    if len(pixels) < expected:
-        raise ImageDecodeError(
-            f"PNG 像素数据截断：需要 {expected} 字节，只解出 {len(pixels)} 字节"
+    out_row = width * channels
+    output_bytes = height * out_row
+    if output_bytes > DEFAULT_MAX_DECODE_BYTES:
+        raise ImageTooLargeError(
+            f"PNG {width}x{height} 解码输出约 {output_bytes} 字节，"
+            f"超过 {DEFAULT_MAX_DECODE_BYTES} 字节内存预算"
         )
+    expected = _expected_raw_size(width, height, channels, depth, interlace)
+    feeder = _RowFeeder(bytes(idat), expected)
 
     if interlace == 0:
         row_bytes = (width * channels * depth + 7) // 8
-        rows = _unfilter(pixels, row_bytes, height, bpp)
-        if depth == 8:
-            data = rows
-        else:
-            data = bytearray(width * height * channels)
-            out_row = width * channels
-            for y in range(height):
-                start = y * row_bytes
-                data[y * out_row : (y + 1) * out_row] = _extract_row(
-                    rows[start : start + row_bytes], width, depth, color
+        data = bytearray(output_bytes)
+        mask = _row_mask(row_bytes)
+        prev = bytearray(row_bytes)
+        for y in range(height):
+            row = feeder.take(row_bytes + 1)
+            if row is None:
+                raise ImageDecodeError(
+                    f"PNG 像素数据截断：需要 {expected} 字节，只解出 {feeder.produced} 字节"
                 )
+            ftype = row[0]
+            del row[0]
+            _unfilter_row(row, prev, bpp, ftype, mask)
+            if depth == 8:
+                data[y * out_row : (y + 1) * out_row] = row
+            else:
+                data[y * out_row : (y + 1) * out_row] = _extract_row(
+                    row, width, depth, color
+                )
+            prev = row
     else:
-        data = bytearray(width * height * channels)
-        offset = 0
+        data = bytearray(output_bytes)
         for x0, y0, dx, dy, pw, ph in _pass_geometry(width, height):
             row_bytes = (pw * channels * depth + 7) // 8
-            need = (row_bytes + 1) * ph
-            rows = _unfilter(pixels[offset : offset + need], row_bytes, ph, bpp)
-            offset += need
-            out_row = pw * channels
-            step = channels
+            pass_row = pw * channels
+            mask = _row_mask(row_bytes)
+            prev = bytearray(row_bytes)
             for py in range(ph):
-                start = py * row_bytes
-                samples = (
-                    rows[start : start + row_bytes]
-                    if depth == 8
-                    else _extract_row(rows[start : start + row_bytes], pw, depth, color)
-                )
-                base = (y0 + py * dy) * width * channels
-                for px in range(pw):
-                    target = base + (x0 + px * dx) * step
-                    data[target : target + step] = samples[px * step : (px + 1) * step]
+                row = feeder.take(row_bytes + 1)
+                if row is None:
+                    raise ImageDecodeError(
+                        f"PNG 像素数据截断：需要 {expected} 字节，只解出 {feeder.produced} 字节"
+                    )
+                ftype = row[0]
+                del row[0]
+                _unfilter_row(row, prev, bpp, ftype, mask)
+                samples = row if depth == 8 else _extract_row(row, pw, depth, color)
+                base = ((y0 + py * dy) * width + x0) * channels
+                if dx == 1:
+                    data[base : base + pass_row] = samples
+                else:
+                    step = channels * dx
+                    for px in range(pw):
+                        target = base + px * step
+                        data[target : target + channels] = samples[
+                            px * channels : (px + 1) * channels
+                        ]
+                prev = row
+    # 尾随数据：解压出超过 IHDR 声明尺寸的字节即按解压炸弹拒绝（take 内部检查）。
+    feeder.take(1)
 
     info: dict[str, object] = {}
     if gamma is not None:
         info["gamma"] = gamma
     if palette is not None:
         info["palette_entries"] = len(palette) // 3
+    if crc_mismatches:
+        info["crc_mismatches"] = [kind.decode("latin-1") for kind in crc_mismatches]
     mode = _MODE_BY_COLOR[color]
     return Image(
         width,

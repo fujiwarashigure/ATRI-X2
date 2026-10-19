@@ -404,4 +404,4 @@ LLM 报告使用 SQLite outbox：result 与逐目标、逐 output 的投递项�
 - 正常触发和平台连接补发共用逐实际收件目标、逐输出状态；`ReportReady` 表示报告可复用，LLM 的 `TaskCompleted` 只记录任务结论。
 - 补发读取最新任务配置且只由平台连接触发；附件失败在同次补发中降级为路径或 URL 文字，降级文字失败则等待下次连接，不做周期重试。
 - LLM cron 可预注入工具或 Skill。
-- cron/Atrinis 后台 shell 的非 critical 风险可自动确认，critical 直接返回提醒，不等待用户。
+- cron/Atrinis 后台 shell 改为**默认拒绝 + 只读白名单**：只有"整条命令低风险 + 真实命令名都在 `security.background_shell_allow`（默认内置只读表）里"才自动执行，其余直接返回提醒、不等待用户；`security.background_shell_allow_all = true` 可恢复 Go 的旧行为（只拦 critical）。风险分级会解开 `env` / `timeout` / `xargs` 等包装器并递归解析 `bash -c` / `eval` / `trap` / `find -exec` / `awk system()` 的内层脚本文本。

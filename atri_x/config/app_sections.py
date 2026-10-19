@@ -81,6 +81,9 @@ class StorageConfig(StrictConfig):
 class RuntimeConfig(StrictConfig):
     log_level: str = "info"
     log_retention_days: int = 30
+    #: 核心装配器（模型/上下文/预算/限流/工具指令）缺失时是否让启动失败。
+    #: 默认 ``False``：只记 WARN 并继续启动；``True`` 时 ``build_agent`` 抛错。
+    fail_fast_agent_services: bool = False
 
 
 @dataclass
@@ -473,6 +476,13 @@ class SecurityConfig(StrictConfig):
     user_max_tool_risk: str = "low"
     superadmin_confirm_risk: str = "high"
     superadmins: dict[str, list[str]] | None = None
+    #: 后台（cron / Atrinis）无人值守时允许**自动执行**的 shell 命令名白名单。
+    #: ``None`` = 用内置只读白名单；``[]`` = 后台 shell 全部拒绝；
+    #: 只有"整条命令低风险 + 命令名都在白名单里"才会被自动放行。
+    background_shell_allow: list[str] | None = None
+    #: 显式恢复旧行为（后台 shell 只拦 critical，其余自动放行）。默认 false。
+    #: 打开等于把无人值守的 shell 交给模型自行决定，风险自负。
+    background_shell_allow_all: bool = False
 
 
 @dataclass

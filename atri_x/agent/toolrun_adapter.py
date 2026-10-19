@@ -169,7 +169,15 @@ class AgentToolRunDeps:
     async def start_tool_request(
         self, ctx: Any, session_id: str, tool_name: str
     ) -> tuple[Any, Any, Any]:
-        """对应 Go ``StartToolRequest``：登记一次 tool 类 request。"""
+        """对应 Go ``StartToolRequest``：登记一次 tool 类 request。
+
+        返回值就是 :class:`atri_x.toolrun.RunnerDeps` 声明的**三元组**
+        ``(ctx, started_at, done)``：``done`` 结束这次 request，由 ``runner.run()``
+        保证恰好调用一次（成功/失败/取消/提前返回都释放）。宿主没有 request
+        管理器时不建请求，返回的 ``done`` 是空操作 —— 这不是"失败"，
+        所以仍返回三元组而不是抛异常；真正登记失败（``requests.start`` 抛错）
+        才让异常传给 ``runner`` 当启动失败处理。
+        """
         agent = self.agent
         requests = getattr(agent, "requests", None)
         if requests is None:
@@ -270,6 +278,19 @@ class AgentToolRunDeps:
         agent = self.agent
         if _auto_confirmed(agent, session_id, call.name):
             return ConfirmResult(allowed=True)
+        # fail-closed：拿不到确认通道时不能"当作已确认"（旧实现返回 allowed=True，
+        # 高危调用在 agent.turns 缺失时被静默放行）。
+        if _confirmation_channel(agent) is None:
+            _log_result(
+                agent,
+                session_id,
+                call,
+                assessment,
+                "reject",
+                "",
+                "confirmation channel unavailable",
+            )
+            return _deny_without_channel(call)
         full_args = compact_arguments(call.arguments)
         preview_args = preview_arguments(full_args)
         timeout = _confirmation_timeout(agent, ctx)
@@ -288,7 +309,16 @@ class AgentToolRunDeps:
         )
         response = await _await_confirmation(agent, ctx, session_id, call, assessment, full_args, preview_args, detail, timeout)
         if response is None:
-            return ConfirmResult(allowed=True)
+            _log_result(
+                agent,
+                session_id,
+                call,
+                assessment,
+                "reject",
+                "",
+                "confirmation channel unavailable",
+            )
+            return _deny_without_channel(call)
         if getattr(response, "expired", False):
             _log_result(agent, session_id, call, assessment, "expire", getattr(response, "extra", ""), "confirmation wait expired")
             await _send_chat(agent, ctx, "高风险工具确认已过期，当前处理已停止。", cancel_safe=True)
@@ -730,6 +760,30 @@ async def _send_chat(agent: Any, ctx: Any, text: str, cancel_safe: bool = False)
         await outcome
 
 
+def _confirmation_channel(agent: Any) -> Any:
+    """确认通道（``agent.turns.await_risk_confirmation_context``）；缺失时返回 None。"""
+    turns = getattr(agent, "turns", None)
+    if turns is None:
+        return None
+    channel = getattr(turns, "await_risk_confirmation_context", None)
+    return channel if callable(channel) else None
+
+
+def _deny_without_channel(call: Any) -> ConfirmResult:
+    """没有确认通道时的统一拒绝：既要拦下调用，也要让审计记成 rejected。"""
+    from atri_x.errors import ForbiddenError
+
+    return ConfirmResult(
+        allowed=False,
+        message=_tool_message(
+            call,
+            "tool call %s requires user confirmation but no confirmation channel is available"
+            % call.name,
+        ),
+        error=ForbiddenError("tool_confirmation_unavailable"),
+    )
+
+
 async def _await_confirmation(
     agent: Any,
     ctx: Any,
@@ -741,8 +795,7 @@ async def _await_confirmation(
     detail: str,
     timeout: float,
 ) -> Any:
-    turns = getattr(agent, "turns", None)
-    awai = getattr(turns, "await_risk_confirmation_context", None) if turns is not None else None
+    awai = _confirmation_channel(agent)
     if awai is None:
         return None
     from atri_x.turn import RiskConfirmation

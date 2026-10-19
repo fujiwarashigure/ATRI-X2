@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from atri_x.media.imagecodec.backend_probe import image_backend_info as _image_backend_info
 from atri_x.sysinfo import collect as _collect_sysinfo
 
 __all__ = [
@@ -113,7 +114,12 @@ def format_time(value: datetime) -> str:
 
 @dataclass
 class RateLimitMetrics:
-    """``/metrics`` 里的限速统计。对应 Go ``rateLimitMetrics``。"""
+    """``/metrics`` / ``/diagnostics`` 里的限速统计。对应 Go ``rateLimitMetrics``。
+
+    ``configured`` 区分「未配置」（``False``：``rejected=0`` 只代表没有限流）与
+    「已配置但零拒绝」。``configured=False`` 按 ``omitempty`` 不入 JSON，所以未配置时
+    另带一条非空 ``disabled_reason``。
+    """
 
     allowed: int = 0
     rejected: int = 0
@@ -126,6 +132,10 @@ class RateLimitMetrics:
     group_burst: int = 0
     last_reason: str = ""
     last_rejected_at: datetime | None = None
+    #: 入站限流是否真的接线（见类 docstring）。
+    configured: bool = False
+    #: 未接线时的原因（``configured=False`` 时非空）。
+    disabled_reason: str = ""
 
 
 @dataclass
@@ -164,7 +174,12 @@ class VisionMetrics:
 
 @dataclass
 class OpsDiagnostics:
-    """``/diagnostics`` 载荷。对应 Go ``opsDiagnostics``。"""
+    """``/diagnostics`` 载荷。对应 Go ``opsDiagnostics``。
+
+    Python 版新增三段"能力装上了吗"（Go 没有）：``agent_services`` 是启动期
+    :class:`atri_x.agent.bootstrap.AgentServicesReport` 的机器可读快照，
+    ``redaction`` 是日志脱敏接线的自检，``image_backend`` 是实际生效的图像后端。
+    """
 
     collected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     health: Any = None
@@ -173,6 +188,11 @@ class OpsDiagnostics:
     models: list[Any] = field(default_factory=list)
     platforms: list[Any] = field(default_factory=list)
     last_restart_reason: str = ""
+    #: 启动期装配报告（``None`` = 没有可用的报告，例如未装配的测试宿主）。
+    agent_services: dict[str, Any] | None = None
+    #: 日志脱敏自检快照（见 :func:`atri_x.logging.logging.redact_status`）。
+    redaction: dict[str, Any] | None = None
+    image_backend: dict[str, Any] | None = None  # backend_probe 探测：pillow/stdlib + 版本号
 
 
 @dataclass
@@ -288,33 +308,87 @@ def _safe_call(obj: Any, name: str, default: Any) -> Any:
         return default
 
 
-def _rate_limit_metrics(status: Any) -> RateLimitMetrics:
+def _rate_limit_metrics(
+    status: Any, *, configured: bool = False, disabled_reason: str = ""
+) -> RateLimitMetrics:
+    """把 ``RateLimitStatus`` 转成载荷。
+
+    ``configured`` / ``disabled_reason`` 由调用方按"宿主上有没有限流器"给出：
+    没有限流器时 ``rejected=0`` 是**没有限流**，不是"没有拒绝"。
+    """
     if status is None:
-        return RateLimitMetrics()
+        return RateLimitMetrics(
+            configured=configured,
+            disabled_reason="" if configured else disabled_reason,
+        )
     return RateLimitMetrics(
         allowed=int(getattr(status, "allowed", 0) or 0),
         rejected=int(getattr(status, "rejected", 0) or 0),
         user_rejected=int(getattr(status, "user_rejected", 0) or 0),
         group_rejected=int(getattr(status, "group_rejected", 0) or 0),
         keys=int(getattr(status, "keys", 0) or 0),
-        user_messages_per_minute=int(getattr(status, "user_messages_per_min", 0) or 0),
+        # 这里曾读不存在的 ``user_messages_per_min``，阈值因此永远显示 0。
+        user_messages_per_minute=int(getattr(status, "user_messages_per_minute", 0) or 0),
         user_burst=int(getattr(status, "user_burst", 0) or 0),
-        group_messages_per_minute=int(getattr(status, "group_messages_per_min", 0) or 0),
+        group_messages_per_minute=int(getattr(status, "group_messages_per_minute", 0) or 0),
         group_burst=int(getattr(status, "group_burst", 0) or 0),
         last_reason=str(getattr(status, "last_reason", "") or ""),
         last_rejected_at=getattr(status, "last_rejected_at", None),
+        configured=configured,
+        disabled_reason="" if configured else disabled_reason,
     )
 
 
+#: 未配置入站限流时的说明（``[ops]`` 里两个 per-minute 阈值都为 0）。
+_RATE_LIMIT_DISABLED_REASON = (
+    "inbound rate limiting is not configured: "
+    "ops.user_messages_per_minute / ops.group_messages_per_minute are 0"
+)
+
+
+def _inbound_rate_limit_state(agent: Any) -> tuple[bool, str]:
+    """宿主上是否真的有限流器（返回 ``(configured, disabled_reason)``）。"""
+    if agent is not None:
+        for attribute in ("rate_limit_user", "rate_limit_group"):
+            if getattr(agent, attribute, None) is not None:
+                return True, ""
+    return False, _RATE_LIMIT_DISABLED_REASON
+
+
+def _redaction_status() -> dict[str, Any] | None:
+    """日志脱敏自检快照；导入/求值失败返回 ``None``（诊断端点不因它 500）。"""
+    try:
+        from atri_x.logging.logging import redact_status
+
+        return dict(redact_status())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _agent_services_payload(agent: Any) -> dict[str, Any] | None:
+    """取启动期装配报告快照（读取实现见 :func:`atri_x.agent.bootstrap.services_snapshot`）。"""
+    try:
+        from atri_x.agent.bootstrap import services_snapshot
+
+        return services_snapshot(agent) if agent is not None else None
+    except Exception:  # noqa: BLE001 - 诊断端点不得因单点失败整体 500
+        return None
+
+
 def collect_ops_diagnostics(state: Any, agent: Any) -> OpsDiagnostics:
-    """对应 Go ``collectOpsDiagnostics``。"""
+    """对应 Go ``collectOpsDiagnostics``（Python 版多两段能力自检）。"""
     now = datetime.now(timezone.utc)
     health_snapshot = _safe_call(state, "snapshot", None)
     tasks: Any = {}
-    rate_limit = RateLimitMetrics()
+    configured, disabled_reason = _inbound_rate_limit_state(agent)
+    rate_limit = RateLimitMetrics(configured=configured, disabled_reason=disabled_reason)
     if agent is not None:
         tasks = _safe_call(agent, "active_requests", {})
-        rate_limit = _rate_limit_metrics(_safe_call(agent, "rate_limit_status", None))
+        rate_limit = _rate_limit_metrics(
+            _safe_call(agent, "rate_limit_status", None),
+            configured=configured,
+            disabled_reason=disabled_reason,
+        )
     return OpsDiagnostics(
         collected_at=now,
         health=health_snapshot,
@@ -323,6 +397,9 @@ def collect_ops_diagnostics(state: Any, agent: Any) -> OpsDiagnostics:
         models=list(getattr(health_snapshot, "models", None) or []),
         platforms=list(getattr(health_snapshot, "platforms", None) or []),
         last_restart_reason=str(getattr(health_snapshot, "last_restart_reason", "") or ""),
+        agent_services=_agent_services_payload(agent),
+        redaction=_redaction_status(),
+        image_backend=dict(_image_backend_info()),
     )
 
 
@@ -358,7 +435,12 @@ def collect_ops_metrics(
         resources=resources,
     )
     if agent is not None:
-        metrics.rate_limit = _rate_limit_metrics(_safe_call(agent, "rate_limit_status", None))
+        configured, disabled_reason = _inbound_rate_limit_state(agent)
+        metrics.rate_limit = _rate_limit_metrics(
+            _safe_call(agent, "rate_limit_status", None),
+            configured=configured,
+            disabled_reason=disabled_reason,
+        )
     if image_limiter is not None:
         stats = _safe_call(image_limiter, "stats", None)
         if stats is not None:

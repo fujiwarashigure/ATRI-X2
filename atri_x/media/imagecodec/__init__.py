@@ -4,11 +4,16 @@
 的解码-缩放-白底合成-重编码链路）。对外契约在 :mod:`.image` 里，本模块统一
 再导出：``ImageInfo`` / ``sniff`` / ``decode`` / ``encode_jpeg`` / ``encode_png``
 / ``to_rgb`` / ``resize`` / ``resize_to_fit`` / ``compress`` / ``backend``。
+
+后端诊断（Pillow 还是纯标准库）在 :mod:`.backend_probe`，按需导入（不在这里
+再导出，避免 ``python -m atri_x.media.imagecodec.backend_probe`` 被 runpy 判成
+"模块已预导入"）。
 """
 
 from __future__ import annotations
 
 from .image import (
+    DEFAULT_MAX_DECODE_BYTES,
     DEFAULT_MAX_PIXELS,
     MAX_EDGE,
     Image,
@@ -31,6 +36,7 @@ from .image import (
 )
 
 __all__ = [
+    "DEFAULT_MAX_DECODE_BYTES",
     "DEFAULT_MAX_PIXELS",
     "MAX_EDGE",
     "Image",

@@ -181,7 +181,7 @@
 | 模块 | 为什么需要 | 对应 Go 能力 |
 |---|---|---|
 | `atri_x/net/websocket.py` | Python 标准库**没有** WebSocket | `github.com/coder/websocket` |
-| `atri_x/net/httpclient.py` | 统一的 urllib 封装：重试、超时、流式读取、multipart | `net/http` |
+| `atri_x/net/httpclient.py` | 统一的 urllib 封装：重试、超时、流式读取、multipart、重定向跟随 | `net/http` |
 | `atri_x/net/tomlw.py` | `tomllib` **只读**，写 TOML 要自己实现 | `pelletier/go-toml/v2` |
 | `atri_x/net/s3.py` | 标准库无 S3 客户端（SigV4 + 最小 REST） | `aws-sdk-go-v2/service/s3` |
 | `atri_x/net/cronspec.py` | 标准库无 cron 表达式解析 | `robfig/cron/v3` |
@@ -189,6 +189,15 @@
 | `atri_x/media/imagecodec/` | 标准库无图像编解码 | `image`、`image/jpeg`、`image/png` |
 | `atri_x/platform/cli/tui/` | bubbletea 的 Elm 架构 + ANSI cell 渲染（可用行式渲染简化，但命令/状态栏/输入行为必须实现） | `bubbletea`+`lipgloss`+`bubbles` |
 | `atri_x/utils/runes.py` | Go 的 `[]rune` 语义与 `runewidth` | `mattn/go-runewidth` |
+
+重定向：`atri_x/net/httpclient.py` 的三条请求路径（`request(...)`、`request_multipart(...)`、
+`open_stream(...)`）已与 Go 缺省 `http.Client` 对齐——默认跟随最多 10 次
+301/302/303/307/308（可用 `follow_redirects=False` / `max_redirects=N` 调整）；
+301/302/303 对非 GET/HEAD 改 GET 并丢弃 body 与 `Content-Type`，307/308 保留方法与
+body（body 不可重放抛 `HTTPError`）；相对 `Location` 用 `urljoin` 解析，跨源丢弃
+Authorization/Cookie/Proxy-Authorization 等敏感头；自指/成环的重定向按"检测到重定向
+循环"直接报 `HTTPError`，其余超过次数同样报错；整条跳转链（含重试退避与每跳 I/O）
+共享同一份总超时预算，不是每跳各给一次。
 
 ---
 

@@ -14,6 +14,13 @@
 ``RestartCount != 0``、失败率与内存增长的边界值……都能在没有 Docker 的机器上跑到。
 
 本模块**不含** ``Test*`` 类（unittest 不会收集它），只有假实现与夹具基类。
+
+严格模式（2026 加固）
+--------------------
+``FakeDocker`` 不再对未识别的命令返回 0：``_route`` / ``_route_exec`` 的兜底分支
+抛 ``AssertionError``（消息含全 argv）。否则被测脚本新增一条 docker 调用时，
+假实现会把它当成功，测试全绿却什么也没验证。每次路由命中同时记账
+（``hits`` / ``rule_hits()`` / ``hit_log``），用例可以断言命中了哪条规则几次。
 """
 
 from __future__ import annotations
@@ -75,6 +82,14 @@ class FakeDocker(DockerCLI):
 
     只覆写 :meth:`DockerCLI._run`——真实类里所有「拼参数 / 拆输出」的逻辑都照跑，
     假的只是 docker 本身，不是被测代码。
+
+    **未识别的命令一律 ``AssertionError``**（``_route`` / ``_route_exec`` 的兜底
+    分支不再返回 0）：假实现不认识的新子命令过去会被当成「成功」，于是被测脚本
+    新增一条 docker 调用时测试照样全绿——那正是假实现最危险的地方。现在它会响亮
+    失败并把全 argv 打出来，提示补路由。
+
+    每次命中还会记账（``self.hits`` / :meth:`rule_hits` / ``self.hit_log``），
+    用例可以断言「这次调用命中了哪条规则、几次」，而不是只看调用过没有。
     """
 
     DEFAULTS = {
@@ -107,6 +122,9 @@ class FakeDocker(DockerCLI):
         "stats_sequence": (),
         "logs_stdout": "2026-10-01T00:00:00Z atri-x starting\n",
         "port_stdout": "127.0.0.1:49153\n",
+        "remove_code": 0,
+        "remove_image_code": 0,
+        "remove_volume_code": 0,
     }
 
     def __init__(self, **overrides) -> None:
@@ -119,11 +137,33 @@ class FakeDocker(DockerCLI):
         self.calls: list[list[str]] = []
         self._probe_index = 0
         self._stats_index = 0
+        #: 规则名 → 命中次数（``_route`` / ``_route_exec`` 的每个分支各有一个名字）。
+        self.hits: dict[str, int] = {}
+        #: 命中顺序（同一个规则名会按调用顺序重复出现）。
+        self.hit_log: list[str] = []
 
     # -- 基础设施 ---------------------------------------------------------
     @staticmethod
     def _forbid_real(*_args, **_kwargs):
         raise AssertionError("FakeDocker 不应触到真实子进程（capture 被误用）")
+
+    def _hit(self, name: str) -> None:
+        """记一次规则命中。"""
+        self.hits[name] = self.hits.get(name, 0) + 1
+        self.hit_log.append(name)
+
+    def rule_hits(self, name: str | None = None):
+        """命中计数：给名字返回次数，不给名字返回 ``{规则名: 次数}`` 副本。"""
+        if name is None:
+            return dict(self.hits)
+        return self.hits.get(name, 0)
+
+    @staticmethod
+    def _unknown(args: list[str], where: str) -> AssertionError:
+        return AssertionError(
+            f"FakeDocker.{where} 未识别的命令：{list(args)}；"
+            "请在 tests/_deploy_harness_fakes.py 里补路由，不要让它静默成功"
+        )
 
     def _run(self, args, *, timeout=None, cwd=None):
         self.calls.append(list(args))
@@ -145,10 +185,12 @@ class FakeDocker(DockerCLI):
     def _route(self, args):
         head = args[0] if args else ""
         if head == "version":
+            self._hit("version")
             if not self.options["version"]:
                 return completed(args, 1, "", NPIPE_ERROR)
             return completed(args, 0, self.options["version"] + "\n")
         if head == "build":
+            self._hit("build")
             return completed(
                 args,
                 self.options["build_code"],
@@ -156,15 +198,25 @@ class FakeDocker(DockerCLI):
                 self.options["build_stderr"],
             )
         if head == "image":
+            if args[1:2] != ["inspect"]:
+                raise self._unknown(args, "_route(image)")
+            self._hit("image.inspect")
             code = 0 if args[-1] in tuple(self.options["images"]) else 1
             return completed(args, code, "", "")
         if head == "volume":
-            if args[1] == "create":
+            sub = args[1] if len(args) > 1 else ""
+            if sub == "create":
+                self._hit("volume.create")
                 return completed(args, self.options["volume_create_code"], "", "")
-            return completed(args, 0, "", "")
+            if sub == "rm":
+                self._hit("volume.rm")
+                return completed(args, self.options["remove_volume_code"], "", "")
+            raise self._unknown(args, "_route(volume)")
         if head == "run":
             if "--entrypoint" in args:
+                self._hit("run.seed")
                 return completed(args, self.options["seed_code"], "", self.options["seed_stderr"])
+            self._hit("run.detached")
             return completed(
                 args,
                 self.options["run_code"],
@@ -176,14 +228,27 @@ class FakeDocker(DockerCLI):
         if head == "inspect":
             return self._route_inspect(args)
         if head == "logs":
+            self._hit("logs")
             return completed(args, 0, self.options["logs_stdout"], "")
         if head == "stats":
+            self._hit("stats")
             return completed(args, 0, self._next_stats(), "")
         if head == "port":
+            self._hit("port")
             return completed(args, 0, self.options["port_stdout"], "")
-        return completed(args, 0, "", "")
+        if head == "rm":
+            self._hit("rm")
+            return completed(args, self.options["remove_code"], "", "")
+        if head == "rmi":
+            self._hit("rmi")
+            return completed(args, self.options["remove_image_code"], "", "")
+        raise self._unknown(args, "_route")
 
     def _route_inspect(self, args):
+        if "{{.Config.User}}" in args:
+            self._hit("inspect.user")
+        else:
+            self._hit("inspect.state")
         if not self.options["state_exists"]:
             return completed(args, 1, "", "Error: No such object")
         if "{{.Config.User}}" in args:
@@ -197,26 +262,37 @@ class FakeDocker(DockerCLI):
         return completed(args, 0, json.dumps(state), "")
 
     def _route_exec(self, args):
-        command = args[2:]
+        # docker exec [--user <u>] <container> <command...>
+        index = 1
+        while index < len(args) and args[index].startswith("-"):
+            index += 2 if args[index] in ("--user", "-u") else 1
+        command = args[index + 1 :] if index < len(args) else []
         if command[:3] == ["python", "-m", "atri_x"] and command[3:4] == ["--health-probe"]:
+            self._hit("exec.health-probe")
             codes = tuple(self.options["probe_codes"])
             code = codes[min(self._probe_index, len(codes) - 1)]
             self._probe_index += 1
             return completed(args, code, "ok\n" if code == 0 else "", "" if code == 0 else "no\n")
         if command[:3] == ["python", "-m", "atri_x"] and command[3:4] == ["--help"]:
+            self._hit("exec.help")
             return completed(args, self.options["help_code"], "Usage:\n", "")
         if command[:3] == ["python", "-m", "pip"]:
+            self._hit("exec.pip")
             return completed(args, self.options["pip_code"], self.options["pip_stdout"], "")
         script = command[2] if len(command) > 2 and command[1] == "-c" else ""
         if "import atri_x" in script:
+            self._hit("exec.import")
             return completed(args, self.options["import_code"], self.options["import_stdout"], "")
         if "urlopen" in script:
+            self._hit("exec.http-live")
             return completed(args, self.options["layer_http_code"], "", "")
         if "socket" in script:
+            self._hit("exec.tcp")
             return completed(args, self.options["layer_tcp_code"], "", "")
         if "os.listdir" in script:
+            self._hit("exec.layout")
             return completed(args, self.options["layout_code"], self.options["layout_stdout"], "")
-        return completed(args, 0, "", "")
+        raise self._unknown(args, "_route_exec")
 
     def _next_stats(self) -> str:
         sequence = tuple(self.options["stats_sequence"])

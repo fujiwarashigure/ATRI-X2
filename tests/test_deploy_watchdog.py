@@ -253,8 +253,12 @@ class TestWindowsLauncher(WatchdogFixture):
 
     def load_module(self):
         """导入夹具里的 ``atri_x`` 模块（每次重新加载，避免串味）。"""
-        for name in ("atri_x",):
-            sys.modules.pop(name, None)
+        # 这里的 ``atri_x`` 是 ``deploy/windows/atri_x.py``（启动器脚本），与包
+        # ``atri_x/`` 同名。导入前先把真包从 ``sys.modules`` 摘掉，导入后必须
+        # **原样放回**：否则后续任何 ``from atri_x.app import ...`` 都会撞上这个
+        # 顶层替身并报 ``'atri_x' is not a package``（跑单个模块时看不出来，
+        # 只有和别的模块同进程时才炸）。
+        saved = sys.modules.pop("atri_x", None)
         sys.path.insert(0, str(self.windows))
         try:
             import atri_x as module  # noqa: PLC0415 - 测试里按需导入
@@ -262,6 +266,9 @@ class TestWindowsLauncher(WatchdogFixture):
             return module
         finally:
             sys.path.remove(str(self.windows))
+            sys.modules.pop("atri_x", None)
+            if saved is not None:
+                sys.modules["atri_x"] = saved
 
     def call(self, argv: list[str]) -> tuple[int, str, str]:
         """调 ``main()`` 并捕获输出与退出码。"""

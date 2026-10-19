@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `0.9.7`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `0.9.8`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -18,12 +18,12 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行（含测试共 754 个文件 / 146,153 行） |
-| 本仓库 | 平铺布局的 `atri_x/`：651 个 `.py` 模块，约 17.2 万行（含注释与 docstring） |
+| 本仓库 | 平铺布局的 `atri_x/`：686 个 `.py` 模块，约 19.4 万行（物理行，含空行/注释/docstring） |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 平台适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 159 个 Python 文件（其中 150 个 `test_*.py`）、5121 个用例；仓库自带四道质量门禁（见「开发与验证」） |
-| 规模 | 937 个受版本控制文件（不含 `.git`） |
+| 测试 | `tests/` 175 个 Python 文件（其中 166 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
+| 规模 | 982 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
 
 ## 功能特性
 
@@ -315,19 +315,26 @@ PORTING.md  AGENTS.md  CHANGELOG.md  LICENSE  pyproject.toml
 python scripts/check_syntax.py        # 语法 + BOM + CRLF + U+FFFD + mojibake
 python scripts/check_imports.py       # 逐个导入 atri_x 下每个模块，校验 __all__
 python scripts/check_integration.py   # 跨模块唯一出处、ctx 键、脱敏契约、ID 契约、async 误用
-python scripts/check_coverage.py --strict --summary   # 按 PORTING.md §4 映射表算加权覆盖
+python scripts/check_coverage.py --strict --summary   # 按 PORTING.md §4 映射表算**文件存在性**加权覆盖
 python -m unittest discover -s tests -t .             # 全量测试
 ```
 
-最近一次在 `Windows 10 + Python 3.14.7` 上的结果：
+最近一次在 `Windows 10 + Python 3.14.7` 上的结果（文件计数与模块计数由 `python scripts/gen_stats.py` 从工作树静态统计，可随时复算）：
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 817 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=651 imported=651`，0 失败 |
+| `check_syntax` | 870 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=686 imported=686`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
-| `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%` |
-| 全量 `unittest` | 5121 个用例通过（`skipped=2`） |
+| `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径：只验 [PORTING.md](PORTING.md) §4 映射表里的 Python 模块是否存在，不衡量行为正确性） |
+| 全量 `unittest` | 用例数不硬编码（见下）；现场跑 `python -m unittest discover -s tests -t .`，以本机输出或 CI 记录为准 |
+
+> **数字口径与复算方式**：上表的文件/模块计数由 `python scripts/gen_stats.py` 只读扫描工作树得出
+> （扫描口径与 `check_syntax.py`、`check_imports.py` 共用同一份实现）；`python scripts/gen_stats.py --check`
+> 会在 README 数字与工作树不一致时以退出码 1 打印差异，`--update` 打印可粘贴的正确数字。
+> **用例数不在本 README 硬编码**：unittest 的用例数只有真跑一遍才知道（参数化、动态生成、解释器版本都会影响它），
+> 而且测试夹具依赖宿主机条件（有 Docker、上游 Go 仓库在同级目录等）时会 skip，
+> 所以 README 不把它当成可复现的事实；需要时由 CI 记录或现场运行。
 
 ### 对抗性验证
 
@@ -339,9 +346,16 @@ python -m unittest discover -s tests -t .             # 全量测试
 - 稳定性长跑只覆盖最小配置（无平台、无模型、无持续消息）；
 - 开发机没有 Go 工具链，Go 侧结论均来自源码行号级对照。
 
+> **「全绿」是绑定环境的事实**：那几轮验证跑在做者机器上（装了 Docker、上游 Go 仓库在同级目录），
+> 而当时的夹具对这两者有隐式假设——缺 Docker 时 `deploy/` 的升级/回滚用例会因为
+> `compose_command()` 探测不到 docker 而失败，缺上游时提示词库比对会失败；README 却把这种「绿」
+> 当成了可移植的事实。现在这两处已改成不依赖环境：`deploy/` 用例用**空壳 docker/git + 伪造命令表**
+> 驱动（真正要跑的命令先命中伪造表，不会被真的执行），提示词库比对在上游不可用时明确 `skip` 并写出原因——
+> 「没法验证」不再被当成「通过」。跨环境结论请以你自己机器上的 `python -m unittest discover -s tests -t .` 输出为准。
+
 ### 性能数据说明
 
-本仓库**不提供官方性能基准**。旧文档中的「N5105 上 <10 ms 启动、约 30 MB 常驻内存」是 Go 版 v0.5.0 的历史参考数据，无法代表当前 Python 版（版本已到 0.9.7，且新增了健康接口、诊断、素材清单、`doctor` 等组件），因此不在本 README 中保留。启动与资源占用取决于配置、模型调用、生图与工具子进程、并发规模，需要时请在自己的目标机器上实测，例如：
+本仓库**不提供官方性能基准**。旧文档中的「N5105 上 <10 ms 启动、约 30 MB 常驻内存」是 Go 版 v0.5.0 的历史参考数据，无法代表当前 Python 版（版本已到 0.9.8，且新增了健康接口、诊断、素材清单、`doctor` 等组件），因此不在本 README 中保留。启动与资源占用取决于配置、模型调用、生图与工具子进程、并发规模，需要时请在自己的目标机器上实测，例如：
 
 ```bash
 python -m atri_x --version

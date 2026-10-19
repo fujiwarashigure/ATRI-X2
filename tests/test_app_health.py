@@ -468,6 +468,87 @@ class TestCollectOps(unittest.TestCase):
         self.assertEqual(metrics.rate_limit.allowed, 0)
 
 
+class TestCollectOpsCapabilities(unittest.TestCase):
+    """/diagnostics 新增的能力段：装配报告、脱敏自检、限流"已配置/未配置"。
+
+    这三段回答的是"能力装上了吗"，与 ``health``（"当前是否健康"）是不同问题；
+    旧载荷把"没有限流"渲染成"0 次拒绝"，这里把两种状态钉开。
+    """
+
+    class LiveAgent:
+        rate_limit_user = object()
+
+        def rate_limit_status(self):
+            return SimpleNamespace(
+                allowed=1,
+                rejected=0,
+                keys=1,
+                user_messages_per_minute=12,
+                user_burst=3,
+                group_messages_per_minute=60,
+                group_burst=10,
+            )
+
+        agent_services_report = {
+            "installed": [["models", "ModelService"]],
+            "skipped": [],
+            "failed": [],
+            "warnings": [],
+            "ok": True,
+        }
+
+    class UnconfiguredAgent:
+        def rate_limit_status(self):
+            return SimpleNamespace(allowed=0, rejected=0, keys=0)
+
+    def test_agent_services_passthrough(self):
+        report = collect_ops_diagnostics(None, self.LiveAgent())
+        self.assertEqual(report.agent_services["ok"], True)
+        self.assertEqual(report.agent_services["installed"], [["models", "ModelService"]])
+        rendered = marshal(report)
+        self.assertEqual(rendered["agent_services"]["ok"], True)
+        # 空列表也要出现（不能被 omitempty 吞掉），"跳过 0 项"本身是信息。
+        self.assertEqual(rendered["agent_services"]["skipped"], [])
+
+    def test_agent_services_absent_without_agent(self):
+        report = collect_ops_diagnostics(None, None)
+        self.assertIsNone(report.agent_services)
+        self.assertNotIn("agent_services", marshal(report))
+
+    def test_redaction_status_is_exposed(self):
+        report = collect_ops_diagnostics(None, None)
+        self.assertIsInstance(report.redaction, dict)
+        self.assertIn("available", report.redaction)
+        self.assertIn("redaction", marshal(report))
+
+    def test_configured_rate_limit_is_distinguishable(self):
+        report = collect_ops_diagnostics(None, self.LiveAgent())
+        self.assertTrue(report.rate_limit.configured)
+        self.assertEqual(report.rate_limit.disabled_reason, "")
+        self.assertEqual(report.rate_limit.user_messages_per_minute, 12)
+        self.assertEqual(report.rate_limit.group_messages_per_minute, 60)
+        rendered = marshal(report)["rate_limit"]
+        self.assertIs(rendered["configured"], True)
+        self.assertNotIn("disabled_reason", rendered)
+
+    def test_unconfigured_rate_limit_is_not_reported_as_zero_rejections(self):
+        report = collect_ops_diagnostics(None, self.UnconfiguredAgent())
+        self.assertFalse(report.rate_limit.configured)
+        self.assertIn("not configured", report.rate_limit.disabled_reason)
+        rendered = marshal(report)["rate_limit"]
+        # configured=False 被 omitempty 省略；用非空 disabled_reason 明确表达"未配置"。
+        self.assertNotIn("configured", rendered)
+        self.assertIn("not configured", rendered["disabled_reason"])
+
+    def test_metrics_also_marks_rate_limit_configuration(self):
+        metrics = collect_ops_metrics(None, None, self.LiveAgent())
+        self.assertTrue(metrics.rate_limit.configured)
+        self.assertEqual(metrics.rate_limit.user_messages_per_minute, 12)
+        metrics = collect_ops_metrics(None, None, self.UnconfiguredAgent())
+        self.assertFalse(metrics.rate_limit.configured)
+        self.assertTrue(metrics.rate_limit.disabled_reason)
+
+
 class TestStartHealthServer(unittest.TestCase):
     def setUp(self):
         os.makedirs(TMP, exist_ok=True)

@@ -41,6 +41,7 @@ __all__ = [
     "install_agent_services",
     "is_bootstrapped",
     "previous_report",
+    "services_snapshot",
 ]
 
 
@@ -150,6 +151,7 @@ def install_agent_services(
     services = _services_dict(agent)
     if services is None:
         report.failed.append(("services", "宿主没有可写的 agent.services 字典"))
+        _publish_snapshot(agent, report)
         return report
 
     options: dict[str, Any] = dict(opts) if opts else {}
@@ -165,7 +167,24 @@ def install_agent_services(
         setattr(agent, _STATE_ATTR, report)
     except AttributeError:  # pragma: no cover - 宿主用了 __slots__
         pass
+    _publish_snapshot(agent, report)
     return report
+
+
+#: 机器可读装配快照的宿主属性名（``/diagnostics``、doctor 与排障脚本共用）。
+_SNAPSHOT_ATTR = "agent_services_report"
+
+
+def _publish_snapshot(agent: Any, report: AgentServicesReport) -> None:
+    """把报告以 :meth:`AgentServicesReport.to_dict` 的形式挂到宿主上。
+
+    ``to_dict()`` 一直只有测试在消费；挂到宿主之后 ``/diagnostics`` 的
+    ``agent_services`` 段与 doctor 的能力自检都能读到同一份事实，不必再装配一遍。
+    """
+    try:
+        setattr(agent, _SNAPSHOT_ATTR, report.to_dict())
+    except AttributeError:  # pragma: no cover - 宿主用了 __slots__
+        pass
 
 
 def is_bootstrapped(agent: Any) -> bool:
@@ -177,6 +196,25 @@ def previous_report(agent: Any) -> AgentServicesReport | None:
     """取上一次装配报告（没装配过返回 ``None``）。"""
     report = getattr(agent, _STATE_ATTR, None)
     return report if isinstance(report, AgentServicesReport) else None
+
+
+def services_snapshot(agent: Any) -> dict[str, Any] | None:
+    """取宿主上的机器可读装配快照（``/diagnostics`` 与 doctor 共用）。
+
+    生产路径由 :func:`install_agent_services` 写在 ``agent.agent_services_report``；
+    只调过 bootstrap 的宿主回落到装配状态对象；都没有返回 ``None``。
+    """
+    payload = getattr(agent, _SNAPSHOT_ATTR, None)
+    if isinstance(payload, dict):
+        return dict(payload)
+    to_dict = getattr(previous_report(agent), "to_dict", None)
+    if not callable(to_dict):
+        return None
+    try:
+        value = to_dict()
+    except Exception:  # noqa: BLE001 - 快照读取失败不该让诊断端点整体 500
+        return None
+    return dict(value) if isinstance(value, dict) else None
 
 
 def _restore_ledger(agent: Any, report: AgentServicesReport) -> None:
@@ -467,6 +505,12 @@ def _apply_options(
         "skills",
         "rate_limit_user",
         "rate_limit_group",
+        # 阈值是纯展示字段（``RateLimitStatus`` 要读），限流器对象才是判定依据；
+        # 两者由装配方（``app/runtime_agent.py``）按 ``[ops]`` 配置成对传入。
+        "rate_limit_user_per_minute",
+        "rate_limit_user_burst",
+        "rate_limit_group_per_minute",
+        "rate_limit_group_burst",
         "state_store",
         "tools_config",
         "hook_service",

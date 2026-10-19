@@ -89,7 +89,7 @@ def convert(img: Image, mode: str) -> Image:
 
 def to_rgb(img: Image, background: tuple[int, int, int] = (255, 255, 255)) -> Image:
     """白底（或指定底色）合成去掉 alpha，返回 ``RGB`` 图像。"""
-    if len(background) != 3:
+    if not isinstance(background, (tuple, list)) or len(background) != 3:
         raise ImageCodecError(f"底色需要 3 个分量，收到 {background!r}")
     try:
         bg_r, bg_g, bg_b = (int(value) for value in background)

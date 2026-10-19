@@ -15,6 +15,7 @@ import contextlib
 import io
 import math
 import struct
+import tracemalloc
 import unittest
 import zlib
 
@@ -510,6 +511,116 @@ class TestJpegFixtures(unittest.TestCase):
         self.assertIn("非交错", str(caught.exception))
 
 
+class TestDecodeHardening(unittest.TestCase):
+    """研究报告 §3.3 的 P0/P1 修复回归。
+
+    覆盖：JPEG 分配前熵下界、多 SOF 歧义拒绝、SOS 分量顺序校验、
+    PNG 流式解码的峰值内存、关键/辅助块 CRC 策略、``max_pixels<=0`` 的受控拒绝。
+    """
+
+    def test_jpeg_entropy_lower_bound_blocks_allocation(self) -> None:
+        data = bytearray(build_restart_jpeg())
+        index = data.index(b"\xff\xc0")
+        struct.pack_into(">HH", data, index + 5, 4000, 4000)  # 16 MPix，低于默认上限
+        tracemalloc.start()
+        with self.assertRaises(ImageDecodeError) as caught:
+            jpeg_decode.decode_jpeg(bytes(data))
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        self.assertIn("熵编码数据截断", str(caught.exception))
+        # 旧实现会先按 4000x4000 分配三个分量平面（~48 MiB）再报截断。
+        self.assertLess(peak, 8 * 1024 * 1024)
+
+    def test_jpeg_multiple_sof_is_rejected(self) -> None:
+        data = build_restart_jpeg()
+        index = data.index(b"\xff\xc0")
+        seg_len = int.from_bytes(data[index + 2 : index + 4], "big")
+        payload = bytearray(data[index + 4 : index + 2 + seg_len])
+        struct.pack_into(">HH", payload, 1, 9000, 9000)
+        fake = b"\xff\xc0" + struct.pack(">H", len(payload) + 2) + bytes(payload)
+        crafted = data[: index + 2 + seg_len] + fake + data[index + 2 + seg_len :]
+        # 尺寸闸门（sniff）与解码器必须同时拒绝，否则"嗅探 8x8、解码 9000x9000"可绕闸门。
+        with self.assertRaises(ImageDecodeError):
+            sniff(crafted)
+        with self.assertRaises(ImageDecodeError):
+            decode(crafted)
+        with self.assertRaises(ImageDecodeError):
+            jpeg_decode.decode_jpeg(crafted)
+
+    def test_jpeg_sos_component_order_mismatch_is_rejected(self) -> None:
+        data = bytearray(build_restart_jpeg())
+        index = data.index(b"\xff\xda")
+        # 交换 SOS 里两个分量选择子（(1,2,3) → (3,2,1)），载荷结构本身仍然合法。
+        data[index + 5], data[index + 9] = data[index + 9], data[index + 5]
+        with self.assertRaises(ImageDecodeError) as caught:
+            jpeg_decode.decode_jpeg(bytes(data))
+        self.assertIn("分量顺序", str(caught.exception))
+
+    def test_png_streaming_peak_is_output_sized(self) -> None:
+        width = height = 512
+        row = b"\x00" + b"\x12\x34" * (4 * width)  # filter 0 + 16-bit RGBA
+        blob = (
+            PNG_SIG
+            + png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 16, 6, 0, 0, 0))
+            + png_chunk(b"IDAT", zlib.compress(row * height, 6))
+            + png_chunk(b"IEND", b"")
+        )
+        tracemalloc.start()
+        image = decode(blob)
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        self.assertEqual((image.mode, image.size), ("RGBA", (width, height)))
+        output_bytes = width * height * 4
+        # 旧实现：解压原始缓冲(2×) + 还原缓冲(2×) + 输出(1×) ≈ 5 倍输出；流式后 ≈ 1 倍。
+        self.assertLess(peak, output_bytes * 2)
+
+    def test_png_critical_crc_is_always_enforced(self) -> None:
+        data = bytearray(
+            build_png(2, 2, 3, 4, [[0, 1], [2, 3]], palette=bytes([1, 2, 3] * 4))
+        )
+        index = data.index(b"PLTE")
+        data[index + 4] ^= 0xFF  # 破坏 PLTE 载荷（关键块）
+        with self.assertRaises(ImageDecodeError):
+            decode(bytes(data))
+        with self.assertRaises(ImageDecodeError):
+            png_module.decode_png(bytes(data))
+
+    def test_png_ancillary_crc_recorded_and_strict_mode_raises(self) -> None:
+        data = bytearray(
+            build_png(
+                2,
+                2,
+                3,
+                4,
+                [[0, 1], [2, 3]],
+                palette=bytes([1, 2, 3] * 4),
+                trns=bytes([0, 128]),
+            )
+        )
+        index = data.index(b"tRNS")
+        data[index + 4] ^= 0xFF  # 破坏 tRNS 载荷（辅助块）
+        image = decode(bytes(data))
+        self.assertEqual(image.info["crc_mismatches"], ["tRNS"])
+        with self.assertRaises(ImageDecodeError):
+            decode(bytes(data), strict_crc=True)
+
+    def test_zero_max_pixels_is_rejected(self) -> None:
+        png_data = build_png(2, 2, 0, 8, [[0, 1], [2, 3]])
+        with self.assertRaises(ValueError):
+            decode(png_data, max_pixels=0)
+        with self.assertRaises(ValueError):
+            png_module.decode_png(png_data, max_pixels=0)
+        with self.assertRaises(ValueError):
+            jpeg_decode.decode_jpeg(build_restart_jpeg(), max_pixels=-1)
+
+    def test_invalid_arguments_raise_controlled_errors(self) -> None:
+        image = rgb_image(2, 2)
+        with self.assertRaises(ImageCodecError):
+            resize(image, 1, 1, filter=None)  # type: ignore[arg-type]
+        with self.assertRaises(ImageCodecError):
+            to_rgb(image, None)  # type: ignore[arg-type]
+
+
 class TestJpegRoundtrip(unittest.TestCase):
     def test_roundtrip_psnr(self) -> None:
         source = rgb_image(48, 32, noise=3)
@@ -584,6 +695,21 @@ class TestJpegForeign(unittest.TestCase):
         theirs = PILImage.open(io.BytesIO(data)).convert("RGB")
         self.assertEqual(decoded.mode, "RGB")
         self.assertLessEqual(mean_abs(decoded.data, theirs.tobytes()), 2.0)
+
+    def test_grayscale_with_sampling_factors_decodes(self) -> None:
+        """单分量扫描按 T.81 A.2.2 是"每 MCU 一个数据单元"，采样因子不参与网格。
+
+        旧实现按 hmax/vmax 划 MCU，把 Pillow 用非 1x1 采样写的灰度图多读 h*v 个块，
+        合法文件被误报"熵数据截断"（1x1 / 1x33 / 3x5 均复现）。
+        """
+        for subsampling in (0, 1, 2):
+            for size in ((1, 1), (1, 33), (3, 5), (17, 17)):
+                source = PILImage.new("L", size, 123)
+                data = self._pil_jpeg(source, quality=85, subsampling=subsampling)
+                with self.subTest(subsampling=subsampling, size=size):
+                    decoded = decode(data)
+                    self.assertEqual((decoded.mode, decoded.size), ("L", size))
+                    self.assertLess(abs(decoded.get_pixel(0, 0)[0] - 123), 6)
 
     def test_pillow_png_variants(self) -> None:
         source = PILImage.new("RGB", (21, 13))

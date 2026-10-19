@@ -21,6 +21,10 @@ ctx 里携带"当前客户端"，因此 :meth:`RemoteServer.send_chat` 能回到
   私有哨兵键。
 * ``go func(){ HandleMessage }()`` → ``asyncio.create_task``，任务登记在
   :meth:`RemoteServer.pending_tasks`（Python 侧测试接缝）。
+* 护栏（Python 版新增，Go 没有）：``ws.serve`` 传 :data:`READ_TIMEOUT`（单帧读超时，
+  鉴权之后的空闲连接会被断开；鉴权之前由 :data:`HELLO_READ_TIMEOUT` 兜住）；
+  ``input`` 帧同时处理数上限 :data:`MAX_CONCURRENT_INPUTS`，超限回一帧 ``error`` 并记日志；
+  hello token 用 :func:`secrets.compare_digest` 比较。
 * ``sync.Mutex`` 保护 ``clients`` → :class:`asyncio.Lock`。
 * ``(T, error)`` → 正常返回值 / 抛异常。
 * ``(*RemoteServer).SetCompleter`` 收 ``*completion.Service``；Python 侧收任意有
@@ -41,6 +45,7 @@ import asyncio
 import inspect
 import json
 import logging
+import secrets
 from dataclasses import dataclass, field
 from typing import Any, Callable, Sequence
 
@@ -104,13 +109,24 @@ SHUTDOWN_TIMEOUT = 5.0
 #: HTTP 头部读超时（秒）。对应 Go ``ReadHeaderTimeout: 5 * time.Second``。
 READ_HEADER_TIMEOUT = 5.0
 
+#: 单帧读超时（秒，Python 版新增护栏）。**已鉴权**的空闲连接超过它就断开，避免一条
+#: 不说话的连接永久占用服务端任务；活跃连接每次读帧都会重新计时。hello 阶段另用
+#: :data:`HELLO_READ_TIMEOUT`（更短），两段都不会让连接无限期挂着。
+READ_TIMEOUT = 60.0
+
+#: 同时处理中的 ``input`` 帧上限（Python 版新增护栏）。Go 是 goroutine-per-message，
+#: 一个客户端可以无限并发灌入，每条都可能触发一次 LLM 请求。
+MAX_CONCURRENT_INPUTS = 8
+
 #: ctx 中携带"当前远程客户端"的私有键。
 _REMOTE_CLIENT_KEY = object()
 
 __all__ = [
     "HELLO_READ_TIMEOUT",
+    "MAX_CONCURRENT_INPUTS",
     "PLATFORM_NAME",
     "READ_HEADER_TIMEOUT",
+    "READ_TIMEOUT",
     "SHUTDOWN_TIMEOUT",
     "CompletionProvider",
     "RemoteClientConn",
@@ -236,6 +252,8 @@ class RemoteServer(SessionBrowseMixin):
         self._lock = asyncio.Lock()
         self._clients: dict[str, set[RemoteClientConn]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
+        #: 限制同时处理中的 ``input`` 帧（见 :data:`MAX_CONCURRENT_INPUTS`）。
+        self._input_slots = asyncio.Semaphore(MAX_CONCURRENT_INPUTS)
         self.logger: logging.Logger | None = None
 
     # -- 装配 ---------------------------------------------------------------
@@ -277,6 +295,10 @@ class RemoteServer(SessionBrowseMixin):
 
         ``ws.serve`` 在端口被占用/地址非法时**立刻**抛 ``OSError``，对应 Go 的
         ``ListenAndServe`` 错误分支；否则等到 ctx 取消后关停并抛出 ctx 的取消原因。
+
+        ``read_timeout`` 取 :data:`READ_TIMEOUT`：它作用在**单帧**读取上，因此鉴权之后的
+        空闲连接会被断开；鉴权（hello token）之前由 :data:`HELLO_READ_TIMEOUT` 那道更短的
+        上限兜住——"连上就不说话"在两段都不会永久占位。
         """
         host, port = parse_listen(self.cfg.server.listen)
         self.server = await ws.serve(
@@ -284,6 +306,7 @@ class RemoteServer(SessionBrowseMixin):
             host,
             port,
             path=DEFAULT_REMOTE_PATH,
+            read_timeout=READ_TIMEOUT,
             handshake_timeout=READ_HEADER_TIMEOUT,
         )
         try:
@@ -349,12 +372,38 @@ class RemoteServer(SessionBrowseMixin):
     async def handle_client_message(
         self, ctx: Any, handler: Any, client: RemoteClientConn, msg: RemoteMessage
     ) -> None:
-        """处理一条客户端消息。对应 Go ``(*RemoteServer).handleClientMessage``。"""
+        """处理一条客户端消息。对应 Go ``(*RemoteServer).handleClientMessage``。
+
+        ``input`` 帧只在前 :data:`MAX_CONCURRENT_INPUTS` 条同时处理中时受理：Go 是
+        goroutine-per-message（无上限），一个客户端可以无限并发灌入、每条都可能触发
+        LLM 请求；超出上限时按现有风格回一帧 ``error`` 并记日志，不排队、不阻塞读循环。
+        """
         if msg.type == REMOTE_MSG_INPUT:
             text = (msg.text or "").strip()
             if text == "":
                 return
-            self._spawn(self._dispatch_input(ctx, handler, client, text))
+            if self._input_slots.locked():
+                if self.logger is not None:
+                    self.logger.warning(
+                        "cli remote input rejected: %d inputs already in flight",
+                        MAX_CONCURRENT_INPUTS,
+                    )
+                await _safe_write(
+                    client.connection,
+                    RemoteMessage(
+                        type=REMOTE_MSG_ERROR,
+                        text=f"too many concurrent inputs (max {MAX_CONCURRENT_INPUTS})",
+                    ),
+                )
+                return
+            await self._input_slots.acquire()
+            try:
+                task = self._spawn(self._dispatch_input(ctx, handler, client, text))
+            except BaseException:
+                self._input_slots.release()
+                raise
+            # 用 done 回调而不是在协程里 release：任务在第一次调度前被取消也不会漏掉名额。
+            task.add_done_callback(lambda _task: self._input_slots.release())
         elif msg.type == REMOTE_MSG_COMPLETE:
             items = await self._complete(ctx, msg)
             await _safe_write(
@@ -568,7 +617,10 @@ class RemoteServer(SessionBrowseMixin):
 
     # -- 鉴权 ---------------------------------------------------------------
     def valid_token(self, client_id: str, token: str) -> bool:
-        """校验 hello 里的 token。对应 Go ``(*RemoteServer).validToken``。"""
+        """校验 hello 里的 token。对应 Go ``(*RemoteServer).validToken``。
+
+        比较用 :func:`secrets.compare_digest`（定长比较，不因前缀命中提前返回）。
+        """
         envs = self.cfg.server.tokens.get(client_id) or []
         if not envs:
             return False
@@ -576,7 +628,13 @@ class RemoteServer(SessionBrowseMixin):
             value = config_env(env_name, self.config_dir)
             if value is None or not value.strip():
                 continue
-            if token == value.strip():
+            expected = value.strip()
+            try:
+                matched = secrets.compare_digest(token.encode("utf-8"), expected.encode("utf-8"))
+            except UnicodeEncodeError:
+                # 客户端 JSON 里的孤立代理对无法编码；它不可能等于配置里的 token。
+                matched = False
+            if matched:
                 return True
         return False
 

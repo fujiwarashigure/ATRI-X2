@@ -158,8 +158,7 @@ async def prepare_stream_body(
     与 Go 一致：先看 ``text/html`` 的 Content-Type（不等首行，避免网关页把首包
     超时耗满），再读首行看 HTML 特征，最后判定像不像 SSE。
 
-    ``stream`` 只需提供 ``headers`` 与 ``lines()``（``httpclient.HTTPStream`` 与
-    本包的 ``transport.LineStream`` 都满足）。
+    ``stream`` 只需提供 ``headers`` 与 ``lines()``（``httpclient.HTTPStream`` 满足）。
     """
     content_type = header_of(stream.headers, "content-type")
     media_type = media_type_of(stream.headers)

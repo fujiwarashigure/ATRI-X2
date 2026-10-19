@@ -358,12 +358,9 @@ async def consume_context_compact_seed(agent: Any, ctx: Any, session: Any) -> No
 
 def summary_user_prefix(summary: str) -> str:
     """摘要注入用户输入时的前缀。对应 Go ``summaryUserPrefix``。"""
-    try:
-        from atri_x.agent.prompt import summary_user_prefix as shared
+    from atri_x.agent.prompt import summary_user_prefix as shared
 
-        return shared(summary)
-    except ImportError:  # pragma: no cover - 同僚模块缺失
-        return f"[以下是本会话此前的摘要]\n{summary}\n[摘要结束]\n\n"
+    return shared(summary)
 
 
 def _request_parent(ctx: Any) -> Any:
@@ -411,7 +408,6 @@ def _taken_over() -> BaseException:
 
 # 这些名字的实现搬到了 atri_x.agent.chat_turn，这里保持同样的导入路径。
 from atri_x.agent.chat_turn import (  # noqa: E402,F401
-    _FallbackPromptBuildRequest,
     _assistant_metadata,
     _load_context,
     _mutate_metadata,

@@ -22,6 +22,9 @@ disk_min_free_bytes = 0
 [runtime]
 log_level = "info"
 log_retention_days = 30
+# 核心装配器（模型/上下文/预算/限流/工具指令）缺失时是否让启动失败。
+# 默认 false：只记 WARN 并继续启动；true 时启动直接报错（尽早暴露装配缺口）。
+fail_fast_agent_services = false
 
 [maintenance.log_cleanup]
 enabled = true

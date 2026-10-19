@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import contextlib
+import importlib
 import io
 import itertools
 import os
 import shutil
+import sys
 import unittest
 from datetime import datetime
 from unittest import mock
@@ -422,6 +425,92 @@ class TestContract(unittest.TestCase):
         self.assertTrue(contract.valid_run_source(contract.RunSourceAtrinis))
         self.assertFalse(contract.valid_run_source("background"))
         self.assertEqual("run_source", contract.FieldRunSource)
+
+
+# ---------------------------------------------------------------------------
+# 脱敏降级：不能原样透传，且必须可观测
+# ---------------------------------------------------------------------------
+
+#: 常见密钥样例：降级兜底必须全部遮掉。
+_SECRET_SAMPLES = (
+    "sk-abcdefghijklmnopqrstuvwxyz0123456789",          # OpenAI/DeepSeek 风格
+    "Bearer abcdefgh12345678",                          # Authorization Bearer
+    "api_key=supersecretvalue",                         # api_key=...
+    "token: another-secret-value",                      # token: ...
+    "https://user:pa55word@example.com/hook",           # URL 里的 user:password@
+    "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl",  # JWT
+    "123456789:AAHsecretTokenValue1234567890",          # Telegram bot token
+)
+
+
+@contextlib.contextmanager
+def degraded_logging_module():
+    """强制 ``atri_x.redact`` 导入失败并重新加载日志模块（模拟脱敏模块缺失）。"""
+    module = logging_module
+    try:
+        with mock.patch.dict(sys.modules, {"atri_x.redact": None}):
+            importlib.reload(module)
+            yield module
+    finally:
+        importlib.reload(module)
+
+
+class TestRedactFallback(unittest.TestCase):
+    """``REDACT_AVAILABLE=False`` 时使用正则兜底，而不是恒等透传。"""
+
+    def test_fallback_masks_common_secret_shapes(self) -> None:
+        for sample in _SECRET_SAMPLES:
+            with self.subTest(sample=sample):
+                masked = logging_module._fallback_redact(sample)
+                self.assertNotEqual(masked, sample)
+                self.assertIn("REDACTED", masked)
+
+    def test_fallback_keeps_ordinary_text(self) -> None:
+        text = "connection timed out after 30s while contacting the provider"
+        self.assertEqual(logging_module._fallback_redact(text), text)
+
+    def test_degraded_logger_does_not_write_raw_secrets(self) -> None:
+        with degraded_logging_module() as module:
+            self.assertFalse(module.REDACT_AVAILABLE)
+            output = io.StringIO()
+            # 用模块里的 Logger（重新加载后的那一个）。
+            logger = module.Logger("info", output, now=lambda: datetime(2026, 10, 13, 12, 0, 0))
+            logger.error(
+                "provider failed",
+                "api_key",
+                "sk-abcdefghijklmnopqrstuvwxyz0123456789",
+                "authorization",
+                "Bearer abcdefgh12345678",
+                "error",
+                ValueError("POST https://user:pa55word@example.com/hook failed"),
+            )
+            text = output.getvalue()
+        for secret in ("sk-abcdefghijklmnopqrstuvwxyz0123456789", "abcdefgh12345678", "pa55word"):
+            self.assertNotIn(secret, text)
+        self.assertIn("REDACTED", text)
+
+    def test_degradation_alert_is_emitted_once(self) -> None:
+        with degraded_logging_module() as module:
+            logger = mock.Mock()
+            self.assertFalse(module.announce_redact_degradation(logger))
+            self.assertFalse(module.announce_redact_degradation(logger))
+            self.assertEqual(logger.error.call_count, 1)
+            self.assertIn("log redaction is unavailable", logger.error.call_args[0][0])
+
+    def test_alert_is_quiet_when_redaction_is_available(self) -> None:
+        logger = mock.Mock()
+        self.assertTrue(logging_module.announce_redact_degradation(logger))
+        logger.error.assert_not_called()
+
+    def test_status_shape(self) -> None:
+        status = logging_module.redact_status()
+        self.assertIn("available", status)
+        self.assertIn("mode", status)
+        with degraded_logging_module() as module:
+            degraded = module.redact_status()
+            self.assertFalse(degraded["available"])
+            self.assertEqual(degraded["mode"], "fallback")
+            self.assertGreater(degraded["fallback_rules"], 0)
 
 
 if __name__ == "__main__":  # pragma: no cover

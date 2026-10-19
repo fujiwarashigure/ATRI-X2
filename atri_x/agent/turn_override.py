@@ -126,11 +126,10 @@ def apply_turn_overrides(agent: Any, ctx: Any, text: str) -> tuple[Any, TurnDire
             if not agent.image_profiles.get(name):
                 result.invalid.append("image:" + match.name)
                 continue
-            try:
-                from atri_x.imagegen import with_profile as image_with_profile
-            except ImportError:  # pragma: no cover - 生图模块尚未落地
-                result.invalid.append("image:" + match.name)
-                continue
+            # ``atri_x.imagegen`` 是硬模块；装配缺失时直接失败，不再把
+            # ``@image:`` 指令静默判成无效（研究报告 §5.1）。
+            from atri_x.imagegen import with_profile as image_with_profile
+
             ctx = image_with_profile(ctx, name)
             result.applied.append("image:" + name)
             remove[index] = True

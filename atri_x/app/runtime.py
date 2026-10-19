@@ -469,6 +469,7 @@ def _tool_options(
     artist_library = getattr(image_generation, "artist_library", None)
     from atri_x.memory.resident import Limits as ResidentLimits
     from atri_x.tool.builtin.runtimeinfo import RuntimeInfo
+    from atri_x.tool.builtin.shell_sandbox import background_shell_policy_from_config
 
     return ToolRuntimeOptions(
         config_dir=config_dir_of(cfg),
@@ -506,6 +507,9 @@ def _tool_options(
         child_process_env=shell_process_env,
         file_backups=file_backups,
         logger=logger,
+        background_shell_policy=background_shell_policy_from_config(
+            getattr(cfg, "security", None)
+        ),
     )
 
 

@@ -159,6 +159,46 @@ class InstallerTests(unittest.TestCase):
         self.assertIsNotNone(runtime.compactor)
         self.assertEqual(runtime.configured_compact_model().model, "small")
 
+    def test_report_snapshot_is_published_on_the_host(self) -> None:
+        """``to_dict()`` 必须有宿主出口（``/diagnostics`` 与 doctor 共用）。"""
+        from atri_x.agent.bootstrap import install_agent_services
+
+        agent = make_agent()
+        report = install_agent_services(agent)
+        payload = agent.agent_services_report
+        self.assertIsInstance(payload, dict)
+        self.assertEqual(payload, report.to_dict())
+        self.assertTrue(payload["ok"])
+        for key in ("installed", "skipped", "failed", "warnings", "ok"):
+            self.assertIn(key, payload)
+
+    def test_rate_limit_options_reach_the_host(self) -> None:
+        """``opts`` 里的限流器与阈值必须落到宿主字段（``/diagnostics`` 依赖它们）。"""
+        from atri_x.agent.bootstrap import install_agent_services
+        from atri_x.ops.ratelimit import Limit, new as new_limiter
+
+        user = new_limiter(Limit(rate_per_second=0.2, burst=3))
+        group = new_limiter(Limit(rate_per_second=1.0, burst=10))
+        agent = make_agent()
+        install_agent_services(
+            agent,
+            opts={
+                "rate_limit_user": user,
+                "rate_limit_group": group,
+                "rate_limit_user_per_minute": 12,
+                "rate_limit_user_burst": 3,
+                "rate_limit_group_per_minute": 60,
+                "rate_limit_group_burst": 10,
+            },
+        )
+        self.assertIs(agent.rate_limit_user, user)
+        self.assertIs(agent.rate_limit_group, group)
+        status = agent.rate_limit_status()
+        self.assertEqual(status.user_messages_per_minute, 12)
+        self.assertEqual(status.user_burst, 3)
+        self.assertEqual(status.group_messages_per_minute, 60)
+        self.assertEqual(status.group_burst, 10)
+
 
 class MixinCompositionTests(unittest.TestCase):
     """``Agent`` 必须真的继承各组 mixin（而不是只剩 AgentSeams 的降级答案）。"""

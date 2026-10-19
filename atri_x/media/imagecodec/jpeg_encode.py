@@ -248,19 +248,6 @@ def _encode_block(
     return block[0]
 
 
-def _pad_plane(plane: bytearray, width: int, height: int, stride: int, pad_h: int) -> bytearray:
-    """把 ``height x width`` 的平面补齐到 ``pad_h x stride``（右侧/底部重复边缘）。"""
-    out = bytearray(stride * pad_h)
-    for y in range(pad_h):
-        source_y = y if y < height else height - 1
-        base = source_y * width
-        row = plane[base : base + width]
-        if width < stride:
-            row = row + bytes([row[-1]]) * (stride - width)
-        out[y * stride : (y + 1) * stride] = row
-    return out
-
-
 def _blocks_from_plane(
     plane: bytearray, stride: int, bx: int, by: int
 ) -> list[int]:

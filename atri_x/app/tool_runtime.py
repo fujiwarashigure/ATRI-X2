@@ -87,6 +87,8 @@ class ToolRuntimeOptions:
     child_process_env: Any = None
     file_backups: Any = None
     logger: Any = None
+    #: 后台（cron / Atrinis）无人值守的 shell 放行策略；``None`` 用内置默认。
+    background_shell_policy: Any = None
 
 
 @dataclass
@@ -193,6 +195,7 @@ def build_tool_runtime(opts: ToolRuntimeOptions) -> ToolRuntime:
             file_backups=opts.file_backups,
             process_env=process_env,
             child_process_env=child_process_env,
+            background_shell_policy=opts.background_shell_policy,
         ),
     )
 

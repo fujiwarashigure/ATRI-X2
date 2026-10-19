@@ -6,6 +6,384 @@
 
 ---
 
+## [0.9.8] - 2026-10-19
+
+> 本版把「研究报告审计修复」与「二审整改」两批工作一起冻结成可交付发行，并配一次全仓
+> 清理与脱敏核对、Windows 安装版与便携版（解压即用）重建。修掉的是**让工具链整条不可用**
+> 的 `start_tool_request` 契约缺陷、后台 shell 只收紧评估阶段、媒体工作槽位随等待方释放、
+> HTTP 三条请求路径只统一了一条、取消被当成普通工具失败、deploy 伪命令未命中会回落真实
+> 执行；另外补上 Pillow 精准打包开关与图像后端探针。
+>
+> 详细改动按"旧状态 → 新状态"写在下面两节（同为 0.9.8：二审整改、研究报告审计修复）。
+
+### 行为变化（升级前需知悉）
+
+七处运行期行为与 0.9.7 不同，其余 API 与配置格式向后兼容：
+
+| # | 变化 | 影响面 |
+|---|---|---|
+| 1 | 后台（cron / Atrinis）shell 改为**默认拒绝**，只有"整条命令低风险 + 命令名在只读白名单 + 结构合规"才自动执行；Windows/PowerShell 主机没有可判的 AST，后台一律拒绝 | 旧配置里靠后台跑 `rm`/`git clean` 之类的无人值守任务会被拒；`[security].background_shell_allow_all = true` 可显式恢复旧行为 |
+| 2 | `open_stream()` 与 `request_multipart()` 现在**默认跟随 3xx**（与 `request()` 一致） | 依赖"原样返回 302"的调用方需要显式 `follow_redirects=False` |
+| 3 | `timeout` 从"每跳各自计时"改为**整条重定向链共享总预算**（含重试退避与每跳 I/O） | 多次重定向 + 重试的总耗时不再随跳数放大 |
+| 4 | 301/302/303 改 GET 时**同时丢掉 `Content-Type`**（此前只丢 body） | 目标端不再收到与实际 body 不匹配的类型头 |
+| 5 | 流式请求的**建连超时并入 `first_chunk_timeout`**（不再单独一档） | 只影响超时归类，不改成功路径 |
+| 6 | 非流式 LLM 请求现在也跟随 3xx、并受 `ctx` 取消令牌约束 | 取消时不再等到整个请求跑完 |
+| 7 | `toolrun` 在 `authorize_tool=None` 时 **fail-closed**（拒绝而非放行）；确认通道缺失同样拒绝 | 只有"忘了装授权回调"的自定义装配会受影响，生产路径由 `chat_tools._tool_hooks` 装配 |
+
+打包侧另有一处：`--with-pillow` 不再连带保留 numpy/PyYAML（要一起留用 `--with-all-optional`，
+等价于 `ATRIX_PKG_KEEP_OPTIONAL=1`）。
+
+---
+
+## [0.9.8] — 二审整改（执行契约 / 默认拒绝 / 取消传播 / 资源生命周期）
+
+> 第二轮对抗性评审（针对上一轮整改后的工作树）确认的遗留问题：`start_tool_request`
+> 的返回元数三方不一致导致**工具链整条不可用**、后台 shell 只在评估阶段收紧、
+> 媒体工作槽位随等待方释放、HTTP 三条路径只统一了一条、取消被当成普通工具失败、
+> deploy 伪命令未命中会回落真实执行、异常棘轮只看总数、Pillow 打包开关不精准。
+> 下面按"旧状态 → 新状态"记录。
+
+### Security
+
+- **后台 shell 的确认阶段改为服务端 fail-closed 裁决**（旧状态：`background.confirm_background_sandbox_shell`
+  只看评估阶段传进来的 `risk`，critical 拒绝、其余（含 high）自动确认；评估阶段若没有
+  沙盒 ctx 或评估失败，确认阶段就只剩"自动确认"）。新状态：确认阶段从工具参数里取出
+  `cmd` 文本**重新**做一遍静态裁决（`shell_command_names` 静态确认 + `classify_shell_command`
+  + 沙盒加固 + 后台策略），拿不到命令文本 / 解不出来 / PowerShell 主机 / 结构违规 /
+  风险超限 / 白名单未命中一律拒绝，`ShellRiskDecision` 新增 `reason` 字段并写进审计。
+- **执行前复核**：`ShellTool.call()` 在启动任何进程/解析工作目录**之前**用执行时的 ctx
+  再裁决一次（`background_execution_denial`），拒绝时抛 `ForbiddenError`。
+  这样"评估时是 low、排队期间换命令"与"前台本会话自动确认放行"两类绕过都堵在执行点；
+  同时确认阶段先于前台 `needs_tool_confirmation` / `confirm_tool_call`（有测试钉住顺序）。
+- **白名单不再只比命令名**：新增 `background_shell_structure_violation()`，复用
+  `shellparse` 的 AST 与 `shell_risk` 的包装器解包，拒绝命令替换/进程替换/算术展开/
+  管道/重定向/后台执行符/复合控制结构/包装器内联脚本/`eval|source|trap`/`-c 脚本文本`/
+  参数里的动态词与路径逃逸。
+- **取消不再被当成工具失败**：`atri_x/tool/executor.py` 的 `assess_risk` 与 `tool.call`
+  两个边界、`atri_x/toolrun/runner.py` 的 7 个异步边界（`prepare_tool_call` /
+  `preflight_confirmation` / `confirm` / `start_tool_request` / 媒体参数保留 / 输出投递 /
+  `complete_tool_call`）与 `_assess_for_run`、`atri_x/agent/chat_turn.py` 的两个 hook
+  包装点、`shell.py` 的 `_media_variables` / `_close_media_call` 全部改为
+  `except asyncio.CancelledError: raise` + `except Exception`。旧状态下
+  `CancelledError` 被折叠成 `ExecutionResult(err=…)`，`runner` 会记一次"工具失败"并
+  继续跑同一批剩下的调用。
+
+### Fixed
+
+- **`start_tool_request` 的三元组契约**（P0，真实接入后所有工具调用都执行不到）：
+  `runner.run()` 旧代码按 4 项解包，而协议声明与 `AgentToolRunDeps` 都返回 3 项
+  → 每次调用抛 `ValueError: not enough values to unpack (expected 4, got 3)`，被宽泛的
+  `except BaseException` 记成"启动失败"，工具永不执行且已登记的 request 因为拿不到
+  `done` 而永不结束；测试里的假实现当年返回 4 项，所以单测全绿也发现不了。
+  现在 `run()` 按三元组解包、登记失败走异常分支，登记成功后的整段执行包进
+  `try/finally` 由 `_release_request()` 保证 `done()` **恰好一次**（成功/执行抛错/
+  二次授权拒绝/`before_execute` 拒绝/媒体参数失败/取消/提前 return 全覆盖）。
+  判据探针（仓库外本地脚本，不随仓库分发；同一探针跑两棵树）：
+  修复前 `tool_executions=0 / requests_closed=0 / message="tool call echo failed: not enough
+  values to unpack (expected 4, got 3)"`，修复后 `1 / 1 / "ok:echo"`。
+- **媒体隔离压缩的槽位生命周期**（旧状态：`run_isolated` 在 `finally` 里释放槽位，
+  超时/取消时等待方结束、线程仍在跑、槽位已释放，于是"最多 10 个槽位"不等于
+  "最多 10 个真实存活的工作"；`_acquire_gate` 在"槽位到手但 ctx 已取消"时会永久漏掉
+  一个槽位）。新状态：`asyncio.shield` + **内部 future 的 done 回调**里归还槽位，
+  超时/取消只记 `orphaned` 不再释放；闸门改为显式记账的 `_Gate`（槽位可直接交接给
+  队首等待者，交接与取消的竞态可判定），排队有界
+  （`IMAGE_WORKER_QUEUE_LIMIT=64` / `IMAGE_WORKER_QUEUE_TIMEOUT=60s`，分别抛含
+  `queue full` / `queue timed out` 的 `MediaError`），新增 `worker_stats()` 诊断快照。
+  判据探针（本地临时目录里的脚本，不随仓库分发）：旧树"10 个工作还活着时闸门
+  报告 10 个空闲槽位""40 次取消后槽位永久泄漏 0/2"，新树为 `0` 与 `2/2`。
+- **HTTP 三条请求路径统一**（旧状态：只有 `request()` 跟随重定向，`request_multipart()`
+  与 `open_stream()` 原样返回 3xx）。新状态：抽出共用 `_redirect_step()`
+  （相对 `Location`、跳数上限、**循环检测**、301/302/303 改 GET 并丢 body 与
+  `Content-Type`、307/308 保留方法与 body、跨源剥离 `Authorization`/`Cookie`/
+  `Proxy-Authorization`/`Host`、只允许 http/https、每跳关旧连接）与
+  `_RedirectBudget`（**整条链共享总超时预算**，含重试退避与每跳 I/O）；
+  `request_multipart` 新增 `follow_redirects`/`max_redirects`；`open_stream` 默认跟随，
+  3xx 无 `Location` 原样返回、循环/超限抛 `HTTPError`。
+- **流式投递的背压与取消**（旧状态：`_pump` 用 `call_soon_threadsafe(queue.put_nowait, …)`，
+  队列（maxsize=2048）满时回调抛 `QueueFull`，行与 EOF 都可能丢，消费端会永久挂在
+  `queue.get()`；`open()` 被取消时线程与连接不清理）。新状态：同一个
+  `run_coroutine_threadsafe(queue.put(...))` future 上带超时轮询 `result()`（不重复入队），
+  `_stop` 置位时取消并取走异常后退出；`close()` 额外补一个 EOF 唤醒阻塞的消费端；
+  `open()` 被取消时先关连接/停线程再抛。`read_timeout=0` 现在表示"正文不做 socket 级
+  读截止"（并在 `getresponse()` 前留住 socket —— SSE 的 `Connection: close` 会把
+  `conn.sock` 清空，旧写法连正数 `read_timeout` 都从未生效）。
+- **LLM 适配器切回 `HTTPClient`**：删除为绕开旧缺陷而自建的
+  `atri_x/llm/openai/transport.py`（`LineStream` / `buffered_request`），
+  `open_stream_request` 改用 `self._http.open_stream(..., read_timeout=0,
+  queue_maxsize=2048, follow_redirects=True, cancel=ctx)`，非流式改走 `self._http.request(...)`
+  且**不**传 `retry`（避免与 `_do_with_retry` 叠加成双重退避）。
+- **deploy 伪命令改为严格模式**：设置 `ATRIX_DEPLOY_FAKE_CAPTURE` 即 fail-closed ——
+  规则文件缺失/JSON 损坏/条目非法（未知键、无匹配谓词、`argv` 非字符串列表、
+  `real` 与 `code` 冲突）/**没有任何规则命中**一律 `AssertionError`（消息带全 argv 与
+  规则文件路径），绝不回落去真跑 docker/git；规则支持结构化 `argv` / `argv_prefix`
+  谓词（同格多谓词为"与"），逐条 `"real": true` 或全局
+  `ATRIX_DEPLOY_FAKE_ALLOW_REAL=1` 才允许真跑（默认关闭）。`FakeDocker._route` /
+  `_route_exec` 的"未识别命令返回 0"兜底删除，改为 `AssertionError`，并新增
+  `hits` / `hit_log` 命中记账。
+- **`scripts/check_except.py` 基线改为位置级**（旧状态：只比 `except BaseException`
+  且不 re-raise 的**总数**，总数不变仍可能是"旧问题被删、新问题被加进来"）。新状态：
+  条目 = `file` + `qualname` + 归一化 handler 指纹（行号无关）+ `count`；新增位置或
+  次数变多即非零退出，"总数不变但位置换了"同样能抓到；位置消失/减少会提示收紧；
+  `--update` 打印 diff 摘要，`--self-test` 覆盖五种判定；v1 基线走兼容路径并提示迁移。
+- **JPEG 精度口径可复现**：新增 `tests/test_imagecodec_jpeg_precision.py`（52 个固定
+  样本 × 两条解码入口，Pillow 缺失时 skip），把模块头部的"平均 ≤0.01 / 最大 ≤1"
+  换成实测表 + 样本位置（4:4:4 ≈0.11/2、4:2:2 ≈0.63/4、4:2:0 ≈1.07/4、极高对比度的
+  3×5 上采样边界 ≈11.8/53），并注明与 Go `image/jpeg` **未做**差分验证。
+- **Pillow 打包开关精准化**：`--with-pillow` 不再连带保留 numpy/PyYAML，新增
+  `--with-extras` / `--with-all-optional`（旧的 `--with-pillow` 语义）/
+  `--allow-missing-pillow` / `--check-env`；构建环境 `import PIL` 不可用时 exit 2
+  （显式开关才降级为警告）；`packaging/atri-x.spec` 的 `excludes` 改为逐包判定
+  （`ATRIX_PKG_KEEP_PILLOW` / `ATRIX_PKG_KEEP_EXTRAS`，`KEEP_OPTIONAL=1` 仍等价三包全留）。
+- `atri_x/media/imagecodec/backend_probe.py`（新）：`import PIL` 的唯一出处，
+  `image_backend_info()` 提供后端名/版本，`python -m atri_x.media.imagecodec.backend_probe --json`
+  用于部署侧（含冻结产物）核验；doctor 新增 `[media] image_backend` 检查，`/diagnostics`
+  新增同名段。
+
+### Changed（文档）
+
+- `PORTING.md` §4 重定向说明、`AGENTS.md` 验证规则（棘轮改为位置级）、
+  `deploy/TESTING.md` §注入点（严格模式与结构化规则）、`packaging/README.md` 与
+  `docs/windows-app.md`（新开关 + 产物侧后端核验命令）、`devdocs/code-map.md`
+  （`media/worker.py` 槽位语义、`media/imagecodec/` 与 `backend_probe.py`）已同步到当前实现。
+
+### 发行（v0.9.8）
+
+Windows 三种产物按 0.9.8 重建（`python packaging/build.py --with-kernel --release`，
+内置 DSH 内核 `0.2.0-rc.2` / 384 包 / 189.1 MB，`assemble_kernel.py` 的 ACP `initialize`
+握手核验通过）：
+
+| 产物 | 体积 | 构建耗时 | 自检 |
+|---|---|---|---|
+| `dist/windows/atri-x/`（onedir 中间产物） | 321.3 MB / 24510 文件 | PyInstaller 88.6 s | `--version`（`atri-x 0.9.8`）、`config check`、`-m` 转发、`sidecar`（内置内核可解析）、GUI `--selftest` 全过 |
+| `dist/portable/ATRI-X-0.9.8-portable-win64.zip` | 115.1 MB（源 321.3 MB，deflate 36%） | 打包 9.6 s | 解压 11.1 s（24515 条目）后 `--version` / `config check` / 数据目录落在包内 / `-m` / sidecar / GUI selftest / `start-portable.bat` / `debug-console.bat` / APPDATA 重定向全过 |
+| `dist/installer/ATRI-X-0.9.8-setup.exe` | 57.0 MB | ISCC 53.3 s（Inno Setup 7.1.0，自带简体中文界面） | 静默安装 35.4 s / 24513 文件、`--version` 通过、静默卸载 7.9 s 且目录清空 |
+
+| 文件 | SHA256 |
+|---|---|
+| `ATRI-X-0.9.8-portable-win64.zip` | `913fa49ad9fcb5f1ab205e89da73b0c2440c98d22f374355f74c90886b9803ec` |
+| `ATRI-X-0.9.8-setup.exe` | `44254554f31633fe53f503e7b9715fcf7544c92296da7a9df2b5b6a56c1bc46a` |
+
+便携版是**解压即用**形态：zip 顶层是 `ATRI-X-0.9.8/`，里面是两个 exe、`_internal/`
+（含 `runtime/dsh-kernel`）、`start-portable.bat`（数据落在解压目录）、`start-normal.bat`、
+`debug-console.bat`、`README.txt` 与 `build-info.json`；**必须先解压到短路径**
+（内置内核里有 204 字符的相对路径，解压根目录建议 ≤ 55 字符）。安装版是用户级安装
+（`PrivilegesRequired=lowest`，不弹 UAC）到 `%LOCALAPPDATA%\ATRI-X\app`，带开始菜单
+快捷方式、卸载项与可选开机自启。
+
+### 清理与脱敏核对（v0.9.8 发行前）
+
+- **垃圾清理**：删掉 89 个目录 + 1 个文件（19.28 MiB）——77 个 `__pycache__/`、
+  6 个空的 `tmp_*_test/`、`tests/_tmp_*`（上一轮评审留下的探针与测试残留：cron 运行数据、
+  media-worker 复现、net 改动前后对照、packaging 探针、dsh 路由）、根目录
+  `tmp_ws_report.txt`。`runtime/`（内核产物）与 `build/`（PyInstaller 工作目录）保留，
+  两者都在 `.gitignore` 里；删掉的探针脚本另存到仓库外留档。
+- **凭据**：994 个会入库的文件（其中 987 个文本文件）+ 全部 7 个 commit 的 blob，按
+  `sk-*` / `ghp_*` / `github_pat_*` / `AKIA*` / `xox[baprs]-*` / `Bearer` / JWT / 私钥头 /
+  40+ 位十六进制扫描；命中项全部是 `tests/` 与 `CHANGELOG` 里刻意构造的假值
+  （AWS 文档示例 key、`sk-abcdef…`、`xoxb-abcdefghij`、假 JWT）与文档示例 IP
+  （`192.168.1.10`、`1.2.3.4`）。`CHANGELOG` 里的长十六进制是**公开发行产物的 SHA256**
+  与容器镜像 digest，不属于秘密。
+- **个人信息**：没有真实用户目录（`C:\Users\<实际用户名>`）、主机名、内网 IP、邮箱、
+  SSH 私钥或代理明文口令入库；git 作者只有公开身份
+  `fujiwarashigure <fujiwarashigure@users.noreply.github.com>`。文档里的构建机路径一律写成
+  `C:\Users\<用户>` / `C:\path\to\node_modules` 这类占位。
+- **文档脱敏**：`CHANGELOG` 中原本写死的仓库外探针路径改成中性描述（探针不随仓库分发，
+  写死路径会让读者以为能在仓库里找到）；`tests/test_app_doctor_capabilities.py` 与
+  `tests/test_vision_threading.py` 的 docstring 去掉指向仓库外审计文件的路径。
+- **发行物复核**：onedir（24510 文件）与便携版 zip（**真解压**后 24515 文件）逐文件按
+  宿主机用户目录、其它构建机工具目录、dpx 隔离环境目录等 7 类本机/构建机路径
+  标记扫描 → **0 命中**；`setup.exe` 本体按
+  字节扫描同样 0 命中。产物里唯一的 `C:\Users\...` 是第三方 `node_modules` 文档里的示例
+  路径（`C:\\Users\\x\\y\\z`），与本机无关。
+- **未验证**：产物只在本机（Windows 10 19045 / Python 3.14.7）通过自检，无代码签名，
+  真实平台/模型 E2E、容器镜像重建不在本次范围。
+
+### 验证（v0.9.8）
+
+```
+python scripts/check_syntax.py                  870 个文件，0 错（bom=0 crlf=0 damaged=0）
+python scripts/check_imports.py                 modules=686 imported=686，0 失败
+python scripts/check_integration.py             74 项，0 失败
+python scripts/check_coverage.py --strict --summary  72/72，weighted=100.0%（文件存在性口径）
+python scripts/check_except.py                  119 = 基线 119（v2：111 个位置）
+python scripts/gen_stats.py --check             OK（README 数字与实测一致）
+python -m unittest discover -s tests -t .       Ran 5628 tests in 1011.245s — OK (skipped=4)
+```
+
+产物侧：便携版解压自检 9 步全过、安装版静默安装/卸载自检通过、发行物脱敏扫描 0 命中、
+`atri-x.exe -m atri_x.sidecar status --json` 断言 `found: true`。
+
+> 打包脚本的退出码注意：`python packaging/build.py --release` 把 PyInstaller 日志写到 stderr，
+> 若它是 shell 脚本的最后一条语句，PowerShell 5.1 会把整条命令的退出码报成 1（`$?` 被判 false）。
+> 构件与自检实际全部成功；核对时请在末尾追加一条中性语句再读 `$LASTEXITCODE`。
+
+---
+
+## [0.9.8] — 审计修复（研究报告 P0/P1）
+
+> 一轮针对 Python 版新增件的安全与资源审计（图像编解码内存放大、后台 shell 自动放行链、
+> toolrun 执行层 fail-open、静默降级、WebSocket 分片复杂度、HTTP 重定向缺失）的整改。
+> 下面按"旧状态 → 新状态"记录。
+
+### Security
+
+- **后台（cron / Atrinis）shell 从"非 critical 自动确认"改为默认拒绝 + 只读白名单**。
+  旧状态下 `env rm -rf /`、`timeout 5 rm -rf /`、`xargs rm -rf`、`find / -exec rm -rf {} +`、
+  `eval 'rm -rf /'`、`trap 'rm -rf /' EXIT`、`git -C / clean -fdx` 等一律判 `low` 并被自动执行；
+  现在风险分级会解开 `env` / `command` / `nohup` / `timeout` / `nice` / `setsid` / `stdbuf` /
+  `ionice` / `chroot` / `ssh` / `watch` / `busybox` / `xargs` / `time` / `exec` / `coproc`，
+  并递归解析 `bash|sh -c '…'`、`eval`、`trap`、`find -exec`、`awk 'system(...)'` 里的脚本文本
+  （解析失败按 `high`）。
+- 新增 `[security].background_shell_allow`（默认 None = 内置只读白名单）与
+  `[security].background_shell_allow_all`（默认 false；true 才恢复旧行为）。
+  后台只有在"整条命令低风险 + 真实命令名都在白名单里"时才自动执行，其余直接拒绝；
+  PowerShell 主机没有 bash AST 可判，后台默认直接拒绝。
+- 后台沙盒的路径检查同样会解开包装器与 `-c` 脚本：`env cat /etc/passwd`、
+  `bash -c 'cat /etc/passwd'` 不再绕过绝对路径限制。
+- `atri_x/toolrun/runner.py`：`authorize_tool=None` 从"全放行"改为 fail-closed
+  （返回 `tool authorization is not configured`）；生产路径由 `chat_tools._tool_hooks`
+  装配 `authorize_tool_call`，该处的 `except ImportError: return None, None` 静默兜底已删除。
+- `atri_x/toolrun/runner.py::_assess_for_run`：风险评估器抛异常时从 `low` 改为 `high`
+  （与 `shell_risk` 的"解析失败即 High"统一）。
+- `atri_x/agent/toolrun_adapter.py`：确认通道缺失（`agent.turns` 为空）不再返回
+  `allowed=True`，改为拒绝并写入 `error=tool_confirmation_unavailable`，审计记 `rejected`。
+
+### Fixed
+
+- `atri_x/net/websocket.py`：分片重组从"每帧重算 `sum(len(chunk) …)`"（O(F²)）改为增量计数，
+  新增单条消息分片数上限 `MAX_MESSAGE_FRAGMENTS=65536`（超限 1009），并每 256 帧让出事件
+  循环；实测 16k 分片 3.49 s → 0.02 s、32k 分片 14.11 s → 0.05 s。`apply_mask` ≥64 字节
+  改走大整数异或，8 MiB 0.44 s → 0.023 s（约 19 MB/s → 361 MB/s）。握手按 RFC 6455
+  §4.2.1 校验 `Sec-WebSocket-Key` 解码后恰 16 字节（否则 400）；64 位长度最高位置 1 时
+  回 1002 而不是 1009；`read_timeout` 现在同时约束**单帧读取**与整条消息。
+- `atri_x/platform/cli/remote_server.py`：远程 CLI 服务端给 `ws.serve` 传 `read_timeout=60s`；
+  hello token 比较改 `secrets.compare_digest`；每个 `input` 帧的并发处理加
+  `asyncio.Semaphore(8)`，超限回错误帧并记日志，避免一个客户端无限并发触发 LLM。
+- `atri_x/net/httpclient.py`：`request()` 默认跟随 3xx（最多 10 跳，可用
+  `follow_redirects` / `max_redirects` 调整）：301/302/303 对非 GET/HEAD 改 GET 并丢 body，
+  307/308 保留方法与 body，相对 `Location` 用 `urljoin`，跨源丢弃
+  `Authorization`/`Cookie`/`Proxy-Authorization`/`Host`。此前 302 会原样返回空 body，
+  与 Go 默认 `http.Client` 不一致。当时 `open_stream` / `request_multipart` 仍不跟随
+  （已在 docstring 与 `PORTING.md` 登记），随后在下一节「二审整改」里统一，`PORTING.md`
+  与 `CHANGELOG` 的旧表述已随之更正。
+- `atri_x/media/imagecodec/jpeg_decode.py`：分配分量平面**之前**先按"每个 8x8 数据单元至少
+  2 bit 熵数据"做下界校验，并加解码内存预算；741 字节输入声明 10000x10000 时不再先吃
+  286 MiB 内存（现在 0 MiB 内被拒）。同时拒绝多个 SOF 帧头（`sniff` 与解码器口径一致）、
+  拒绝 SOS 分量顺序与 SOF 不一致（旧实现解出错色图像）、要求 SOF 分量 ID 唯一。
+- `atri_x/media/imagecodec/png.py`：解码改为**按行增量解压**（`_RowFeeder`），峰值内存从
+  "2×解压原始 + 输出"降到"输出 + 若干行"（16 位 RGBA 从 20 字节/像素降到约 4 字节/像素，
+  3000x3000 实测 171.98 MiB → 34.78 MiB）；关键块 CRC 始终校验，辅助块 CRC 不符记入
+  `Image.info["crc_mismatches"]`，`strict_crc=True` 时一律拒绝。
+- `atri_x/media/imagecodec/image.py`：默认像素上限 100 MPix → 24 MPix（与视觉预处理对齐），
+  新增 `DEFAULT_MAX_DECODE_BYTES`；`max_pixels=0/-1` 从"静默关闭闸门"改为 `ValueError`；
+  `decode(strict_crc=True)` 会绕过 Pillow 走纯解码器以保证 CRC 真的被校验。
+- `atri_x/media/image.py`：导入期压缩显式传 `max_pixels=MEDIA_IMAGE_MAX_DECODE_PIXELS`（24 MPix），
+  不再用编解码器默认值。
+- `atri_x/media/imagecodec/resample.py` / `ops.py`：`resize(filter=None)` 与 `to_rgb(img, None)`
+  从 `AttributeError` / `TypeError` 改为受控的 `ImageCodecError`。
+- `atri_x/media/imagecodec/jpeg_decode.py`：**单分量扫描按 T.81 A.2.2 修正 MCU 网格**。
+  旧实现一律按 `hmax/vmax` 划 MCU，把采样因子非 1x1 的灰度 JPEG（Pillow 的
+  `subsampling=1/2` + `L`、部分扫描仪）多读 `h*v` 个块，合法文件被误报"熵编码数据截断"
+  （1x1 / 1x33 / 3x5 全部复现）；现在单分量帧每个 MCU 只解一个数据单元，126 例
+  Pillow 语料从 41 失败降到 8（余下 8 例是色度上采样与 libjpeg 的精度差异，
+  已在模块 docstring 标注实测口径：4:2:0 常规尺寸平均差 ≈1/最大 ≈4，极端长宽比
+  平均差可达 ~15/最大 ~60，旧文档"平均 ≤0.01、最大 ≤1"已改正）。
+- 装配/诊断出口（研究报告 §5.1、§5.5）：`runtime_agent` 启动时把
+  `AgentServicesReport.to_dict()` 全量落结构化日志（`skipped` 也出现、每项含原因），
+  `/diagnostics` 新增 `agent_services` 与 `redaction` 段，`doctor` 新增
+  `[agent] services` / `[security] redaction` / `[ops] inbound_rate_limit` /
+  `[agent] hook_service` 四项能力检查（有启动期快照按快照断言，无快照只做静态判定并
+  显式 `skipped`，不伪造通过）。
+- 入站限流接上（研究报告 §5.4）：`runtime_agent` 按 `[ops] user/group_messages_per_minute`
+  (+burst) 构造限流器并随 `opts` 传入，阈值同步进 `RateLimitStatus`（不再恒 0）；
+  `/diagnostics.rate_limit` 用 `configured` + `disabled_reason` 区分"未配置"与"0 次拒绝"。
+- `/hooks` 控制面接上（研究报告 §5.4）：`runtime_agent` 把已构造的 `hook_service` 放进
+  `opts`，`agent.hook_service → services["hooks"] → deps.hooks` 全链路打通，不再恒回
+  "hook service is not configured"。
+- 脱敏降级不再恒等透传（研究报告 §5.2）：`atri_x.redact` 取不到时改用 6 条正则遮盖
+  （sk-xxx / Bearer / api_key=… / URL user:password@ / JWT / Telegram token），启动期发一条
+  进程内唯一的 ERROR，`redact_status()` 进 `/diagnostics.redaction` 与 doctor；兜底实现
+  拆到新模块 `atri_x/logging/redact_fallback.py`（`logging.py` 591 行，回到 ≤600 目标）。
+- 视觉预处理移出事件循环（研究报告 §3.3 问题 6）：`vision/service.py` 与
+  `tool/builtin/view_image.py` 的同步压缩/解码改 `await asyncio.to_thread(...)`，
+  3 MPix 图不再冻结事件循环十几秒。
+- 清理 10 处不可达的 `except ImportError` 静默兜底（研究报告 §5.1）：
+  `agent/chat_turn.py`（5 处：context_runtime / prompt / tool_transcript ×2 / tool_cache）、
+  `agent/chat.py::summary_user_prefix`、`agent/tool_schemas.py::_toolrun_view`、
+  `agent/turn_override.py` 的 `@image:` 分支、`app/platforms.py` 的会话浏览扩展、
+  `agent/chat_tools.py::_tool_hooks`。这些模块在 `agent/core.py` 里已是模块级硬导入，
+  兜底永远不可达，只会把"模块坏了"变成静默降级；现在缺失即显式失败。
+- 删除 `atri_x/media/imagecodec/jpeg_encode.py` 里从未被调用的 `_pad_plane()`。
+
+### Changed
+
+- `atri_x/tool/builtin/shell_risk.py`：`git` 全局选项（`-C` / `--git-dir=` / `-c` …）不再把
+  子命令挤出视野；新增 `truncate` / `shred` / `wipe` / `ln` / `find -delete` /
+  `find -fprint*` / `awk system()` 与 Windows 管理类命令（`reg` / `schtasks` / `sc` /
+  `net` / `wmic` 等）的分级。
+- `docs/configuration.md`、`devdocs/architecture.md`、`devdocs/atrinis-atriwisp.md`：
+  登记后台 shell 白名单与新的分级口径。
+
+### Added
+
+- `[runtime] fail_fast_agent_services`（默认 `false`）：开启后核心装配器缺失即启动失败，
+  不再"启动成功但能力静默缺失"。
+- `[security] background_shell_allow` / `background_shell_allow_all`：后台 shell 白名单与
+  旧行为开关（见上）。
+- `atri_x/logging/redact_fallback.py`：脱敏模块缺失时的正则兜底、一次性告警与自检快照。
+- `scripts/check_except.py` + `scripts/except_baseexception_baseline.json`：`except BaseException`
+  且不 re-raise 的处理器棘轮。基线是**位置级**的（`file` + `qualname` + 归一化 handler 指纹 +
+  `count`），新增位置或次数变多即失败，总数不变但位置被换掉同样会被抓到；`--update` 打印
+  diff 摘要，`--self-test` 覆盖五种判定。已登记进 `AGENTS.md` 验证规则。
+- `scripts/gen_stats.py`：README 数字的**可复算来源**（只读扫描，口径与 `check_syntax` /
+  `check_imports` 共用同一份实现），`--check` 在 README 数字漂移时 exit 1、`--update` 打印可粘贴数字；
+  用例数不再硬编码进 README。
+
+### Fixed（测试与文档）
+
+- `tests/test_deploy_upgrade.py`：夹具在 PATH 最前放**空壳** `docker` / `docker-compose` / `git`
+  （只为 `shutil.which` 命中；真正执行的命令仍先命中伪造命令表），并修正一条永不匹配的伪造表模式
+  （`-f <file>` 夹在 `compose` 与子命令之间）。**没有 Docker 的机器上 13 个失败 → 0**
+  （此前 `deploy/_proc.py::compose_command()` 的存在性探测不经过伪造钩子，脚本直接
+  `die("未找到 Docker Compose")`）。
+- `tests/test_deploy_watchdog.py`：`TestWindowsLauncher.load_module()` 导入与包同名的
+  `deploy/windows/atri_x.py` 后把真包**原样放回** `sys.modules`；此前它把真包弹掉不还原，
+  使后续任意懒 import 的用例撞上替身报 `'atri_x' is not a package`（discover 顺序下侥幸不炸，
+  跑子集必炸）。同进程混跑 docker/部署相关 8 个模块：`Ran 243 tests, OK (skipped=2)`。
+- `tests/test_imagegen.py`：上游 Go 仓库不在同级目录时明确 `skipTest`（"无法比对 ≠ 检测通过"），
+  漂移临时目录改到 `tests/_tmp_imagegen_drift`。
+- `README.md`：651/817/5121（与树漂移）→ 686 个 `.py` 模块 / 866 个扫描文件 /
+  "用例数不硬编码，现场跑 `discover`"；`check_coverage` 行补明"**文件存在性**口径"；
+  "对抗性验证"段加注：历史"全绿"绑定做者机器（有 Docker、上游在同级目录），现已改成不依赖环境。
+- `scripts/check_coverage.py`：只改文案/口径说明（`--summary` 增一行 `scope=file-existence only …`），
+  判定逻辑与计数未动。
+
+### Tests
+
+- `tests/test_imagecodec.py`：新增 9 条（分配前熵下界 + tracemalloc 峰值、多 SOF、SOS 顺序、
+  PNG 流式峰值、关键/辅助块 CRC、`max_pixels<=0`、非法参数、采样因子非 1x1 的灰度 JPEG）。
+- `tests/test_builtin_shell.py`：新增 3 个测试类（20 条绕过用例、包装器解包助手、
+  后台白名单 / PowerShell 拒绝 / ShellTool 端到端判级）。
+- `tests/test_toolrun.py`、`tests/test_agent_risk.py`：新增"缺授权回调 / 缺确认通道 /
+  评估器异常"的 fail-closed 回归，其余用例补上显式放行的授权回调。
+- `tests/test_websocket.py`（+307 行）、`tests/test_httpclient.py`（+216）、
+  `tests/test_platform_cli_remote.py`（+148）：分片上限/让出事件循环、掩码对照、
+  Sec-WebSocket-Key 400、64 位长度 1002、单帧读超时、302/307/相对 Location/跨源丢头、
+  input 帧并发上限与 token 比较。
+- `tests/test_app_runtime_agent.py`（+308）、`tests/test_app_doctor_capabilities.py`（新，17）、
+  `tests/test_vision_threading.py`（新）、`tests/test_app_health.py`（+7）、
+  `tests/test_logging.py`（+6）、`tests/test_agent_bootstrap.py`（+3）：装配报告出口、
+  限流接线、hook_service、能力检查、脱敏降级、视觉线程化。
+- 仓库外验证探针（均为本地脚本，不随仓库分发）：`fix_verify_mem_probe.py`（图像内存 P0）、
+  `fix_verify_png_filters.py`（528 例 PNG 滤波器/位深/隔行差分，0 失败）、
+  `fix_verify_jpeg_corpus.py`（126 例 Pillow JPEG 语料）、`fix_verify_shell_risk.py`
+  （报告 §6.2 绕过表）。
+- 测试可移植性：无 Docker、无上游 Go 仓库的本机上
+  `tests.test_deploy_upgrade` + `test_deploy_watchdog` + `test_imagegen` 从 14 个失败
+  变为 **109 用例 OK（skipped=2，skip 原因写在用例里）**。
+
+---
+
 ## [0.9.7] - 2026-10-19
 
 > 本版把 `web_search` 从「只会调 Tavily、没 key 就不可用」改成**可配置的搜索通道链**：

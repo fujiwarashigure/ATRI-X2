@@ -11,6 +11,10 @@
   ``python deploy/smoke.py`` / ``stability.py``，断言退出码、真实的 docker 命令形状
   与 JSON 报告；外加 fixtures 必须能被真实配置加载器接受的防漂移断言。
 
+规则表是 **fail-closed** 的：漏掉一条规则会让脚本抛 ``AssertionError``（消息带全
+argv），而不是静默去连真实 Docker 守护进程；谓词支持结构化 ``argv`` / ``argv_prefix``，
+``match`` 子串保留兼容。本文件因此有两类负向用例：删规则、以及"前缀不成立但子串成立"。
+
 拆成两个文件是因为单个测试文件超过 PORTING.md §2 的行数上限。
 本文件**不**触碰真实 Docker，也不联网。
 """
@@ -43,28 +47,49 @@ class TestCliEndToEnd(HarnessCase):
         return path
 
     def base_rules(self, *, build_code: int = 0, probe_code: int = 0) -> list[dict]:
-        """按「最先匹配先赢」的顺序给出全部 docker 子命令的假输出。"""
+        """按「最先匹配先赢」的顺序给出全部 docker 子命令的假输出。
+
+        **结构化谓词**：``argv`` 是完全相等，``argv_prefix`` 是前缀；容器名 /
+        卷名 / 镜像 tag 在用例之间会变，所以那些规则用 ``argv_prefix`` 钉住命令
+        形态，再用 ``match`` 钉住探针脚本里的特征串（``--health-probe`` 等）。
+        规则表是 fail-closed 的：漏一条，脚本会抛 AssertionError 而不是跑去连
+        真实 Docker 守护进程。
+        """
         return [
-            {"match": "version --format", "code": 0, "stdout": "27.3.1\n"},
-            {"match": "build --build-arg", "code": build_code, "stdout": "Successfully built abc\n"},
-            {"match": "--entrypoint", "code": 0, "stdout": ""},
-            {"match": "volume create", "code": 0},
-            {"match": "run --rm -d", "code": 0, "stdout": "abcdef123456\n"},
-            {"match": "inspect --format {{json .State}}", "code": 0,
+            {"argv": ["docker", "version", "--format", "{{.Server.Version}}"],
+             "code": 0, "stdout": "27.3.1\n"},
+            {"argv_prefix": ["docker", "build"], "code": build_code,
+             "stdout": "Successfully built abc\n"},
+            # 种子容器（--entrypoint …）必须排在普通 run 之前
+            {"argv_prefix": ["docker", "run"], "match": "--entrypoint", "code": 0, "stdout": ""},
+            {"argv_prefix": ["docker", "run"], "match": "-d", "code": 0, "stdout": "abcdef123456\n"},
+            {"argv_prefix": ["docker", "volume", "create"], "code": 0},
+            {"argv_prefix": ["docker", "inspect", "--format", "{{json .State}}"], "code": 0,
              "stdout": json.dumps({"Status": "running", "Running": True, "RestartCount": 0})},
-            {"match": "inspect --format {{.Config.User}}", "code": 0, "stdout": "atri-x:atri-x\n"},
-            {"match": "port atri-x-", "code": 0, "stdout": "127.0.0.1:49153\n"},
-            {"match": "--health-probe", "code": probe_code, "stdout": "ok\n"},
-            {"match": "--help", "code": 0, "stdout": "Usage:\n"},
-            {"match": "pip list", "code": 0, "stdout": BASE_FREEZE},
-            {"match": "import atri_x", "code": 0, "stdout": "/app/atri_x/__init__.py\n"},
-            {"match": "os.listdir", "code": 0, "stdout": LAYOUT_OK},
-            {"match": "stats --no-stream", "code": 0, "stdout": "0.10%|40.0MiB / 1.5GiB\n"},
-            {"match": "logs --tail", "code": 0, "stdout": "atri-x starting\n"},
-            {"match": "rm -f", "code": 0},
-            {"match": "rmi -f", "code": 0},
-            {"match": "volume rm", "code": 0},
+            {"argv_prefix": ["docker", "inspect", "--format", "{{.Config.User}}"], "code": 0,
+             "stdout": "atri-x:atri-x\n"},
+            {"argv_prefix": ["docker", "port"], "code": 0, "stdout": "127.0.0.1:49153\n"},
+            {"argv_prefix": ["docker", "exec"], "match": "--health-probe",
+             "code": probe_code, "stdout": "ok\n"},
+            {"argv_prefix": ["docker", "exec"], "match": "--help", "code": 0, "stdout": "Usage:\n"},
+            {"argv_prefix": ["docker", "exec"], "match": "pip list", "code": 0, "stdout": BASE_FREEZE},
+            {"argv_prefix": ["docker", "exec"], "match": "import atri_x", "code": 0,
+             "stdout": "/app/atri_x/__init__.py\n"},
+            {"argv_prefix": ["docker", "exec"], "match": "urlopen", "code": 0},
+            {"argv_prefix": ["docker", "exec"], "match": "socket", "code": 0},
+            {"argv_prefix": ["docker", "exec"], "match": "os.listdir", "code": 0, "stdout": LAYOUT_OK},
+            {"argv_prefix": ["docker", "stats", "--no-stream"], "code": 0,
+             "stdout": "0.10%|40.0MiB / 1.5GiB\n"},
+            {"argv_prefix": ["docker", "logs", "--tail"], "code": 0, "stdout": "atri-x starting\n"},
+            {"argv_prefix": ["docker", "rm", "-f"], "code": 0},
+            {"argv_prefix": ["docker", "rmi", "-f"], "code": 0},
+            {"argv_prefix": ["docker", "volume", "rm"], "code": 0},
         ]
+
+    @staticmethod
+    def without_rule(rules: list[dict], needle: str) -> list[dict]:
+        """删掉"任意一个谓词值里含 needle"的规则（负向用例用）。"""
+        return [rule for rule in rules if needle not in json.dumps(rule, ensure_ascii=False)]
 
     def run_cli(self, script: str, *args: str, rules: list[dict] | None = None):
         """跑 ``python deploy/<script> <args>``，把假 docker 输出经环境变量注入。"""
@@ -110,7 +135,7 @@ class TestCliEndToEnd(HarnessCase):
         self.assertIn("docker build 失败", image_step["detail"])
 
     def test_smoke_cli_reports_skips_when_docker_missing(self) -> None:
-        rules = [{"match": "version --format", "code": 1, "stderr": NPIPE_ERROR}]
+        rules = [{"argv_prefix": ["docker", "version", "--format"], "code": 1, "stderr": NPIPE_ERROR}]
         report = self.tmp / "smoke-nodocker.json"
         done, _record = self.run_cli("smoke.py", "--json", str(report), rules=rules)
         self.assertEqual(done.returncode, 1)
@@ -119,6 +144,39 @@ class TestCliEndToEnd(HarnessCase):
         self.assertFalse(payload["steps"][0]["ok"])
         self.assertIn("dockerDesktopLinuxEngine", payload["steps"][0]["detail"])
         self.assertTrue(payload["steps"][1]["detail"].startswith("skipped:"))
+
+    def test_missing_rule_fails_closed_without_touching_real_docker(self) -> None:
+        """故意删掉 --entrypoint 规则 → 真实脚本必须非零退出，而不是去连真 Docker。"""
+        rules = self.without_rule(self.base_rules(), "--entrypoint")
+        report = self.tmp / "smoke-miss.json"
+        done, record = self.run_cli(
+            "smoke.py", "--json", str(report), "--timeout", "5", rules=rules
+        )
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("AssertionError", done.stderr)
+        self.assertIn("ATRIX_DEPLOY_FAKE_CAPTURE", done.stderr)
+        self.assertIn("--entrypoint", done.stderr)
+        # 记录里有那条未命中的命令（AssertionError 在 subprocess.run 之前抛出，
+        # 所以它**没有**被真正执行）；最后一条是 finally 里的清理，说明容器不会残留。
+        recorded = [line for line in record.read_text(encoding="utf-8").splitlines() if line.strip()]
+        self.assertTrue(recorded, "夹具没有记录到任何外部命令")
+        self.assertTrue(any("--entrypoint" in line for line in recorded), recorded)
+        self.assertIn("docker volume rm", recorded[-1])
+        # 异常穿透了 _finish：不该有 JSON 报告
+        self.assertFalse(report.exists())
+
+    def test_wrong_argv_prefix_does_not_degrade_to_substring(self) -> None:
+        """结构化谓词必须真的成立：前缀差一个参数就不能命中。"""
+        marker = '["docker", "build"]'
+        rules = self.without_rule(self.base_rules(), marker)
+        rules.append({"argv_prefix": ["docker", "build", "--not-a-real-flag"],
+                      "match": "docker build", "code": 0})
+        done, _record = self.run_cli(
+            "smoke.py", "--json", str(self.tmp / "smoke-prefix.json"), "--timeout", "5", rules=rules
+        )
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("AssertionError", done.stderr)
+        self.assertIn("docker build", done.stderr)
 
     def test_stability_cli_short_run_writes_full_report(self) -> None:
         report = self.tmp / "stability.json"

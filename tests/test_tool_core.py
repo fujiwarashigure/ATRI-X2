@@ -725,6 +725,39 @@ class TestExecutor(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result.err, RuntimeError)
         self.assertIn("boom", segments_content_text(result.message.segments))
 
+    async def test_cancelled_tool_call_is_not_folded_into_result(self) -> None:
+        """取消不是"工具失败"：CancelledError 必须抛出，不能变成 ``err``。
+
+        折叠成 ``err`` 的后果：``toolrun.runner`` 会把它当一次普通失败，记完账继续
+        跑同一批剩下的工具调用 —— "用户已经取消"变成"这个工具失败了"。
+        """
+
+        class Slow(FakeTool):
+            async def call(self, ctx, req):
+                raise asyncio.CancelledError()
+
+        registry = Registry()
+        registry.register(Slow(name="slow"))
+        with self.assertRaises(asyncio.CancelledError):
+            await Executor(registry=registry).execute(
+                None, ToolCallRequest(id="c", name="slow", arguments="{}")
+            )
+
+    async def test_cancelled_assessment_is_not_folded_into_result(self) -> None:
+        class CancelledAssessment(FakeTool):
+            async def assess_risk(self, ctx, req):
+                raise asyncio.CancelledError()
+
+            async def call(self, ctx, req):  # pragma: no cover - 不该跑到
+                return Result(content="")
+
+        registry = Registry()
+        registry.register(CancelledAssessment(name="cancelled"))
+        with self.assertRaises(asyncio.CancelledError):
+            await Executor(registry=registry).execute(
+                None, ToolCallRequest(id="c", name="cancelled", arguments="{}")
+            )
+
 
 class TestWarningsAndRiskAssessment(unittest.IsolatedAsyncioTestCase):
     def test_warnings_append_to_content(self) -> None:

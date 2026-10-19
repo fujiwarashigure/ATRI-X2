@@ -46,6 +46,7 @@ from atri_x.media.types import MediaError, raise_if_cancelled
 from atri_x.media.worker import run_isolated
 
 __all__ = [
+    "MEDIA_IMAGE_MAX_DECODE_PIXELS",
     "VISION_IMAGE_DEFAULT_BYTE_BUDGET",
     "VISION_IMAGE_HARD_LIMIT",
     "VISION_IMAGE_MAX_CONCURRENT_DECODES",
@@ -77,6 +78,10 @@ VISION_IMAGE_DEFAULT_BYTE_BUDGET = 12 * 1024 * 1024
 #: ``visionImageMaxInputPixels``。
 VISION_IMAGE_MAX_INPUT_EDGE = 20000
 VISION_IMAGE_MAX_INPUT_PIXELS = 24000000
+#: 导入期压缩（``_compress_image``）显式传给解码器的像素上限。
+#: 与视觉预处理对齐：纯 Python 解码/重编码成本按像素线性增长，不给闸门时
+#: 一张合法大图就能吃爆内存并超过 60 秒工作线程超时（研究报告 §3.3 问题 5）。
+MEDIA_IMAGE_MAX_DECODE_PIXELS = VISION_IMAGE_MAX_INPUT_PIXELS
 #: 同时在解码的位图数量上限。对应 Go ``visionImageMaxConcurrentDecodes``。
 VISION_IMAGE_MAX_CONCURRENT_DECODES = 10
 #: ``image_to_prompt`` 愿意物化的最大已存对象。对应 Go ``VisionImageInputLimit``。
@@ -142,7 +147,7 @@ def _compress_image(ctx: Any, data: bytes, max_bytes: int, max_length: int) -> b
     if max_bytes <= 1 or max_length <= 1:
         raise MediaError("image compression limits are too small")
     try:
-        source = decode(data)
+        source = decode(data, max_pixels=MEDIA_IMAGE_MAX_DECODE_PIXELS)
     except (ImageDecodeError, UnsupportedImageError, ImageCodecError) as exc:
         raise MediaError(f"decode image: {exc}") from exc
 

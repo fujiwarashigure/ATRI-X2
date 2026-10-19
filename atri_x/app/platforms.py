@@ -172,10 +172,10 @@ def register_session_browsers(agent: Any, adapters: Any) -> None:
     sessions = getattr(agent, "sessions", None) if agent is not None else None
     if sessions is None:
         return
-    try:
-        from atri_x.session.browse import SessionBrowser
-    except ImportError:  # pragma: no cover - 会话包缺失时跳过浏览扩展
-        return
+    # ``atri_x.session.browse`` 是本仓的硬模块；缺失时应当直接失败，而不是
+    # 静默跳过会话浏览扩展（研究报告 §5.1 的静默降级样例）。
+    from atri_x.session.browse import SessionBrowser
+
     browser = SessionBrowser(sessions)
     for adapter in adapters or []:
         if adapter is None:

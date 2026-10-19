@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 from typing import Any
@@ -259,10 +260,21 @@ class Service:
         return identity.key()
 
     async def _run(self, ctx: Any, req: Request) -> Result:
-        """缓存未命中时执行预处理 + 上游调用。对应 Go ``Service.run``。"""
+        """缓存未命中时执行预处理 + 上游调用。对应 Go ``Service.run``。
+
+        预处理是**纯 CPU**（解码 + 重编码；实测 3.1 MPix 图要 15 秒上下），
+        必须放到工作线程：直接在事件循环里调用会把整个进程的定时器、
+        心跳和其它请求一起冻住。``prepare_vision_image_context`` 不碰
+        asyncio 对象，只读 ``ctx`` 的取消状态，因此线程里调用是安全的。
+        """
         preprocess_start = time.monotonic()
-        data, mime_type = prepare_vision_image_context(
-            ctx, req.data, req.mime_type, self.opts.max_edge, self.opts.max_image_bytes
+        data, mime_type = await asyncio.to_thread(
+            prepare_vision_image_context,
+            ctx,
+            req.data,
+            req.mime_type,
+            self.opts.max_edge,
+            self.opts.max_image_bytes,
         )
         self._metrics().duration("preprocess", time.monotonic() - preprocess_start)
         if (mime_type or "").strip() == "":

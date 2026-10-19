@@ -81,11 +81,24 @@ size        : 40.1 MB in 50 file(s)
 verify      : passed
 ```
 
+可选依赖（Pillow 提供图像编解码加速；默认三个可选包全部排除，纯标准库也可用）：
+`--with-pillow` 只保留 Pillow、`--with-extras` 只保留 numpy/PyYAML、
+`--with-all-optional` 三个都留（旧的 `--with-pillow` 语义），`--check-env` 只探测构建环境后退出。
+**构建环境没装 Pillow 时 `--with-pillow` 会以非零码失败**（避免"以为打了 Pillow 其实没有"），
+显式加 `--allow-missing-pillow` 才降级为警告。产物侧可以核验真实后端：
+
+```bash
+"dist\windows\atri-x\atri-x.exe" -m atri_x.media.imagecodec.backend_probe --json
+# 期望 {"backend": "pillow", ...}；构建机没装 Pillow 时是 "stdlib"
+```
+
+窗口版的启动诊断与 `/diagnostics` 也会显示同一份 `image_backend`（后端名 + 版本号）。
+
 想要**内置 DSH 内核**（目标机不用另装 Node/dsh）就先组装一次再打包：
 
 ```bash
 python packaging/assemble_kernel.py --modules "C:\path\to\node_modules"   # 已装 DSH 的机器
-python packaging/build.py --with-kernel                                    # 318.7 MB / 23862 个文件
+python packaging/build.py --with-kernel                                    # 321.3 MB / 24510 个文件
 ```
 
 产物：
@@ -505,8 +518,8 @@ python packaging/build.py --with-kernel --installer   # 构建 + 打包一条龙
 | 静默安装 | `ATRI-X-<版本>-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=<目录> /MERGETASKS=!autostart,!desktopicon` |
 | 覆盖升级 | 直接再跑新安装包即可；**先退出正在运行的 ATRI-X**——安装器带 `AppMutex=ATRI-X-GUI`，检测到 GUI 在跑会提示「当前正在运行」并中止（自检脚本也会因此失败） |
 
-实测（含内置内核的 318.7 MB onedir → 56.4 MB 安装包）：静默安装 39.7 s / 23865 个文件，
-`atri-x.exe --version` 正常，静默卸载 13.5 s 且目录被清空。构建环境有两个坑（TEMP 必须在
+实测 0.9.8（含内置内核的 321.3 MB onedir → 57.0 MB 安装包）：静默安装 35.4 s / 24513 个文件，
+`atri-x.exe --version` 正常，静默卸载 7.9 s 且目录被清空。构建环境有两个坑（TEMP 必须在
 本地盘、安装根路径要够短）写在 [`packaging/README.md`](../packaging/README.md) §7.1。
 
 ### 7.2 便携版 zip（解压即用）

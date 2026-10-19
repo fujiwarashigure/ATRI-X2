@@ -5,6 +5,11 @@
 本脚本从 :file:`PORTING.md` §4 的映射表（唯一事实来源）读出 Go 包 → Python
 模块的对应关系，展开 glob，逐个检查存在性，并按 Go 生产行数加权给出进度。
 
+**口径提醒（别把 100% 读成"实现正确"）**：这里量的是**文件存在性**——
+映射表里的每个 Go 生产包是否已经有对应的 Python 模块文件；它**不衡量行为
+正确性**（那是 ``tests/`` 和 ``verification/`` 的职责），也不看行数是否等价。
+因此 ``weighted=100.0%`` 的含义是"没有整包缺失"，不是"没有 bug"。
+
 用法::
 
     python scripts/check_coverage.py                # 报告
@@ -178,6 +183,12 @@ def main(argv: list[str] | None = None) -> int:
             f"packages={len(rows)} covered={len(rows) - len(missing)} "
             f"missing={len(missing)} weighted={pct:.1f}% "
             f"go_lines={covered_lines}/{total_lines}"
+        )
+        # 口径说明：这一行数字说明的是"映射表里的模块有对应文件"，不是"实现正确"。
+        # 保持 ASCII（--summary 存在的理由就是避开 Windows 控制台码页把中文变乱码）。
+        print(
+            "scope=file-existence only (PORTING.md 4 mapping: python module file "
+            "present); behaviour correctness is NOT measured here"
         )
         for r in sorted(missing, key=lambda x: -int(x["go_lines"]))[: args.top]:
             print(f"MISSING {r['go_lines']:>6} {r['go_package']} -> {r['py_pattern']}")

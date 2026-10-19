@@ -90,7 +90,9 @@ def _axis_weights(
 
 def resize_image(img: Image, width: int, height: int, *, filter: str = "lanczos") -> Image:
     """缩放到 ``width`` x ``height``；任一轴大于源尺寸时该轴钳到源尺寸（不放大）。"""
-    name = _FILTERS.get(filter.strip().lower())
+    # 非法滤波器（含 None 这类误传）统一收敛成受控的 ImageCodecError，
+    # 不要让 `filter.strip()` 漏出 AttributeError。
+    name = _FILTERS.get(filter.strip().lower()) if isinstance(filter, str) else None
     if name is None:
         raise ImageCodecError(f"未知重采样滤波器 {filter!r}（nearest/bilinear/lanczos）")
     if width <= 0 or height <= 0:

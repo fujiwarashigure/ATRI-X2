@@ -42,6 +42,44 @@ def run(coro):
     return asyncio.run(coro)
 
 
+class AssessFailClosedTests(unittest.TestCase):
+    """研究报告 §5.3：风险评估器抛异常时按 high 处理（旧实现是 low → 免确认执行）。"""
+
+    def test_assessor_exception_yields_high(self) -> None:
+        class BoomManager:
+            async def assess_risk(self, ctx, resolved, arguments):
+                raise RuntimeError("assessor exploded")
+
+        call = ToolCallRequest(id="1", name="echo", arguments="{}")
+        assessment, risk_text = run(
+            runner_mod._assess_for_run(BoomManager(), None, None, call)
+        )
+        self.assertEqual(assessment.level, "high")
+        self.assertEqual(risk_text, "unknown")
+        self.assertTrue(assessment.reasons)
+
+    def test_empty_level_yields_high(self) -> None:
+        class EmptyManager:
+            async def assess_risk(self, ctx, resolved, arguments):
+                from atri_x.tool.tool import RiskAssessment
+
+                return RiskAssessment(level="")
+
+        call = ToolCallRequest(id="1", name="echo", arguments="{}")
+        assessment, _ = run(runner_mod._assess_for_run(EmptyManager(), None, None, call))
+        self.assertEqual(assessment.level, "high")
+
+
+def _allow_authorize(ctx, call, resolved):
+    """测试用的"放行"授权回调。
+
+    ``RunRequest.authorize_tool=None`` 现在是 fail-closed（拒绝），生产路径由
+    ``chat_tools._tool_hooks`` 装配真实回调；这里显式给一个放行版本，让其余用例
+    继续测它们自己的分支。
+    """
+    return True, ""
+
+
 # ---------------------------------------------------------------------------
 # cache
 # ---------------------------------------------------------------------------
@@ -495,7 +533,15 @@ class TestAtriwispExec(unittest.TestCase):
 class FakeDeps:
     """记录调用序列的 RunnerDeps 替身。"""
 
-    def __init__(self, confirm=None, should_preview=False, background_handled=None):
+    def __init__(
+        self,
+        confirm=None,
+        should_preview=False,
+        background_handled=None,
+        start_error=None,
+        prepare_error=None,
+        complete_error=None,
+    ):
         self.calls: list[str] = []
         self.previews: list[str] = []
         self.outputs: list[object] = []
@@ -505,9 +551,14 @@ class FakeDeps:
         self.should_preview = should_preview
         self.background_handled = background_handled
         self.completed_segments = None
+        self.start_error = start_error
+        self.prepare_error = prepare_error
+        self.complete_error = complete_error
 
     async def prepare_tool_call(self, ctx, session, call):
         self.calls.append("prepare_tool_call")
+        if self.prepare_error is not None:
+            raise self.prepare_error
         return call
 
     async def should_send_preview(self, ctx, session, call, text):
@@ -524,17 +575,25 @@ class FakeDeps:
 
     async def start_tool_request(self, ctx, session_id, tool_name):
         self.calls.append("start_tool_request")
+        if self.start_error is not None:
+            raise self.start_error
 
         def done():
             self.calls.append("done")
 
-        return ctx, None, done, None
+        # 契约：三元组 ``(ctx, started_at, done)``。这里曾经返回 4 项，和 runner
+        # 当年的错误解包（同样 4 项）互相掩盖 —— 真实适配器返回 3 项，反而
+        # 每次调用都在解包处失败、工具永远执行不到。见
+        # StartToolRequestContractTests。
+        return ctx, None, done
 
     async def prepare_tool_context(self, ctx, session, call):
         return ctx
 
     async def complete_tool_call(self, ctx, session, call, risk, segments, call_err):
         self.calls.append("complete_tool_call")
+        if self.complete_error is not None:
+            raise self.complete_error
         if self.completed_segments is not None:
             return self.completed_segments
         return segments
@@ -601,6 +660,7 @@ class TestRunner(unittest.TestCase):
             assistant_text="hi",
             actor=Actor(role=RoleSuperadmin),
             cached_tools=[],
+            authorize_tool=_allow_authorize,
         )
         base.update(kwargs)
         return RunRequest(**base), deps
@@ -631,6 +691,21 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(1, len(result.messages))
         self.assertIn("not in this group's allowlist", segments_content_text(result.messages[0].segments))
         self.assertEqual([("echo", "denied")], [(r[0], r[1]) for r in deps.records if r[1] == "denied"])
+        self.assertNotIn("start_tool_request", deps.calls)
+
+    def test_missing_authorize_tool_denies(self) -> None:
+        """没有权威授权回调时必须拒绝（旧实现等于全放行）。"""
+        deps = FakeDeps()
+        req = RunRequest(
+            session=make_session(),
+            calls=[ToolCallRequest(id="1", name="echo", arguments="{}")],
+            actor=Actor(role=RoleSuperadmin),
+        )
+        result = run(runner_mod.run(self.manager, None, deps, req))
+        self.assertIn(
+            "authorization is not configured",
+            segments_content_text(result.messages[0].segments),
+        )
         self.assertNotIn("start_tool_request", deps.calls)
 
     def test_authorize_denies(self) -> None:
@@ -752,6 +827,7 @@ class TestRunner(unittest.TestCase):
             session=make_session(),
             calls=[ToolCallRequest(id="1", name="boom", arguments="{}")],
             actor=Actor(role=RoleSuperadmin),
+            authorize_tool=_allow_authorize,
         )
         result = run(runner_mod.run(manager, None, deps, req))
         self.assertIsNotNone(result.messages)
@@ -770,6 +846,7 @@ class TestRunner(unittest.TestCase):
             session=make_session(),
             calls=[ToolCallRequest(id="1", name="discover_tool", arguments="{}")],
             actor=Actor(role=RoleSuperadmin),
+            authorize_tool=_allow_authorize,
         )
         run(runner_mod.run(manager, None, deps, req))
         self.assertIn("remember_discovery_result", deps.calls)
@@ -787,6 +864,7 @@ class TestRunner(unittest.TestCase):
             session=make_session(),
             calls=[ToolCallRequest(id="1", name="out", arguments="{}")],
             actor=Actor(role=RoleSuperadmin),
+            authorize_tool=_allow_authorize,
         )
         run(runner_mod.run(manager, None, deps, req))
         self.assertEqual(["o1", "o2"], deps.outputs)
@@ -832,6 +910,171 @@ class TestRunnerHelpers(unittest.TestCase):
         self.assertEqual("b", runner_mod._join_assistant_text("", " b "))
         self.assertEqual("a", runner_mod._join_assistant_text(" a ", ""))
         self.assertEqual("a\n\nb", runner_mod._join_assistant_text("a", "b"))
+
+
+class StartToolRequestContractTests(unittest.IsolatedAsyncioTestCase):
+    """二审 §二：``start_tool_request`` 的三元组契约（协议 / 实现 / runner 三方一致）。
+
+    历史缺陷：``runner.run()`` 按 4 项解包，而 ``RunnerDeps`` 协议声明与真实适配器
+    :class:`atri_x.agent.toolrun_adapter.AgentToolRunDeps` 都返回 3 项 —— 真实接入后
+    每次调用都在解包处抛 ``ValueError``，被宽泛的 ``except BaseException`` 记成
+    "工具启动失败"，工具**永远执行不到**，已登记的 request 也因 ``done`` 丢失而永不
+    结束。测试里的假实现当年同样返回 4 项，所以单测全绿也发现不了。
+    """
+
+    async def test_adapter_returns_trio_and_done_reaches_requests(self) -> None:
+        from atri_x.agent.toolrun_adapter import AgentToolRunDeps
+
+        closed: list[str] = []
+
+        class _Request:
+            id = "req-1"
+            started_at = None
+
+        class _Requests:
+            def start(self, ctx, start_request):
+                self.start_request = start_request
+                return _Request(), ctx, lambda: closed.append("done")
+
+        requests = _Requests()
+
+        class _Agent:
+            tool_timeout = 5
+
+        agent = _Agent()
+        agent.requests = requests  # type: ignore[attr-defined]
+
+        class _Output:
+            snapshots: list = []
+
+            def publish_runtime_status(self, ctx, snapshot):
+                _Output.snapshots.append(snapshot)
+
+        deps = AgentToolRunDeps(agent=agent, output=_Output())
+        trio = await deps.start_tool_request("ctx", "s1", "echo")
+        self.assertEqual(3, len(trio))
+        run_ctx, started_at, done = trio
+        self.assertEqual("ctx", run_ctx)
+        self.assertIsNotNone(started_at)
+        self.assertTrue(callable(done))
+        done()
+        self.assertEqual(["done"], closed)
+        self.assertEqual("echo", requests.start_request.label)
+
+    async def test_adapter_degrades_to_noop_without_requests(self) -> None:
+        from atri_x.agent.toolrun_adapter import AgentToolRunDeps
+
+        deps = AgentToolRunDeps(agent=object(), output=None)
+        run_ctx, started_at, done = await deps.start_tool_request("ctx", "s1", "echo")
+        self.assertEqual("ctx", run_ctx)
+        self.assertIsNotNone(started_at)
+        self.assertIsNone(done())  # 没有登记请求 → 空操作，不是失败
+
+    async def test_runner_rejects_four_item_implementation(self) -> None:
+        """旧的四元组实现必须失败（契约是三元组），不能被静默接受。"""
+
+        class FourItemDeps(FakeDeps):
+            async def start_tool_request(self, ctx, session_id, tool_name):
+                self.calls.append("start_tool_request")
+                return ctx, None, (lambda: self.calls.append("done")), None
+
+        deps = FourItemDeps()
+        tool = FakeToolDef(name="echo")
+        manager = Manager(registry=FakeRegistry([tool]))
+        req = RunRequest(
+            session=make_session(),
+            calls=[ToolCallRequest(id="1", name="echo", arguments="{}")],
+            actor=Actor(role=RoleSuperadmin),
+            authorize_tool=_allow_authorize,
+        )
+        result = await runner_mod.run(manager, None, deps, req)
+        self.assertIn("failed", segments_content_text(result.messages[0].segments))
+        self.assertEqual([], tool.calls)
+
+    def test_protocol_and_adapter_declare_exactly_three(self) -> None:
+        import inspect
+        import typing
+
+        from atri_x.agent.toolrun_adapter import AgentToolRunDeps
+
+        hints = typing.get_type_hints(runner_mod.RunnerDeps.start_tool_request)
+        self.assertEqual(3, len(typing.get_args(hints["return"])))
+        adapter_hints = typing.get_type_hints(AgentToolRunDeps.start_tool_request)
+        self.assertEqual(3, len(typing.get_args(adapter_hints["return"])))
+        self.assertTrue(inspect.iscoroutinefunction(AgentToolRunDeps.start_tool_request))
+
+
+class StartToolRequestLifecycleTests(unittest.TestCase):
+    """``done()`` 的调用责任：登记成功后恰好一次，任何失败/取消路径都释放。"""
+
+    def setUp(self) -> None:
+        self.tool = FakeToolDef(name="echo")
+        self.manager = Manager(registry=FakeRegistry([self.tool]))
+
+    def _run(self, deps, **kwargs):
+        req = RunRequest(
+            session=make_session(),
+            calls=[ToolCallRequest(id="1", name="echo", arguments="{}")],
+            actor=Actor(role=RoleSuperadmin),
+            authorize_tool=kwargs.pop("authorize_tool", _allow_authorize),
+            **kwargs,
+        )
+        return run(runner_mod.run(self.manager, None, deps, req))
+
+    def test_done_called_exactly_once_on_success(self) -> None:
+        deps = FakeDeps()
+        self._run(deps)
+        self.assertEqual(1, deps.calls.count("done"))
+
+    def test_start_failure_reports_and_does_not_release(self) -> None:
+        deps = FakeDeps(start_error=RuntimeError("no slot"))
+        result = self._run(deps)
+        self.assertIn("no slot", segments_content_text(result.messages[0].segments))
+        self.assertEqual([], self.tool.calls)
+        # 没有登记成功的 request，就不该去调 done()
+        self.assertEqual(0, deps.calls.count("done"))
+
+    def test_done_called_once_when_tool_raises(self) -> None:
+        class BoomTool(FakeToolDef):
+            async def call(self, ctx, request):
+                raise RuntimeError("kaboom")
+
+        manager = Manager(registry=FakeRegistry([BoomTool(name="boom")]))
+        deps = FakeDeps()
+        req = RunRequest(
+            session=make_session(),
+            calls=[ToolCallRequest(id="1", name="boom", arguments="{}")],
+            actor=Actor(role=RoleSuperadmin),
+            authorize_tool=_allow_authorize,
+        )
+        run(runner_mod.run(manager, None, deps, req))
+        self.assertEqual(1, deps.calls.count("done"))
+
+    def test_done_called_once_when_reauthorize_denies(self) -> None:
+        state = {"n": 0}
+
+        def authorize(ctx, call, resolved):
+            state["n"] += 1
+            return (True, "") if state["n"] == 1 else (False, "revoked")
+
+        deps = FakeDeps()
+        self._run(deps, authorize_tool=authorize)
+        self.assertEqual(1, deps.calls.count("done"))
+        self.assertEqual([], self.tool.calls)
+
+    def test_done_called_once_when_cancelled_mid_flight(self) -> None:
+        deps = FakeDeps(complete_error=asyncio.CancelledError())
+        with self.assertRaises(asyncio.CancelledError):
+            self._run(deps)
+        self.assertEqual(1, deps.calls.count("done"))
+
+    def test_cancelled_prepare_propagates_instead_of_tool_message(self) -> None:
+        """取消不是"工具失败"：不能变成 tool 消息后继续跑后面的调用。"""
+        deps = FakeDeps(prepare_error=asyncio.CancelledError())
+        with self.assertRaises(asyncio.CancelledError):
+            self._run(deps)
+        self.assertEqual([], self.tool.calls)
+        self.assertEqual(0, deps.calls.count("start_tool_request"))
 
 
 if __name__ == "__main__":
