@@ -589,6 +589,24 @@ class LinkTabCase(unittest.TestCase):
         self.assertNotIn("qqonebot", data.get("platform", {}))
         self.assertIn("失败", self.tab._status.get())
 
+    def test_save_wake_words_roundtrip(self) -> None:
+        self._set_platform(enabled=True)
+        self.tab._wake_var.set("atri，小助手")
+        self.tab._save_wake_words()
+        data = read_toml(str(self.config_path))
+        self.assertEqual(data["platform"]["qqonebot"]["trigger_keywords"], ["atri", "小助手"])
+        self.assertEqual(self.tab._cfg.trigger_keywords, ("atri", "小助手"))
+        self.assertEqual(self.tab._wake_var.get(), "atri、小助手")
+        self.assertIn("已保存唤醒词", self.tab._status.get())
+
+    def test_clear_wake_words_removes_key(self) -> None:
+        self._set_platform(enabled=True)
+        self.tab._wake_var.set("")
+        self.tab._save_wake_words()
+        data = read_toml(str(self.config_path))
+        self.assertNotIn("trigger_keywords", data["platform"]["qqonebot"])
+        self.assertEqual(self.tab._cfg.trigger_keywords, ())
+
     def test_copy_info(self) -> None:
         self._set_platform(enabled=True)
         self.tab._copy_info()

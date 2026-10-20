@@ -527,7 +527,10 @@ class RequestLog:
             "latest_message": roles[-1] if roles else "",
             "tool_count": len(req.tools),
             "system_hash": hash_text(first_system_text(req.messages)),
-            "tools_hash": hash_json(req.tools),
+            # Go 的 ``req.Tools`` 是可直接 json.Marshal 的结构体；Python 侧是
+            # :class:`ToolSchema` 数据类，必须先转成线上 dict，否则 json.dumps 会抛
+            # ``Object of type ToolSchema is not JSON serializable``。
+            "tools_hash": hash_json(to_openai_tools(req.tools)),
             "body_hash": hash_bytes(json_compact(body).encode("utf-8")),
         }
         self.logger.debug("%s %s", message, " ".join(f"{k}={v}" for k, v in attrs.items()))

@@ -35,6 +35,7 @@ from atri_x.errors import (
 from atri_x.safecontext import (
     CancelToken,
     DeadlineExceededError,
+    token_from_ctx,
     with_cancel,
     with_timeout,
 )
@@ -283,6 +284,9 @@ class Manager:
         并取消 token（对应 Go 的 ``sync.OnceFunc``）。
         """
         kind = start.kind or Kind.LLM
+        # 调用方给的可能是 Mapping 形式的 ctx（平台边界常见）——先归一成 token，
+        # 否则新 token 的 value() 链断掉，MessageContext / 安全策略等键值会丢失。
+        parent = token_from_ctx(parent)
         await self._acquire(
             parent, kind, (start.fair_key or "").strip(), (start.scope_key or "").strip()
         )

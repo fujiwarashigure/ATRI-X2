@@ -148,8 +148,16 @@ class _OneBotBox:
         self.token_entry = widgets.SecretEntry(self.frame, self.token_value, width=26)
         self.token_entry.grid(row=3, column=1, sticky="ew", padx=(6, 0), pady=2)
         self._row(4, "唤醒词（逗号分隔）", self.keywords)
+        ttk.Label(
+            self.frame,
+            text="群里 @机器人、或消息以唤醒词开头（如「atri 你好」）都会唤醒；"
+            "留空 = 只认 @ 与回复。改完重启后台服务生效（也可在「在线」页直接改）。",
+            foreground="#8a8a8a",
+            wraplength=380,
+            justify=tk.LEFT,
+        ).grid(row=5, column=0, columnspan=2, sticky="w")
         self.state_label = ttk.Label(self.frame, text="", foreground="#555555")
-        self.state_label.grid(row=5, column=0, columnspan=2, sticky="w")
+        self.state_label.grid(row=6, column=0, columnspan=2, sticky="w")
         self.frame.columnconfigure(1, weight=1)
 
     def _row(self, row: int, label: str, variable: tk.StringVar) -> None:

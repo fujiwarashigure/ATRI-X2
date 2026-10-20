@@ -335,6 +335,18 @@ class AgentSeams:
             return await _maybe_await(service.materialize_platform_media(ctx))
         return ctx
 
+    async def materialize_media(self, ctx: Any, segments: list[Any]) -> list[Any]:
+        """把 LLM 段里的远端媒体本地化。对应 Go ``Agent.materializeMedia``。
+
+        Go 里这条链路是同步的（``media.Materialize`` 直接返回切片），Python 版要下
+        远端媒体所以是异步。``toolrun_adapter`` / ``tool_transcript`` 通过
+        ``getattr(agent, "materialize_media")`` 调用并自行处理 awaitable，这里
+        把它挂到 Agent 上补齐 Go 的方法面。
+        """
+        from atri_x.agent.segments import materialize_media as _materialize_media
+
+        return await _materialize_media(self, ctx, list(segments or []))
+
     async def transcribe_platform_audio(self, ctx: Any) -> Any:
         """入站语音转写。对应 Go ``Agent.transcribePlatformAudio``。"""
         service = self._svc("inbound_speaker") or self._svc("asr")

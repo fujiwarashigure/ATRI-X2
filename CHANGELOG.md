@@ -6,6 +6,105 @@
 
 ---
 
+## [0.9.9-local.4] - 2026-10-20 — 修复首次真实对话必然失败的 4 个移植缺口，并支持 Provider 自定义请求头
+
+> 旧状态：0.9.9（含安装版/便携版冻结产物）**从来没有一条消息能走完聊天链路**。四处
+> 独立的 Python 移植缺口串在一起，每修好一处就露出下一处；第一处就是用户看到的
+> 「请求失败：not enough values to unpack (expected 3, got 2)」。因为错误发生在模型
+> 调用之前，看起来很像"Provider / API Key 配错了"，实际与 provider 无关。
+>
+> 另外，OpenCode Go 这类网关强制要求客户端带 `x-opencode-session` 请求头，旧配置
+> 面（`[providers.<name>]` 只有 `base_url` / `api_key_env` / `proxy` / `extra_payload`）
+> 无处可配，只能 400。
+>
+> 新状态：CLI/GUI/QQ 任一路径的入站消息都能走完「Hook 路由 → 媒体本地化 → LLM 调用
+> （含工具 schema）→ 按 `MessageContext` 回到正确的输出平台」；`[providers.<name>]`
+> 新增 `extra_headers`（保留头 `Authorization`/`Content-Type` 等仍由适配器独占）。
+> 已用真实 OpenCode Go 订阅跑通 `atri-x doctor --e2e`（CLI 远端往返）。
+
+### 修复
+
+- `atri_x/hook/runtime/routes.py` + `manager.py`：`route()` 返回 **三元组**
+  （第三位与 Go `Manager.Route` 的 `error` 位对齐，恒为 `None`）。旧实现返回二元组，
+  而 `agent.hooks.route_hook()` 原样透传、`agent.message._handle_message_inner()` 按
+  三元组解包 → **任何入站消息**都在进入聊天流程前抛
+  `ValueError: not enough values to unpack (expected 3, got 2)`。
+- `atri_x/agent/segments.py` + `chat.py` / `chat_llm.py` / `chat_turn.py`：
+  `materialize_media()` 改为 `async`（Go 的 `media.Materialize` 是同步的，Python 要下
+  远端媒体），三处调用点补 `await`；并在 `agent/seams.py` 补上 Go 的
+  `Agent.materializeMedia` 方法面（`toolrun_adapter` / `tool_transcript` 一直
+  `getattr` 它却取不到）。旧实现把 coroutine 当列表用，报
+  `'coroutine' object is not iterable`。
+- `atri_x/llm/openai/wire.py`：`RequestLog` 的 `tools_hash` 先 `to_openai_tools()` 再
+  hash。旧实现对 `list[ToolSchema]` 直接 `json.dumps`，带工具的工作模式每次请求都抛
+  `Object of type ToolSchema is not JSON serializable`。
+- `atri_x/safecontext.py`（新增 `token_from_ctx`）+ `atri_x/request/manager.py`：
+  `requests.start()` 把 Mapping 形式的 ctx 归一成携带原键值的 token。旧实现只认
+  `CancelToken`，平台边界（`_RunContext` 经 `ctx_with_value` 变成 dict）传进来的
+  `MessageContext` 在 turn 内全部丢失 → 回复退到 headless service 平台，报
+  `service platform cannot send chat output without a target platform`。
+  `agent/chat.py` 不再把非 token 的 ctx 降级成 `None`。
+
+### 新增
+
+- `atri_x/config/services.py`：`ProviderConfig.extra_headers`（`[providers.<name>]`
+  下的 `dict[str, str]`）；`app.py` 启动期校验头名与换行注入，并拒绝覆盖
+  `Authorization` / `Content-Type` / `Host` 等保留头；`llm/openai/openai.py` 的
+  chat / responses 两个适配器统一从 `_headers()` 合并，`app/models.py` 透传。
+  典型用法（OpenCode Go 强制项）：
+
+  ```toml
+  [providers.opencode-go]
+  base_url = "https://opencode.ai/inference/go/openai/v1"
+  api_key_env = "OPENCODE_GO_API_KEY"
+  [providers.opencode-go.extra_headers]
+  x-opencode-session = "atri-x-local"
+  ```
+
+### 桌面端
+
+- `gui/configmodel.py` + `gui/tabs/model.py`：「模型」页 Provider 表单新增**请求头**多行框
+  （每行 `Name: value`，写 `[providers.<名称>.extra_headers]`；留空保存即删掉整个子表）。
+  保存前与启动期共用同一套校验（见下），保留头、非法头名、换行注入在界面上就被拒绝，
+  不用再手改 TOML。
+- `config/services.py`：把原来写在 `AppConfig.validate_provider_headers()` 里的规则抽成
+  `validate_provider_extra_headers()` + `RESERVED_HEADER_NAMES`，启动期与桌面端保存
+  共用一套口径；`AppConfig.validate_provider_headers()` 改为逐 provider 调用它。
+- `gui/tabs/link.py`：「在线」页 QQ 平台卡片新增**唤醒词**输入框 +「保存唤醒词」
+  （写 `[platform.qqonebot].trigger_keywords`，中英文逗号/顿号分隔；留空需确认，效果是
+  只认 @机器人 与回复；保存后提示重启后台服务），并同步显示当前值。
+- `gui/tabs/platform.py`：「唤醒词（逗号分隔）」下方补说明：群里 @机器人 或**消息以
+  唤醒词开头**（如「atri 你好」）都会唤醒，改完重启后台服务生效，也可在「在线」页改。
+
+### 测试
+
+- `tests/test_hook_runtime.py`：`test_waiting_lease_and_route` 跟随三元组；新增
+  `test_route_hook_returns_three_tuple`（`Agent.routeHook` 必须拿到三元组）。
+- `tests/test_agent_segments.py`（新增）：异步/同步 `media.materialize` 都要正确 await。
+- `tests/test_openai_adapter.py`：新增 `test_debug_log_hashes_tool_schemas`。
+- `tests/test_request_manager.py`：新增 `test_start_keeps_mapping_ctx_values`。
+- `tests/test_llm_headers.py`（新增）：`clean_extra_headers` 过滤保留头/换行，
+  chat 与 responses 适配器都带上 provider 自定义头。
+- `tests/test_config.py`：provider `extra_headers` 解码 + 保留头/换行拒绝。
+- `tests/test_gui_tabs.py`：「模型」页请求头保存/清除/保留头拒绝/格式错误 4 项。
+- `tests/test_gui_link.py`：「在线」页保存唤醒词、清空唤醒词 2 项。
+- `tests/test_agent_wakeup.py`（新增）：前缀唤醒词/普通群消息/@机器人/`keyword` 模式/
+  私聊/静默时段/命令放行/唤醒词剥离 11 项（此前 `agent/wakeup.py` 没有直接用例）。
+- `atri_x/config/assets_data/services.toml`：Provider 段补 `extra_headers` 注释示例
+  （发行版首次生成的样板也带提示）。
+
+### 发行（本机重建 0.9.9 便携版 + 安装版，均内置 QQ 协议端与 DSH 内核）
+
+产物、校验和与自检报告见发行库 `M:\ATRI-X-release`（`SHA256SUMS.txt` / `发行说明.md` /
+`自检报告.md`）：便携 zip 649.7 MB（SHA256 `97a67ab4…`）、Inno 安装包 435.6 MB
+（SHA256 `6dfb5b4f…`）。构建命令
+`python packaging/build.py --release --with-pillow --with-kernel --with-qqproto <NapCat.52230.Shell>`；
+便携包解压后 10 项自检与安装包静默安装/卸载（26385 文件）均通过，真机
+`atri-x doctor --e2e` 全绿（含真实 OpenCode Go `chat_call` 与 CLI 远端往返）。
+仓库改动仅本地提交，**未推送**。
+
+---
+
 ## [0.9.9-local.3] - 2026-10-20 — 内置 QQ 协议端环境、全仓脱敏与发行库（本机重建，未随上游发布）
 
 > 「换台电脑部署」时最重的一步是另装一套 NapCat + 便携 QQ（约 1.2 GB），且令牌/端口/两边的

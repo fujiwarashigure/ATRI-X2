@@ -442,6 +442,38 @@ class TestExtraPayloadPassthrough(ConfigCase):
         self.assertEqual(cfg.image_generation.extra_headers, {"X-Trace": "on"})
         self.assertEqual(cfg.image_generation.extra_payload, {"n": 1})
 
+    def test_provider_extra_headers(self) -> None:
+        app = self.write_minimal()
+        self.write(
+            "providers.toml",
+            "[providers.go]\n"
+            'base_url = "https://opencode.ai/inference/go/openai/v1"\n'
+            'extra_headers = { "x-opencode-session" = "atri-x-local" }\n',
+        )
+        cfg = loader.load(app)
+        provider = cfg.providers["go"]
+        self.assertEqual(provider.extra_headers, {"x-opencode-session": "atri-x-local"})
+
+    def test_provider_extra_headers_reject_reserved(self) -> None:
+        app = self.write_minimal()
+        self.write(
+            "providers.toml",
+            "[providers.go]\n"
+            'extra_headers = { Authorization = "Bearer forge" }\n',
+        )
+        with self.assertRaises(ConfigDecodeError):
+            loader.load(app)
+
+    def test_provider_extra_headers_reject_line_break(self) -> None:
+        app = self.write_minimal()
+        self.write(
+            "providers.toml",
+            "[providers.go]\n"
+            'extra_headers = { "x-session" = "line1\\nline2" }\n',
+        )
+        with self.assertRaises(ConfigDecodeError):
+            loader.load(app)
+
 
 class TestAppDefaults(ConfigCase):
     def test_default_config_is_complete(self) -> None:

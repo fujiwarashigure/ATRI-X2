@@ -245,6 +245,40 @@ class ModelTabCase(TkCase):
         self.assertEqual(data["mode_models"]["work"]["provider"], "deepseek")
         self.assertEqual(data["mode_models"]["work"]["model"], "deepseek-chat")
 
+    def test_extra_headers_roundtrip(self) -> None:
+        self.tab.headers_text.delete("1.0", tk.END)
+        self.tab.headers_text.insert("1.0", "x-opencode-session: atri-x-local\n")
+        self.tab._save_provider()
+        data = self.read_toml("services.toml")
+        self.assertEqual(
+            data["providers"]["deepseek"]["extra_headers"],
+            {"x-opencode-session": "atri-x-local"},
+        )
+        self.assertEqual(
+            self.tab.headers_text.get("1.0", tk.END).strip(),
+            "x-opencode-session: atri-x-local",
+        )
+
+    def test_extra_headers_removed_when_cleared(self) -> None:
+        self.tab.headers_text.insert("1.0", "x-trace: on")
+        self.tab._save_provider()
+        self.assertIn("extra_headers", self.read_toml("services.toml")["providers"]["deepseek"])
+        self.tab.headers_text.delete("1.0", tk.END)
+        self.tab._save_provider()
+        self.assertNotIn("extra_headers", self.read_toml("services.toml")["providers"]["deepseek"])
+
+    def test_extra_headers_reject_reserved_name(self) -> None:
+        self.tab.headers_text.insert("1.0", "Authorization: Bearer forge\n")
+        self.tab._save_provider()
+        self.assertIn("reserved header", self.tab._status.get())
+        provider = self.read_toml("services.toml")["providers"]["deepseek"]
+        self.assertNotIn("extra_headers", provider)
+
+    def test_extra_headers_reject_bad_line(self) -> None:
+        self.tab.headers_text.insert("1.0", "missing-colon\n")
+        self.tab._save_provider()
+        self.assertIn("格式不对", self.tab._status.get())
+
     def test_secret_entry_toggles_and_writes_dotenv(self) -> None:
         self.assertEqual(self.tab.key_entry.entry.cget("show"), "*")
         self.tab.key_entry.set("sk-secret-123")

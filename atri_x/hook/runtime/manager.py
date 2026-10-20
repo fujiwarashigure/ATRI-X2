@@ -487,8 +487,13 @@ class Manager:
         """对应 Go ``RouteHookID``。"""
         return route_hook_id(self, event)
 
-    async def route(self, ctx: Any, event: Event) -> tuple[Event, bool]:
-        """对应 Go ``Route``。调用方负责先跑普通 Hook。"""
+    async def route(
+        self, ctx: Any, event: Event
+    ) -> tuple[Event, bool, BaseException | None]:
+        """对应 Go ``Route``。调用方负责先跑普通 Hook。
+
+        第三位与 Go 的 ``error`` 对齐，恒为 ``None``（错误按本项目约定抛异常）。
+        """
         self._ensure_cleanup()
         return await route(self, ctx, event)
 

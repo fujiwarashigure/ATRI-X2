@@ -175,7 +175,7 @@ async def call_llm(
     )
     if pending is not None:
         index = int(getattr(pending, "message_index", 0) or 0)
-        segments = materialize_media(agent, ctx, list(event.message.segments or []))
+        segments = await materialize_media(agent, ctx, list(event.message.segments or []))
         if 0 <= index < len(base_messages):
             base_messages[index].segments = segments
         pending.message.content = segments_content_text(segments)

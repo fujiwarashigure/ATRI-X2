@@ -74,6 +74,7 @@ from atri_x.config.services import (
     VisionSupport,
     WebSearchConfig,
     parse_api_protocol,
+    validate_provider_extra_headers,
 )
 from atri_x.config.state import (
     ContextOverflowConfig,
@@ -577,6 +578,11 @@ class AppConfig(StrictConfig):
                         f"[providers.{name}.model_configs.{model!r}].api_mode must be chat or "
                         f"response, got {model_config.api_mode!r}"
                     )
+
+    def validate_provider_headers(self) -> None:
+        """校验 ``[providers.<name>].extra_headers``（请求头在启动期就拒绝注入）。"""
+        for name, provider in self.providers.items():
+            validate_provider_extra_headers(name, provider.extra_headers)
 
     def validate_mode_models(self) -> None:
         """``default_mode`` 只能是 work/chat，且两种模式都必须配好 provider/model。"""

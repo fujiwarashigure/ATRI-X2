@@ -504,12 +504,36 @@ class TestWorkerLifecycle(unittest.TestCase):
             self.assertTrue(manager.has_lease(event))
             self.assertEqual(1, manager.list()[0].waiting)
             # 续跑用的是**新事件**（同一路由键），对应应用侧"下一条消息命中租约"。
-            routed, handled = await manager.route(None, make_event("next"))
+            routed, handled, route_err = await manager.route(None, make_event("next"))
+            self.assertIsNone(route_err)
             self.assertTrue(handled)
             self.assertTrue(routed.control.consume)
             self.assertFalse(manager.has_lease(make_event()))
         finally:
             await manager.close()
+
+    async def _scenario_route_hook_arity(self) -> None:
+        """``Agent.routeHook`` 依赖三元组：Manager.route 返回二元组会让每条消息失败。"""
+        from types import SimpleNamespace
+
+        from atri_x.agent import hooks as agent_hooks
+
+        manager = Manager(Options())
+        try:
+            agent = SimpleNamespace(
+                hook_runtime=manager,
+                requests=None,
+                request_scope_key=lambda _ctx: "",
+            )
+            result = await agent_hooks.route_hook(agent, None, make_event())
+            self.assertIsInstance(result, tuple)
+            self.assertEqual(3, len(result))
+            self.assertIsNone(result[2])
+        finally:
+            await manager.close()
+
+    def test_route_hook_returns_three_tuple(self) -> None:
+        run(self._scenario_route_hook_arity())
 
     def test_waiting_lease_and_route(self) -> None:
         run(self._scenario_waiting())

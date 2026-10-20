@@ -16,7 +16,9 @@ NapCat 端口在听、OneBot 连接真的连上了，任何一环断掉现象都
 令牌的 NapCat WebUI（扫码登录）；令牌与端口由 :mod:`atri_x.gui.qqproto` 在启动时
 自动生成。外部 NapCat 用户看到的仍是普通端口探测。
 
-本页不改 ``.env`` 里的密钥，只改 ``app.toml`` 的一行 ``enabled``。
+本页不改 ``.env`` 里的密钥，只改 ``app.toml`` 的 ``enabled`` 与
+``[platform.qqonebot].trigger_keywords``（唤醒词：除 @机器人 外，"以唤醒词开头"的消息
+也会叫醒模型；改完重启后台服务生效）。
 """
 
 from __future__ import annotations
@@ -27,10 +29,10 @@ from tkinter import ttk
 from typing import Any
 
 from atri_x.gui import linkstate, process, qqproto, service, widgets
-from atri_x.gui.configedit import ConfigEditError
+from atri_x.gui.configedit import ConfigEditError, patch_section
 from atri_x.gui.tabs.base import ConfigTab, confirm
 
-__all__ = ["LinkTab"]
+__all__ = ["LinkTab", "REFRESH_INTERVAL_MS"]
 
 #: 状态自动刷新间隔（毫秒）。健康接口在本机回环，2 秒一次开销可以忽略。
 REFRESH_INTERVAL_MS = 2000
@@ -42,6 +44,16 @@ DEPLOY_HINT = (
     "或用便携版 start-portable.bat 时在包内 data\\ 下）→ 新机器上先启动桌面端 → "
     "在本页点「启动协议端」扫码登录 → 点「连接（上线）」。"
 )
+
+
+def _split_keywords(text: str) -> list[str]:
+    """中英文逗号（兼容顿号）分隔的唤醒词列表；去空、去重、保序。"""
+    words: list[str] = []
+    for chunk in (text or "").replace("，", ",").replace("、", ",").split(","):
+        word = chunk.strip()
+        if word and word not in words:
+            words.append(word)
+    return words
 
 
 class LinkTab(ConfigTab):
@@ -106,8 +118,24 @@ class LinkTab(ConfigTab):
         self._label(card, "platform_config", row=0, wrap=320)
         self._platform_state_label = self._label(card, "platform_state", row=1, bold=True)
         self._label(card, "platform_detail", row=2, wrap=320)
+        wake_row = ttk.Frame(card)
+        wake_row.grid(row=3, column=0, sticky="ew", pady=(6, 0))
+        ttk.Label(wake_row, text="唤醒词").pack(side=tk.LEFT)
+        self._wake_var = tk.StringVar()
+        self._wake_entry = ttk.Entry(wake_row, textvariable=self._wake_var, width=18)
+        self._wake_entry.pack(side=tk.LEFT, padx=(4, 4))
+        self._wake_button = ttk.Button(wake_row, text="保存唤醒词", command=self._save_wake_words)
+        self._wake_button.pack(side=tk.LEFT)
+        ttk.Label(
+            card,
+            text="逗号分隔；群里 @机器人、或消息以唤醒词开头（如「atri 你好」）都会叫醒。"
+            "留空 = 只认 @机器人 与回复。改完重启后台服务生效。",
+            foreground="#8a8a8a",
+            wraplength=320,
+            justify=tk.LEFT,
+        ).grid(row=4, column=0, sticky="w", pady=(4, 0))
         actions = ttk.Frame(card)
-        actions.grid(row=3, column=0, sticky="w", pady=(6, 0))
+        actions.grid(row=5, column=0, sticky="w", pady=(6, 0))
         self._connect_button = ttk.Button(actions, text="连接（上线）", command=self._toggle_online)
         self._connect_button.pack(side=tk.LEFT)
 
@@ -296,6 +324,7 @@ class LinkTab(ConfigTab):
     def _render_platform(self) -> None:
         cfg = self._cfg
         report = self._report
+        self._sync_wake_entry(cfg)
         entry = linkstate.platform_of(report) if report is not None else None
         self._vars["platform_state"].set(
             linkstate.describe_platform(entry, enabled=cfg.enabled, service_known=report is not None)
@@ -445,6 +474,49 @@ class LinkTab(ConfigTab):
             return
         self._restart("连接 QQ" if target else "断开 QQ")
 
+    def _save_wake_words(self) -> None:
+        """把「唤醒词」输入框写进 ``[platform.qqonebot].trigger_keywords``。"""
+        try:
+            paths = self.require_paths()
+            words = _split_keywords(self._wake_var.get())
+            if not words and not confirm(
+                self.frame,
+                "清空唤醒词",
+                "清空后群里只能靠 @机器人 或回复机器人消息叫醒。继续？",
+            ):
+                return
+            patch_section(
+                paths.config_path,
+                "platform.qqonebot",
+                {"trigger_keywords": words or None},
+            )
+            self._cfg = linkstate.read_platform_config(paths.config_path)
+        except ConfigEditError as exc:
+            self.fail(exc)
+            return
+        self._sync_wake_entry(self._cfg)
+        self._render_platform()
+        self.journal(
+            "在线页：保存唤醒词 " + ("、".join(words) if words else "（清空，只认 @ 与回复）")
+        )
+        self.notify(
+            f"已保存唤醒词：{'、'.join(words)}；重启后台服务后生效"
+            if words
+            else "已清空唤醒词；重启后台服务后生效"
+        )
+
+    def _sync_wake_entry(self, cfg: linkstate.PlatformConfig) -> None:
+        """把配置里的唤醒词填进输入框（用户正在输入时不覆盖）。"""
+        try:
+            focused = self.frame.focus_get()
+        except (KeyError, tk.TclError):  # pragma: no cover - 窗口销毁中
+            focused = None
+        if focused is self._wake_entry:
+            return
+        text = "、".join(cfg.trigger_keywords)
+        if self._wake_var.get() != text:
+            self._wake_var.set(text)
+
     def _restart(self, why: str) -> None:
         settings = self.settings
         if settings is None:
@@ -474,7 +546,13 @@ class LinkTab(ConfigTab):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         state = "disabled" if busy else "normal"
-        buttons = [self._connect_button, self._probe_button, self._webui_button, self._copy_button]
+        buttons = [
+            self._connect_button,
+            self._probe_button,
+            self._webui_button,
+            self._copy_button,
+            self._wake_button,
+        ]
         if self._proto is not None and self._proto.available:
             buttons.append(self._start_button)
         for widget in buttons:

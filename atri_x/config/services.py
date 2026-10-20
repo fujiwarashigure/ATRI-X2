@@ -24,6 +24,7 @@ from typing import Any
 
 from atri_x.config.app_sections import (
     ArtistLibraryConfig,
+    ConfigDecodeError,
     StrictConfig,
     load_toml,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "ModelMetadataConfig",
     "ModelProfileConfig",
     "ProviderConfig",
+    "RESERVED_HEADER_NAMES",
     "ServicesConfig",
     "VisionConfig",
     "VisionSupport",
@@ -48,6 +50,7 @@ __all__ = [
     "audio_support_from_bool",
     "load_services_config",
     "parse_api_protocol",
+    "validate_provider_extra_headers",
     "vision_support_from_bool",
 ]
 
@@ -127,6 +130,10 @@ class ProviderConfig(StrictConfig):
     models: list[str] = field(default_factory=list)
     model_configs: dict[str, ModelConfig] = field(default_factory=dict)
     extra_payload: dict[str, Any] = field(default_factory=dict)
+    #: Provider 级自定义请求头。用于中转/网关要求的专有头（如 OpenCode Go 的
+    #: ``x-opencode-session``）；``Authorization`` / ``Content-Type`` 等保留头
+    #: 始终由适配器独占，写在这里会被忽略。
+    extra_headers: dict[str, str] = field(default_factory=dict)
     fallback_provider: str = ""
     fallback_model: str = ""
     vision: bool | None = None
@@ -186,6 +193,45 @@ class ProviderConfig(StrictConfig):
             if ok and protocol is APIProtocol.RESPONSES:
                 return True
         return False
+
+
+#: Provider 自定义请求头里**不允许**覆盖的保留头：它们由适配器按协议自己构造，
+#: 交给配置覆盖会让 ``Authorization`` / ``Content-Type`` 这类语义失效。
+RESERVED_HEADER_NAMES: frozenset[str] = frozenset(
+    {
+        "authorization",
+        "content-type",
+        "content-length",
+        "host",
+        "connection",
+        "transfer-encoding",
+        "accept-encoding",
+    }
+)
+
+
+def validate_provider_extra_headers(name: str, extra_headers: Any) -> None:
+    """校验一组 Provider 自定义请求头；非法时抛 :class:`ConfigDecodeError`。
+
+    启动期（:meth:`atri_x.config.app.AppConfig.validate_provider_headers`）与桌面端
+    「模型」页保存 provider 前用的是**同一套规则**，避免"界面存得进去、启动却报错"。
+    """
+    for raw_name, raw_value in (extra_headers or {}).items():
+        header = str(raw_name or "").strip()
+        value = str(raw_value or "")
+        if not header or any(char.isspace() for char in header) or ":" in header:
+            raise ConfigDecodeError(
+                f"[providers.{name}].extra_headers has an invalid header name {header!r}"
+            )
+        if header.lower() in RESERVED_HEADER_NAMES:
+            raise ConfigDecodeError(
+                f"[providers.{name}].extra_headers cannot override the reserved header "
+                f"{header!r}"
+            )
+        if "\r" in value or "\n" in value:
+            raise ConfigDecodeError(
+                f"[providers.{name}].extra_headers[{header!r}] contains a line break"
+            )
 
 
 @dataclass

@@ -156,7 +156,7 @@ async def _run_chat_body(
             stage_started_at=turn_started_at,
         ),
     )
-    canonical_user_segments = materialize_media(
+    canonical_user_segments = await materialize_media(
         agent, ctx, list(turn_event.message.segments or [])
     )
     prompt_user_segments = canonical_user_segments

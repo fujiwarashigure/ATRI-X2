@@ -233,6 +233,7 @@ def load(path: str | os.PathLike[str] | None = "", *, strict: bool = True) -> Ap
             )
 
     config.validate_provider_protocols()
+    config.validate_provider_headers()
     config.validate_mode_models()
     config.validate_image_generation(
         config_path,

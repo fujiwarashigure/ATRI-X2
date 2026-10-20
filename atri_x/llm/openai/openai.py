@@ -96,6 +96,41 @@ from atri_x.llm.openai.wire import (
     to_usage,
 )
 
+#: 适配器独占的请求头：Provider 级 ``extra_headers`` 不能覆盖它们。
+RESERVED_HEADER_NAMES = frozenset(
+    {
+        "authorization",
+        "content-type",
+        "content-length",
+        "host",
+        "connection",
+        "transfer-encoding",
+        "accept-encoding",
+    }
+)
+
+
+def clean_extra_headers(headers: Mapping[str, str] | None) -> dict[str, str]:
+    """过滤 Provider 级自定义请求头（对应配置里的 ``[providers.x].extra_headers``）。
+
+    * 保留头（``Authorization`` / ``Content-Type`` 等）由适配器独占，直接丢弃；
+    * 头名必须是 HTTP token（配置层已校验，这里再挡一次防御性过滤）；
+    * 值里出现 CR/LF 一律丢弃，避免请求头注入。
+    """
+    out: dict[str, str] = {}
+    for raw_name, raw_value in (headers or {}).items():
+        name = str(raw_name or "").strip()
+        value = str(raw_value or "").strip()
+        if not name or any(char.isspace() for char in name) or ":" in name:
+            continue
+        if name.lower() in RESERVED_HEADER_NAMES:
+            continue
+        if "\r" in value or "\n" in value:
+            continue
+        out[name] = value
+    return out
+
+
 __all__ = [
     "Adapter",
     "CHAT_RESERVED_REQUEST_FIELDS",
@@ -105,11 +140,13 @@ __all__ = [
     "DEFAULT_STREAM_IDLE_TIMEOUT",
     "MAX_STREAM_LINE_BYTES",
     "OpenAIClient",
+    "RESERVED_HEADER_NAMES",
     "RequestOptions",
     "STREAM_PREFIX_BYTES",
     "STREAM_QUEUE_MAXSIZE",
     "StreamLineReader",
     "classify",
+    "clean_extra_headers",
     "looks_like_html",
     "looks_like_sse",
     "parse_error",
@@ -149,10 +186,14 @@ class OpenAIClient:
         *,
         resolve_image: Callable[[MessageSegment], str] | None = None,
         http: HTTPClient | None = None,
+        extra_headers: Mapping[str, str] | None = None,
     ) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key
         self.extra_payload: dict[str, Any] = dict(extra_payload or {})
+        #: Provider 级自定义请求头（``[providers.<name>].extra_headers``）。保留头由
+        #: 适配器独占，这里已经剔除，避免调用方覆盖 Authorization / Content-Type。
+        self.extra_headers = clean_extra_headers(extra_headers)
         self.model_extra_payloads: dict[str, dict[str, Any]] = {
             model: dict(payload) for model, payload in (model_extra_payloads or {}).items()
         }
@@ -208,7 +249,9 @@ class OpenAIClient:
         return f"{self.base_url}/models"
 
     def _headers(self, *, json_body: bool = False) -> dict[str, str]:
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        # 自定义头先落，再由适配器头覆盖保留字段（Authorization / Content-Type）。
+        headers = dict(self.extra_headers)
+        headers["Authorization"] = f"Bearer {self.api_key}"
         if json_body:
             headers["Content-Type"] = "application/json"
         return headers

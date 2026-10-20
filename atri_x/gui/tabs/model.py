@@ -3,7 +3,8 @@
 这是桌面端最常用的配置页，拆成两块（二级页签）：
 
 1. **LLM Provider**（写 ``services.toml`` 的 ``[providers.<name>]``）：
-   ``base_url`` / ``api_key_env`` / ``models`` / ``api_mode``；
+   ``base_url`` / ``api_key_env`` / ``models`` / ``api_mode`` / ``extra_headers``
+   （网关要求的自定义请求头，例如 OpenCode Go 的 ``x-opencode-session``）；
    密钥值单独写进配置根 ``.env``（界面只显示"已设置/未设置 + 掩码"，不回显明文；
    输入框默认掩码，点「显示」才明文）；
    另有**模型分配**（写 ``state.toml``）：工作/聊天/命名/压缩四个槽位 + 默认模式。
@@ -26,6 +27,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from atri_x.config.inspect import ConfigDecodeError
+from atri_x.config.services import validate_provider_extra_headers
 from atri_x.gui import modelcatalog, widgets
 from atri_x.gui.configedit import ConfigEditError, pop_env_value, set_env_value
 from atri_x.gui.configmodel import (
@@ -168,8 +171,25 @@ class ModelTab(ConfigTab):
             foreground="#8a8a8a",
         ).pack(side=tk.LEFT)
 
+        headers_box = ttk.LabelFrame(
+            form, text="请求头（可选，写 [providers.<名称>.extra_headers]）", padding=6
+        )
+        headers_box.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        self.headers_text = tk.Text(
+            headers_box, height=3, width=40, wrap="none", font=("Consolas", 9)
+        )
+        self.headers_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(
+            headers_box,
+            text="每行一条 Name: value。网关强制要求时填，\n"
+            "例如 OpenCode Go 必须带 x-opencode-session；\n"
+            "Authorization / Content-Type 等保留头不能覆盖。",
+            foreground="#8a8a8a",
+            justify=tk.LEFT,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
         alias_box = ttk.LabelFrame(form, text="模型备注名（本地，不写回 services.toml）", padding=6)
-        alias_box.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        alias_box.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         ttk.Label(alias_box, text="模型").pack(side=tk.LEFT)
         self.alias_model_box = widgets.dropdown(
             alias_box,
@@ -192,10 +212,10 @@ class ModelTab(ConfigTab):
             form,
             text="备注名只用于下拉里显示（形如「主力（deepseek-chat）」），保存时自动还原真模型名。",
             foreground="#8a8a8a",
-        ).grid(row=9, column=0, columnspan=2, sticky="w")
+        ).grid(row=10, column=0, columnspan=2, sticky="w")
 
         save_row = ttk.Frame(form)
-        save_row.grid(row=10, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        save_row.grid(row=11, column=0, columnspan=2, sticky="w", pady=(8, 0))
         ttk.Button(save_row, text="保存 Provider", command=self._save_provider).pack(side=tk.LEFT)
         ttk.Label(
             save_row,
@@ -331,12 +351,20 @@ class ModelTab(ConfigTab):
         self.key_env_var.set(view.api_key_env)
         self.models_var.set(", ".join(view.models))
         self.api_mode_var.set(view.api_mode if view.api_mode in _API_MODES else "")
+        self._set_headers(view.extra_headers)
         self.key_entry.clear()
         self.picker_var.set("")
         self.alias_model_var.set("")
         self.alias_value_var.set("")
         self._refresh_key_state()
         self._refresh_catalog_widgets()
+
+    def _set_headers(self, headers: dict[str, str]) -> None:
+        """把请求头字典铺进文本框（每行 ``Name: value``）。"""
+        self.headers_text.delete("1.0", tk.END)
+        lines = [f"{name}: {value}" if value else f"{name}:" for name, value in headers.items()]
+        if lines:
+            self.headers_text.insert("1.0", "\n".join(lines))
 
     def _refresh_key_state(self) -> None:
         if not self.is_ready():
@@ -531,6 +559,7 @@ class ModelTab(ConfigTab):
         self.key_env_var.set("")
         self.models_var.set("")
         self.api_mode_var.set("")
+        self._set_headers({})
         self.picker_var.set("")
         self.alias_model_var.set("")
         self.alias_value_var.set("")
@@ -561,12 +590,18 @@ class ModelTab(ConfigTab):
         name = self.name_var.get().strip() or self._original
         if not name:
             raise ConfigEditError("provider 名字不能为空")
+        headers = _parse_headers(self.headers_text.get("1.0", tk.END))
+        try:
+            validate_provider_extra_headers(name, headers)
+        except ConfigDecodeError as exc:
+            raise ConfigEditError(str(exc)) from exc
         return ProviderView(
             name=name,
             base_url=self.base_url_var.get().strip(),
             api_key_env=self.key_env_var.get().strip(),
             models=_split_models(self.models_var.get()),
             api_mode=self.api_mode_var.get().strip(),
+            extra_headers=headers,
         )
 
     def _save_provider(self) -> None:
@@ -586,7 +621,10 @@ class ModelTab(ConfigTab):
             self.fail(exc)
             return
         self._original = view.name
-        self.journal(f"保存 LLM Provider：{view.name}（models={','.join(view.models) or '-'}）")
+        header_note = f"，请求头 {len(view.extra_headers)} 条" if view.extra_headers else ""
+        self.journal(
+            f"保存 LLM Provider：{view.name}（models={','.join(view.models) or '-'}{header_note}）"
+        )
         self.reload()
         self._select_row(view.name)
         where = target.replace(paths.config_dir + "\\", "").replace(paths.config_dir + "/", "")
@@ -670,3 +708,27 @@ def _split_models(text: str) -> list[str]:
         for item in chunk.split()
         if item.strip()
     ]
+
+
+def _parse_headers(text: str) -> dict[str, str]:
+    """把「每行 ``Name: value``」的文本框内容解析成请求头字典。
+
+    空行与 ``#`` 开头视为注释；值里允许再出现冒号（切在第一个冒号处）。
+    """
+    headers: dict[str, str] = {}
+    for lineno, raw in enumerate((text or "").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, separator, value = line.partition(":")
+        name = name.strip()
+        if not separator:
+            raise ConfigEditError(
+                f"请求头第 {lineno} 行格式不对：写成「名称: 值」（用英文冒号分隔）"
+            )
+        if not name:
+            raise ConfigEditError(f"请求头第 {lineno} 行缺少名称")
+        if name in headers:
+            raise ConfigEditError(f"请求头 {name} 重复")
+        headers[name] = value.strip()
+    return headers

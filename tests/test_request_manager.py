@@ -63,6 +63,25 @@ class TestManagerBasics(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.stage, KindLLM)
         done()
 
+    async def test_start_keeps_mapping_ctx_values(self) -> None:
+        """平台边界常把 ctx 传成 Mapping；start() 后新 token 仍要能读到键值。
+
+        否则 ``MessageContext``（输出落点）、安全策略、入站段等键值在 turn 内全部
+        丢失，典型症状是回复退到 headless service 平台并报 "cannot send chat
+        output without a target platform"。
+        """
+        from atri_x.delivery import ctx_value
+
+        manager = Manager(60.0)
+        _request, ctx, done = await manager.start(
+            {"k": "v"}, StartRequest(session_id="s1", kind=KindLLM)
+        )
+        try:
+            self.assertIsInstance(ctx, CancelToken)
+            self.assertEqual(ctx_value(ctx, "k"), "v")
+        finally:
+            done()
+
     async def test_cancel(self) -> None:
         manager = Manager(60.0)
         request, ctx, _done = await manager.start(

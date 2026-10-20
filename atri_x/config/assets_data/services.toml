@@ -26,6 +26,12 @@ models = ["gpt-4o-mini"]
 # fallback_on_error = false         # 等价于 fallback_mode = "on_error"
 # fallback_timeout_seconds = 0      # 单次 Provider 尝试的总超时；0 表示沿用现有流式超时控制
 
+# Optional: extra request headers required by some gateways (e.g. OpenCode Go rejects
+# requests without x-opencode-session). Authorization / Content-Type / Host are reserved.
+# Also editable in the desktop GUI: 模型 → 请求头.
+# [providers.openai.extra_headers]
+# x-opencode-session = "your-session-id"
+
 # [providers.openai.model_configs."gpt-4o-mini"]
 # context_window = 128000
 # extra_payload = { }

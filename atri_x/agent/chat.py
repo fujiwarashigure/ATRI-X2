@@ -176,7 +176,7 @@ async def run_chat(
     """一轮对话的正文流程。对应 Go ``Agent.runChat``。"""
     ctx = with_tool_capabilities(agent, ctx, session)
     inbound = agent.turn_input_for_message(ctx, text)
-    user_segments = materialize_media(agent, ctx, inbound_segments(ctx, text))
+    user_segments = await materialize_media(agent, ctx, inbound_segments(ctx, text))
     user_segments = attach_speaker_marker(agent, ctx, inbound, user_segments)
     user_content = segments_content_text(user_segments)
     user_message = Message(
@@ -231,7 +231,7 @@ async def run_chat(
     messages = list(loaded.messages) + [user_message]
 
     info, req_ctx, done = await agent.requests.start(
-        _request_parent(ctx),
+        ctx,
         StartRequest(
             session_id=session.id,
             kind=KindTurn,
@@ -361,13 +361,6 @@ def summary_user_prefix(summary: str) -> str:
     from atri_x.agent.prompt import summary_user_prefix as shared
 
     return shared(summary)
-
-
-def _request_parent(ctx: Any) -> Any:
-    """``requests.start`` 的父 token。ctx 不是 CancelToken 时不挂父级。"""
-    from atri_x.safecontext import CancelToken
-
-    return ctx if isinstance(ctx, CancelToken) else None
 
 
 def _running(status: Any) -> bool:

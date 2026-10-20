@@ -1471,6 +1471,34 @@ class TestRequestLogging(_StreamCase):
         # system prompt 每个会话只打一次。
         self.assertEqual(text.count("first_system_message_json="), 1)
 
+    async def test_debug_log_hashes_tool_schemas(self) -> None:
+        """``tools_hash`` 必须能处理 ``ToolSchema`` 数据类（Go 侧是可直接 marshal 的结构体）。"""
+        server = self.sse_server(sse("[DONE]"))
+        client = OpenAIClient(
+            server.url,
+            "secret-key",
+            options=RequestOptions(first_chunk_timeout=2.0, stream_idle_timeout=2.0),
+        )
+        capture = _LogCapture()
+        client.set_logger(capture)  # type: ignore[arg-type]
+        request = self.request(
+            session_id="session-tools",
+            tools=[
+                ToolSchema(
+                    type="function",
+                    function=ToolFunctionSchema(
+                        name="ping",
+                        description="ping the server",
+                        parameters={"type": "object", "properties": {}},
+                    ),
+                )
+            ],
+        )
+        await self.collect(client.chat_stream(None, request))
+        text = capture.text()
+        self.assertIn("tool_count=1", text)
+        self.assertIn("tools_hash=", text)
+
 
 # ---------------------------------------------------------------------------
 # parse_error（对应 openai/errors_test.go）

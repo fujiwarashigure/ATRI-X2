@@ -164,10 +164,15 @@ def new_provider_llm(name: str, provider: Any, opts: RequestOptions) -> Any:
     base_url = getattr(provider, "base_url", "") or ""
     api_key = getattr(provider, "api_key", "") or ""
     extra_payload = getattr(provider, "extra_payload", None) or None
-    chat = OpenAIClient(base_url, api_key, extra_payload, model_extras, opts)
+    extra_headers = getattr(provider, "extra_headers", None) or None
+    chat = OpenAIClient(
+        base_url, api_key, extra_payload, model_extras, opts, extra_headers=extra_headers
+    )
     if not _uses_responses_api(provider):
         return chat
-    responses = OpenAIResponsesClient(base_url, api_key, extra_payload, model_extras, opts)
+    responses = OpenAIResponsesClient(
+        base_url, api_key, extra_payload, model_extras, opts, extra_headers=extra_headers
+    )
     protocol_for = getattr(provider, "api_protocol_for", None)
     return ProtocolRouter(
         provider=name, chat=chat, responses=responses, protocol=protocol_for

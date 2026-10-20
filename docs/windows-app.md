@@ -212,10 +212,10 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 | 选项卡 | 能改什么 | 写入 | 生效时机 |
 |---|---|---|---|
 | 对话 | 只聊天，不写配置 | — | — |
-| 模型 | 两个子页：**LLM Provider / 模型分配**——Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式，另可「获取可用模型」拉上游 `/models`、给模型起本地备注名；**搜索服务**——`web_search` 的通道列表（顺序即降级顺序，可上移/下移/新增自定义/删除）与单条通道表单（协议 Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI / Grok Build、密钥环境变量名与值、服务地址、CLI 可执行文件），免注册通道不填 key 也能用 | `services.toml`（`[providers.*]`、`[web_search]`）、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider、密钥与搜索通道需重启后台服务 |
+| 模型 | 两个子页：**LLM Provider / 模型分配**——Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议 / 请求头：每行一条 `Name: value`，网关强制要求时填，例如 OpenCode Go 的 `x-opencode-session`）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式，另可「获取可用模型」拉上游 `/models`、给模型起本地备注名；**搜索服务**——`web_search` 的通道列表（顺序即降级顺序，可上移/下移/新增自定义/删除）与单条通道表单（协议 Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI / Grok Build、密钥环境变量名与值、服务地址、CLI 可执行文件），免注册通道不填 key 也能用 | `services.toml`（`[providers.*]`、`[web_search]`）、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider、密钥与搜索通道需重启后台服务 |
 | 人设卡 | 角色库增删改（名称/别名/标签/简介/可见性，`profile.md`、`world.md`、`greeting.md`、`examples.md`、`image_prompt.md`、`notes/*`）、生图预设、系统人设 `SOUL.md` | `characters/`、`SOUL.md` | 角色库 3 秒内自动重扫；`SOUL.md` 下一轮对话生效 |
 | 平台 | QQ（OneBot v11）/ QQ 官方机器人 / Telegram 的启用、地址、token 变量与值、唤醒词；本地 CLI 服务端；各平台超级管理员 | `app.toml`、`.env` | 重启后台服务 |
-| 在线 | 三段状态（后台服务 / OneBot 协议端 / QQ 平台）+ **连接/断开开关**：只改 `[platform.qqonebot].enabled` 并重启后台服务，不用手改 TOML（见 §4.8） | `app.toml` 的 `[platform.qqonebot].enabled` | 点按钮即重启生效 |
+| 在线 | 三段状态（后台服务 / OneBot 协议端 / QQ 平台）+ **连接/断开开关**：只改 `[platform.qqonebot].enabled` 并重启后台服务，不用手改 TOML（见 §4.8）；还可就地改**唤醒词**（写回 `[platform.qqonebot].trigger_keywords`，逗号分隔；群里 @机器人 或消息以唤醒词开头都会叫醒） | `app.toml` 的 `[platform.qqonebot].enabled` / `trigger_keywords` | 点按钮即重启生效；唤醒词需重启后台服务 |
 | 群友 | 按群管理群友档案：备注名、标签、角色数据（自由文本）、头像（下载/本地图片），群友列表来自聊天历史库 | `gui/members.json`、`gui/avatars/*.png` | 只影响界面（后台服务暂不读） |
 | 知识库 | 群知识库 / FAQ 的全局开关与上限（每群条数、问题/答案/别名/关键词/匹配扫描字符数），并只读列出 `state.toml` 里各群的条目；条目增删用群里的 `/faq` 命令 | `app.toml` 的 `[group_knowledge]` | 重启后台服务 |
 | 进阶 | 生图 / 图片转提示词 / 视觉回退 / 语音转写；**本地生图服务挂载**（端口映射 / SSL 链接）；长期记忆、自学习、群分析、群服务、Atrinis 开关；日志级别与保留天数；生图 API 的「获取可用模型」与模型备注名；三个二级设置窗口（自学习 / HOOK 插件 / 定时维护任务，其中维护任务支持每天 / 每周 / 每月 / 自定义 cron / 指定日期一次性）；整页可竖向滚动 | `services.toml`、`app.toml`、`atrinis.toml`、`plugins/hooks.toml`（+ `.env`、`gui/model_catalog.json`） | 重启后台服务；Hook 配置可用 `/hooks reload` |
@@ -361,7 +361,7 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 | 卡片 | 看什么 | 数据来源 |
 |---|---|---|
 | 后台服务 | 运行中（PID）/ 未运行、版本、运行时长、收发消息计数、最近一条消息时间 | 进程 pid 记录 + 后台 `/healthz` |
-| QQ 平台 | 配置是否启用、连接状态（已连接 / 未连接 / 等待登记）、连接次数、最近上线/断开、最近错误 | 后台 `/healthz` 的 `platforms[]`（后端在真正连上/断开时写入） |
+| QQ 平台 | 配置是否启用、连接状态（已连接 / 未连接 / 等待登记）、连接次数、最近上线/断开、最近错误、当前**唤醒词**（可就地修改） | 后台 `/healthz` 的 `platforms[]`（后端在真正连上/断开时写入）+ `app.toml` |
 | 协议端（NapCat） | `ws_url`、端口是否已监听；按钮「检测端口」「启动协议端」「打开 WebUI」 | 一次 TCP 连接探测 |
 | 模型与就绪 | 各 provider 的健康/熔断、`/ready` 的进程与调度心跳检查 | 后台 `/healthz` |
 
@@ -369,7 +369,10 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
   写 `enabled = true` → 重启后台服务 → 状态自动轮询到「已连接」。协议端没监听时会先提示
   （仍可选择继续，后台会自动重连）。
 - **断开（下线）**：写 `enabled = false` → 重启后台服务，QQ 机器人下线但进程继续跑。
-- 只有点按钮才会写 `app.toml` 的那一行 `enabled`；这一页**不碰** `.env` 里的密钥。
+- **唤醒词**：QQ 平台卡片上的输入框 +「保存唤醒词」写 `[platform.qqonebot].trigger_keywords`
+  （中英文逗号分隔）。群里 **@机器人**、或消息**以唤醒词开头**（如「atri 你好」）都会叫醒
+  模型；留空需确认，效果是只认 @ 与回复。保存后需重启后台服务生效。
+- 只有点「连接/断开」与「保存唤醒词」才会写 `app.toml`；这一页**不碰** `.env` 里的密钥。
 - 「复制连接信息」把后台 WS、协议端地址、令牌状态、WebUI 地址复制到剪贴板，换机器时对照用。
 - 便携版 / 安装版**内置协议端**时（见 §5.1），「协议端」卡片会显示内置环境路径，并多出
   「启动协议端」（新开控制台窗口，关窗即下线）与带令牌的「打开 WebUI」。内置协议端的

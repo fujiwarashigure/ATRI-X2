@@ -23,6 +23,7 @@ import threading
 import traceback
 import unicodedata
 import weakref
+from collections.abc import Mapping
 from typing import Any, Callable
 
 from atri_x.errors import AtriXError
@@ -41,6 +42,7 @@ __all__ = [
     "escape_boundary",
     "inline",
     "normalize_inline",
+    "token_from_ctx",
     "truncate_runes",
     "with_cancel",
     "with_timeout",
@@ -430,6 +432,34 @@ def with_timeout(parent: CancelToken | None, timeout: float | None) -> CancelTok
         return token
     token._timer = _arm_timer(timeout, token._expire)
     return token
+
+
+def token_from_ctx(ctx: Any) -> CancelToken | None:
+    """把任意形式的 ctx 归一成可挂父级的 :class:`CancelToken`。
+
+    本仓的 ctx 有两种表示并存：
+
+    * :class:`CancelToken` —— 带取消/截止时间/值的完整实现；
+    * 普通 ``Mapping`` —— 早期路径（以及 ``_RunContext`` 之类不带 ``with_value``
+      的对象经过 :func:`atri_x.delivery.ctx_with_value` 之后）产生的"值包"，
+      没有取消语义。
+
+    Go 里只有一个 ``context.Context``。当上层拿到的是 Mapping 又要
+    ``context.WithCancel/WithTimeout`` 时，必须先把它携带的键值搬进 token，
+    否则新 token 的 ``value()`` 链路是空的 —— 典型症状是聊天的输出落点
+    （``MessageContext.sender``）在 ``requests.start`` 之后丢失，最终退到 headless
+    service 平台并报 "service platform cannot send chat output without a target
+    platform"。
+
+    返回 ``None`` 表示没有可继承的父级（调用方按无父 token 处理）。
+    """
+    if ctx is None or isinstance(ctx, CancelToken):
+        return ctx
+    if isinstance(ctx, Mapping):
+        token = with_cancel(None)
+        token._values = dict(ctx)
+        return token
+    return None
 
 
 def _arm_timer(timeout: float, callback: Callable[[], None]) -> Any:

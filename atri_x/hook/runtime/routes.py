@@ -155,12 +155,20 @@ def route_hook_id(manager: Any, event: Event) -> str:
     return lease.hook_id
 
 
-async def route(manager: Any, ctx: Any, event: Event) -> tuple[Event, bool]:
-    """把事件继续发给持有租约的 Hook。对应 Go ``Manager.Route``。"""
+async def route(
+    manager: Any, ctx: Any, event: Event
+) -> tuple[Event, bool, BaseException | None]:
+    """把事件继续发给持有租约的 Hook。对应 Go ``Manager.Route``。
+
+    Go 签名是 ``(Event, bool, error)``；Python 侧错误按本项目约定抛异常，
+    所以第三位固定返回 ``None``。**必须**保持三元组：:mod:`atri_x.agent.hooks`
+    的 ``HookRouter`` 协议与 :func:`atri_x.agent.message.handle_message` 都按
+    三元组解包，返回二元组会直接 ``UNPACK_SEQUENCE`` 失败。
+    """
     if manager is None:
-        return event, False
+        return event, False, None
     if event.metadata.get(DISPATCHED_METADATA_KEY) is True:
-        return event, False
+        return event, False, None
     key = route_key_for(event)
     moment = _now()
     stale = None
@@ -172,9 +180,9 @@ async def route(manager: Any, ctx: Any, event: Event) -> tuple[Event, bool]:
             lease = None
     if stale is not None:
         spawn(lambda: stale.stop(None))
-        return event, False
+        return event, False, None
     if lease is None:
-        return event, False
+        return event, False, None
     worker = manager.worker(lease.hook_id)
     if worker is None:
         with manager.mu:
@@ -182,10 +190,10 @@ async def route(manager: Any, ctx: Any, event: Event) -> tuple[Event, bool]:
     if worker is None:
         with manager.mu:
             manager.routes.pop(key, None)
-        return event, False
+        return event, False, None
     if worker.config.block.blocks(event):
         clear_lease(manager, lease.hook_id, event)
-        return event, False
+        return event, False, None
     from atri_x.hook.runtime.config import Mode
 
     transient = worker.config.mode_or_once() == Mode.TRANSIENT
@@ -202,7 +210,7 @@ async def route(manager: Any, ctx: Any, event: Event) -> tuple[Event, bool]:
         if updated.metadata is None:
             updated.metadata = {}
         updated.metadata[SKIP_HOOK_ID_METADATA_KEY] = lease.hook_id
-    return updated, True
+    return updated, True, None
 
 
 async def cancel(manager: Any, event: Event) -> bool:

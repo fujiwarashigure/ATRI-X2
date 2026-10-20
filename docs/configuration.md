@@ -294,6 +294,10 @@ api_key_env = "OPENAI_API_KEY"
 models = ["gpt-4o-mini"]             # 手动补充模型列表（API 获取不到时使用）
 api_mode = "chat"                    # chat（默认）/ response，见下方说明
 
+# 可选：网关要求的自定义请求头（保留头不能覆盖）
+[providers.openai.extra_headers]
+x-opencode-session = "atri-x-local"
+
 # 可选：为特定模型配置 context_window 或 extra_payload
 # [providers.openai.model_configs."gpt-4o-mini"]
 # context_window = 128000
@@ -314,6 +318,12 @@ default_context_window = 256000
 - `[providers.<name>.model_configs."<model>"]` 为特定模型配置 `context_window`、`extra_payload`、`vision` 和 `audio`，都是可选的。
 - `vision` / `audio` 是可选的三态能力声明：`true` 表示声明支持，`false` 表示明确不支持，不写则由上层按未知处理。`[vision]` 和 `[asr]` 启用时，目标模型被显式声明为 `false` 会在启动阶段报错；model 级声明优先于 provider 级。
 - `extra_payload` 会合并到 LLM 请求 JSON 中，模型级覆盖 Provider 级。
+- `extra_headers` 是 Provider 级自定义请求头（`[providers.<name>.extra_headers]` 子表），
+  用于网关强制要求专有头的场景，例如 OpenCode Go 必须带 `x-opencode-session` 否则返回
+  `400 MissingSessionID`。`Authorization`、`Content-Type`、`Host` 等保留头由适配器独占，
+  写在这里会在启动阶段被拒绝；头名必须是合法 HTTP token，值里不能有换行。chat 与
+  responses 两种协议都会带上这些头。桌面端「模型」页的「请求头」框可以直接编辑该子表
+  （每行一条 `Name: value`，留空保存即删掉整个子表），不用手改文件。
 - `[model_metadata]` 的 `default_context_window` 是全局回退值，默认 `256000`，没有在 `model_configs` 里配 `context_window` 时使用。
 - 新部署建议把本节所有内容放进 `services.toml`；如果保留旧 `providers.toml`，只有 `[config_files].providers` 指定时才读取。
 

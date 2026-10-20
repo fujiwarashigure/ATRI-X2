@@ -3,7 +3,8 @@
 两件事：
 
 1. **Provider**（``services.toml`` 的 ``[providers.<name>]``，旧部署退回
-   ``providers.toml``）：``base_url`` / ``api_key_env`` / ``models`` / ``api_mode``。
+   ``providers.toml``）：``base_url`` / ``api_key_env`` / ``models`` / ``api_mode`` /
+   ``extra_headers``（网关要求的自定义请求头，如 OpenCode Go 的 ``x-opencode-session``）。
    密钥值不写 TOML，只写配置根 ``.env``；这里只负责"读状态 + 掩码展示"。
 2. **模型分配**（``state.toml`` 的 ``[mode_models.*]`` / ``[naming_model]`` /
    ``[compact_model]`` / ``[session].default_mode``）：运行期回写的文件，后台服务
@@ -64,6 +65,8 @@ class ProviderView:
     api_key_env: str = ""
     models: list[str] = field(default_factory=list)
     api_mode: str = ""
+    #: 自定义请求头（写 ``[providers.<name>.extra_headers]`` 子表）。
+    extra_headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -119,12 +122,18 @@ def _providers_from(raw: Mapping[str, Any]) -> dict[str, ProviderView]:
             continue
         models = entry.get("models")
         model_list = [str(item) for item in models] if isinstance(models, (list, tuple)) else []
+        headers = entry.get("extra_headers")
+        header_map: dict[str, str] = {}
+        if isinstance(headers, Mapping):
+            for key, value in headers.items():
+                header_map[str(key)] = "" if value is None else str(value)
         result[str(name)] = ProviderView(
             name=str(name),
             base_url=_text(entry.get("base_url")),
             api_key_env=_text(entry.get("api_key_env")),
             models=model_list,
             api_mode=_text(entry.get("api_mode")),
+            extra_headers=header_map,
         )
     return result
 
@@ -176,6 +185,8 @@ def save_provider(paths: ConfigPaths, view: ProviderView, *, original: str = "")
     """保存一个 provider，返回实际写入的文件路径。
 
     ``original`` 非空且与新名字不同表示**改名**：先删旧小节再写新的。
+    ``extra_headers`` 写在 ``[providers.<name>.extra_headers]`` 子表里；空表表示删掉
+    整个子表（不留下一个空小节）。
     """
     name = validate_provider_name(view.name)
     target = _providers_path(paths)
@@ -194,7 +205,22 @@ def save_provider(paths: ConfigPaths, view: ProviderView, *, original: str = "")
         values,
         header_comment=f"桌面端添加的 LLM Provider：{name}",
     )
+    _save_extra_headers(target, name, view.extra_headers)
     return target
+
+
+def _save_extra_headers(target: str, name: str, extra_headers: Mapping[str, Any]) -> None:
+    """写 / 删 ``[providers.<name>.extra_headers]`` 子表（空则删除整个小节）。"""
+    section = f"{_PROVIDERS_SECTION}.{name}.extra_headers"
+    headers = {
+        str(key).strip(): "" if value is None else str(value).strip()
+        for key, value in (extra_headers or {}).items()
+        if str(key).strip()
+    }
+    if headers:
+        patch_section(target, section, headers, header_comment="Provider 自定义请求头")
+    else:
+        remove_section(target, section)
 
 
 def delete_provider(paths: ConfigPaths, name: str) -> str:

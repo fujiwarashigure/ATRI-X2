@@ -198,13 +198,23 @@ def has_inbound_non_text_segment(ctx: Any) -> bool:
     return False
 
 
-def materialize_media(agent: Any, ctx: Any, segments: list[MessageSegment]) -> list[MessageSegment]:
-    """把段里的远端媒体本地化。对应 Go ``Agent.materializeMedia``。"""
+async def materialize_media(
+    agent: Any, ctx: Any, segments: list[MessageSegment]
+) -> list[MessageSegment]:
+    """把段里的远端媒体本地化。对应 Go ``Agent.materializeMedia``。
+
+    Go 侧 :meth:`media.Manager.Materialize` 是同步的；Python 版要下远端媒体，
+    因此是 ``async``——这条链路必须 ``await``，否则调用方拿到的是 coroutine
+    （迭代时报 ``'coroutine' object is not iterable``）。
+    """
     copies = [segment.clone() for segment in segments]
     media = getattr(agent, "media", None)
     if media is None:
         return copies
-    return media.materialize(ctx, copies)
+    outcome = media.materialize(ctx, copies)
+    if hasattr(outcome, "__await__"):
+        outcome = await outcome
+    return list(outcome or copies)
 
 
 def llm_segments_to_platform(segments: list[MessageSegment]) -> list[PlatformMessageSegment]:
