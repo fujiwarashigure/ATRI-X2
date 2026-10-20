@@ -422,7 +422,13 @@ async def run(manager: Manager, ctx: Any, deps: RunnerDeps, req: RunRequest) -> 
                 retain = getattr(manager.media, "retain_session_tool_arguments", None)
                 if callable(retain):
                     try:
-                        outcome = retain(run_ctx, session_id, call.arguments)
+                        # 本仓的留存入口是**同步两参**方法：Go 版的 ctx 只服务于
+                        # 同步 SQLite 调用，移植时有意去掉（见
+                        # ``atri_x.media.reference`` 的「同步 vs 异步」说明）。
+                        # 曾经照 Go 版传 ctx，真实接入后每次都 TypeError、被下面
+                        # 的宽泛捕获记成 "retain media arguments"，任何工具都
+                        # 执行不到。见 MediaRetainContractTests。
+                        outcome = retain(session_id, call.arguments)
                         if hasattr(outcome, "__await__"):
                             await outcome
                     except asyncio.CancelledError:

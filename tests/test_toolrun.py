@@ -871,7 +871,7 @@ class TestRunner(unittest.TestCase):
 
     def test_media_retain_failure_denies(self) -> None:
         class Media:
-            async def retain_session_tool_arguments(self, ctx, session_id, arguments):
+            def retain_session_tool_arguments(self, session_id, arguments):
                 raise RuntimeError("too big")
 
         manager = Manager(registry=FakeRegistry([self.tool]), media=Media())
@@ -890,6 +890,67 @@ class TestRunner(unittest.TestCase):
         req, _ = self._req(deps)
         result = run(runner_mod.run(self.manager, None, deps, req))
         self.assertIn("hook exploded", segments_content_text(result.messages[0].segments))
+
+
+class MediaRetainContractTests(unittest.IsolatedAsyncioTestCase):
+    """回归：runner 必须按**真实** ``media.Manager`` 的同步签名调用留存入口。
+
+    历史缺陷（0.9.8 起，0.9.9-local.4 仍在发行包里）：runner 照 Go 版签名传
+    ``(ctx, session_id, arguments)``，而 Python 移植把
+    ``retain_session_tool_arguments`` 改成**同步两参**方法（Go 的 ctx 只服务于
+    同步 SQLite 调用，PORTING §1.6 有意去掉）。真实接入后每次工具调用都在执行前
+    抛 ``TypeError: ... takes 3 positional arguments but 4 were given``，又被
+    宽泛的 ``except BaseException`` 记成 "retain media arguments"，于是**任何
+    工具都执行不到**。测试里的假实现当年照抄了 3 参调用，单测全绿也发现不了 ——
+    与 :class:`StartToolRequestContractTests` 同一类缺陷。
+    """
+
+    async def test_runner_call_matches_real_media_manager(self) -> None:
+        from atri_x.media.manager import Manager as MediaManager
+        from atri_x.media.types import IDPrefix
+
+        class Refs:
+            def __init__(self) -> None:
+                self.added: list = []
+
+            def add_all(self, references) -> None:
+                self.added.extend(references)
+
+        class Store:
+            def __init__(self) -> None:
+                self.refs = Refs()
+
+            def media_references(self):
+                return self.refs
+
+        store = Store()
+        # 真实的媒体中心：本用例只走同步引用路径，root 不需要真的存在。
+        media = MediaManager(store, "tmp_toolrun_media_root")
+        tool = FakeToolDef(name="echo")
+        manager = Manager(registry=FakeRegistry([tool]), media=media)
+        deps = FakeDeps()
+        media_id = IDPrefix + "a" * 64
+        req = RunRequest(
+            session=make_session(),
+            calls=[
+                ToolCallRequest(
+                    id="1", name="echo", arguments='{"source":"%s"}' % media_id
+                )
+            ],
+            assistant_text="hi",
+            actor=Actor(role=RoleSuperadmin),
+            cached_tools=[],
+            authorize_tool=_allow_authorize,
+        )
+        result = await runner_mod.run(manager, None, deps, req)
+        text = segments_content_text(result.messages[0].segments)
+        self.assertEqual("ok:echo", text, "工具必须真正执行，而不是被 retain 拦下")
+        self.assertEqual(1, len(tool.calls))
+        self.assertEqual(1, len(store.refs.added), "参数里的媒体 ID 必须留存为引用")
+        reference = store.refs.added[0]
+        self.assertEqual(media_id, reference.media_id)
+        self.assertEqual("session_tool", reference.owner_type)
+        self.assertEqual("s1", reference.owner_id)
 
 
 class TestRunnerHelpers(unittest.TestCase):

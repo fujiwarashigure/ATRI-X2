@@ -6,6 +6,51 @@
 
 ---
 
+## [0.9.9-local.5] - 2026-10-20 — 修复「所有工具调用在执行前被拦下」的 retain 参数错位
+
+> 旧状态：从 0.9.8 起，`toolrun.runner` 在"已确认并即将执行"的媒体参数留存一步，按
+> **Go 版签名**传了 `(ctx, session_id, arguments)`；而本仓移植把
+> `media.Manager.retain_session_tool_arguments()` 有意改成了**同步两参**方法（Go 的
+> `ctx` 只服务于同步 SQLite 调用，见 `atri_x/media/reference.py` 的「同步 vs 异步」）。
+> 真实装配里 `manager.media` 永远非空，于是**每一次**工具调用都在执行前抛
+> `TypeError: Manager.retain_session_tool_arguments() takes 3 positional arguments
+> but 4 were given`，又被该步的宽泛 `except BaseException` 记成
+> `retain media arguments: ...`，返回给模型和用户 —— 连 `discover_tool` 都执行不到，
+> 表现为「只能对话、无法调用任何工具」。
+>
+> 为什么测试没发现：`tests/test_toolrun.py` 里的假 `Media` 照抄了错误的 3 参调用，
+> 和 runner 的错误调用互相掩盖；单测全绿，真实装配必炸。与
+> `StartToolRequestContractTests` 记录的 `start_tool_request` 四元组问题是同一类缺陷
+> （假实现与真实实现签名不一致）。
+>
+> 新状态：工具调用在同样的确认/留存/执行链路上正常执行，参数里的媒体 ID 仍以
+> `session_tool` owner 原子关联到 Session。已新增"用**真实** `media.Manager` 跑一遍
+> runner"的契约回归用例，今后签名再漂移会直接失败。
+
+### 修复
+
+- `atri_x/toolrun/runner.py`：留存调用改为 `retain(session_id, call.arguments)`（同步
+  两参），并保留对 awaitable 返回值的兼容；补注释说明与 Go 的差异。
+
+### 测试
+
+- `tests/test_toolrun.py`：新增 `MediaRetainContractTests`，用**真实**
+  `atri_x.media.manager.Manager`（内存仓储替身，只走同步引用路径）驱动 runner，断言
+  工具真正执行、参数里的媒体 ID 以 `session_tool` 引用留存；修好前该用例复现
+  `takes 3 positional arguments but 4 were given`，修好后通过。
+- `tests/test_toolrun.py`：`test_media_retain_failure_denies` 的假 `Media` 改成与真实
+  实现一致的同步两参签名（旧假实现只是被 TypeError 顺带"通过"）。
+
+### 发行（本机重建 0.9.9 便携版 + 安装版，均内置 QQ 协议端与 DSH 内核）
+
+产物、校验和与自检报告见发行库 `M:\ATRI-X-release`（`SHA256SUMS.txt` / `发行说明.md` /
+`自检报告.md`）。构建命令与上一版相同：
+`python packaging/build.py --release --with-pillow --with-kernel --with-qqproto "<NapCat.52230.Shell>"`。
+仓库源码推送到 GitHub `main`，产物发布为 Release `v0.9.9-local.5`（`v0.9.9-local.4`
+的发行包带本缺陷，已在它的 Release 说明里标注由本版取代）。
+
+---
+
 ## [0.9.9-local.4] - 2026-10-20 — 修复首次真实对话必然失败的 4 个移植缺口，并支持 Provider 自定义请求头
 
 > 旧状态：0.9.9（含安装版/便携版冻结产物）**从来没有一条消息能走完聊天链路**。四处
