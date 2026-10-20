@@ -6,10 +6,10 @@
 
 ---
 
-## [0.9.9-local.5] - 2026-10-20 — 修复「所有工具调用在执行前被拦下」的 retain 参数错位
+## [0.9.9-local.5] - 2026-10-20 — 修复 retain 参数错位导致所有工具被拦下，以及会话命名通知者签名错位
 
-> 旧状态：从 0.9.8 起，`toolrun.runner` 在"已确认并即将执行"的媒体参数留存一步，按
-> **Go 版签名**传了 `(ctx, session_id, arguments)`；而本仓移植把
+> 旧状态（一）：从 0.9.8 起，`toolrun.runner` 在"已确认并即将执行"的媒体参数留存一步，
+> 按 **Go 版签名**传了 `(ctx, session_id, arguments)`；而本仓移植把
 > `media.Manager.retain_session_tool_arguments()` 有意改成了**同步两参**方法（Go 的
 > `ctx` 只服务于同步 SQLite 调用，见 `atri_x/media/reference.py` 的「同步 vs 异步」）。
 > 真实装配里 `manager.media` 永远非空，于是**每一次**工具调用都在执行前抛
@@ -18,19 +18,31 @@
 > `retain media arguments: ...`，返回给模型和用户 —— 连 `discover_tool` 都执行不到，
 > 表现为「只能对话、无法调用任何工具」。
 >
-> 为什么测试没发现：`tests/test_toolrun.py` 里的假 `Media` 照抄了错误的 3 参调用，
-> 和 runner 的错误调用互相掩盖；单测全绿，真实装配必炸。与
-> `StartToolRequestContractTests` 记录的 `start_tool_request` 四元组问题是同一类缺陷
+> 旧状态（二，真机验证时发现）：`app/naming.py` 的 `NamingLogger` 保留了 Go 的
+> `(ctx, event)` 签名，而 `session/naming.py` 按本仓 `NamingNotifier` 协议只传
+> `event`。第 `trigger_step` 条消息排期命名时抛
+> `TypeError: NamingLogger.notify_naming_scheduled() missing 1 required positional
+> argument: 'event'`，整个回合被记成「请求失败」，命名还永远停在 in-flight
+> （标题再也不生成）。
+>
+> 为什么测试没发现（两处同因）：测试替身照抄了错误的调用/签名 ——
+> `tests/test_toolrun.py` 的假 `Media` 是三参调用、`FakeNamingNotifier` 是单参假实现，
+> 与生产侧的真实对象正好错位，单测全绿，真实装配必炸。与
+> `StartToolRequestContractTests` 记录的 `start_tool_request` 四元组问题属同一类缺陷
 > （假实现与真实实现签名不一致）。
 >
 > 新状态：工具调用在同样的确认/留存/执行链路上正常执行，参数里的媒体 ID 仍以
-> `session_tool` owner 原子关联到 Session。已新增"用**真实** `media.Manager` 跑一遍
-> runner"的契约回归用例，今后签名再漂移会直接失败。
+> `session_tool` owner 原子关联到 Session；命名排期/完成/失败三个事件都能落到运行
+> 日志与审计。两处都补了"用**真实**对象跑一遍装配路径"的回归用例，今后签名再漂移会
+> 直接失败。
 
 ### 修复
 
 - `atri_x/toolrun/runner.py`：留存调用改为 `retain(session_id, call.arguments)`（同步
   两参），并保留对 awaitable 返回值的兼容；补注释说明与 Go 的差异。
+- `atri_x/app/naming.py`：`NamingLogger` 的三个事件方法去掉 `ctx`，与
+  `session/types.py` 的 `NamingNotifier` 协议对齐（Go 里收 ctx，本仓 session 服务不持
+  ctx，属有意偏离）；模块 docstring 记录该偏离。
 
 ### 测试
 
@@ -40,6 +52,10 @@
   `takes 3 positional arguments but 4 were given`，修好后通过。
 - `tests/test_toolrun.py`：`test_media_retain_failure_denies` 的假 `Media` 改成与真实
   实现一致的同步两参签名（旧假实现只是被 TypeError 顺带"通过"）。
+- `tests/test_session_lifecycle.py`：`TestServiceNaming` 新增
+  `test_real_naming_logger_matches_session_protocol`，用**真实** `NamingLogger` 作通知者
+  跑 `maybe_schedule_naming`；修好前复现
+  `missing 1 required positional argument: 'event'`，并覆盖 completed/failed 两个事件。
 
 ### 发行（本机重建 0.9.9 便携版 + 安装版，均内置 QQ 协议端与 DSH 内核）
 

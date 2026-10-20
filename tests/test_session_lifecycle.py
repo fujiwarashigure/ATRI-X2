@@ -631,6 +631,63 @@ class TestServiceNaming(SqliteTestCase):
                 self.assertEqual(len(seen), trigger_step)
                 wait_title(store, session.id, "generated title")
 
+    def test_real_naming_logger_matches_session_protocol(self) -> None:
+        """回归：app 装配用的真实 ``NamingLogger`` 必须接得住 session 侧事件。
+
+        历史缺陷（0.9.8 起，0.9.9-local.4 发行包仍带）：``NamingLogger`` 保留了
+        Go 的 ``(ctx, event)`` 签名，而 ``session/naming.py`` 按本仓
+        ``NamingNotifier`` 协议只传 ``event``。第 ``trigger_step`` 条消息排期命名
+        时抛 ``TypeError: missing 1 required positional argument: 'event'``，被
+        聊天流程记成「请求失败」，命名还永远停在 in-flight。测试里的假通知者都是
+        单参签名，单测全绿也发现不了 —— 与 toolrun 的 media retain 参数错位同类。
+        """
+        from atri_x.app.naming import NamingLogger
+        from atri_x.session import NamingCompletedEvent, NamingFailedEvent
+
+        class RecordingLogger:
+            def __init__(self) -> None:
+                self.infos: list[tuple] = []
+                self.warns: list[tuple] = []
+
+            def info(self, message: str, **fields: object) -> None:
+                self.infos.append((message, fields))
+
+            def warn(self, message: str, **fields: object) -> None:
+                self.warns.append((message, fields))
+
+        logger = RecordingLogger()
+        audits: list[tuple] = []
+        notifier = NamingLogger(
+            logger, lambda name, **fields: audits.append((name, fields))
+        )
+        store = new_test_store()
+        generator = FakeTitleGenerator(titles=["generated title"])
+        svc = new_service_with_naming(
+            store, NamingConfig(trigger_step=1), generator, notifier
+        )
+        session = svc.create(cli_scope(), CreateRequest(title="fallback"))
+        store.messages().append(
+            Message(session_id=session.id, role=RoleUser, content="hello")
+        )
+        svc.maybe_schedule_naming(session.id)  # 修复前这里抛 TypeError
+        wait_title(store, session.id, "generated title")
+        self.assertTrue(
+            any("naming scheduled" in message for message, _ in logger.infos),
+            "排期事件必须落到运行日志",
+        )
+
+        # 另外两个事件也必须能在真实通知者上走通（completed 记运行日志、
+        # failed 同时进审计）。
+        notifier.notify_naming_completed(
+            NamingCompletedEvent(session_id=session.id, title="generated title")
+        )
+        notifier.notify_naming_failed(
+            NamingFailedEvent(session_id=session.id, stage="generate title", reason="boom")
+        )
+        self.assertTrue(any("naming completed" in message for message, _ in logger.infos))
+        self.assertTrue(any("naming failed" in message for message, _ in logger.warns))
+        self.assertEqual(["session_naming_failed"], [name for name, _ in audits])
+
     def test_maybe_schedule_naming_skips_renamed_title(self) -> None:
         store = new_test_store()
         generator = FakeTitleGenerator()

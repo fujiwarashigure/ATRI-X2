@@ -5,6 +5,12 @@
 * 成功/排期走运行日志（受日志级别过滤）；
 * **失败进审计**：审计文件不受运行日志级别过滤，命名失败是要排查的事故。
 * 审计记录带 ``result=failed``，与 :mod:`atri_x.logging` 的结果词表一致。
+
+参数面（**有意偏离**）：Go 的三个入口都是 ``(ctx, event)``；本仓 session 侧的
+:class:`atri_x.session.types.NamingNotifier` 协议只传 ``event``（session 服务本身
+不持 ctx），因此这里同步去掉 ``ctx``。保留 Go 的 ``ctx`` 会让第 3 条消息触发命名
+时抛 ``TypeError: missing 1 required positional argument: 'event'``，整个回合以
+「请求失败」结束（见 ``tests/test_session_lifecycle.py`` 的回归用例）。
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ class NamingLogger:
         self.logger = logger
         self.audit = audit
 
-    def notify_naming_scheduled(self, ctx: Any, event: Any) -> None:
+    def notify_naming_scheduled(self, event: Any) -> None:
         """对应 Go ``NotifyNamingScheduled``。"""
         if self.logger is None:
             return
@@ -41,7 +47,7 @@ class NamingLogger:
             trigger_step=getattr(event, "trigger_step", 0),
         )
 
-    def notify_naming_completed(self, ctx: Any, event: Any) -> None:
+    def notify_naming_completed(self, event: Any) -> None:
         """对应 Go ``NotifyNamingCompleted``。"""
         if self.logger is None:
             return
@@ -55,7 +61,7 @@ class NamingLogger:
             message_count=getattr(event, "message_count", 0),
         )
 
-    def notify_naming_failed(self, ctx: Any, event: Any) -> None:
+    def notify_naming_failed(self, event: Any) -> None:
         """对应 Go ``NotifyNamingFailed``。"""
         if self.audit is not None:
             self.audit(
