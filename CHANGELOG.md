@@ -101,7 +101,7 @@
 `python packaging/build.py --release --with-pillow --with-kernel --with-qqproto <NapCat.52230.Shell>`；
 便携包解压后 10 项自检与安装包静默安装/卸载（26385 文件）均通过，真机
 `atri-x doctor --e2e` 全绿（含真实 OpenCode Go `chat_call` 与 CLI 远端往返）。
-仓库改动仅本地提交，**未推送**。
+仓库源码已推送到 GitHub `main`，产物发布为 Release `v0.9.9-local.4`。
 
 ---
 
