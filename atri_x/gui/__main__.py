@@ -23,6 +23,7 @@ from atri_x import __version__
 from atri_x.gui import autostart
 from atri_x.gui.app import WINDOW_TITLE, GuiApp
 from atri_x.gui.client import RemoteClient
+from atri_x.gui.process import record_startup_failure
 from atri_x.gui.selftest import run_selftest
 from atri_x.gui.service import (
     GuiConfigError,
@@ -170,7 +171,15 @@ def _run_autostart_command(args: argparse.Namespace) -> int:
 
 
 def _show_message(title: str, text: str) -> None:
-    """有 Tk 就弹窗，没有就打到 stdout/stderr（控制台版 exe 也能看到）。"""
+    """有 Tk 就弹窗，没有就打到 stdout/stderr；**同时写一份固定日志**。
+
+    窗口版 exe 没有控制台，配置目录都建不出来时连 ``gui/`` 都写不进去；这种「最惨的
+    启动失败」如果只弹一个窗、用户点掉就什么线索都没有。所以这里先落盘（候选路径见
+    :func:`atri_x.gui.process.startup_log_candidates`），再把日志路径告诉用户。
+    """
+    log_path = record_startup_failure(title, text)
+    if log_path:
+        text = f"{text}\n\n（已记录到日志：{log_path}）"
     try:
         import tkinter as tk
         from tkinter import messagebox

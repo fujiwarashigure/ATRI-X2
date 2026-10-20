@@ -17,6 +17,9 @@ import ctypes
 import os
 import subprocess
 import sys
+import tempfile
+from datetime import datetime
+from typing import Sequence
 
 __all__ = [
     "app_dir",
@@ -27,9 +30,12 @@ __all__ = [
     "load_window_state",
     "open_path",
     "read_service_pid",
+    "record_startup_failure",
     "save_window_state",
     "service_log_path",
     "single_instance_lock",
+    "startup_log_candidates",
+    "startup_log_path",
     "state_dir",
     "stop_service",
     "window_state_path",
@@ -38,6 +44,13 @@ __all__ = [
 
 #: 后台服务的 stdout/stderr 文件名（放在状态目录下）。
 SERVICE_LOG_NAME = "service.out.log"
+
+#: 启动失败日志文件名。
+#:
+#: 桌面端最惨的失败是「配置目录都建不出来」（例如程序放在带 Low 完整性标签的目录里、
+#: 或 %APPDATA% 被策略挡住），这时按配置目录写日志同样会失败，所以有兜底候选路径，
+#: 见 :func:`startup_log_candidates`。
+STARTUP_LOG_NAME = "gui-startup.log"
 
 #: 后台服务 pid 文件名。
 SERVICE_PID_NAME = "service.pid"
@@ -100,6 +113,84 @@ def state_dir() -> str:
 def service_log_path() -> str:
     """后台服务的 stdout/stderr 落点。"""
     return os.path.join(state_dir(), SERVICE_LOG_NAME)
+
+
+# ---------------------------------------------------------------------------
+# 启动失败诊断日志
+# ---------------------------------------------------------------------------
+
+
+def startup_log_candidates() -> list[str]:
+    """启动失败日志的候选落点（按优先级，已去重）。
+
+    1. ``<配置目录>/gui/gui-startup.log`` —— 正常情况；
+    2. ``%TEMP%/ATRI-X/gui-startup.log`` —— 配置目录本身就是坏的时候（最需要日志的场景）；
+    3. ``<程序目录>/gui-startup.log`` —— 最后兜底（安装目录通常可写时）。
+    """
+    candidates: list[str] = []
+    base = config_dir_hint()
+    if base:
+        candidates.append(os.path.join(base, "gui", STARTUP_LOG_NAME))
+    try:
+        temp = tempfile.gettempdir()
+    except (OSError, ValueError):  # pragma: no cover - 极端环境
+        temp = ""
+    if temp:
+        candidates.append(os.path.join(temp, "ATRI-X", STARTUP_LOG_NAME))
+    candidates.append(os.path.join(app_dir(), STARTUP_LOG_NAME))
+    unique: list[str] = []
+    seen: set[str] = set()
+    for path in candidates:
+        key = os.path.normcase(os.path.abspath(path))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
+def startup_log_path() -> str:
+    """启动失败日志「首选」落点（不落盘；给提示文案用）。"""
+    candidates = startup_log_candidates()
+    return candidates[0] if candidates else ""
+
+
+def record_startup_failure(
+    title: str, detail: str, *, candidates: Sequence[str] | None = None
+) -> str:
+    """把桌面端启动失败写进固定日志；返回实际写入路径，全部候选都失败时返回 ``""``。"""
+    block = _startup_failure_block(title, detail)
+    for path in (startup_log_candidates() if candidates is None else candidates):
+        if not path:
+            continue
+        try:
+            directory = os.path.dirname(path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            with open(path, "a", encoding="utf-8", newline="\n") as handle:
+                handle.write(block)
+            return path
+        except OSError:
+            continue
+    return ""
+
+
+def _startup_failure_block(title: str, detail: str) -> str:
+    """一条启动失败记录（含排障需要的版本/路径信息）。"""
+    from atri_x import __version__  # 延迟导入：gui.process 可能被很早期地 import
+
+    header = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    body = (detail or "").replace("\r\n", "\n").replace("\n", "\n        ")
+    lines = [
+        "=" * 72,
+        f"{header}  atri-x {__version__}  frozen={bool(getattr(sys, 'frozen', False))}",
+        f"title : {title or ''}",
+        f"detail: {body}",
+        f"exe   : {getattr(sys, 'executable', '') or ''}",
+        f"config: {config_dir_hint() or '<unavailable>'}",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def open_path(path: str) -> bool:

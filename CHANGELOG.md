@@ -6,6 +6,75 @@
 
 ---
 
+## [0.9.9-local.1] - 2026-10-20 — 桌面端诊断可见性（本机重建，未随上游发布）
+
+> 本版是**本机重建**：只改桌面端两处「失败看不见」，并按同一份源码重新打包 Windows 便携版。
+> 触发背景：本机把便携版解压到带 **Low 强制完整性标签** 的目录（`D:\opencode` 根带
+> `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)`）后启动——进程以 Low 完整性运行，
+> 写 `%APPDATA%\ATRI-X` 被拒（WinError 5）、`Shell_NotifyIconW(NIM_ADD)` 返回
+> ACCESS_DENIED（没有托盘图标）。以前这两种失败分别是「点掉就没线索的弹窗」和
+> 「静默降级为没有托盘」。
+
+### 行为变化
+
+| # | 旧状态 | 新状态 |
+|---|---|---|
+| 1 | 托盘 `start()` 失败后静默 `self._tray = None`：用户只看到"没有图标"，关窗口行为也莫名变化 | 聊天区通知 + `<配置目录>/gui/gui.log` 记录 + 一次性弹窗（含失败原因）；`--minimized`（开机自启）且托盘失败时强制把窗口显示出来；「帮助 → 托盘/后台说明」显示真实状态 |
+| 2 | GUI 启动失败（尤其配置目录都建不出来时）只弹窗；窗口版没有控制台，点掉即无痕迹 | 先写固定日志再弹窗，弹窗文本附带日志路径；落点优先 `<配置目录>/gui/gui-startup.log`，配置目录不可写时依次退回系统临时目录、程序目录 |
+
+### 桌面端（`atri_x/gui/**`）
+
+- `gui.process`：新增 `STARTUP_LOG_NAME` / `startup_log_candidates()` / `startup_log_path()` /
+  `record_startup_failure()`；单条记录含时间、版本、`frozen`、title/detail、exe 路径、配置目录。
+- `gui.__main__._show_message()`：先落盘再弹窗；弹窗文本追加「已记录到日志：…」。
+- `gui.app`：`_start_tray()` 失败不再静默——记 `_tray_error` 并走 `_report_tray_failure()`
+  （聊天区通知、`journal.record`、`root.after(600, …)` 一次性弹窗）；`--minimized` 时
+  `deiconify()` 并把 `_minimized` 复位；新增 `_tray_config_dir()` / `_warn_tray_unavailable()`。
+- `gui.actions.show_tray_help()`：按 `_tray` / `_tray_error` 显示 正常 / 不可用（原因）/ 未启用。
+- 正常路径不变：托盘可用、`--no-tray`、`--selftest` 行为与 0.9.9 一致。
+
+### 测试与文档
+
+- 新增 `tests/test_gui_diagnostics.py`（13 项）：托盘失败三件套、minimized 兜底、帮助文案、
+  启动日志候选/兜底/追加/全失败、`_show_message` 无 Tk 时仍落盘。
+- `docs/windows-app.md`：§4 关窗口行为、§11 已知限制（Low 完整性标签目录、启动失败日志、
+  托盘失败不再静默）、排障顺序（桌面端起不来先看 `gui-startup.log`）。
+- README 静态数字按实测同步（`check_syntax` 873、`tests/` 177/168、受控文件 996），
+  同时修掉 v0.9.9 遗留的 993 与实际不符（当时新增 2 个受控文件后未同步）。
+
+### 发行（本机重建 0.9.9 便携版）
+
+`python packaging/build.py --with-kernel --with-portable --portable-verify`，在工作区外
+（`D:\ATRI-X-build`，避开 Low 完整性标签）构建；内置内核用
+`assemble_kernel.py --modules "D:\DSH\Deepseek Harness EAC\dsh-desktop\node_modules"`
+从本机 DSH 0.2.0-rc.2 重新组装（384 包 / 189.1 MB + node v24.19.0 92.8 MB，ACP
+`initialize` 握手通过）：
+
+| 产物 | 体积 | 自检 |
+|---|---|---|
+| onedir（中间产物） | 321.4 MB / 24510 文件 | `--version`、`config`、`-m` 转发、`sidecar`（内置内核可解析）、GUI `--selftest` 全过 |
+| `ATRI-X-0.9.9-portable-win64.zip` | 115.2 MB（120,778,979 字节，deflate 36%） | 解压 24515 条目后：`--version` / `config check` / 数据目录落包内 / `-m` / `sidecar` / GUI selftest / 三个 bat / APPDATA 重定向 全过 |
+
+SHA256：`c9edf624b96a6949a27736a8bf0205085dbedad9707d756b70e5b896af58c4b2`
+
+> 与官方 v0.9.9 便携包的差异：本机重建包多 648 个非内核文件（`_internal\tzdata\zoneinfo\*`、
+> UCRT/API-set DLL）——构建解释器的用户级 site-packages 里有 `tzdata` 等包，PyInstaller 的
+> `hook-tzdata` 把它们收了进来；内置内核文件数与官方一致（23812 个）。功能自检全过。
+
+### 验证
+
+```
+python scripts/check_syntax.py      873 个文件，0 错
+python scripts/check_imports.py     687/687，0 失败
+python scripts/check_integration.py 74 项，0 失败
+python scripts/check_coverage.py --summary   72/72，weighted=100.0%
+python scripts/check_except.py      OK（119 = 基线 119）
+python scripts/gen_stats.py --check OK
+python -m unittest discover -s tests -t .   Ran 5692 tests — OK (skipped=4)
+```
+
+---
+
 ## [0.9.9] - 2026-10-19 — DSH 凭据与用量记账、并发上限接线、脱敏补齐
 
 > 这一批来自对 v0.9.8 的三项只读审计（内置 DSH 内核能否构建工作区容纳对话、多并发下是否

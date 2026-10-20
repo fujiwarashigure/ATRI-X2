@@ -189,7 +189,7 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 | 菜单 → 视图 | 切到 9 个选项卡（等价于点选项卡标题） |
 | 菜单 → 服务 | 重新连接、启动/确认后台服务、**重启后台服务**（改完配置用它生效）、停止后台服务（强制）、打开配置目录、打开后台日志 |
 | 菜单 → 帮助 | 关于、托盘/后台说明 |
-| 点窗口 ✕ | **隐藏到托盘**，服务继续跑；没有托盘时退化为"关闭窗口（服务仍在）" |
+| 点窗口 ✕ | **隐藏到托盘**，服务继续跑；没有托盘时退化为"关闭窗口（服务仍在）"（首次会弹一次提示，见 §11） |
 | 托盘图标 | 左键/双击 = 显示窗口；右键菜单：显示 / 新建会话 / 重新连接 / 打开日志 / 退出 / 退出并停止服务 |
 
 ### 4.1 会话列表与历史
@@ -688,9 +688,15 @@ atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函�
 - **没有自动更新**：重装覆盖（`install --force` / 新安装包）或整目录替换。
 - **没有 Python 解释器**：exec 型 Hook、Go 源码 Skill 里 `python xxx.py` 之类会失败。
 - **窗口版没有控制台**：诊断信息在 `%APPDATA%\ATRI-X\gui\service.out.log` 与弹窗里；
-  要控制台输出请用 `atri-x.exe`。
+  启动阶段就失败的（例如配置目录都建不出来）会写 `<配置目录>\gui\gui-startup.log`，
+  配置目录不可写时自动退回 `%TEMP%\ATRI-X\gui-startup.log`；要控制台输出请用 `atri-x.exe`。
 - **托盘/自启**：原生 `Shell_NotifyIcon` + HKCU Run，验证环境为 Windows 10 + Tk 9.0；
-  未在多个 Windows 版本/多账户上遍历。
+  未在多个 Windows 版本/多账户上遍历。**托盘建不起来时不再静默**：聊天区通知 +
+  `<配置目录>\gui\gui.log` + 一次性弹窗；`--minimized` 会自动把窗口显示出来。
+- **Low 完整性标签目录**：把程序放在带 "Low Mandatory Level" 标签的目录（某些沙箱/受保护
+  工作区会这样标记）里启动时，进程以低完整性运行——写 `%APPDATA%` 会被拒（WinError 5），
+  `Shell_NotifyIconW` 返回 ACCESS_DENIED（没有托盘）。把程序复制到普通目录（如
+  `D:\ATRI-X`）再启动即可；注意同一卷内"移动"会保留标签，必须复制。
 - **内置内核与 DSH 版本绑定**：升级 DSH 后要重新 `assemble_kernel.py`。
 - **安装包路径长度**：内置内核里有 190 字符以上的相对路径，安装根 + 191 必须 ≤ 260
   （MAX_PATH）。默认 `%LOCALAPPDATA%\ATRI-X\app` 没问题；profile 极深的环境请用
@@ -711,13 +717,17 @@ atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函�
 
 **排障顺序**
 
-1. 窗口标题栏/状态栏显示「已断开」→ 看 `%APPDATA%\ATRI-X\gui\service.out.log`（或直接开
+1. 桌面端**弹「配置有问题」/根本起不来** → 看 `<配置目录>\gui\gui-startup.log`
+   （配置目录不可写时在 `%TEMP%\ATRI-X\gui-startup.log`），里面有版本、exe 路径与完整报错；
+   如果是 WinError 5（拒绝访问），先确认程序不是放在带 Low 完整性标签的目录里（见上）；
+2. 窗口标题栏/状态栏显示「已断开」→ 看 `%APPDATA%\ATRI-X\gui\service.out.log`（或直接开
    桌面端「日志」页，通道选「后台服务输出」），或手动 `atri-x.exe service run` 看控制台；
-2. `atri-x.exe -m atri_x.dist.install status` —— 装在哪、快捷方式是否在；
-3. `atri-x.exe config check` —— 配置本身是否合法；
-4. `atri-x.exe doctor --no-model` —— 平台是否装配起来（应看到 `qqonebot`）；
-5. `atri-x.exe -m atri_x.platform.qq_onebot.smoke --json` —— 协议层通不通；
-6. 群里 `@机器人` 看日志（`%APPDATA%\ATRI-X` 下按天日志）—— 是否被唤醒、模型是否报错。
+   托盘/界面操作留痕在 `<配置目录>\gui\gui.log`；
+3. `atri-x.exe -m atri_x.dist.install status` —— 装在哪、快捷方式是否在；
+4. `atri-x.exe config check` —— 配置本身是否合法；
+5. `atri-x.exe doctor --no-model` —— 平台是否装配起来（应看到 `qqonebot`）；
+6. `atri-x.exe -m atri_x.platform.qq_onebot.smoke --json` —— 协议层通不通；
+7. 群里 `@机器人` 看日志（`%APPDATA%\ATRI-X` 下按天日志）—— 是否被唤醒、模型是否报错。
 
 **Q：GUI 一直「连接中」/「已断开」。**
 A：多数是后台服务没起来或 token 对不上。先手动跑 `atri-x.exe service run` 看控制台输出；

@@ -153,10 +153,18 @@ def show_about(app: Any) -> None:
 
 
 def show_tray_help(app: Any) -> None:
+    tray = getattr(app, "_tray", None)
+    tray_error = str(getattr(app, "_tray_error", "") or "")
+    if tray is not None:
+        status = "托盘图标：正常（关窗口 = 隐藏到托盘，后台服务不受影响）。"
+    elif tray_error:
+        status = f"托盘图标：不可用（{tray_error}）。关窗口会直接退出窗口，后台服务继续运行。"
+    else:
+        status = "托盘图标：未启用（--no-tray 或自检模式）。"
     messagebox.showinfo(
         "托盘与后台",
-        "关窗口只会隐藏到托盘，后台服务不受影响。\n"
-        "要彻底退出请用托盘菜单或「文件」菜单。\n\n"
+        f"{status}\n\n"
+        "要彻底退出请用托盘菜单或「文件」菜单。\n"
         "配置保存后：state.toml 会热加载；platform/services/.env 需要「服务 → 重启后台服务」。",
         parent=app.root,
     )

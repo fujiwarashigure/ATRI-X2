@@ -20,7 +20,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any, Callable
 
-from atri_x.gui import actions
+from atri_x.gui import actions, journal
 from atri_x.gui.client import (
     STATE_AUTH_FAILED,
     STATE_CONNECTED,
@@ -107,6 +107,8 @@ class GuiApp:
         self._events: queue.Queue[tuple[str, Any]] = queue.Queue()
         self._tray: TrayIcon | None = None
         self._tray_enabled = tray_enabled
+        self._tray_error = ""
+        self._tray_warned = False
         self._minimized = minimized
         self._dirty = True
         self._status_text = "未连接"
@@ -504,8 +506,47 @@ class GuiApp:
         )
         if tray.start():
             self._tray = tray
-        else:
-            self._tray = None
+            return
+        # 托盘建不起来不是「无所谓」：关窗口会变成退出窗口、--minimized 更是白屏。
+        # 以前这里是静默降级，用户只会看到「没有后台图标」。现在写日志 + 聊天区通知 +
+        # 一次性弹窗，并在 --minimized 时强制把窗口显示出来。
+        self._tray = None
+        self._tray_error = tray.error or "未知原因"
+        self._report_tray_failure()
+
+    def _report_tray_failure(self) -> None:
+        """托盘不可用：给出可见提示（日志 + 聊天区通知 + 一次性弹窗）。"""
+        message = (
+            f"托盘图标不可用：{self._tray_error}\n"
+            "关闭窗口不会隐藏到托盘，而是退出窗口（后台服务继续运行）。"
+        )
+        self._append_notice(message)
+        journal.record(self._tray_config_dir(), f"托盘图标不可用：{self._tray_error}")
+        if self._minimized:
+            # 没有托盘时 --minimized（开机自启）会把窗口藏掉且没有任何入口，
+            # 所以这里必须把窗口显示回来。
+            self._minimized = False
+            self.root.deiconify()
+        self.root.after(600, self._warn_tray_unavailable)
+
+    def _tray_config_dir(self) -> str:
+        """配置目录（用于写界面日志）；自检/无配置场景返回空串。"""
+        settings = self.settings
+        return str(getattr(settings, "config_dir", "") or "") if settings is not None else ""
+
+    def _warn_tray_unavailable(self) -> None:
+        """托盘失败的一次性弹窗（只在第一次失败时弹）。"""
+        if self._tray_warned:
+            return
+        self._tray_warned = True
+        messagebox.showwarning(
+            "ATRI-X：托盘不可用",
+            "托盘图标创建失败，所以关窗口会直接退出窗口（后台服务继续运行）。\n\n"
+            f"原因：{self._tray_error}\n\n"
+            "如果 ATRI-X 是从某些沙箱/受保护目录（带 Low 完整性标签）启动的，"
+            "把程序复制到普通目录（例如 D:\\ATRI-X）再启动即可恢复托盘。",
+            parent=self.root,
+        )
 
     def _handle_tray(self, action: str) -> None:  # pragma: no cover - 由托盘线程触发
         if action == "show":
