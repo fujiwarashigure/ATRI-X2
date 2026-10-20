@@ -166,8 +166,10 @@ class LayoutCase(unittest.TestCase):
     """不建窗口：选项卡清单、「功能」页跳转键、关于文案。"""
 
     def test_tab_list_and_keys(self) -> None:
-        self.assertEqual(len(gui_app._TABS), 9)
-        self.assertEqual(len(set(gui_app._TABS)), 9)
+        self.assertEqual(len(gui_app._TABS), 10)
+        self.assertEqual(len(set(gui_app._TABS)), 10)
+        self.assertIn("在线", gui_app._TABS)
+        self.assertLess(gui_app._TABS.index("平台"), gui_app._TABS.index("在线"))
         for key in ("model", "character", "platform", "advanced", "members", "knowledge", "logs"):
             self.assertIn(key, gui_app._TAB_KEYS)
             self.assertIn(gui_app._TAB_KEYS[key], gui_app._TABS)

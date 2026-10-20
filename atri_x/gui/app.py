@@ -47,6 +47,7 @@ from atri_x.gui.tabs import (
     ChatTab,
     FeaturesTab,
     KnowledgeTab,
+    LinkTab,
     LogsTab,
     MembersTab,
     ModelTab,
@@ -67,7 +68,7 @@ WINDOW_TITLE = "ATRI-X"
 POLL_INTERVAL_MS = 80
 
 #: 选项卡顺序（索引 → 名字）；菜单和 Ctrl+N 快捷键共用。
-_TABS = ("对话", "模型", "人设卡", "平台", "群友", "知识库", "进阶", "日志", "功能")
+_TABS = ("对话", "模型", "人设卡", "平台", "在线", "群友", "知识库", "进阶", "日志", "功能")
 
 #: 选项卡名字 → 索引（供「功能」页双击跳转）。
 _TAB_INDEX = {name: index for index, name in enumerate(_TABS)}
@@ -120,6 +121,7 @@ class GuiApp:
         self._active_session_id = ""
         self.paths = load_paths(_config_path_for(settings))
         self._tabs: dict[int, Any] = {}
+        self._active_tab_index: int | None = None
 
         root.title(WINDOW_TITLE)
         # 1100 宽是「进阶」页两列布局与「模型 → 搜索服务」页左右并列表单的最小舒适宽度；
@@ -173,6 +175,13 @@ class GuiApp:
             notebook, self.paths, on_restart=self._restart_backend
         )
         self.platform_tab = PlatformTab(notebook, self.paths, on_restart=self._restart_backend)
+        self.link_tab = LinkTab(
+            notebook,
+            self.paths,
+            settings=self.settings,
+            on_restart=self._restart_backend,
+            can_control_service=bool(self.service_owned and self.settings is not None),
+        )
         self.members_tab = MembersTab(notebook, self.paths, on_restart=self._restart_backend)
         self.knowledge_tab = KnowledgeTab(notebook, self.paths, on_restart=self._restart_backend)
         self.advanced_tab = AdvancedTab(notebook, self.paths, on_restart=self._restart_backend)
@@ -191,6 +200,7 @@ class GuiApp:
                 self.model_tab,
                 self.character_tab,
                 self.platform_tab,
+                self.link_tab,
                 self.members_tab,
                 self.knowledge_tab,
                 self.advanced_tab,
@@ -259,10 +269,17 @@ class GuiApp:
     def _bind_keys(self) -> None:
         self.root.bind("<Control-n>", lambda _event: self.new_session())
         self.root.bind("<F5>", lambda _event: self.refresh_sessions())
-        for index in range(len(_TABS)):
+        # Ctrl+1…Ctrl+9 对应前 9 页，第 10 页用 Ctrl+0：Tk 没有 <Control-Key-10>
+        # 这个 keysym，直接按索引拼会抛 TclError，把整个界面卡在启动阶段。
+        for index in range(min(9, len(_TABS))):
             self.root.bind(
                 f"<Control-Key-{index + 1}>",
                 lambda _event, position=index: self.select_tab(position),
+            )
+        if len(_TABS) > 9:
+            self.root.bind(
+                "<Control-Key-0>",
+                lambda _event, position=9: self.select_tab(position),
             )
 
     # ---------------------------------------------------------------- 主循环
@@ -397,6 +414,9 @@ class GuiApp:
             index = int(self.notebook.index("current"))
         except tk.TclError:  # pragma: no cover - 窗口销毁中
             return
+        previous, self._active_tab_index = self._active_tab_index, index
+        if previous is not None and previous != index:
+            self._notify_tab_hidden(self._tabs.get(previous))
         tab = self._tabs.get(index)
         handler = getattr(tab, "on_show", None)
         if handler is None:
@@ -406,6 +426,16 @@ class GuiApp:
         except (ConfigEditError, tk.TclError) as exc:  # pragma: no cover - 展示给用户
             if hasattr(tab, "fail"):
                 tab.fail(exc)
+
+    def _notify_tab_hidden(self, tab: Any) -> None:
+        """切走时通知上一页（「在线」页用它停掉状态轮询）。"""
+        handler = getattr(tab, "on_hide", None)
+        if handler is None:
+            return
+        try:
+            handler()
+        except (ConfigEditError, tk.TclError):  # pragma: no cover - 展示期错误不阻断切页
+            pass
 
     # ---------------------------------------------------------------- 交互
 

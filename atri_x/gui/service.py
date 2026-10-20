@@ -9,11 +9,14 @@ QQ 机器人因此可以继续在线。本模块负责这条链路的前半段�
 3. 确保本地客户端 token 存在（优先用 ``.env`` / 环境变量，没有就生成一个写进 ``.env``）；
 4. 探测 ``ws://…/cli/v1/ws``；连不上就后台拉起 ``atri-x service run``。
 
-**对用户配置的写入只有两处**，都可解释、可回滚：
+**对用户配置的写入都在下面这几处**，都可解释、可回滚：
 
 - ``app.toml``：把 ``[platform.cli.server]`` 的 ``enabled`` 置为 ``true``（先备份 ``.bak``，
   写完用 :mod:`tomllib` 重新解析校验）；
-- ``.env``：写入/更新一行 ``ATRIX_CLI_LOCAL_TOKEN=<随机值>``（本机回环服务端的登录 token）。
+- ``.env``：写入/更新一行 ``ATRIX_CLI_LOCAL_TOKEN=<随机值>``（本机回环服务端的登录 token）；
+- ``.env``：补 ``ATRIX_HEALTH_ADDR``（默认 ``127.0.0.1:32173``，端口被占时顺延）与
+  ``ATRIX_OPS_TOKEN``（随机值）—— 后端据此启动只读健康接口，「在线」选项卡从
+  ``/healthz`` 读平台连接状态。**已有值一律不动**，用户自己配的地址/令牌优先。
 
 不做的事：不生成模型配置、不改 ``[platform.cli.server].listen``、不猜用户的 provider。
 进程/路径相关助手在 :mod:`atri_x.gui.process`（这里重新导出几个常用的，方便调用方）。
@@ -51,11 +54,15 @@ from atri_x.net.websocket import connect_sync
 
 __all__ = [
     "DEFAULT_CLIENT_ID",
+    "DEFAULT_HEALTH_ADDR",
     "DEFAULT_TOKEN_ENV",
+    "HEALTH_ADDR_ENV",
+    "HEALTH_TOKEN_ENV",
     "GuiConfigError",
     "GuiSettings",
     "app_dir",
     "application_paths",
+    "ensure_health_endpoint",
     "ensure_server_enabled",
     "ensure_token",
     "ensure_tokens_section",
@@ -81,6 +88,13 @@ DEFAULT_CLIENT_ID = "local"
 #: 默认的 token 环境变量名（发行资产里 ``tokens.local`` 指向它）。
 DEFAULT_TOKEN_ENV = "ATRIX_CLI_LOCAL_TOKEN"
 
+#: 健康/运维接口的监听地址与令牌环境变量名（见 ``atri_x.app.health``）。
+HEALTH_ADDR_ENV = "ATRIX_HEALTH_ADDR"
+HEALTH_TOKEN_ENV = "ATRIX_OPS_TOKEN"
+
+#: 健康接口默认监听地址（只绑回环；端口与 ``deploy/``、README「端口与健康接口」一致）。
+DEFAULT_HEALTH_ADDR = "127.0.0.1:32171"
+
 #: ``app.toml`` 里控制远程 CLI 服务端的键路径。
 _SERVER_SECTION = "[platform.cli.server]"
 _TOKENS_SECTION = "[platform.cli.server.tokens]"
@@ -105,6 +119,9 @@ class GuiSettings:
     client_id: str
     token: str
     token_env: str
+    #: 健康/运维接口的 ``host:port`` 与 Bearer 令牌（「在线」选项卡读平台状态用）。
+    health_addr: str = ""
+    health_token: str = ""
     #: 本次启动是否改过配置（界面上提示「已自动开启本地服务端口」）。
     changed: bool = False
 
@@ -162,6 +179,8 @@ def prepare_settings(config_path: str = "") -> GuiSettings:
 
     token_env, token, token_changed = ensure_token(config_dir, token_envs)
     changed = changed or token_changed
+    health_addr, health_token, health_changed = ensure_health_endpoint(config_dir)
+    changed = changed or health_changed
     url = _server_url(data)
     return GuiSettings(
         config_path=resolved,
@@ -170,6 +189,8 @@ def prepare_settings(config_path: str = "") -> GuiSettings:
         client_id=client_id,
         token=token,
         token_env=token_env,
+        health_addr=health_addr,
+        health_token=health_token,
         changed=changed,
     )
 
@@ -252,6 +273,63 @@ def ensure_token(config_dir: str, env_names: list[str]) -> tuple[str, str, bool]
     return name, token, True
 
 
+def ensure_health_endpoint(config_dir: str) -> tuple[str, str, bool]:
+    """确保 ``.env`` 里有健康接口地址与 ``ATRIX_OPS_TOKEN``。
+
+    返回 ``(addr, token, 是否新写入)``；已有的值**一律保留**（用户显式配置优先）。
+    地址只在缺失时生成，且会挑一个没被占用的本机端口 —— 端口被别的进程占着时
+    后端起健康服务会失败，而那是**启动期错误**，不能让用户看到"服务起不来"。
+    """
+    env_path = os.path.join(config_dir, ".env")
+    values = _read_env_file(env_path)
+    changed = False
+
+    addr = (
+        (os.environ.get(HEALTH_ADDR_ENV) or "").strip()
+        or (values.get(HEALTH_ADDR_ENV) or "").strip()
+    )
+    if not addr:
+        addr = _pick_health_addr()
+        _upsert_env_line(env_path, HEALTH_ADDR_ENV, addr)
+        os.environ[HEALTH_ADDR_ENV] = addr
+        changed = True
+
+    token = (
+        (os.environ.get(HEALTH_TOKEN_ENV) or "").strip()
+        or (values.get(HEALTH_TOKEN_ENV) or "").strip()
+    )
+    if not token:
+        token = "atrix-ops-" + secrets.token_urlsafe(24)
+        _upsert_env_line(env_path, HEALTH_TOKEN_ENV, token)
+        os.environ[HEALTH_TOKEN_ENV] = token
+        changed = True
+    return addr, token, changed
+
+
+def _pick_health_addr(preferred: str = DEFAULT_HEALTH_ADDR) -> str:
+    """``preferred`` 端口若已被占用就顺延（最多试 16 个），全被占则用回默认值。"""
+    import socket
+
+    host, _, port_text = preferred.rpartition(":")
+    host = host or "127.0.0.1"
+    try:
+        base = int(port_text)
+    except ValueError:
+        return preferred
+    for offset in range(17):
+        candidate = base + offset
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind((host, candidate))
+        except OSError:
+            continue
+        finally:
+            probe.close()
+        return f"{host}:{candidate}"
+    return preferred
+
+
 # ---------------------------------------------------------------------------
 # 服务探测 / 拉起
 # ---------------------------------------------------------------------------
@@ -302,6 +380,10 @@ def spawn_service(settings: GuiSettings) -> subprocess.Popen[bytes]:
     handle.write(_log_header(settings).encode("utf-8"))
     env = dict(os.environ)
     env.setdefault(settings.token_env, settings.token)
+    if settings.health_addr:
+        env.setdefault(HEALTH_ADDR_ENV, settings.health_addr)
+    if settings.health_token:
+        env.setdefault(HEALTH_TOKEN_ENV, settings.health_token)
     env.setdefault("PYTHONIOENCODING", "utf-8")
     flags = _DETACHED_PROCESS | _CREATE_NO_WINDOW | _CREATE_NEW_PROCESS_GROUP
     try:
@@ -505,4 +587,5 @@ def _log_header(settings: GuiSettings) -> str:
         f"\n=== {moment} 启动后台服务 ===\n"
         f"配置：{settings.config_path}\n"
         f"地址：{settings.url}\n"
+        f"状态接口：{settings.health_addr or '（未配置）'}\n"
     )

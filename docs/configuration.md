@@ -1626,6 +1626,12 @@ OneBot 入站消息会先按 `平台 + 机器人 self_id + scope + message_id` �
 
 `api_timeout_seconds` 分别作为 OneBot 帧写入和 API 响应等待的基础超时。大帧写入会按编码后大小每完整 1 MiB 增加 1 秒，最多增加到基础超时本身；写入失败或超时后 ATRI-X 会断开并重连 OneBot，避免一个慢发送长期占住后续消息。发送仍会同步等待平台回执。
 
+> 桌面端「在线」页把上下线做成了开关：只改 `[platform.qqonebot].enabled` 再重启后台服务，
+> 状态（连接/断开、连接次数、最近错误）从后台 `/healthz` 的 `platforms[]` 读。桌面端首次启动
+> 还会往 `.env` 补 `ATRIX_HEALTH_ADDR=127.0.0.1:32171`（被占则顺延）与随机 `ATRIX_OPS_TOKEN`，
+> 已有值一律不动；手动部署请自己设这两个变量后重启。详见
+> [Windows 桌面端](windows-app.md) §4.8。
+
 Telegram 使用 Bot API long polling。最小配置示例：
 
 ```toml

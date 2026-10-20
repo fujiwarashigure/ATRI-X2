@@ -22,7 +22,7 @@
 | :mod:`atri_x.gui.app` | Tk 主窗口、选项卡容器、菜单、状态栏、托盘联动 |
 | :mod:`atri_x.gui.actions` | 「服务」动作：启动/重启/停止后台服务、打开目录/日志、关于 |
 | :mod:`atri_x.gui.about` | 「关于 ATRI-X」窗口（简介 / 仓库地址 / 推荐语 / 署名） |
-| :mod:`atri_x.gui.tabs` | 各选项卡：对话 / 模型 / 人设卡 / 平台 / 群友 / 知识库 / 进阶 / 日志 / 功能 |
+| :mod:`atri_x.gui.tabs` | 各选项卡：对话 / 模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 日志 / 功能 |
 | :mod:`atri_x.gui.dialogs` | 「进阶」页的二级窗口：自学习 / HOOK 插件 / 定时维护任务（任务清单与表单翻译在 ``dialogs.tasks``） |
 | :mod:`atri_x.gui.cronschedule` | 界面用的 cron 小工具：「每天 / 每周 / 每月」结构 ↔ 5 段表达式、人话摘要、下次触发 |
 | :mod:`atri_x.gui.widgets` | 密钥显示/隐藏输入框、可滚动下拉、竖向滚动容器、后台 IO 回主线程 |
@@ -37,6 +37,7 @@
 | :mod:`atri_x.gui.client` | WS 客户端（握手/收发/断线重连） |
 | :mod:`atri_x.gui.protocol` | 帧 → 界面状态的纯逻辑（聊天记录、状态栏文本、补全） |
 | :mod:`atri_x.gui.service` | 配置与 token 准备、后台服务探测/拉起/停止/重启 |
+| :mod:`atri_x.gui.linkstate` | 「在线」页的数据层：平台配置、协议端端口探测、``/healthz`` 健康快照（无 Tk） |
 | :mod:`atri_x.gui.tray` | ``ctypes`` 写的托盘图标（无第三方依赖） |
 | :mod:`atri_x.gui.autostart` | 开机自启（注册表 ``Run`` 项） |
 """

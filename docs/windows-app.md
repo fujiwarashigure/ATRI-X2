@@ -180,13 +180,13 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 
 | 位置 | 行为 |
 |---|---|
-| 选项卡 | 「对话 / 模型 / 人设卡 / 平台 / 群友 / 知识库 / 进阶 / 日志 / 功能」9 页，配置都能在界面里改（见 §4.2），`Ctrl+1`…`Ctrl+9` 或「视图」菜单切换 |
+| 选项卡 | 「对话 / 模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 日志 / 功能」10 页，配置都能在界面里改（见 §4.2），`Ctrl+1`…`Ctrl+9`（第 10 页 `Ctrl+0`）或「视图」菜单切换 |
 | 左侧会话栏 | 历史会话列表（当前会话带 `●`）；双击/回车切换会话，`刷新`/`新建` 按钮，`F5` 刷新 |
 | 聊天区 | 用户消息、助手回复、推理过程（灰色）、通知（橙色）、错误（红色）分区显示；流式输出实时刷新 |
 | 输入框 | `Enter` 发送、`Shift+Enter` 换行、`Tab` 触发补全（`/model`、`/help` 等） |
 | 状态栏 | 左边是连接状态（已连接/连接中/已断开/鉴权失败），右边是运行状态（阶段 · 耗时 · 模型 · tokens） |
 | 菜单 → 文件 | 新建会话、刷新会话列表、复制全部记录、清空聊天区、退出（后台继续）/ 退出并停止服务 |
-| 菜单 → 视图 | 切到 9 个选项卡（等价于点选项卡标题） |
+| 菜单 → 视图 | 切到 10 个选项卡（等价于点选项卡标题） |
 | 菜单 → 服务 | 重新连接、启动/确认后台服务、**重启后台服务**（改完配置用它生效）、停止后台服务（强制）、打开配置目录、打开后台日志 |
 | 菜单 → 帮助 | 关于、托盘/后台说明 |
 | 点窗口 ✕ | **隐藏到托盘**，服务继续跑；没有托盘时退化为"关闭窗口（服务仍在）"（首次会弹一次提示，见 §11） |
@@ -205,9 +205,9 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 连上后台服务时会自动拉一次会话列表；断线时列表清空。历史记录来自服务端数据库，
 不是 GUI 本地缓存 —— 所以换一台前端连同一个服务端也能看到同样的会话。
 
-### 4.2 配置选项卡（模型 / 人设卡 / 平台 / 群友 / 知识库 / 进阶 / 日志 / 功能）
+### 4.2 配置选项卡（模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 日志 / 功能）
 
-窗口上方是 9 个选项卡，**配置都能在界面里改，不用再手搓 TOML**：
+窗口上方是 10 个选项卡，**配置都能在界面里改，不用再手搓 TOML**：
 
 | 选项卡 | 能改什么 | 写入 | 生效时机 |
 |---|---|---|---|
@@ -215,6 +215,7 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 | 模型 | 两个子页：**LLM Provider / 模型分配**——Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式，另可「获取可用模型」拉上游 `/models`、给模型起本地备注名；**搜索服务**——`web_search` 的通道列表（顺序即降级顺序，可上移/下移/新增自定义/删除）与单条通道表单（协议 Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI / Grok Build、密钥环境变量名与值、服务地址、CLI 可执行文件），免注册通道不填 key 也能用 | `services.toml`（`[providers.*]`、`[web_search]`）、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider、密钥与搜索通道需重启后台服务 |
 | 人设卡 | 角色库增删改（名称/别名/标签/简介/可见性，`profile.md`、`world.md`、`greeting.md`、`examples.md`、`image_prompt.md`、`notes/*`）、生图预设、系统人设 `SOUL.md` | `characters/`、`SOUL.md` | 角色库 3 秒内自动重扫；`SOUL.md` 下一轮对话生效 |
 | 平台 | QQ（OneBot v11）/ QQ 官方机器人 / Telegram 的启用、地址、token 变量与值、唤醒词；本地 CLI 服务端；各平台超级管理员 | `app.toml`、`.env` | 重启后台服务 |
+| 在线 | 三段状态（后台服务 / OneBot 协议端 / QQ 平台）+ **连接/断开开关**：只改 `[platform.qqonebot].enabled` 并重启后台服务，不用手改 TOML（见 §4.8） | `app.toml` 的 `[platform.qqonebot].enabled` | 点按钮即重启生效 |
 | 群友 | 按群管理群友档案：备注名、标签、角色数据（自由文本）、头像（下载/本地图片），群友列表来自聊天历史库 | `gui/members.json`、`gui/avatars/*.png` | 只影响界面（后台服务暂不读） |
 | 知识库 | 群知识库 / FAQ 的全局开关与上限（每群条数、问题/答案/别名/关键词/匹配扫描字符数），并只读列出 `state.toml` 里各群的条目；条目增删用群里的 `/faq` 命令 | `app.toml` 的 `[group_knowledge]` | 重启后台服务 |
 | 进阶 | 生图 / 图片转提示词 / 视觉回退 / 语音转写；**本地生图服务挂载**（端口映射 / SSL 链接）；长期记忆、自学习、群分析、群服务、Atrinis 开关；日志级别与保留天数；生图 API 的「获取可用模型」与模型备注名；三个二级设置窗口（自学习 / HOOK 插件 / 定时维护任务，其中维护任务支持每天 / 每周 / 每月 / 自定义 cron / 指定日期一次性）；整页可竖向滚动 | `services.toml`、`app.toml`、`atrinis.toml`、`plugins/hooks.toml`（+ `.env`、`gui/model_catalog.json`） | 重启后台服务；Hook 配置可用 `/hooks reload` |
@@ -353,6 +354,33 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 > 想要纯命令行：`atri-x.exe run`（本地 TUI，需要真终端；双击会开 cmd 窗口，建议用
 > Windows Terminal 打开该目录再跑）。
 
+### 4.8 在线页：状态监测与连接开关
+
+「在线」页把「到底哪一环断了」并排显示出来，并提供一个上下线开关：
+
+| 卡片 | 看什么 | 数据来源 |
+|---|---|---|
+| 后台服务 | 运行中（PID）/ 未运行、版本、运行时长、收发消息计数、最近一条消息时间 | 进程 pid 记录 + 后台 `/healthz` |
+| QQ 平台 | 配置是否启用、连接状态（已连接 / 未连接 / 等待登记）、连接次数、最近上线/断开、最近错误 | 后台 `/healthz` 的 `platforms[]`（后端在真正连上/断开时写入） |
+| 协议端（NapCat） | `ws_url`、端口是否已监听；按钮「检测端口」「打开 WebUI」 | 一次 TCP 连接探测 |
+| 模型与就绪 | 各 provider 的健康/熔断、`/ready` 的进程与调度心跳检查 | 后台 `/healthz` |
+
+- **连接（上线）**：检查 `[platform.qqonebot]` 的 `ws_url` 与 `.env` 里的令牌是否都填了 →
+  写 `enabled = true` → 重启后台服务 → 状态自动轮询到「已连接」。协议端没监听时会先提示
+  （仍可选择继续，后台会自动重连）。
+- **断开（下线）**：写 `enabled = false` → 重启后台服务，QQ 机器人下线但进程继续跑。
+- 只有点按钮才会写 `app.toml` 的那一行 `enabled`；这一页**不碰** `.env` 里的密钥。
+- 「复制连接信息」把后台 WS、协议端地址、令牌状态、WebUI 地址复制到剪贴板，换机器时对照用。
+
+**状态接口是桌面端自动开的**：首次启动时桌面端检查 `.env`，缺 `ATRIX_HEALTH_ADDR`
+就补 `127.0.0.1:32171`（端口被占则顺延），缺 `ATRIX_OPS_TOKEN` 就生成随机值；
+已有值一律不动。后台服务读到后才会注册 `/healthz`（见 README「端口与健康接口」）；
+手动改过这两个变量后要重启后台服务。
+
+> 要一次把「连得上、发得出、收得到」验一遍，仍推荐先在命令行跑
+> `atri-x.exe -m atri_x.platform.qq_onebot.smoke`（见 §5.3）；「在线」页管日常状态，
+> 冒烟管首次排障。
+
 ---
 
 ## 5. 接 QQ（OneBot v11）
@@ -434,8 +462,10 @@ dist\windows\atri-x\atri-x.exe -m atri_x.platform.qq_onebot.smoke --listen 20
 
 ### 5.4 启动
 
-改完 `app.toml` 后重启桌面端（或「服务 → 重新连接」）。在群里 `@机器人 你好` 试一句。
-回复不出来时按 §11 的顺序排查：先确认冒烟通过，再确认模型密钥/模型名（`doctor`），
+改完 `app.toml` 后重启桌面端（或「服务 → 重新连接」）。更省事的办法是直接去
+**「在线」页点「连接（上线）」**：它只改 `[platform.qqonebot].enabled` 并重启后台服务，
+状态卡片会显示到「已连接」为止（见 §4.8）。然后群里 `@机器人 你好` 试一句。
+回复不出来时按 §11 的顺序排查：先看「在线」页三张卡片哪一环是红的，再确认冒烟通过，
 最后才看群策略与触发词。
 
 ---
@@ -553,6 +583,14 @@ python packaging/build.py --with-kernel --release                          # 便
 - 不写注册表、不建快捷方式，**删掉文件夹即卸载**（便携模式下连数据一起删）。
 - 无代码签名，SmartScreen 可能提示一次；README 里有说明。
 - 内置 DSH 内核（`_internal\runtime`）与安装版同一份，目标机不需要另装 Node。
+
+**换机器（或整体备份）时要搬的三样东西** —— QQ 机器人由三段组成，缺一样都会"能启动但不在线"：
+
+1. `ATRI-X-<版本>\` 程序目录（便携模式的数据在 `<目录>\data\`，一起拷走）；
+2. 配置目录：标准模式是 `%APPDATA%\ATRI-X`（`app.toml`、`.env` 里的密钥、人设、会话库）；
+3. NapCat 目录（含便携 QQ 与 NapCat，约 2 GB）。新机器上要**重新扫码登录**一次（登录态
+   与设备/环境绑定），登录后到「在线」页点「连接（上线）」即可；`ws_url` 与 OneBot 令牌
+   都在配置目录里，不用重填。
 
 ---
 
@@ -674,7 +712,7 @@ atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函�
 | 日常入口 | 桌面端窗口 + 托盘 | 容器 + 脚本 |
 | 升级 | 整目录替换 / 安装器 `--force` | `upgrade` / `rollback` 脚本 |
 | 备份/恢复 | 手工拷 `%APPDATA%\ATRI-X` | `backup` / `restore-verify` |
-| 运维接口（`/tasks` `/metrics`） | 可用：设 `ATRIX_HEALTH_ADDR` 启健康服务端，设 `ATRIX_OPS_TOKEN` 才注册 `/tasks` `/metrics` | 开箱即用 |
+| 运维接口（`/tasks` `/metrics` `/healthz`） | 开箱即用：桌面端自动在 `.env` 补 `ATRIX_HEALTH_ADDR=127.0.0.1:32171` 与 `ATRIX_OPS_TOKEN`（「在线」页就是读它），已有值不动 | 开箱即用 |
 | QQ OneBot | 直连本机协议端 | 容器内连宿主机/同网络服务，需注意 `127.0.0.1` 指向 |
 | 适合 | 个人单机桌面使用 | 长期运维/多人共用 |
 
@@ -723,11 +761,14 @@ atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函�
 2. 窗口标题栏/状态栏显示「已断开」→ 看 `%APPDATA%\ATRI-X\gui\service.out.log`（或直接开
    桌面端「日志」页，通道选「后台服务输出」），或手动 `atri-x.exe service run` 看控制台；
    托盘/界面操作留痕在 `<配置目录>\gui\gui.log`；
-3. `atri-x.exe -m atri_x.dist.install status` —— 装在哪、快捷方式是否在；
-4. `atri-x.exe config check` —— 配置本身是否合法；
-5. `atri-x.exe doctor --no-model` —— 平台是否装配起来（应看到 `qqonebot`）；
-6. `atri-x.exe -m atri_x.platform.qq_onebot.smoke --json` —— 协议层通不通；
-7. 群里 `@机器人` 看日志（`%APPDATA%\ATRI-X` 下按天日志）—— 是否被唤醒、模型是否报错。
+3. **QQ 不回话**：先看「在线」页三张卡片——后台服务是否运行、协议端端口是否监听、
+   QQ 平台是否「已连接」；哪一张红就查哪一环（协议端没起 → 启动 NapCat；
+   平台未启用 → 点「连接（上线）」）；
+4. `atri-x.exe -m atri_x.dist.install status` —— 装在哪、快捷方式是否在；
+5. `atri-x.exe config check` —— 配置本身是否合法；
+6. `atri-x.exe doctor --no-model` —— 平台是否装配起来（应看到 `qqonebot`）；
+7. `atri-x.exe -m atri_x.platform.qq_onebot.smoke --json` —— 协议层通不通；
+8. 群里 `@机器人` 看日志（`%APPDATA%\ATRI-X` 下按天日志）—— 是否被唤醒、模型是否报错。
 
 **Q：GUI 一直「连接中」/「已断开」。**
 A：多数是后台服务没起来或 token 对不上。先手动跑 `atri-x.exe service run` 看控制台输出；
@@ -746,6 +787,21 @@ A：先用 `atri-x-gui.exe --selftest` 看退出码（窗口一闪是正常的�
 **Q：冒烟报 `connect onebot websocket: ...`。**
 A：协议端没起、端口不对、或 token 不对。先用浏览器/`curl` 确认协议端端口活着，
 再核对 `ws_url` 与 token。
+
+**Q：「在线」页 QQ 平台一直「未连接」。**
+A：按三张卡片从下往上查：① 协议端端口「未监听」→ NapCat 没启动（双击 `Start-NapCat.bat`，
+或它还没登录）；② 端口在听但仍未连接 → 核对「平台」页的 `ws_url`（要等于 NapCat
+「WebSocket 服务端」的端口）与 token 值是否和 NapCat 一致；③ 详情里的「错误」是后端
+最后一次失败原因（如 `connect onebot websocket: ...`）。
+
+**Q：「在线」页后台服务显示「状态接口不可达」。**
+A：`.env` 里缺 `ATRIX_HEALTH_ADDR` / `ATRIX_OPS_TOKEN`，或端口被别的进程占了。重启桌面端会
+自动补齐（已有值不动）；也可以手动设上这两个变量再重启后台服务。
+
+**Q：NapCat 登录成功了，ATRI-X 还是连不上。**
+A：NapCat 的 OneBot 网络配置要登录后才生效——确认「网络配置」里有一个**已启用**的
+「WebSocket 服务端」监听 `127.0.0.1:3001`（见 §5.1），然后重启 ATRI-X 后台服务，或点
+「在线」页的「连接（上线）」。
 
 **Q：能连上，但群里不回。**
 A：默认要 `@机器人`、回复机器人消息、或带触发词；再看群策略 `response_mode` 是否

@@ -6,6 +6,86 @@
 
 ---
 
+## [0.9.9-local.2] - 2026-10-20 — QQ 群机器人接入与「在线」页（本机重建，未随上游发布）
+
+> 接 QQ 群当对话机器人时暴露出的可用性问题：QQ 链路是「后台服务 → NapCat 协议端 → OneBot
+> 连接」三段，任何一段断掉，界面上都只表现为"群里不回话"；而启用/停用平台要手改
+> `app.toml` 再重启服务。这一版把三段状态并排显示，并把上下线做成按钮；同时修正 10 个
+> 选项卡后 `Ctrl+10` 这个并不存在的 Tk keysym 会让界面启动失败的问题。
+
+### 行为变化
+
+| # | 旧状态 | 新状态 |
+|---|---|---|
+| 1 | 只有 9 个选项卡；QQ 是否连上只能看日志/靠群里试探 | 新增第 10 个「在线」页：后台服务、NapCat 协议端、QQ 平台三段状态并排，含连接次数、最近上线/断开、最近错误、收发消息计数，每 2 秒自动刷新（只在切到该页时轮询） |
+| 2 | 启用/停用 QQ 平台要手改 `app.toml` 的 `enabled` 再重启后台服务 | 「在线」页提供「连接（上线）/ 断开（下线）」按钮：校验 ws 地址与令牌 → 写一行 `enabled` → 重启后台服务 → 轮询到连接态；不碰 `.env` 里的密钥 |
+| 3 | 健康接口默认不启用，界面拿不到平台连接状态（那是后端进程的事实） | 桌面端首次启动时往 `.env` 补 `ATRIX_HEALTH_ADDR=127.0.0.1:32171`（被占则顺延）与随机 `ATRIX_OPS_TOKEN`；**已有值一律不动**。后台服务据此注册 `/healthz`，「在线」页读它 |
+| 4 | 10 个选项卡后 `Ctrl+1`…`Ctrl+10` 的绑定会拼出 `<Control-Key-10>`，Tk 抛 TclError，界面死在启动阶段 | `Ctrl+1`…`Ctrl+9` 对应前 9 页，第 10 页 `Ctrl+0` |
+
+### 桌面端（`atri_x/gui/**`）
+
+- 新增 `gui/linkstate.py`（无 Tk）：`read_platform_config` / `set_platform_enabled`（走
+  `configedit` 行级补丁，保留注释）、`connect_blocker` / `secret_state`（连之前先查 ws 地址与
+  `.env` 令牌）、`probe_endpoint`（协议端 TCP 探测）、`fetch_health` / `parse_health`
+  （带 Bearer 拉 `/healthz`，503 也解析；显式禁用系统代理，避免回环请求被代理劫走）、
+  `format_uptime` / `format_clock` / `describe_platform` / `describe_model`。
+- 新增 `gui/tabs/link.py`（「在线」页）：三张状态卡 + 模型/就绪卡 + 部署提示；
+  `on_show` 启动轮询、`on_hide` 停止；连接开关确认后写配置并重启服务，失败原因落状态行与
+  `gui/gui.log`；「检测端口」「打开 WebUI」「复制连接信息」三个辅助按钮。
+- `gui/service.py`：`GuiSettings` 增加 `health_addr` / `health_token`；新增
+  `ensure_health_endpoint()`（幂等、已有值不动、端口被占顺延）与 `_pick_health_addr()`；
+  `spawn_service()` 把两个环境变量显式注入子进程，`service.out.log` 头部记录状态接口地址。
+- `gui/app.py`：`_TABS` 增加「在线」（平台与群友之间）；`_on_tab_changed` 增加 `on_hide`
+  钩子（切走时停轮询）；修正 `Ctrl+0` 绑定。
+- `gui/tabs/__init__.py`、`gui/__init__.py`：模块职责表补 `linkstate` 与「在线」页。
+
+### 测试与文档
+
+- 新增 `tests/test_gui_link.py`（31 项）：真起本机 HTTP 服务测 `/healthz` 客户端（200/401/503/
+  连不上）、平台配置读写与令牌阻断、协议端探测、健康接口自动配置（幂等/保留已有值/端口顺延）、
+  以及「在线」页的按钮文案、三段渲染、连接开关落盘、复制信息。
+- `tests/test_gui_tabs.py` 页数断言 9→10；`tests/test_gui_service.py` 的
+  `prepare_settings` 用例改为同时断言健康变量被补进 `.env`（CLI token 仍优先环境变量）。
+- `docs/windows-app.md`：新增 §4.8「在线页」；§4 选项卡清单与快捷键、§5.4 启动、
+  §7.2 换机器要搬的三样东西、§10 运维接口对比、§11 排障顺序与三条 FAQ（在线页未连接 /
+  状态接口不可达 / NapCat 登录后仍连不上）。
+- `docs/configuration.md` 平台配置补一段：桌面端开关/健康接口自动配置；`docs/README.md`、
+  `devdocs/code-map.md` 同步。
+- README 静态数字按实测同步（`check_syntax` 876、`check_imports` 689、受控文件 999）。
+
+### 发行（本机重建 0.9.9 便携版）
+
+构建命令与上一版相同，工作区外（`D:\ATRI-X-build`）构建，内置内核沿用本机 DSH 0.2.0-rc.2：
+
+| 产物 | 体积 | 自检 |
+|---|---|---|
+| onedir（中间产物） | 321.4 MB / 24510 文件 | `--version`、`config`、`-m` 转发、`sidecar`（内置内核可解析）、GUI `--selftest`（10 页逐页切换）全过 |
+| `ATRI-X-0.9.9-portable-win64.zip` | 115.2 MB（120,839,764 字节，deflate 36%） | 解压 24515 条目后：`--version` / `config check` / 数据目录落包内 / `-m` / `sidecar` / GUI selftest / 三个 bat / APPDATA 重定向 全过 |
+
+SHA256：`6a0e81594618d31ebeb761592a1a12088c941671027f6082faf31cab639ff7d7`
+
+独立复验（解压到普通目录、用真实 `%APPDATA%` 配置）：新包 `--version` / GUI selftest 通过；
+对着本机假 OneBot v11 协议端跑 `-m atri_x.platform.qq_onebot.smoke --listen 3 --json`
+得到 `ok=true, event_count=1`（连接/登录信息/事件上报）；后台服务指向该假协议端后
+`GET /healthz` 返回 `platforms[qqonebot].connected=true`，「在线」页显示「已连接（QQ 在线）」
+（`D:\ATRI-X-rebuilt\evidence\shot_link_tab.png`）。
+
+> 与官方 v0.9.9 便携包的差异同上一版：本机重建包多 648 个非内核文件（构建解释器用户级
+> `tzdata` 被 PyInstaller 收集 + UCRT/API-set DLL），内核文件数与官方一致。
+
+### 验证
+
+```
+python scripts/check_syntax.py      876 个文件，0 错
+python scripts/check_imports.py     689/689，0 失败
+python scripts/check_integration.py 74 项，0 失败
+python scripts/check_coverage.py --summary   72/72，weighted=100.0%
+python scripts/check_except.py      OK（119 = 基线 119）
+python scripts/gen_stats.py --check OK
+```
+
+---
+
 ## [0.9.9-local.1] - 2026-10-20 — 桌面端诊断可见性（本机重建，未随上游发布）
 
 > 本版是**本机重建**：只改桌面端两处「失败看不见」，并按同一份源码重新打包 Windows 便携版。

@@ -19,7 +19,7 @@
 13. [Atriyph 任务记法](atriyph.md)：用结构化记法描述 LLM Cron 与原生 Skill。
 14. [前端 API](frontend-api.md)：WebSocket 协议、消息类型和补全接口，用于编写自定义前端。
 15. [部署与运维](../deploy/README.md)：云服务器 / Linux 容器部署、健康接口、watchdog、备份恢复、升级回滚，以及 [Windows 本地容器部署](../deploy/windows/README.md)。
-16. [Windows 桌面端与原生应用](windows-app.md)：把 ATRI-X 打成免安装 Python/Docker 的 exe（窗口版 + 控制台版），带托盘常驻/开机自启/安装卸载/会话列表，可选内置 DSH 内核并启用**深度路由**，还能出 Inno Setup 安装包，并接上 QQ OneBot 协议端当机器人。
+16. [Windows 桌面端与原生应用](windows-app.md)：把 ATRI-X 打成免安装 Python/Docker 的 exe（窗口版 + 控制台版），带托盘常驻/开机自启/安装卸载/会话列表，可选内置 DSH 内核并启用**深度路由**，还能出 Inno Setup 安装包，并接上 QQ OneBot 协议端当机器人；「在线」页可看后台服务/协议端/QQ 平台三段状态并一键上下线。
 17. [文档移植状态](../devdocs/porting-status.md)：哪些内容是从 Go 上游改写而来、哪些命令行接口需要逐条核对。
 
 ## 文档维护约定

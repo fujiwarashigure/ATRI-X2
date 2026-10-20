@@ -158,7 +158,14 @@ class PrepareSettingsTestCase(EnvTestCase):
         with mock.patch.dict(os.environ, {service.DEFAULT_TOKEN_ENV: "from-env"}, clear=False):
             settings = service.prepare_settings(str(self.config_path))
         self.assertEqual(settings.token, "from-env")
-        self.assertFalse((self.config_dir / ".env").exists())
+        # CLI token 已经由环境变量提供，不该再写进 .env；但健康接口的地址与令牌
+        # 仍会补进 .env（「在线」选项卡要读后台状态，见 ensure_health_endpoint）。
+        env_text = (self.config_dir / ".env").read_text(encoding="utf-8")
+        self.assertNotIn(service.DEFAULT_TOKEN_ENV, env_text)
+        self.assertIn(service.HEALTH_ADDR_ENV, env_text)
+        self.assertIn(service.HEALTH_TOKEN_ENV, env_text)
+        self.assertTrue(settings.health_addr)
+        self.assertTrue(settings.health_token)
 
     def test_prepare_missing_config_raises(self) -> None:
         with self.assertRaises(service.GuiConfigError):
