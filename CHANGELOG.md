@@ -69,10 +69,17 @@
 ### 发行（本机重建 0.9.9 便携版 + 安装版，均内置 QQ 协议端与 DSH 内核）
 
 产物、校验和与自检报告见发行库 `M:\ATRI-X-release`（`SHA256SUMS.txt` / `发行说明.md` /
-`自检报告.md`）。构建命令与上一版相同：
+`自检报告.md`）：便携 zip 681,260,343 字节（SHA256 `b742b533…`）、Inno 安装包
+456,714,636 字节（SHA256 `ff0aa20c…`）。构建命令与上一版相同：
 `python packaging/build.py --release --with-pillow --with-kernel --with-qqproto "<NapCat.52230.Shell>"`。
-仓库源码推送到 GitHub `main`，产物发布为 Release `v0.9.9-local.5`（`v0.9.9-local.4`
-的发行包带本缺陷，已在它的 Release 说明里标注由本版取代）。
+便携包 10 项自检与安装包静默安装/卸载（26384 文件）均通过；真机 `doctor --e2e` 全绿
+（含真实 OpenCode Go `chat_call` 与 CLI 远端往返）。另用 CLI 通道实测：`discover_tool`
+在 `tool_call_records` 记为 success、助手回复 `TOOL-PROBE-OK`；同一会话第 3 条消息
+出现 `session naming scheduled` / `session naming completed title=工具探测与标记验证`，
+无「请求失败」。
+
+仓库源码推送到 GitHub `main`（`c8bb8be`），产物发布为 Release `v0.9.9-local.5`；
+`v0.9.9-local.4` 的 Release 说明已标注由本版取代。
 
 ---
 
