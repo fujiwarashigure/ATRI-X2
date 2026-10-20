@@ -132,6 +132,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     _out("work        : %s" % args.work)
     _out("gui exe     : %s" % ("yes" if with_gui else "no"))
     _out("dsh kernel  : %s" % ("yes" if with_kernel else "no"))
+    _out(
+        "qqproto     : %s"
+        % (
+            "内置（%s）" % args.with_qqproto
+            if args.with_qqproto is not None
+            else "无（--with-qqproto 未指定）"
+        )
+    )
     if args.release:
         _out("release     : portable zip + installer（两者都会逐项自检）")
     if args.onefile and with_kernel:
@@ -164,6 +172,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         code = verify(artifact, name, with_kernel=with_kernel, with_gui=with_gui, with_pillow=with_pillow)
     if code != 0:
         return code
+    if args.with_qqproto is not None:
+        if args.onefile:
+            _err("--with-qqproto 只支持 onedir 产物（onefile 没有程序目录可放协议端）")
+            return 1
+        code = run_qqproto_stage(Path(args.with_qqproto), artifact.parent)
+        if code != 0:
+            return code
+    elif args.release:
+        _out("qqproto     : 本次发行包不含内置 QQ 协议端（未指定 --with-qqproto）")
     want_portable = args.with_portable or args.portable_verify or args.release
     want_installer = args.with_installer or args.installer_verify or args.release
     if (want_portable or want_installer) and args.onefile:
@@ -185,6 +202,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if code != 0:
             return code
+    return 0
+
+
+def run_qqproto_stage(source: Path, dist_root: Path) -> int:
+    """把 NapCat/便携 QQ 协议端环境脱敏后放进 ``<dist>/qqproto``；返回退出码。"""
+    if str(PACKAGING_DIR) not in sys.path:
+        sys.path.insert(0, str(PACKAGING_DIR))
+    try:
+        import qqproto  # noqa: PLC0415 - 只有带 --with-qqproto 时才需要
+    except ImportError as exc:  # pragma: no cover - 同目录文件缺失
+        _err("cannot import packaging/qqproto.py: %s" % exc)
+        return 1
+    dest = Path(dist_root) / qqproto.ENV_DIR_NAME
+    _out("qqproto     : source=%s" % source)
+    try:
+        summary = qqproto.stage(source, dest)
+    except (qqproto.QqProtoError, OSError) as exc:
+        _err("qqproto stage failed: %s" % exc)
+        return 1
+    _out(
+        "qqproto     : ok %s（%d 文件 / %.1f MB，已脱敏 %s）"
+        % (
+            dest,
+            int(summary.get("files") or 0),
+            float(summary.get("bytes") or 0) / (1024 * 1024),
+            "yes" if summary.get("sanitized") else "no",
+        )
+    )
     return 0
 
 
@@ -276,6 +321,16 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--no-kernel", action="store_true", help="never bundle runtime/ even if it exists"
+    )
+    parser.add_argument(
+        "--with-qqproto",
+        type=Path,
+        default=None,
+        metavar="SHELL_DIR",
+        help=(
+            "把 NapCat/便携 QQ 协议端环境（一键安装器解出的 NapCat.<版本>.Shell 目录）"
+            "脱敏后嵌进产物：<dist>/atri-x/qqproto（便携版与安装版都会带上）"
+        ),
     )
     parser.add_argument(
         "--with-installer",

@@ -362,7 +362,7 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 |---|---|---|
 | 后台服务 | 运行中（PID）/ 未运行、版本、运行时长、收发消息计数、最近一条消息时间 | 进程 pid 记录 + 后台 `/healthz` |
 | QQ 平台 | 配置是否启用、连接状态（已连接 / 未连接 / 等待登记）、连接次数、最近上线/断开、最近错误 | 后台 `/healthz` 的 `platforms[]`（后端在真正连上/断开时写入） |
-| 协议端（NapCat） | `ws_url`、端口是否已监听；按钮「检测端口」「打开 WebUI」 | 一次 TCP 连接探测 |
+| 协议端（NapCat） | `ws_url`、端口是否已监听；按钮「检测端口」「启动协议端」「打开 WebUI」 | 一次 TCP 连接探测 |
 | 模型与就绪 | 各 provider 的健康/熔断、`/ready` 的进程与调度心跳检查 | 后台 `/healthz` |
 
 - **连接（上线）**：检查 `[platform.qqonebot]` 的 `ws_url` 与 `.env` 里的令牌是否都填了 →
@@ -371,6 +371,10 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 - **断开（下线）**：写 `enabled = false` → 重启后台服务，QQ 机器人下线但进程继续跑。
 - 只有点按钮才会写 `app.toml` 的那一行 `enabled`；这一页**不碰** `.env` 里的密钥。
 - 「复制连接信息」把后台 WS、协议端地址、令牌状态、WebUI 地址复制到剪贴板，换机器时对照用。
+- 便携版 / 安装版**内置协议端**时（见 §5.1），「协议端」卡片会显示内置环境路径，并多出
+  「启动协议端」（新开控制台窗口，关窗即下线）与带令牌的「打开 WebUI」。内置协议端的
+  OneBot 令牌、端口、NapCat 的 `onebot11.json` / `webui.json` 都由桌面端首次启动时自动
+  生成，不需要手改；它只在**发行包自带** `qqproto\` 时生效，自备 NapCat 的部署完全不受影响。
 
 **状态接口是桌面端自动开的**：首次启动时桌面端检查 `.env`，缺 `ATRIX_HEALTH_ADDR`
 就补 `127.0.0.1:32171`（端口被占则顺延），缺 `ATRIX_OPS_TOKEN` 就生成随机值；
@@ -389,6 +393,13 @@ ATRI-X 是 OneBot v11 的**正向 WebSocket 客户端**：它主动连协议端�
 所以 QQ 侧只需要一个协议端，ATRI-X 这边**不改代码**。
 
 ### 5.1 起协议端（以 NapCat 为例）
+
+> **便携版 / 安装版已经内置一套协议端**（NapCat + 便携 QQ，随包约 1.2 GB，见 §7.2）：
+> 不需要做下面 1–4 步，直接在「在线」页点「启动协议端」→「打开 WebUI」用手机 QQ 扫码
+> （建议小号）→ 回「在线」页点「连接（上线）」即可。内置环境的 OneBot 端口、WebUI 端口、
+> 令牌、NapCat 的 `onebot11.json` / `webui.json` 由桌面端首次启动时自动生成并写进
+> `%APPDATA%\ATRI-X\.env`，**包里不含任何令牌**。本节剩余内容适用于**自备** NapCat /
+> LLOneBot 的部署，或想自己装一份更新的协议端。
 
 NapCat 基于 NTQQ 客户端，Windows 上原生支持，自带 WebUI：
 
@@ -535,6 +546,10 @@ python packaging/build.py --with-kernel --installer   # 构建 + 打包一条龙
 # 产物：dist/installer/ATRI-X-<版本>-setup.exe
 ```
 
+> 构建时加 `--with-qqproto <NapCat.Shell 目录>` 会把**脱敏后的内置 QQ 协议端**
+> （NapCat + 便携 QQ）一起装进去，安装完即可在「在线」页「启动协议端」；构建方式与
+> 便携版一致，见 [`packaging/README.md`](../packaging/README.md) §3.5。
+
 安装包做的事：把整个 `dist/windows/atri-x` 装到 `%LOCALAPPDATA%\ATRI-X\app`，建开始菜单
 快捷方式（桌面图标可选），默认勾选「开机自动启动」（写 HKCU `Run\ATRI-X`，
 `atri-x-gui.exe --minimized`），并在 `{app}\install.json` 里写
@@ -542,7 +557,7 @@ python packaging/build.py --with-kernel --installer   # 构建 + 打包一条龙
 
 | 行为 | 说明 |
 |---|---|
-| 卸载 | 「设置 → 应用」里的 `ATRI-X`，或安装目录的 `unins000.exe`；卸载前会 `taskkill` 掉还在跑的 GUI/后台服务 |
+| 卸载 | 「设置 → 应用」里的 `ATRI-X`，或安装目录的 `unins000.exe`；卸载前会 `taskkill` 掉还在跑的 GUI/后台服务，内置协议端的运行期配置（`{app}\qqproto` 下）也一并删除 |
 | 用户数据 | `%APPDATA%\ATRI-X` **默认保留**；交互式卸载会问一次「是否同时删除用户数据」 |
 | 与脚本安装的关系 | 检测到 `installer=inno` 后，`atri-x -m atri_x.dist.install uninstall` 会**拒绝**执行并提示用 `unins000.exe`（避免留下指向已删目录的卸载器）；确实要强删加 `--force` |
 | 静默安装 | `ATRI-X-<版本>-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=<目录> /MERGETASKS=!autostart,!desktopicon` |
@@ -560,8 +575,13 @@ python packaging/build.py --with-kernel --installer   # 构建 + 打包一条龙
 ```bash
 python packaging/build.py --with-kernel --with-portable --portable-verify   # 构建 + 便携包 + 解压自检
 python packaging/build.py --with-kernel --release                          # 便携包 + 安装包（都自检）
+python packaging/build.py --with-kernel --with-qqproto "D:\napcat\NapCat.52230.Shell" --release
 # 产物：dist/portable/ATRI-X-<版本>-portable-win64.zip（+ 同名 .zip.sha256）
 ```
+
+最后一条会在包里多一个 `qqproto\` 目录（内置 NapCat + 便携 QQ，约 1.2 GB，脱敏后不含任何
+令牌/登录态），解压后即可在「在线」页「启动协议端」；不指定 `--with-qqproto` 时产物与
+旧版相同（需要自备协议端）。
 
 解压后目录里有四个可双击的入口：
 
@@ -584,13 +604,17 @@ python packaging/build.py --with-kernel --release                          # 便
 - 无代码签名，SmartScreen 可能提示一次；README 里有说明。
 - 内置 DSH 内核（`_internal\runtime`）与安装版同一份，目标机不需要另装 Node。
 
-**换机器（或整体备份）时要搬的三样东西** —— QQ 机器人由三段组成，缺一样都会"能启动但不在线"：
+**换机器（或整体备份）时要搬的东西** —— 新版发行包已内置协议端，所以是「程序 + 配置」两样：
 
-1. `ATRI-X-<版本>\` 程序目录（便携模式的数据在 `<目录>\data\`，一起拷走）；
-2. 配置目录：标准模式是 `%APPDATA%\ATRI-X`（`app.toml`、`.env` 里的密钥、人设、会话库）；
-3. NapCat 目录（含便携 QQ 与 NapCat，约 2 GB）。新机器上要**重新扫码登录**一次（登录态
-   与设备/环境绑定），登录后到「在线」页点「连接（上线）」即可；`ws_url` 与 OneBot 令牌
-   都在配置目录里，不用重填。
+1. `ATRI-X-<版本>\` 程序目录（**已含**内置 NapCat + 便携 QQ；便携模式的数据在
+   `<目录>\data\`，一起拷走）；
+2. 配置目录：标准模式是 `%APPDATA%\ATRI-X`（`app.toml`、`.env` 里的模型与 OneBot 令牌、
+   人设、会话库）。
+
+若你用的是**自备** NapCat，再额外拷它的目录。新机器上协议端要**重新扫码登录**一次
+（登录态与设备/环境绑定）：启动桌面端 →「在线」页「启动协议端」→「打开 WebUI」扫码 →
+「连接（上线）」；`ws_url` 与 OneBot 令牌都在配置目录里，不用重填。自备 NapCat 也一样，
+只是「启动协议端」换成你自己启动它。
 
 ---
 
@@ -713,7 +737,7 @@ atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函�
 | 升级 | 整目录替换 / 安装器 `--force` | `upgrade` / `rollback` 脚本 |
 | 备份/恢复 | 手工拷 `%APPDATA%\ATRI-X` | `backup` / `restore-verify` |
 | 运维接口（`/tasks` `/metrics` `/healthz`） | 开箱即用：桌面端自动在 `.env` 补 `ATRIX_HEALTH_ADDR=127.0.0.1:32171` 与 `ATRIX_OPS_TOKEN`（「在线」页就是读它），已有值不动 | 开箱即用 |
-| QQ OneBot | 直连本机协议端 | 容器内连宿主机/同网络服务，需注意 `127.0.0.1` 指向 |
+| QQ OneBot | 直连本机协议端；发行包可内置 NapCat + 便携 QQ，开箱即用 | 容器内连宿主机/同网络服务，需注意 `127.0.0.1` 指向 |
 | 适合 | 个人单机桌面使用 | 长期运维/多人共用 |
 
 ---
@@ -762,8 +786,8 @@ atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函�
    桌面端「日志」页，通道选「后台服务输出」），或手动 `atri-x.exe service run` 看控制台；
    托盘/界面操作留痕在 `<配置目录>\gui\gui.log`；
 3. **QQ 不回话**：先看「在线」页三张卡片——后台服务是否运行、协议端端口是否监听、
-   QQ 平台是否「已连接」；哪一张红就查哪一环（协议端没起 → 启动 NapCat；
-   平台未启用 → 点「连接（上线）」）；
+   QQ 平台是否「已连接」；哪一张红就查哪一环（协议端没起 → 内置包点「启动协议端」，
+   自备包启动自己的 NapCat；平台未启用 → 点「连接（上线）」）；
 4. `atri-x.exe -m atri_x.dist.install status` —— 装在哪、快捷方式是否在；
 5. `atri-x.exe config check` —— 配置本身是否合法；
 6. `atri-x.exe doctor --no-model` —— 平台是否装配起来（应看到 `qqonebot`）；
@@ -789,10 +813,22 @@ A：协议端没起、端口不对、或 token 不对。先用浏览器/`curl` �
 再核对 `ws_url` 与 token。
 
 **Q：「在线」页 QQ 平台一直「未连接」。**
-A：按三张卡片从下往上查：① 协议端端口「未监听」→ NapCat 没启动（双击 `Start-NapCat.bat`，
-或它还没登录）；② 端口在听但仍未连接 → 核对「平台」页的 `ws_url`（要等于 NapCat
-「WebSocket 服务端」的端口）与 token 值是否和 NapCat 一致；③ 详情里的「错误」是后端
-最后一次失败原因（如 `connect onebot websocket: ...`）。
+A：按三张卡片从下往上查：① 协议端端口「未监听」→ 协议端没启动（内置包点「启动协议端」，
+自备包双击 `Start-NapCat.bat` 或手动启动），或它还没登录；② 端口在听但仍未连接 → 核对
+「平台」页的 `ws_url`（要等于 NapCat「WebSocket 服务端」的端口）与 token 值是否和 NapCat
+一致；③ 详情里的「错误」是后端最后一次失败原因（如 `connect onebot websocket: ...`）。
+
+**Q：点「启动协议端」没反应 / 控制台窗口一闪就没了。**
+A：先确认程序目录里有 `qqproto\NapCat.<版本>.Shell\`（构建时没带 `--with-qqproto`，或便携包
+没解压完整，就没有这一项）。可以直接双击 `qqproto\Start-NapCat.bat` 看控制台报错；若提示
+端口被占用，说明本机已有 NapCat / QQ 在跑——先关掉它再重试（`Stop-NapCat.bat` 会结束本机
+所有 `QQ.exe`，运行前请确认没有正在用的 QQ）。
+
+**Q：内置协议端的令牌 / 端口能改吗？**
+A：可以。OneBot 令牌在 `%APPDATA%\ATRI-X\.env` 的 `QQONEBOT_ACCESS_TOKEN`，端口在
+`app.toml` 的 `[platform.qqonebot].ws_url`；改完重启桌面端（会把令牌/端口同步写回 NapCat 的
+`onebot11.json`），再点「连接（上线）」。WebUI 端口与令牌在 NapCat 的 `webui.json` 里，
+「在线」页「打开 WebUI」会自动带上令牌，一般不用手改。
 
 **Q：「在线」页后台服务显示「状态接口不可达」。**
 A：`.env` 里缺 `ATRIX_HEALTH_ADDR` / `ATRIX_OPS_TOKEN`，或端口被别的进程占了。重启桌面端会

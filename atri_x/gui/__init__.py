@@ -37,6 +37,7 @@
 | :mod:`atri_x.gui.client` | WS 客户端（握手/收发/断线重连） |
 | :mod:`atri_x.gui.protocol` | 帧 → 界面状态的纯逻辑（聊天记录、状态栏文本、补全） |
 | :mod:`atri_x.gui.service` | 配置与 token 准备、后台服务探测/拉起/停止/重启 |
+| :mod:`atri_x.gui.qqproto` | 内置 NapCat/便携 QQ 协议端：令牌、端口、NapCat 配置与 `[platform.qqonebot]` 补齐 |
 | :mod:`atri_x.gui.linkstate` | 「在线」页的数据层：平台配置、协议端端口探测、``/healthz`` 健康快照（无 Tk） |
 | :mod:`atri_x.gui.tray` | ``ctypes`` 写的托盘图标（无第三方依赖） |
 | :mod:`atri_x.gui.autostart` | 开机自启（注册表 ``Run`` 项） |

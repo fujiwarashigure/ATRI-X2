@@ -48,6 +48,7 @@ python packaging/build.py --check-env        # 只打印构建环境探测结果
 python packaging/build.py --no-gui           # 只出控制台版
 python packaging/build.py --with-kernel      # 强制把 runtime/dsh-kernel 打进去
 python packaging/build.py --no-kernel        # 即使 runtime/ 存在也不打
+python packaging/build.py --with-qqproto "D:\napcat\NapCat.52230.Shell"   # 内置 QQ 协议端（见 §3.5）
 python packaging/build.py --verify-only      # 只核验已有产物
 python packaging/build.py --no-verify        # 只构建
 ```
@@ -59,6 +60,7 @@ python packaging/build.py --no-verify        # 只构建
 | `--icon` | 无 | `.ico` 路径（两个 exe 共用） |
 | `--no-gui` | 关 | 不生成窗口版 exe |
 | `--with-kernel` / `--no-kernel` | 自动 | 默认看 `runtime/dsh-kernel/kernel.json` 是否存在；`--with-kernel` 时缺文件会直接报错 |
+| `--with-qqproto` | 无 | 把 NapCat/便携 QQ 协议端环境**脱敏后**放进 `<dist>/atri-x/qqproto`（便携版与安装版都会带上，见 §3.5）；只支持 onedir |
 | `--with-installer` | 关 | 核验通过后再打 Inno Setup 安装包（见 §7；只支持 onedir） |
 | `--installer-verify` | 关 | 打安装包并静默安装/卸载自检（隐含 `--with-installer`） |
 | `--installer-output` | `dist/installer` | 安装包输出目录 |
@@ -76,14 +78,16 @@ python packaging/build.py --no-verify        # 只构建
 
 > 本目录的 `.py` **不在** `scripts/check_syntax.py` 的扫描范围（该脚本只扫
 > `atri_x` / `tests` / `scripts`，`deploy/` 同理），改完请自己跑：
-> `python -m py_compile packaging/build.py packaging/build_portable.py packaging/build_installer.py packaging/entry.py packaging/assemble_kernel.py packaging/kernel_manifest.py`
+> `python -m py_compile packaging/build.py packaging/build_portable.py packaging/build_installer.py packaging/qqproto.py packaging/entry.py packaging/assemble_kernel.py packaging/kernel_manifest.py`
 
-产物（onedir：不含内置内核时 40.1 MB / 50 个文件；含内置内核时 321.3 MB / 24510 个文件）：
+产物（onedir：不含内置内核时 40.1 MB / 50 个文件；含内置内核时 321.3 MB / 24510 个文件；
+再加内置 QQ 协议端时 +1.2 GB / +约 4000 个文件）：
 
 ```
 dist/windows/atri-x/
 ├── atri-x.exe            ~10 MB 控制台版：service run / doctor / config check / -m <模块>
 ├── atri-x-gui.exe        ~10 MB 窗口版：桌面端（Tk + 托盘）
+├── qqproto/              可选：内置 QQ 协议端环境（NapCat + 便携 QQ，配置/令牌不含，见 §3.5）
 └── _internal/            python314.dll、标准库扩展、atri_x 模块、tkinter、数据资产
     └── runtime/          可选：内置 DSH 内核（node.exe + node_modules + kernel.json）
 
@@ -121,6 +125,50 @@ python packaging/build.py --with-kernel
 运行期解析顺序（`atri_x/sidecar/registry.py`）：`ATRIX_DSH_KERNEL`（直接指内核目录）→
 `ATRIX_RUNTIME_DIR`（运行时根，本地调试用）→ `<发行包>/runtime` → `<配置目录>/runtime`。
 找到就回退优先级最高的那份，找不到就继续用 PATH 上的 `dsh`。
+
+---
+
+## 3.5 内置 QQ 协议端（可选，`--with-qqproto`）
+
+目标用户不想自己装 NapCat 时，可以把**一套 NapCat + 便携 QQ** 一起发出去。来源是官方
+一键安装器解出来的 `NapCat.<版本>.Shell` 目录（含 `NapCatWinBootMain.exe`、`QQ.exe` 与
+`versions\<QQ 版本>\`），**不要**指到安装器下载缓存（`NapCatInstaller.exe` / `QQ.exe` 那层）。
+
+```bash
+python packaging/build.py --with-kernel --release ^
+    --with-qqproto "D:\napcat\onekey\NapCat.52230.Shell"
+# → dist/windows/atri-x/qqproto/  （便携 zip 与安装包都会带上）
+```
+
+`packaging/qqproto.py` 做四件事（可单独跑：`python packaging/qqproto.py --source ... --dest ...`）：
+
+1. **只复制运行必需**：Shell 根 + `versions` 树（便携 QQ + NapCat 本体，约 1.2 GB）；
+2. **脱敏**：跳过 `resources\app\napcat\` 下的 `config` / `cache` / `logs`（本机生成的
+   OneBot/WebUI 令牌、扫码登录痕迹都在里面）与所有 `*.log`；
+3. 写 `Start-NapCat.bat` / `Stop-NapCat.bat` / `NapCat-使用说明.txt` / `proto-info.json`
+   （纯相对路径、不含令牌）；
+4. **核验**：必需文件在、敏感目录不在、最长相对路径 ≤ 200、生成文本里没有盘符路径/个人目录。
+
+包内布局：
+
+```
+qqproto/
+├── NapCat.<版本>.Shell/   便携 QQ + NapCat 本体
+├── Start-NapCat.bat       启动协议端（新控制台窗口，关窗即下线）
+├── Stop-NapCat.bat        停止协议端（会结束本机所有 QQ.exe）
+├── NapCat-使用说明.txt     给用户的操作说明（UTF-8 BOM）
+└── proto-info.json        构建元数据（版本/文件数/脱敏标记）
+```
+
+**运行期配置在目标机生成**（`atri_x/gui/qqproto.py`）：桌面端首次启动时生成 OneBot 令牌
+（写进配置目录 `.env` 的 `QQONEBOT_ACCESS_TOKEN`）、挑 OneBot/WebUI 端口、写 NapCat 的
+`onebot11.json` / `webui.json`，并在 `app.toml` 缺 `[platform.qqonebot]` 时补一段默认值。
+所以**发出去的包里不含任何令牌**；`NapCat.Shell` 里的 `config` 目录永远是目标机自己的。
+
+自检覆盖：`--portable-verify` 会在解压后的便携包里真跑一次
+`atri-x.exe -m atri_x.gui.qqproto --json`，再核对 `.env` 令牌 == `onebot11.json` 令牌 ==
+`app.toml` 的 `ws_url` 端口；安装包 `--verify` 会断言 `qqproto\` 下的启动脚本与 Shell 目录
+装进去了。这两项都只在构建时指定了 `--with-qqproto` 才执行。
 
 ---
 
@@ -268,11 +316,12 @@ zip 内布局（顶层目录名刻意取短，给 Windows 的 `MAX_PATH` 留余�
 ```
 ATRI-X-<版本>/
 ├── atri-x.exe / atri-x-gui.exe / _internal/…   ← onedir 产物原样（内置 DSH 内核在 _internal\runtime）
+├── qqproto/              可选：内置 QQ 协议端环境（--with-qqproto 构建时才有，见 §3.5）
 ├── start-portable.bat    便携模式启动：APPDATA 指到 .\data\appdata，数据留在解压目录里
 ├── start-normal.bat      标准模式启动：数据在 %APPDATA%\ATRI-X（与安装版共用一份）
 ├── debug-console.bat     调试控制台：打印 doctor 报告，并留一个命令行窗口
 ├── README.txt            使用/排障说明（UTF-8 BOM + CRLF，记事本可读）
-└── build-info.json       构建元数据（版本、Python/PyInstaller、内核版本、文件数）
+└── build-info.json       构建元数据（版本、Python/PyInstaller、内核版本、qqproto 版本、文件数）
 ```
 
 | 项 | 便携版 zip | 安装版 setup.exe |
@@ -289,6 +338,7 @@ ATRI-X-<版本>/
 `-m <模块>` / `-m atri_x.sidecar status`（打了内核时要求 `found: true`），再跑窗口版
 `--selftest` 与 `start-portable.bat --selftest`，最后用 `debug-console.bat --version`
 断言**配置确实落在解压目录的 `data\appdata` 里**、而不是用户真实的 `%APPDATA%`。
+带内置协议端时还会真跑 `-m atri_x.gui.qqproto --json` 并核对令牌/端口三处一致（见 §3.5）。
 自检目录默认用完即删。
 
 限制：

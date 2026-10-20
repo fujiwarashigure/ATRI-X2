@@ -97,6 +97,9 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/IM atri-x.exe /F"; Flags: runhidde
 
 [UninstallDelete]
 Type: files; Name: "{app}\install.json"
+; 内置协议端的运行期配置（NapCat 的 onebot11.json / webui.json 等）是首次启动时生成的，
+; 不在 [Files] 清单里；不删掉会让卸载后安装目录残留内容。
+Type: filesandordirs; Name: "{app}\qqproto"
 Type: dirifempty; Name: "{app}"
 Type: dirifempty; Name: "{userappdata}\Microsoft\Windows\Start Menu\Programs\ATRI-X"
 

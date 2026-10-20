@@ -1618,6 +1618,14 @@ high_priority_queue_size = 128 # 高优先级事件队列；满时 readLoop 内�
 
 `access_token_env` 指向保存 Access Token 的环境变量名；原有 `access_token` 仍然兼容且优先于 `access_token_env`。OneBot 不要求鉴权时，两项都可省略。
 
+> **内置协议端**：便携版 / 安装版可以内置一套 NapCat + 便携 QQ（构建参数
+> `--with-qqproto`，见 [packaging/README.md](../packaging/README.md) §3.5）。此时上面这段
+> `[platform.qqonebot]` 由桌面端首次启动时自动补齐（`ws_url` 指向本机空闲端口、
+> `access_token_env = "QQONEBOT_ACCESS_TOKEN"`、`enabled = false`），并同步生成
+> `%APPDATA%\ATRI-X\.env` 里的 OneBot 令牌与 NapCat 的 `onebot11.json` / `webui.json`；
+> **已有值一律不动**，没有内置环境的构建或自备 NapCat 的配置完全不受影响。之后在「在线」页
+> 点「启动协议端」→「打开 WebUI」扫码 → 「连接（上线）」即可。
+
 `send_file_mode` 同时控制 QQ OneBot 本地图片、文件和 `record` 语音的发送方式。`base64` 适用于 ATRI-X 与 OneBot 不共享文件系统的部署；`file_uri` 仅适用于双方能访问同一本地路径的场景。
 
 OneBot 入站文本会保留原始换行、缩进和连续空白；唤醒判断使用单独规范化后的匹配视图，不会为了匹配关键词而重排模型输入，也不会让转发里的 `@`、唤醒词或命令进入匹配视图。合并转发消息会展开为带发送者、时间、消息 ID 的引用文本，并通过 `forward_max_nodes`、`forward_max_runes`、`forward_max_depth` 限制节点数、总字符数和嵌套深度；`forward_max_fetches`、`forward_max_result_bytes`、`forward_max_non_text`、`forward_fetch_timeout_seconds` 进一步限制拉取次数、单次返回体、非文本节点和拉取超时。同一条消息内所有转发 id 共享节点/字符预算；循环引用会被拒绝，重复引用会标记省略，拉取失败或节点缺字段会稳定降级为文本标记。转发内容始终作为不可信用户数据传入，不会构造成 system/developer 消息。
@@ -1629,7 +1637,8 @@ OneBot 入站消息会先按 `平台 + 机器人 self_id + scope + message_id` �
 > 桌面端「在线」页把上下线做成了开关：只改 `[platform.qqonebot].enabled` 再重启后台服务，
 > 状态（连接/断开、连接次数、最近错误）从后台 `/healthz` 的 `platforms[]` 读。桌面端首次启动
 > 还会往 `.env` 补 `ATRIX_HEALTH_ADDR=127.0.0.1:32171`（被占则顺延）与随机 `ATRIX_OPS_TOKEN`，
-> 已有值一律不动；手动部署请自己设这两个变量后重启。详见
+> 已有值一律不动；手动部署请自己设这两个变量后重启。发行包内置协议端时，同一页还能启动
+> 协议端并打开带令牌的 WebUI（见上面「内置协议端」）。详见
 > [Windows 桌面端](windows-app.md) §4.8。
 
 Telegram 使用 Bot API long polling。最小配置示例：

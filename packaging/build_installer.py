@@ -46,10 +46,13 @@ DEFAULT_DIST = _REPO / "dist" / "windows" / "atri-x"
 DEFAULT_OUTPUT = _REPO / "dist" / "installer"
 #: 默认工作目录（日志与自检安装目录）。
 DEFAULT_WORK = _REPO / "build" / "installer"
-#: 自检安装/卸载的最长等待（秒）：含内置内核时解压要一两分钟。
-VERIFY_TIMEOUT = 600.0
+#: 自检安装/卸载的最长等待（秒）：含内置内核与内置 QQ 协议端（约 1.2 GB）时解压要几分钟。
+VERIFY_TIMEOUT = 1800.0
 #: 必须存在的 exe。
 REQUIRED_EXES = ("atri-x.exe", "atri-x-gui.exe")
+#: 内置 QQ 协议端环境目录与其中必须存在的文件（``--with-qqproto`` 构建时才有）。
+QQPROTO_DIR = "qqproto"
+QQPROTO_REQUIRED = ("Start-NapCat.bat", "Stop-NapCat.bat", "proto-info.json")
 
 
 def _log(message: str) -> None:
@@ -150,12 +153,14 @@ def _check_dist(dist: Path) -> dict[str, Any]:
             dsh_version = str(json.loads(kernel.read_text(encoding="utf-8")).get("dshVersion") or "")
         except (OSError, ValueError):
             dsh_version = ""
+    qqproto = dist / QQPROTO_DIR
     return {
         "dist": str(dist),
         "files": len(files),
         "bytes": total,
         "kernel": bool(kernel.is_file()),
         "dshVersion": dsh_version,
+        "qqproto": qqproto.is_dir(),
     }
 
 
@@ -351,6 +356,21 @@ def verify(installer: Path, verify_dir: Path, timeout: float = VERIFY_TIMEOUT) -
     marker_path = verify_dir / "install.json"
     if not marker_path.is_file():
         raise InstallerError(f"安装后缺少 install.json 标记：{marker_path}")
+    qqproto_dir = verify_dir / QQPROTO_DIR
+    if qqproto_dir.is_dir():
+        missing = [name for name in QQPROTO_REQUIRED if not (qqproto_dir / name).is_file()]
+        if missing:
+            raise InstallerError(f"安装后内置协议端缺少文件：{', '.join(missing)}（{qqproto_dir}）")
+        shells = sorted(
+            path
+            for path in qqproto_dir.iterdir()
+            if path.is_dir() and (path / "NapCatWinBootMain.exe").is_file()
+        )
+        if not shells:
+            raise InstallerError(f"安装后内置协议端缺少 NapCat Shell 目录：{qqproto_dir}")
+        report["qqproto"] = {"shell": shells[0].name, "files": sum(1 for p in qqproto_dir.rglob('*') if p.is_file())}
+    else:
+        report["qqproto"] = None
     try:
         marker = json.loads(marker_path.read_text(encoding="utf-8"))
     except ValueError as exc:
@@ -469,7 +489,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _log(
             f"[installer] ok: {compiled['installer']} "
             f"({size_mb:.1f} MB, {compiled['seconds']}s, source files={compiled['source']['files']}, "
-            f"kernel={compiled['source']['kernel']})"
+            f"kernel={compiled['source']['kernel']}, qqproto={compiled['source']['qqproto']})"
         )
         if args.verify:
             if args.verify_dir:

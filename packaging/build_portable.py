@@ -84,10 +84,14 @@ LAUNCHER_NORMAL = "start-normal.bat"
 LAUNCHER_DEBUG = "debug-console.bat"
 #: 发行目录里的顶层垃圾文件：IME 日志（搜狗会往 cwd 写）与安装版标记，不应进便携包。
 EXCLUDED_ROOT_NAMES = ("debug.log", "install.json")
+#: 内置 QQ 协议端环境目录（由 ``packaging/qqproto.py`` 生成）及其元数据。
+QQPROTO_DIR = "qqproto"
+QQPROTO_INFO = "proto-info.json"
+QQPROTO_LAUNCHER = "Start-NapCat.bat"
 #: zip 压缩级别（6 = zlib 默认，够快；node_modules 文本压缩比很高）。
 ZIP_COMPRESSLEVEL = 6
-#: 解压级核验的默认超时（秒）。
-VERIFY_TIMEOUT = 900.0
+#: 解压级核验的默认超时（秒）。带内置协议端时解压/运行都要多等一会儿。
+VERIFY_TIMEOUT = 1800.0
 
 
 class PortableError(RuntimeError):
@@ -143,6 +147,23 @@ def read_kernel(dist: Path) -> dict[str, Any] | None:
     return None
 
 
+def read_qqproto(dist: Path) -> dict[str, Any] | None:
+    """读内置 QQ 协议端的元数据（``qqproto/proto-info.json``）；没内置返回 ``None``。"""
+    root = Path(dist) / QQPROTO_DIR
+    if not root.is_dir():
+        return None
+    info: dict[str, Any] = {"dir": QQPROTO_DIR}
+    meta_path = root / QQPROTO_INFO
+    try:
+        data = json.loads(meta_path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            info.update(data)
+    except (OSError, ValueError):
+        info["error"] = "proto-info.json 缺失或解析失败"
+    info["launcher"] = (root / QQPROTO_LAUNCHER).is_file()
+    return info
+
+
 def dist_tree(dist: Path) -> dict[str, Any]:
     """枚举发行目录里要打进去的文件（跳过顶层垃圾文件）。"""
     dist = Path(dist)
@@ -178,6 +199,7 @@ def dist_tree(dist: Path) -> dict[str, Any]:
         "longest": longest,
         "gui": (dist / GUI_EXE).is_file(),
         "kernel": read_kernel(dist),
+        "qqproto": read_qqproto(dist),
     }
 
 
@@ -291,6 +313,21 @@ def readme_text(meta: Mapping[str, Any]) -> str:
             "需要深度路由时设 ATRIX_DSH_KERNEL 指向现成内核目录，或在目标机装 DSH。"
         )
     folder = meta.get("folder") or "ATRI-X"
+    proto = meta.get("qqproto") or {}
+    if proto.get("shell"):
+        proto_line = (
+            "已内置 QQ 协议端环境（{}，QQ {} / NapCat {}，约 1.2 GB）："
+            "不需要另装 NapCat，首次启动后在「在线」页点「启动协议端」即可。".format(
+                proto.get("shell"),
+                proto.get("qqVersion") or "?",
+                proto.get("napcatVersion") or "?",
+            )
+        )
+    else:
+        proto_line = (
+            "本包**没有**内置 QQ 协议端环境；接 QQ 群需要自己装 NapCat / LLOneBot，"
+            "在「平台」页填它的 ws:// 地址。"
+        )
     lines = [
         f"ATRI-X {meta.get('version')} — Windows 便携版（解压即用）",
         "",
@@ -298,6 +335,7 @@ def readme_text(meta: Mapping[str, Any]) -> str:
         "  已经冻结好的完整运行时（Python + tkinter 都在里面），不需要安装 Python / Node / Docker。",
         "  解压后双击就能用；便携模式下删掉整个文件夹就等于卸载（不写注册表、不建快捷方式）。",
         f"  {kernel_line}",
+        f"  {proto_line}",
         "",
         "二、快速开始（推荐）",
         "  1. 解压到**路径较短**的目录，例如 D:\\ATRI-X。",
@@ -305,6 +343,8 @@ def readme_text(meta: Mapping[str, Any]) -> str:
         "  2. 双击 start-portable.bat  → 桌面端启动，所有数据留在本文件夹 data\\ 下。",
         "  3. 首次启动会在配置目录生成 app.toml / services.toml / state.toml / SOUL.md。",
         "     在「模型」选项卡里填 Provider 与 API Key，点「重启后台服务」就能开始对话。",
+        "  4. 要做 QQ 群机器人：切到「在线」页 →「启动协议端」→「打开 WebUI」用手机 QQ",
+        "     扫码登录（建议小号）→ 回「在线」页点「连接（上线）」。",
         "",
         "三、两种数据模式（入口不同，数据目录不同，互不可见）",
         "  start-portable.bat   数据在 <本文件夹>\\data\\appdata\\ATRI-X  → 便携/排查用，整个文件夹可拷走",
@@ -315,6 +355,7 @@ def readme_text(meta: Mapping[str, Any]) -> str:
         "  atri-x-gui.exe      桌面端（窗口 + 托盘）",
         "  atri-x.exe          控制台版：service run / doctor / config check / -m <模块>",
         "  _internal\\          Python 运行时、tkinter、默认配置资产、可选的内置 DSH 内核",
+        "  qqproto\\            内置 QQ 协议端（NapCat + 便携 QQ；没有内置时为缺省）",
         "  start-portable.bat  便携模式启动（推荐）",
         "  start-normal.bat    标准模式启动（数据在 %APPDATA%）",
         "  debug-console.bat   调试控制台：打印 doctor、留一个命令行窗口",
@@ -421,6 +462,7 @@ def build(
             "standard": "%APPDATA%\\ATRI-X",
         },
         "kernel": tree["kernel"],
+        "qqproto": tree["qqproto"],
         "compression": {"format": "zip/deflate", "level": ZIP_COMPRESSLEVEL},
     }
     if extra:
@@ -432,6 +474,12 @@ def build(
         f"[portable] input   : {tree['files']} file(s) / {_fmt_bytes(tree['bytes'])}"
         f"（内置内核：{'有' if tree['kernel'] else '无'}）"
     )
+    if tree.get("qqproto"):
+        proto = tree["qqproto"]
+        _log(
+            f"[portable] qqproto : {proto.get('shell') or '内置'}（QQ {proto.get('qqVersion') or '?'} / "
+            f"NapCat {proto.get('napcatVersion') or '?'}）"
+        )
     longest_total = len(folder) + 1 + len(tree["longest"])
     _log(f"[portable] longest : {longest_total} 字符（解压根目录建议不超过 {260 - longest_total - 1} 字符）")
     if longest_total > 240:
@@ -509,6 +557,63 @@ def _extract(archive: zipfile.ZipFile, dest: Path) -> None:
         archive.extractall(dest, filter="data")
     except TypeError:  # 3.11 及更早没有 filter 参数
         archive.extractall(dest)
+
+
+def _read_env_file(path: Path) -> dict[str, str]:
+    """极简 ``.env`` 读取（打包自检只关心 ``KEY=VALUE``）。"""
+    values: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return values
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        values.setdefault(key.strip(), value.strip())
+    return values
+
+
+def _check_qqproto_wiring(root: Path, appdata: Path, report: dict[str, Any]) -> tuple[bool, str]:
+    """内置协议端自检：NapCat 配置、.env 令牌、``app.toml`` 端口三者必须对得上。"""
+    import tomllib
+
+    config_dirs = sorted((root / QQPROTO_DIR).glob("*/versions/*/resources/app/napcat/config"))
+    if not config_dirs:
+        return False, "找不到 NapCat config 目录"
+    napcat_config = config_dirs[0]
+    onebot_path = napcat_config / "onebot11.json"
+    webui_path = napcat_config / "webui.json"
+    try:
+        onebot = json.loads(onebot_path.read_text(encoding="utf-8"))
+        webui = json.loads(webui_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return False, f"NapCat 配置缺失/损坏：{exc}"
+    servers = ((onebot.get("network") or {}).get("websocketServers") or [])
+    server = servers[0] if isinstance(servers, list) and servers else {}
+    token = str(server.get("token") or "")
+    port = int(server.get("port") or 0)
+    env_token = _read_env_file(appdata / "ATRI-X" / ".env").get("QQONEBOT_ACCESS_TOKEN", "")
+    if not token or token != env_token:
+        return False, ".env 的 QQONEBOT_ACCESS_TOKEN 与 NapCat onebot11.json 不一致"
+    if not webui.get("token") or not int(webui.get("port") or 0):
+        return False, "webui.json 缺少端口或令牌"
+    try:
+        data = tomllib.loads((appdata / "ATRI-X" / "app.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return False, f"app.toml 读不了：{exc}"
+    section = ((data.get("platform") or {}).get("qqonebot") or {})
+    ws_url = str(section.get("ws_url") or "")
+    if not ws_url.endswith(f":{port}/"):
+        return False, f"app.toml 的 ws_url（{ws_url}）与协议端端口（{port}）不一致"
+    report["qqproto"] = {
+        "shell": config_dirs[0].relative_to(root / QQPROTO_DIR).parts[0],
+        "onebotPort": port,
+        "webuiPort": int(webui.get("port") or 0),
+        "tokenWired": True,
+    }
+    return True, f"ws 端口 {port} · 令牌已对齐"
 
 
 def _run(
@@ -624,6 +729,30 @@ def verify(
             raise PortableError(f"配置没有落在便携数据目录里：{app_toml} 不存在")
         report["portableDataDir"] = str(app_toml.parent)
         _log(f"  data dir    : ok（{app_toml.parent}）")
+
+        if (root / QQPROTO_DIR).is_dir():
+            result = _run(
+                [str(exe), "-m", "atri_x.gui.qqproto", "--json"],
+                cwd=root,
+                env=env,
+                timeout=timeout,
+            )
+            detail = ""
+            ok = result["code"] == 0
+            payload: dict[str, Any] = {}
+            if ok:
+                try:
+                    payload = json.loads((result["stdout"] or "").strip().splitlines()[-1])
+                except (IndexError, ValueError):
+                    payload = {}
+                ok = bool(payload.get("available")) and int(payload.get("onebotPort") or 0) > 0
+                detail = f"port={payload.get('onebotPort')} changed={payload.get('changed')}"
+            if ok:
+                ok, wiring = _check_qqproto_wiring(root, appdata, report)
+                detail += " · " + wiring
+            step("qqproto", result, ok, detail)
+        else:
+            _log("  qqproto     : skipped（未内置协议端环境）")
 
         result = _run(
             [str(exe), "-m", "atri_x.platform.qq_onebot.smoke", "--help"],

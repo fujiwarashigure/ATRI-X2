@@ -141,6 +141,9 @@ def build_settings(args: argparse.Namespace) -> GuiSettings:
         client_id=args.client_id or settings.client_id,
         token=args.token or settings.token,
         token_env=settings.token_env,
+        health_addr=settings.health_addr,
+        health_token=settings.health_token,
+        qqproto=settings.qqproto,
         changed=settings.changed,
     )
 

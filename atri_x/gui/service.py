@@ -16,7 +16,10 @@ QQ 机器人因此可以继续在线。本模块负责这条链路的前半段�
 - ``.env``：写入/更新一行 ``ATRIX_CLI_LOCAL_TOKEN=<随机值>``（本机回环服务端的登录 token）；
 - ``.env``：补 ``ATRIX_HEALTH_ADDR``（默认 ``127.0.0.1:32173``，端口被占时顺延）与
   ``ATRIX_OPS_TOKEN``（随机值）—— 后端据此启动只读健康接口，「在线」选项卡从
-  ``/healthz`` 读平台连接状态。**已有值一律不动**，用户自己配的地址/令牌优先。
+  ``/healthz`` 读平台连接状态。**已有值一律不动**，用户自己配的地址/令牌优先；
+- 内置协议端（发行包带 ``qqproto\\`` 时）：由 :mod:`atri_x.gui.qqproto` 生成 OneBot
+  令牌、写 NapCat 的 ``onebot11.json`` / ``webui.json``、按需补
+  ``[platform.qqonebot]``。没有内置环境的构建不会写任何东西。
 
 不做的事：不生成模型配置、不改 ``[platform.cli.server].listen``、不猜用户的 provider。
 进程/路径相关助手在 :mod:`atri_x.gui.process`（这里重新导出几个常用的，方便调用方）。
@@ -36,6 +39,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
+from atri_x.gui import qqproto
 from atri_x.gui.process import (  # noqa: F401 - 这些名字属于本模块对外的对外接口
     app_dir,
     application_paths,
@@ -122,6 +126,8 @@ class GuiSettings:
     #: 健康/运维接口的 ``host:port`` 与 Bearer 令牌（「在线」选项卡读平台状态用）。
     health_addr: str = ""
     health_token: str = ""
+    #: 内置协议端（NapCat + 便携 QQ）的准备结果；没有内置环境时为 ``None``。
+    qqproto: qqproto.QqProtoSetup | None = None
     #: 本次启动是否改过配置（界面上提示「已自动开启本地服务端口」）。
     changed: bool = False
 
@@ -181,6 +187,7 @@ def prepare_settings(config_path: str = "") -> GuiSettings:
     changed = changed or token_changed
     health_addr, health_token, health_changed = ensure_health_endpoint(config_dir)
     changed = changed or health_changed
+    proto = _prepare_qqproto(config_dir, resolved)
     url = _server_url(data)
     return GuiSettings(
         config_path=resolved,
@@ -191,8 +198,17 @@ def prepare_settings(config_path: str = "") -> GuiSettings:
         token_env=token_env,
         health_addr=health_addr,
         health_token=health_token,
+        qqproto=proto,
         changed=changed,
     )
+
+
+def _prepare_qqproto(config_dir: str, config_path: str) -> qqproto.QqProtoSetup | None:
+    """准备内置 QQ 协议端；失败只记录原因，绝不影响桌面端启动。"""
+    try:
+        return qqproto.ensure_qqproto(config_dir, app_toml=config_path)
+    except Exception as exc:  # noqa: BLE001 - 协议端问题不能变成启动失败
+        return qqproto.QqProtoSetup(available=False, reason=f"内置协议端准备失败：{exc}")
 
 
 def ensure_server_enabled(text: str) -> tuple[str, bool]:
@@ -384,6 +400,9 @@ def spawn_service(settings: GuiSettings) -> subprocess.Popen[bytes]:
         env.setdefault(HEALTH_ADDR_ENV, settings.health_addr)
     if settings.health_token:
         env.setdefault(HEALTH_TOKEN_ENV, settings.health_token)
+    if settings.qqproto is not None and settings.qqproto.token:
+        # 内置协议端的令牌：配置目录 .env 里也有一份，这里显式注入避免"改了配置没重启"的歧义。
+        env.setdefault(qqproto.ONEBOT_TOKEN_ENV, settings.qqproto.token)
     env.setdefault("PYTHONIOENCODING", "utf-8")
     flags = _DETACHED_PROCESS | _CREATE_NO_WINDOW | _CREATE_NEW_PROCESS_GROUP
     try:
@@ -583,9 +602,14 @@ def _upsert_env_line(path: str, name: str, value: str) -> None:
 
 def _log_header(settings: GuiSettings) -> str:
     moment = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    proto = settings.qqproto
+    proto_line = (
+        f"内置协议端：{proto.label} · {proto.ws_url}" if proto is not None else "内置协议端：（无）"
+    )
     return (
         f"\n=== {moment} 启动后台服务 ===\n"
         f"配置：{settings.config_path}\n"
         f"地址：{settings.url}\n"
         f"状态接口：{settings.health_addr or '（未配置）'}\n"
+        f"{proto_line}\n"
     )

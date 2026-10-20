@@ -6,6 +6,79 @@
 
 ---
 
+## [0.9.9-local.3] - 2026-10-20 — 内置 QQ 协议端环境、全仓脱敏与发行库（本机重建，未随上游发布）
+
+> 「换台电脑部署」时最重的一步是另装一套 NapCat + 便携 QQ（约 1.2 GB），且令牌/端口/两边的
+> 配置文件都要手工对齐；直接分发的包里也不该夹带本机令牌或登录痕迹。这一版把 NapCat/便携 QQ
+> **脱敏后内置**进便携版与安装版，运行期配置（令牌、端口、NapCat 的 `onebot11.json` /
+> `webui.json`、`[platform.qqonebot]`）由桌面端在目标机首次启动时生成 —— 发出去的包里不含
+> 任何令牌；同时补上「在线」页的「启动协议端」与带令牌的「打开 WebUI」。
+
+### 行为变化
+
+| # | 旧状态 | 新状态 |
+|---|---|---|
+| 1 | 发行包只有程序本体，接 QQ 要用户自己装 NapCat + 便携 QQ 并手改配置 | `python packaging/build.py --with-qqproto <NapCat.Shell>` 把 **NapCat + 便携 QQ** 脱敏后放进 `<dist>/atri-x/qqproto`；便携 zip 与 Inno 安装包都自带，解压/安装后即可在「在线」页启动协议端 |
+| 2 | 内置协议端的令牌/端口需要人工对齐（`.env`、`onebot11.json`、`webui.json`、`app.toml` 四处） | 桌面端启动时由 `gui/qqproto.py` 自动生成/复用令牌，按 `app.toml` 已配端口或空闲端口写齐三处配置；**已有值（含外部 NapCat 配置）一律不动**，没有内置环境时一个文件都不写 |
+| 3 | 「在线」页只能「检测端口 / 打开 WebUI（固定 6099 无令牌）」 | 「在线」页新增「启动协议端」（新控制台窗口，关窗即下线），「打开 WebUI」改用内置 `webui.json` 的端口与令牌；协议端卡片显示内置环境路径或"外部自备" |
+| 4 | 打包只做 `build.py --release`（便携 + 安装） | 新增 `packaging/qqproto.py`：复制时跳过 `resources\app\napcat\{config,cache,logs}` 与所有 `*.log`，生成纯相对路径的启动脚本/说明/元数据，并核验必需文件、最长相对路径 ≤ 200、文本无盘符路径与令牌 |
+
+### 桌面端（`atri_x/gui/**`）
+
+- 新增 `gui/qqproto.py`（无 Tk）：`bundle_env_root` / `find_shell` / `ensure_qqproto` /
+  `launch_background` / `setup_summary`；令牌优先取进程环境变量 → `.env` → 随机生成；
+  OneBot 端口优先沿用 `app.toml` 的**回环** `ws_url` 端口，否则沿用旧 `onebot11.json`，
+  再否则挑空闲端口；`webui.json` 同理（端口/令牌已有则保留）；`app.toml` 只在
+  `[platform.qqonebot]` 缺小节或缺键时补默认值（`enabled = false`、`trigger_keywords = ["atri"]`）。
+  另提供 `atri-x.exe -m atri_x.gui.qqproto --json`（打包自检/排障用，摘要不含令牌明文）。
+- `gui/service.py`：`GuiSettings` 增加 `qqproto`；`prepare_settings()` 顺带准备内置协议端
+  （失败只记原因，不影响启动）；`spawn_service()` 把 OneBot 令牌显式注入子进程环境，
+  `service.out.log` 头部记录内置协议端地址。
+- `gui/tabs/link.py`：「启动协议端」「打开 WebUI（带令牌）」两个动作 + 内置环境状态行；
+  换机器提示改为「程序目录 + 配置目录」两样。
+- `gui/__main__.py`：`--url/--token` 覆盖配置时补上 `health_*` / `qqproto` 字段（此前会丢）。
+- `gui/__init__.py`、`gui/tabs/__init__.py`：模块职责表补 `qqproto`。
+
+### 打包（`packaging/**`）
+
+- 新增 `packaging/qqproto.py`（独立可跑：`--source/--dest/--check`）。
+- `build.py` 新增 `--with-qqproto <Shell 目录>`（只支持 onedir，在核验通过后、打包前落盘）；
+  `--release` 未指定时明确打印"本次发行包不含内置 QQ 协议端"。
+- `build_portable.py`：`dist_tree()`/`build-info.json`/`README.txt` 记录内置协议端；
+  `--portable-verify` 解压后真跑 `-m atri_x.gui.qqproto --json` 并核对
+  `.env` 令牌 == `onebot11.json` 令牌 == `app.toml` 的 `ws_url` 端口，自检超时放宽到 1800 s。
+- `build_installer.py`：`--verify` 断言 `qqproto\` 的启动脚本与 Shell 目录装进去了；
+  自检超时放宽到 1800 s（多了 1.2 GB 解压）。
+- `atri-x.iss`：卸载时删除 `{app}\qqproto`（内置协议端的运行期配置不在 [Files] 清单里，
+  否则卸载后安装目录会残留 NapCat 的 `onebot11.json` / `webui.json` 等文件）。
+
+### 脱敏
+
+- 发行包**不含**本机令牌/QQ 登录态：来源 Shell 里的 `config`/`cache`/`logs` 与 `*.log` 全部
+  跳过；生成的文本核验不含盘符路径、`Users/AppData` 痕迹、令牌形状字符串。
+- 新增 `scripts/check_secrets.py`：发布前静态扫描 git 跟踪文件里的真实个人目录、`atrix-*`
+  令牌、`sk-*` 密钥与 `.env` 真值赋值（`--all` 连未跟踪文件；`--json` 给流水线用）。
+- 仓库侧扫描（个人目录、真实令牌、`sk-` 形状密钥）未发现需要修改的内容；`tests/` 里的
+  `sk-...` 均为明显的假值。发行库只放产物、校验和与发行说明。
+
+### 测试与文档
+
+- 新增 `tests/test_gui_qqproto.py`（27 项）：未内置时零写入、首次生成/幂等/已有值优先/
+  端口冲突顺延、`prepare_settings` 接线、`LinkTab` 按钮状态、CLI 摘要不含令牌。
+- 新增 `tests/test_packaging_qqproto.py`（12 项）：脱敏复制、启动脚本/说明、元数据无绝对路径、
+  泄漏 `config`/`*.log`/绝对路径时必须核验失败。
+- `docs/windows-app.md`：§4.8 协议端卡片与「启动协议端」、§5.1 内置协议端说明、§7.1/§7.2
+  内置负载与「换机器两样」、§10 对比表、§11 排障两条新 FAQ。
+- `packaging/README.md`：§2 参数表、§3.5 内置 QQ 协议端、§8 便携包布局与自检。
+- `devdocs/code-map.md`、`README.md` 数字随 `gen_stats.py` 同步。
+
+### 发行（本机重建 0.9.9 便携版 + 安装版，均内置协议端）
+
+产物与 SHA256 见发行库 `D:\ATRI-X-release`（`SHA256SUMS.txt` / `发行说明.md`）；
+本机构建日志与自检报告见 `自检报告.md`。仓库改动仅本地提交，**未推送**。
+
+---
+
 ## [0.9.9-local.2] - 2026-10-20 — QQ 群机器人接入与「在线」页（本机重建，未随上游发布）
 
 > 接 QQ 群当对话机器人时暴露出的可用性问题：QQ 链路是「后台服务 → NapCat 协议端 → OneBot

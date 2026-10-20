@@ -12,6 +12,10 @@ NapCat 端口在听、OneBot 连接真的连上了，任何一环断掉现象都
 :mod:`atri_x.health.server`），**不是**猜日志；协议端端口用一次 TCP 探测，
 完整的一次性验证仍然用 ``atri-x.exe -m atri_x.platform.qq_onebot.smoke``。
 
+发行包自带协议端环境（``qqproto\\``）时，本页还能一键「启动协议端」并直接打开带
+令牌的 NapCat WebUI（扫码登录）；令牌与端口由 :mod:`atri_x.gui.qqproto` 在启动时
+自动生成。外部 NapCat 用户看到的仍是普通端口探测。
+
 本页不改 ``.env`` 里的密钥，只改 ``app.toml`` 的一行 ``enabled``。
 """
 
@@ -22,7 +26,7 @@ import webbrowser
 from tkinter import ttk
 from typing import Any
 
-from atri_x.gui import linkstate, process, service, widgets
+from atri_x.gui import linkstate, process, qqproto, service, widgets
 from atri_x.gui.configedit import ConfigEditError
 from atri_x.gui.tabs.base import ConfigTab, confirm
 
@@ -31,12 +35,12 @@ __all__ = ["LinkTab"]
 #: 状态自动刷新间隔（毫秒）。健康接口在本机回环，2 秒一次开销可以忽略。
 REFRESH_INTERVAL_MS = 2000
 
-#: 部署提示：换机器时要带的三个目录。
+#: 部署提示：内置协议端后，换机器只需要带「程序目录 + 配置目录」。
 DEPLOY_HINT = (
-    "换电脑部署（照顺序）：① 复制本程序目录；② 复制配置目录（%APPDATA%\\ATRI-X，"
-    "或用便携版 start-portable.bat 时在包内 data\\ 下）；③ 复制 NapCat 目录"
-    "（含 QQ 与 NapCat，约 2 GB）→ 新机器上先启动桌面端核对「平台」页 → "
-    "启动 NapCat 扫码登录 → 回到本页点「连接（上线）」。"
+    "换电脑部署（照顺序）：① 复制本程序目录（便携版/安装版都自带 NapCat + 便携 QQ，"
+    "首次启动自动生成令牌与端口）；② 复制配置目录（%APPDATA%\\ATRI-X，"
+    "或用便携版 start-portable.bat 时在包内 data\\ 下）→ 新机器上先启动桌面端 → "
+    "在本页点「启动协议端」扫码登录 → 点「连接（上线）」。"
 )
 
 
@@ -57,6 +61,9 @@ class LinkTab(ConfigTab):
         super().__init__(parent, paths, on_restart=on_restart)
         self.settings = settings
         self.can_control_service = bool(can_control_service and settings is not None)
+        self._proto: qqproto.QqProtoSetup | None = (
+            settings.qqproto if settings is not None else None
+        )
         self._visible = False
         self._inflight = False
         self._busy = False
@@ -80,6 +87,7 @@ class LinkTab(ConfigTab):
             "platform_detail": tk.StringVar(value=""),
             "endpoint_state": tk.StringVar(value="…"),
             "endpoint_detail": tk.StringVar(value=""),
+            "endpoint_env": tk.StringVar(value=""),
             "models": tk.StringVar(value=""),
         }
         grid = ttk.Frame(self.body)
@@ -107,10 +115,15 @@ class LinkTab(ConfigTab):
         card = self._card(grid, "协议端（NapCat）", 0, 2, pady=(0, 6))
         self._label(card, "endpoint_state", row=0, bold=True)
         self._label(card, "endpoint_detail", row=1, wrap=280)
+        self._label(card, "endpoint_env", row=2, wrap=280)
         actions = ttk.Frame(card)
-        actions.grid(row=2, column=0, sticky="w", pady=(6, 0))
+        actions.grid(row=3, column=0, sticky="w", pady=(6, 0))
         self._probe_button = ttk.Button(actions, text="检测端口", command=self._probe_now)
         self._probe_button.pack(side=tk.LEFT, padx=(0, 6))
+        self._start_button = ttk.Button(actions, text="启动协议端", command=self._start_protocol)
+        self._start_button.pack(side=tk.LEFT, padx=(0, 6))
+        if self._proto is None or not self._proto.available:
+            self._start_button.configure(state="disabled")
         self._webui_button = ttk.Button(actions, text="打开 WebUI", command=self._open_webui)
         self._webui_button.pack(side=tk.LEFT)
 
@@ -327,6 +340,14 @@ class LinkTab(ConfigTab):
 
     def _render_endpoint(self) -> None:
         cfg = self._cfg
+        proto = self._proto
+        if proto is not None:
+            if proto.available:
+                self._vars["endpoint_env"].set(f"内置协议端：{proto.env_dir}")
+            else:
+                self._vars["endpoint_env"].set(f"内置协议端：不可用（{proto.reason}）")
+        else:
+            self._vars["endpoint_env"].set("协议端：外部自备（本程序没有内置环境）")
         if not cfg.ws_url:
             self._vars["endpoint_state"].set("未配置")
             self._vars["endpoint_detail"].set("到「平台」页填 [platform.qqonebot].ws_url 后再回来。")
@@ -337,7 +358,10 @@ class LinkTab(ConfigTab):
             self._vars["endpoint_detail"].set(cfg.ws_url)
             return
         self._vars["endpoint_state"].set("已监听" if probe.reachable else "未监听")
-        self._vars["endpoint_detail"].set(probe.detail)
+        detail = probe.detail
+        if not probe.reachable and proto is not None and proto.available:
+            detail += "\n协议端没起？点「启动协议端」再检测。"
+        self._vars["endpoint_detail"].set(detail)
 
     def _render_models(self) -> None:
         report = self._report
@@ -450,12 +474,10 @@ class LinkTab(ConfigTab):
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
         state = "disabled" if busy else "normal"
-        for widget in (
-            self._connect_button,
-            self._probe_button,
-            self._webui_button,
-            self._copy_button,
-        ):
+        buttons = [self._connect_button, self._probe_button, self._webui_button, self._copy_button]
+        if self._proto is not None and self._proto.available:
+            buttons.append(self._start_button)
+        for widget in buttons:
             try:
                 widget.configure(state=state)
             except tk.TclError:  # pragma: no cover - 窗口销毁中
@@ -481,14 +503,34 @@ class LinkTab(ConfigTab):
         self._render_endpoint()
         self.notify(value.detail)
 
+    def _start_protocol(self) -> None:
+        """启动内置协议端（新控制台窗口；关掉窗口等于下线）。"""
+        proto = self._proto
+        if proto is None or not proto.available:
+            self.fail(proto.reason if proto is not None else "本程序没有内置协议端环境")
+            return
+        ok, detail = qqproto.launch_background(proto)
+        if not ok:
+            self.fail(detail)
+            return
+        self.journal("在线页：启动内置 NapCat 协议端")
+        self.notify(detail)
+        self._schedule(3000)
+
     def _open_webui(self) -> None:
-        url = "http://127.0.0.1:6099/webui"
+        proto = self._proto
+        if proto is not None and proto.available and proto.webui_url:
+            url = proto.webui_url
+            label = "内置 NapCat WebUI（登录二维码见页面）"
+        else:
+            url = "http://127.0.0.1:6099/webui"
+            label = "NapCat WebUI"
         try:
             opened = webbrowser.open(url)
         except Exception as exc:  # noqa: BLE001 - 打不开浏览器是可展示的失败
             self.fail(f"打不开浏览器：{exc}")
             return
-        self.journal("在线页：打开 NapCat WebUI")
+        self.journal(f"在线页：打开 {label}")
         if not opened:
             self.notify(f"没能自动打开浏览器，请手动访问 {url}")
 
@@ -498,13 +540,19 @@ class LinkTab(ConfigTab):
             secret = linkstate.secret_state(self._cfg, paths.env_path)
         except ConfigEditError:
             secret = "?"
+        proto = self._proto
         lines = [
             "ATRI-X QQ 接入信息",
             f"后台服务 WS：{self.settings.url if self.settings else '（未知）'}",
             f"OneBot 协议端：{self._cfg.ws_url or '（未配置）'}",
             f"OneBot 令牌：{'已写入 .env' if secret == 'set' else secret}",
-            "NapCat WebUI：http://127.0.0.1:6099/webui",
+            f"NapCat WebUI：{(proto.webui_url.rsplit('?', 1)[0] if proto and proto.webui_url else 'http://127.0.0.1:6099/webui')}",
         ]
+        if proto is not None:
+            lines.insert(
+                1,
+                f"协议端环境：{'内置 ' + proto.env_dir if proto.available else '外部自备（' + proto.reason + '）'}",
+            )
         try:
             self.frame.clipboard_clear()
             self.frame.clipboard_append("\n".join(lines))
