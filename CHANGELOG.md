@@ -6,7 +6,7 @@
 
 ---
 
-## [0.9.9-local.5] - 2026-10-20 — 修复 retain 参数错位导致所有工具被拦下，以及会话命名通知者签名错位
+## [0.9.9-local.5] - 2026-10-20 — 修复 retain 参数错位导致所有工具被拦下、会话命名通知者签名错位与命名 token 上限过小
 
 > 旧状态（一）：从 0.9.8 起，`toolrun.runner` 在"已确认并即将执行"的媒体参数留存一步，
 > 按 **Go 版签名**传了 `(ctx, session_id, arguments)`；而本仓移植把
@@ -25,16 +25,21 @@
 > argument: 'event'`，整个回合被记成「请求失败」，命名还永远停在 in-flight
 > （标题再也不生成）。
 >
-> 为什么测试没发现（两处同因）：测试替身照抄了错误的调用/签名 ——
+> 旧状态（三，修好前两处后继续真机验证发现）：`agent/title.py` 的命名请求沿用了 Go 的
+> `max_tokens=32`。实测 `opencode-go/deepseek-v4.1-flash` 在这个上限下把 32 个 token
+> 全花在正文之前（`finish_reason=length`、`delta_content` 为空），自动命名始终以
+> `invalid title` 失败，标题停在兜底文本。
+>
+> 为什么测试没发现（前两处同因）：测试替身照抄了错误的调用/签名 ——
 > `tests/test_toolrun.py` 的假 `Media` 是三参调用、`FakeNamingNotifier` 是单参假实现，
 > 与生产侧的真实对象正好错位，单测全绿，真实装配必炸。与
 > `StartToolRequestContractTests` 记录的 `start_tool_request` 四元组问题属同一类缺陷
-> （假实现与真实实现签名不一致）。
+> （假实现与真实实现签名不一致）；第三处则属于"Go 的取值只对 Go 时代的模型成立"。
 >
 > 新状态：工具调用在同样的确认/留存/执行链路上正常执行，参数里的媒体 ID 仍以
 > `session_tool` owner 原子关联到 Session；命名排期/完成/失败三个事件都能落到运行
-> 日志与审计。两处都补了"用**真实**对象跑一遍装配路径"的回归用例，今后签名再漂移会
-> 直接失败。
+> 日志与审计，命名请求也能拿到标题。三处都补了"用**真实**对象/真实取值跑一遍"的回归
+> 用例，今后签名或取值再漂移会直接失败。
 
 ### 修复
 
@@ -43,6 +48,8 @@
 - `atri_x/app/naming.py`：`NamingLogger` 的三个事件方法去掉 `ctx`，与
   `session/types.py` 的 `NamingNotifier` 协议对齐（Go 里收 ctx，本仓 session 服务不持
   ctx，属有意偏离）；模块 docstring 记录该偏离。
+- `atri_x/agent/title.py`：命名请求 `max_tokens` 从 Go 的 32 放宽到 256，注释记录实测
+  依据（32 时 finish_reason=length 且正文为空）。
 
 ### 测试
 
@@ -56,6 +63,8 @@
   `test_real_naming_logger_matches_session_protocol`，用**真实** `NamingLogger` 作通知者
   跑 `maybe_schedule_naming`；修好前复现
   `missing 1 required positional argument: 'event'`，并覆盖 completed/failed 两个事件。
+- `tests/test_agent_title.py`（新增）：命名请求的 `max_tokens` 下限（旧值 32 复现
+  "自动命名必失败"）、命名模型失败回退主模型、`title_prompt` 角色渲染。
 
 ### 发行（本机重建 0.9.9 便携版 + 安装版，均内置 QQ 协议端与 DSH 内核）
 

@@ -88,7 +88,11 @@ class TitleGenerator:
                 ),
                 LLMMessage(role=Role.USER, segments=text_segments(title_prompt(messages))),
             ],
-            max_tokens=32,
+            # Go 侧是 ``MaxTokens: 32``；实测 opencode-go/deepseek-v4.1-flash 在这个
+            # 上限下会把 32 个 token 全花在正文之前（``finish_reason=length``、
+            # ``delta_content`` 为空），自动命名因此永远失败。标题本身很短，
+            # 放宽到 256 不会带来可感知的成本。
+            max_tokens=256,
         )
         chunks: list[str] = []
         stream = client.chat_stream(ctx, req)
