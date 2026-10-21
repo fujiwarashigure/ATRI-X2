@@ -94,6 +94,7 @@ from atri_x.llm.openai.wire import (
     to_openai_messages,
     to_openai_tools,
     to_usage,
+    uses_reasoning_protocol,
 )
 
 #: 适配器独占的请求头：Provider 级 ``extra_headers`` 不能覆盖它们。
@@ -270,7 +271,11 @@ class OpenAIClient:
         """
         body: dict[str, Any] = {
             "model": req.model,
-            "messages": to_openai_messages(req.messages, self.resolve_image),
+            "messages": to_openai_messages(
+                req.messages,
+                self.resolve_image,
+                include_reasoning=uses_reasoning_protocol(req.provider, req.model),
+            ),
             "stream": True,
             "stream_options": {"include_usage": True},
         }
@@ -517,6 +522,7 @@ class OpenAIClient:
                 role=Role.ASSISTANT,
                 segments=[MessageSegment(type=SegmentType.TEXT, text=content)] if content else [],
                 tool_calls=tool_calls,
+                reasoning_content=reasoning_of(message),
             ),
             tool_calls=tool_calls,
             usage=to_usage(usage_raw) if isinstance(usage_raw, dict) else None,

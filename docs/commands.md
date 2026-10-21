@@ -226,7 +226,7 @@ Fork 会保留原会话，并从指定 assistant 消息位置创建新的上下�
 | `/grouppolicy default-mode <work\|chat\|inherit>` | 设置新 Session 的默认模式。 |
 | `/grouppolicy default-model <别名\|provider/model\|clear>` | 设置本群默认模型；别名或 `provider/model` 解析后会再次校验本群模型目录。 |
 | `/grouppolicy allowed-models <别名或provider/model\|*>` | 超级管理员设置本群可选模型目录；空目录只允许已配置的模型别名/profile。 |
-| `/grouppolicy tool-allow <工具名,工具名\|none\|clear>` | 设置工具白名单；`none` 表示禁止全部工具，`clear` 表示继承全局。 |
+| `/grouppolicy tool-allow <工具名,工具名\|none\|clear>` | 设置工具白名单；`none` 表示禁止全部工具，`clear` 表示继承全局。群主/管理员也可以用更短的 `/tools allow`（见下文）。 |
 | `/grouppolicy image-quota <次数>` / `/grouppolicy vision-quota <次数>` / `/grouppolicy asr-quota <次数>` | 设置本群每日生图/视觉/语音转写调用额度；执行前会原子预占，重启不丢账。 |
 | `/grouppolicy user-image-quota <次数>` / `/grouppolicy user-vision-quota <次数>` / `/grouppolicy user-asr-quota <次数>` | 设置本群内单用户每日生图/视觉/语音转写调用额度。 |
 | `/grouppolicy chat-tokens-quota <token 数>` | 设置本群每日聊天 token 额度；provider 返回 usage 后记账。 |
@@ -317,18 +317,32 @@ Fork 会保留原会话，并从指定 assistant 消息位置创建新的上下�
 
 | 命令 | 作用 |
 | --- | --- |
-| `/tools` | 列出已注册工具和外置 Skill。 |
-| `/tools reload` | 重新扫描并加载 Skill。 |
-| `/tools remove <name> --confirm` | 删除外置 Skill 及其目录。 |
+| `/tools` / `/tools list` | 列出已注册工具和外置 Skill，并附带**当前群的工具授权状态**（普通成员也能用）。 |
+| `/tools perm` | 只看当前群的工具授权状态（继承全局 / 仅白名单 / 禁止全部）。 |
+| `/tools allow <工具名,工具名\|all\|none>` | 群主 / 群管理员 / 超级管理员授权本群工具：列出白名单、`all` 继承全局、`none` 禁止全部。白名单会自动带上 `discover_tool`。 |
+| `/tools reload` | 重新扫描并加载 Skill（超级管理员）。 |
+| `/tools remove <name> --confirm` | 删除外置 Skill 及其目录（超级管理员）。 |
 | `/tools uninstall <name> --confirm` | 等同于 remove。 |
 
 示例：
 
 ```text
 /tools
+/tools perm
+/tools allow web_search,web_extract
+/tools allow all
+/tools allow none
 /tools reload
 /tools remove my_skill --confirm
 ```
+
+权限：列出工具与查看授权状态对所有用户开放（否则群成员连"为什么某工具用不了"都看不到）；
+`allow` 需要当前群群主 / 群管理员 / 机器人超级管理员；`reload` / `remove` 仍然只允许超级管理员。
+
+`/tools allow` 与 `/grouppolicy tool-allow` 写的是同一份群策略（`state.toml` 的
+`[group_policy."<平台:scope>"]`），后台服务 15 秒内热加载，不需要重启。白名单里没写
+`discover_tool` 时命令会自动补上——缺了它，模型连"本群还有哪些工具可用"都发现不了。
+桌面端还有「工具权限」选项卡：按群在纵向工具菜单里逐个「激活」工具（每行带中文名、功能解释与激活状态，另有「常用」「只读」预设）。
 
 `/tools reload` 会先完整扫描并验证候选 Skill，再一次性替换当前集合。若存在重名 Skill、与内置工具重名或读取失败，reload 会返回错误并保留原有工具集合。
 

@@ -290,7 +290,7 @@ class ViewImageTool:
         for position, id in enumerate(args.message_id):
             try:
                 row = self.history.get_by_platform_message(
-                    ctx, chat.platform, chat.scope_id, id
+                    chat.platform, chat.scope_id, id
                 )
             except NotFoundError:
                 segments.append(_text_segment(f"[#{id}] 当前聊天没有该消息"))

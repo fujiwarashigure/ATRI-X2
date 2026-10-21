@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from atri_x.delivery import Source as DeliverySource
 from atri_x.errors import NotFoundError
 from atri_x.media.types import Input, MediaError, Source
 from atri_x.platform.media import unmarshal_chat_segments
@@ -48,7 +49,7 @@ async def import_platform(
         raise MediaError(
             f"media exceeds import limit of {manager.max_import_bytes} bytes"
         )
-    source = Source(url=(segment.url or "").strip())
+    source = DeliverySource(url=(segment.url or "").strip())
     if not source.url and resolver is not None:
         source = await resolver.resolve_media(ctx, segment, manager.max_import_bytes)
     spec = Input(

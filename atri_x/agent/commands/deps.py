@@ -351,6 +351,9 @@ class Deps:
     runtime_status: Callable[[str], Any] | None = None
     # cancel_session_inbox 丢弃还在 agent 侧合并/串行队列里排队的普通聊天消息。
     cancel_session_inbox: Callable[[str], int] | None = None
+    # tool_allowlist 渲染当前群的工具白名单状态（``/tools`` 用；``None`` 表示未接线，
+    # 命令退回不带权限状态的老输出）。
+    tool_allowlist: Callable[[Any], str] | None = None
     # file_backups 保存 ATRI-X 自己编辑过的文件在编辑前的内容，供 /rollback 撤销。
     file_backups: Any = None
     # doctor 执行 /doctor 背后的只读配置检查。

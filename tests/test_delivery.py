@@ -117,6 +117,22 @@ class TestToolPreviewDetection(unittest.TestCase):
     def test_plain_group_notices_are_kept(self) -> None:
         self.assertFalse(should_drop_group_tool_preview(Target(), [text("普通回答")], True))
 
+    def test_group_preview_switch_keeps_preview(self) -> None:
+        """Python 侧开关：打开后群聊也投递工具进度预览。"""
+        preview = text("[tool] 正在调用 shell")
+        self.assertTrue(should_drop_group_tool_preview(Target(), [preview], True))
+        self.assertFalse(
+            should_drop_group_tool_preview(
+                Target(), [preview], True, show_in_group=True
+            )
+        )
+        # 开关只影响"群聊丢弃"这一条：私聊/显式目标本来就保留。
+        self.assertFalse(
+            should_drop_group_tool_preview(
+                Target(), [preview], False, show_in_group=True
+            )
+        )
+
 
 class TestConstructorsAndFallback(unittest.TestCase):
     def test_constructors_match_go(self) -> None:

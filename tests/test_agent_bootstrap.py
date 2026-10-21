@@ -344,23 +344,19 @@ class MixinCompositionTests(unittest.TestCase):
         self.assertTrue(agent.history_enabled(ctx))
         self.assertIsInstance(agent.raw_group_policy(agent.scope(ctx)), GroupPolicyConfig)
 
-    def test_group_allowlist_empty_policy_matches_go(self) -> None:
-        """没配置群策略时 Go 也返回"限制且为空"的白名单（= 禁掉全部群工具）。
+    def test_group_allowlist_without_policy_inherits_global(self) -> None:
+        """没配置群策略 = 继承全局：白名单是 ``None``（不限制），不是空名单。
 
-        Go ``config.GroupPolicyConfig.ToolAllowlistRestricted`` 会对**已经 Normalize
-        过的**策略再 ``Normalize()`` 一次，而 ``normalizeStringList`` 对 nil 输入返回
-        **非 nil 空切片**，于是 ``c.ToolAllowlist != nil`` 成立 → ``ToolAllowlistSet``
-        被置真（``internal/config/config.go:1856/1975/2004``；Python 同形：
-        ``atri_x/config/state.py:293-295/400-403``）。本用例把这个"上游陷阱"钉住，
-        免得下一次有人以为是 agent 侧的接线 bug —— 真实语义改动必须先在 config 层做。
+        回归：旧实现把 ``None`` 归一成 ``[]``，第二次受限判定把"没配策略"读成
+        "禁止全部工具"，导致所有群的工具调用都被拒（真机事故，0.9.11）。
         """
         agent = make_agent()
         ctx = make_ctx(scope_id="group:42")
         policy = agent.group_policy_for_scope(agent.scope(ctx))
         self.assertFalse(policy.tool_allowlist_set)
-        self.assertEqual(policy.tool_allowlist, [])
-        self.assertTrue(policy.tool_allowlist_restricted())
-        self.assertEqual(agent.group_tool_allowlist(ctx), {})
+        self.assertIsNone(policy.tool_allowlist)
+        self.assertFalse(policy.tool_allowlist_restricted())
+        self.assertIsNone(agent.group_tool_allowlist(ctx))
 
     def test_background_takeover_prefers_registered_foreground_service(self) -> None:
         agent = make_agent()

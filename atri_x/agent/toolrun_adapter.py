@@ -465,11 +465,18 @@ class AgentToolRunDeps:
         return tool_result_storage_message(session_id, message)
 
     def tool_call_message(
-        self, session_id: str, content: str, raw_text: str, calls: list[Any]
+        self,
+        session_id: str,
+        content: str,
+        raw_text: str,
+        calls: list[Any],
+        reasoning: str = "",
     ) -> Any:
         from atri_x.agent.tool_transcript import tool_call_storage_message
 
-        return tool_call_storage_message(session_id, content, raw_text, calls)
+        return tool_call_storage_message(
+            session_id, content, raw_text, calls, reasoning_content=reasoning
+        )
 
     def persisted_tool_message(self, message: LLMMessage) -> LLMMessage:
         from atri_x.agent.tool_transcript import persisted_tool_message

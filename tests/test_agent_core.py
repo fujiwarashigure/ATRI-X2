@@ -430,6 +430,33 @@ class NoticeQueueTest(unittest.TestCase):
         asyncio.run(queues.close(None))
         asyncio.run(queues.close(None))
 
+    def test_queued_send_keeps_message_context_values(self) -> None:
+        """回归：队列任务必须拿回原 ctx 的值，否则 CLI/桌面端发送者找不到落点。
+
+        真实事故：``noticeQueues.send`` 只把 ``CancelToken`` 交给队列，任务里的 ctx
+        因此丢掉 message context / 远程客户端，桌面端切会话（GUI 发 ``/resume``）
+        和命令回执全部报 ``请求失败：cli target missing``。
+        """
+        from atri_x.agent.notice_queue import NoticeQueues
+        from atri_x.delivery import Notice, ctx_value, ctx_with_value, text as text_output
+        from atri_x.safecontext import CancelToken
+
+        key = object()
+        seen: list[object] = []
+
+        async def scenario() -> None:
+            queues = NoticeQueues()
+
+            async def send(run_ctx):
+                seen.append(ctx_value(run_ctx, key))
+                return object()
+
+            ctx = ctx_with_value(CancelToken(), key, "kept")
+            await queues.send(ctx, "test", Notice(outputs=[text_output("hi")]), send)
+
+        asyncio.run(scenario())
+        self.assertEqual(seen, ["kept"])
+
 
 class ActiveRequestsTest(unittest.TestCase):
     def test_active_requests_snapshot(self) -> None:

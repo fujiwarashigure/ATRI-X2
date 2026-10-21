@@ -33,12 +33,14 @@ from atri_x.tool.builtin.web_search_engines import (
     BUILTIN_PROTOCOLS,
     DEFAULT_KEY_ENV,
     PROTOCOL_ANTIGRAVITY,
+    PROTOCOL_DEEPSEEK,
     PROTOCOL_EXA,
     PROTOCOL_FIRECRAWL,
     PROTOCOL_GROK,
     PROTOCOL_KEENABLE,
     PROTOCOL_SEARXNG,
     PROTOCOL_TAVILY,
+    key_env_names,
 )
 
 __all__ = [
@@ -54,6 +56,7 @@ __all__ = [
 
 #: 协议在界面上的显示名。
 PROTOCOL_LABELS: dict[str, str] = {
+    PROTOCOL_DEEPSEEK: "DeepSeek 官方搜索（要 key，按次计费）",
     PROTOCOL_TAVILY: "Tavily（要 key，带答案摘要）",
     PROTOCOL_FIRECRAWL: "Firecrawl（免注册 / 可填 key 提额）",
     PROTOCOL_KEENABLE: "Keenable（免注册 / 可填 key 提额）",
@@ -65,6 +68,10 @@ PROTOCOL_LABELS: dict[str, str] = {
 
 #: 每个协议的一句话说明（改协议时显示在表单下方）。
 PROTOCOL_HINTS: dict[str, str] = {
+    PROTOCOL_DEEPSEEK: (
+        "官方端点 api.deepseek.com/v1/tools/search（自研搜索引擎，结果带长摘要/日期/权威度）；"
+        "按成功请求计费 5 元 / 1000 次。密钥优先 DEEPSEEK_SEARCH_KEY，回落 DEEPSEEK_API_KEY。"
+    ),
     PROTOCOL_TAVILY: "官方端点 api.tavily.com，每月 1000 credits；返回 Answer 摘要。",
     PROTOCOL_FIRECRAWL: "不带 key 走免注册额度（按出口 IP 每月 1000 credits）；填 key 换成自己的。",
     PROTOCOL_KEENABLE: "不带 key 走免注册额度（按出口 IP 每小时 1000 次）；填 key 每月 10 万次。",
@@ -76,6 +83,7 @@ PROTOCOL_HINTS: dict[str, str] = {
 
 #: 服务地址输入框的占位提示（留空 = 用该协议的官方端点）。
 _PROTOCOL_BASE_PLACEHOLDER: dict[str, str] = {
+    PROTOCOL_DEEPSEEK: "留空 = https://api.deepseek.com/v1/tools/search",
     PROTOCOL_TAVILY: "留空 = https://api.tavily.com/search",
     PROTOCOL_FIRECRAWL: "留空 = https://api.firecrawl.dev/v2/search",
     PROTOCOL_KEENABLE: "留空 = https://api.keenable.ai/v1/search(/public)",
@@ -113,7 +121,13 @@ def default_engines() -> list[SearchEngineView]:
     """默认通道链：与 ``web_search`` 的环境变量默认链一致。"""
     return [
         SearchEngineView(name=name, protocol=name, api_key_env=DEFAULT_KEY_ENV.get(name, ""))
-        for name in (PROTOCOL_TAVILY, PROTOCOL_FIRECRAWL, PROTOCOL_KEENABLE, PROTOCOL_EXA)
+        for name in (
+            PROTOCOL_DEEPSEEK,
+            PROTOCOL_TAVILY,
+            PROTOCOL_FIRECRAWL,
+            PROTOCOL_KEENABLE,
+            PROTOCOL_EXA,
+        )
     ]
 
 
@@ -204,8 +218,20 @@ def save_engines(paths: ConfigPaths, engines: list[SearchEngineView]) -> str:
 
 
 def engine_key_state(paths: ConfigPaths, view: SearchEngineView) -> KeyState:
-    """算一条通道的密钥状态（进程环境变量优先，其次 ``.env``）。"""
-    return secret_state(paths, view.api_key_env)
+    """算一条通道的密钥状态（进程环境变量优先，其次 ``.env``）。
+
+    按 :func:`key_env_names` 的优先级逐个环境变量看：任一已配置就算可用
+    （DeepSeek 的 ``DEEPSEEK_SEARCH_KEY`` → ``DEEPSEEK_API_KEY`` 回落口径与工具层一致）。
+    """
+    names = key_env_names(view.protocol, view.api_key_env)
+    if not names:
+        return secret_state(paths, "")
+    first = secret_state(paths, names[0])
+    for name in names:
+        state = secret_state(paths, name)
+        if state.configured:
+            return state
+    return first
 
 
 def _existing_engine_names(target: str) -> list[str]:

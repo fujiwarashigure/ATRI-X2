@@ -13,12 +13,13 @@
 
 * Go 版只有 Tavily 一条通道，没有 ``TAVILY_API_KEY`` 时工具直接不可用。Python 版按
   ``[web_search]`` 配置（桌面端「模型 → 搜索服务」页写的就是它）逐条尝试通道，失败自动
-  换下一条；配置段缺席时回落到「Tavily → Firecrawl 免注册 → Keenable 免注册 → Exa」的
-  环境变量默认链，其中 Tavily / Exa 需要各自的 key 才参与。
+  换下一条；配置段缺席时回落到「DeepSeek（有 key 才参与）→ Tavily → Firecrawl 免注册 →
+  Keenable 免注册 → Exa」的环境变量默认链，其中 DeepSeek / Tavily / Exa 需要各自的 key
+  才参与。
 * 各通道的请求与解析见 :mod:`atri_x.tool.builtin.web_search_engines`（HTTP 通道）与
   :mod:`atri_x.tool.builtin.web_search_cli`（``agy`` / ``grok`` 外部 CLI 通道）。
 * 所有通道都归一成 :class:`~atri_x.tool.builtin.web_search_engines.SearchOutcome` 再渲染，
-  因此「Tavily 有答案摘要、其他通道只有条目」这一点只影响文本内容，不影响工具契约。
+  因此「Tavily / DeepSeek 有摘要、其他通道只有条目」这一点只影响文本内容，不影响工具契约。
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from atri_x.tool.builtin.web_search_engines import (
     DEFAULT_KEY_ENV,
     KEYED_PROTOCOLS,
     PROTOCOL_ANTIGRAVITY,
+    PROTOCOL_DEEPSEEK,
     PROTOCOL_EXA,
     PROTOCOL_FIRECRAWL,
     PROTOCOL_GROK,
@@ -55,6 +57,7 @@ from atri_x.tool.builtin.web_search_engines import (
     SearchOutcome,
     SearchQuery,
     default_specs,
+    search_deepseek,
     search_exa,
     search_firecrawl,
     search_keenable,
@@ -210,6 +213,14 @@ class WebSearchTool:
         """按协议跑一条通道；通道级失败抛 :class:`EngineFailure`。"""
         search_query = self.search_query(args, query)
         api_key = self.engine_api_key(ctx, spec)
+        if spec.protocol == PROTOCOL_DEEPSEEK:
+            return await search_deepseek(
+                client,
+                search_query,
+                api_key=api_key,
+                endpoint=spec.base_url,
+                timeout=SEARCH_TIMEOUT_SECONDS,
+            )
         if spec.protocol == PROTOCOL_TAVILY:
             return await self.search_tavily(
                 client,
@@ -353,8 +364,9 @@ class WebSearchTool:
         raise InvalidError(
             "web_search 没有可用通道：候选 "
             + missing
-            + " 都缺少必要配置（Tavily / Exa 需要各自的 API Key，例如 "
-            + f"{DEFAULT_KEY_ENV[PROTOCOL_TAVILY]}；SearXNG 需要服务地址）。"
+            + " 都缺少必要配置（Tavily / Exa / DeepSeek 需要各自的 API Key，例如 "
+            + f"{DEFAULT_KEY_ENV[PROTOCOL_TAVILY]}、{DEFAULT_KEY_ENV[PROTOCOL_DEEPSEEK]}；"
+            + "SearXNG 需要服务地址）。"
             + "到「模型 → 搜索服务」页补上，或加入 firecrawl / keenable 免注册通道；"
             + f"也可以留空 {WEB_SEARCH_ENGINES_ENV} 使用默认链。"
         )
@@ -375,9 +387,16 @@ class WebSearchTool:
         return True
 
     def engine_api_key(self, ctx: Any, spec: SearchEngineSpec) -> str:
-        """取一条通道的密钥：``api_key_env`` 优先，其次协议内置的环境变量名。"""
-        name = spec.key_env()
-        return _lookup_env(self.process_env, ctx, name) if name != "" else ""
+        """取一条通道的密钥：按 ``key_envs()`` 顺序找第一个非空环境变量。
+
+        DeepSeek 的口径是「``DEEPSEEK_SEARCH_KEY`` 优先，回落 ``DEEPSEEK_API_KEY``」；
+        其它协议通常只有一个环境变量名。
+        """
+        for name in spec.key_envs():
+            value = _lookup_env(self.process_env, ctx, name)
+            if value != "":
+                return value
+        return ""
 
     def http_client(self) -> HTTPClient:
         """对应 Go ``WebSearchTool.httpClient``。"""
@@ -404,9 +423,10 @@ def web_search_builder() -> Builder:
         Builder("web_search")
         .description(
             "执行网页搜索，返回简洁答案、来源链接和摘要；需要完整网页内容时继续调用 "
-            "web_extract。搜索通道在「模型 → 搜索服务」页配置（Tavily / Firecrawl / "
-            "Keenable / Exa / SearXNG / agy / grok / 自定义），按顺序自动降级；"
-            "未配置任何通道时用 Tavily → Firecrawl → Keenable 的免注册默认链。"
+            "web_extract。搜索通道在「模型 → 搜索服务」页配置（DeepSeek / Tavily / "
+            "Firecrawl / Keenable / Exa / SearXNG / agy / grok / 自定义），按顺序自动降级；"
+            "未配置任何通道时用 DeepSeek（有 key 才参与）→ Tavily → Firecrawl → Keenable "
+            "的默认链。"
         )
         .risk(RiskLow)
         .tags("web")

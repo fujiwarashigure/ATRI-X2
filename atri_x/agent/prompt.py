@@ -247,7 +247,9 @@ def storage_message_to_llm(
     if role == Role.TOOL:
         out.name = tool_name_from_metadata(metadata_raw)
     if role == Role.ASSISTANT:
-        out.tool_calls = assistant_message_metadata(metadata_raw).tool_calls
+        assistant_meta = assistant_message_metadata(metadata_raw)
+        out.tool_calls = assistant_meta.tool_calls
+        out.reasoning_content = assistant_meta.reasoning_content
     return out
 
 
@@ -268,10 +270,15 @@ def message_segments_from_storage(raw: str) -> list[MessageSegment]:
 
 @dataclass
 class AssistantMetadata:
-    """assistant 消息 metadata。对应 Go ``assistantMetadata``（``tool_transcript.go``）。"""
+    """assistant 消息 metadata。对应 Go ``assistantMetadata``（``tool_transcript.go``）。
+
+    ``reasoning_content`` 是 Python 侧追加字段：思考模式的历史思维链必须能在重建
+    请求时原样回传（携带 tools 的请求，上游按协议强制要求）。
+    """
 
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     raw_text: str = ""
+    reasoning_content: str = ""
 
 
 def assistant_message_metadata(metadata: str) -> AssistantMetadata:
@@ -313,7 +320,11 @@ def assistant_message_metadata(metadata: str) -> AssistantMetadata:
                 arguments=str(raw.get("arguments") or ""),
             )
         )
-    return AssistantMetadata(tool_calls=calls, raw_text=str(data.get("raw_text") or ""))
+    return AssistantMetadata(
+        tool_calls=calls,
+        raw_text=str(data.get("raw_text") or ""),
+        reasoning_content=str(data.get("reasoning_content") or ""),
+    )
 
 
 def tool_name_from_metadata(metadata: str) -> str:

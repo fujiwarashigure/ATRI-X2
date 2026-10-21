@@ -7,6 +7,10 @@ Python 版按职责把「一条通道怎么发请求、怎么解析」放在本�
 通道来自 modsearch 的备选引擎（Tavily 的实现仍留在 ``web_search.py``，以保持与 Go
 同名字段的对照）：
 
+* ``deepseek``：``POST https://api.deepseek.com/v1/tools/search``，DeepSeek 官方自研
+  搜索引擎（Bearer 鉴权，与聊天 API 同一把 key，但建议用 ``DEEPSEEK_SEARCH_KEY``
+  单独配置，回落 ``DEEPSEEK_API_KEY``）。结果带 rerank 分数、长摘要、发布日期与
+  权威度；按成功请求计费（5 元 / 1000 次）。
 * ``firecrawl``：``POST https://api.firecrawl.dev/v2/search``。不带 ``Authorization``
   就走免注册额度（按出口 IP 计，每月 1000 credits）；带 ``FIRECRAWL_API_KEY`` 时换成
   自己的额度。
@@ -17,8 +21,9 @@ Python 版按职责把「一条通道怎么发请求、怎么解析」放在本�
 * ``searxng``：``GET {base_url}/search?format=json``，自建实例；``base_url`` 必填。
 * ``antigravity`` / ``grok``：外部 CLI 通道，见 :mod:`atri_x.tool.builtin.web_search_cli`。
 
-除 Tavily 外都只返回「标题 + URL + 摘要」，没有模型写的答案，所以 ``answer`` 为空，
-``warnings`` 里说明摘要由通道机械生成。本模块不读环境变量：密钥、端点、超时都由
+除 Tavily / DeepSeek 外都只返回「标题 + URL + 摘要」，没有模型写的答案，所以
+``answer`` 为空；DeepSeek 的 ``summary``（600~800 字）填进 ``snippet`` 供模型阅读。
+``warnings`` 里说明摘要生成方式与计费口径。本模块不读环境变量：密钥、端点、超时都由
 调用方传入，便于测试注入。
 """
 
@@ -31,12 +36,15 @@ from atri_x.net.httpclient import HTTPError
 
 FIRECRAWL_API_KEY_ENV = "FIRECRAWL_API_KEY"
 KEENABLE_API_KEY_ENV = "KEENABLE_API_KEY"
+DEEPSEEK_KEY_ENVS = ("DEEPSEEK_SEARCH_KEY", "DEEPSEEK_API_KEY")
 FIRECRAWL_DEFAULT_ENDPOINT = "https://api.firecrawl.dev/v2/search"
 KEENABLE_KEYLESS_ENDPOINT = "https://api.keenable.ai/v1/search/public"
 KEENABLE_KEYED_ENDPOINT = "https://api.keenable.ai/v1/search"
 EXA_DEFAULT_ENDPOINT = "https://api.exa.ai/search"
+DEEPSEEK_DEFAULT_ENDPOINT = "https://api.deepseek.com/v1/tools/search"
 
 # -- 协议名（``[web_search.engines.<name>].protocol`` 的取值） -----------------
+PROTOCOL_DEEPSEEK = "deepseek"
 PROTOCOL_TAVILY = "tavily"
 PROTOCOL_FIRECRAWL = "firecrawl"
 PROTOCOL_KEENABLE = "keenable"
@@ -46,6 +54,7 @@ PROTOCOL_ANTIGRAVITY = "antigravity"
 PROTOCOL_GROK = "grok"
 #: 全部可选协议（``web_search`` 工具与桌面端下拉共用这份清单）。
 BUILTIN_PROTOCOLS = (
+    PROTOCOL_DEEPSEEK,
     PROTOCOL_TAVILY,
     PROTOCOL_FIRECRAWL,
     PROTOCOL_KEENABLE,
@@ -55,17 +64,22 @@ BUILTIN_PROTOCOLS = (
     PROTOCOL_GROK,
 )
 #: 必须配 API key 才能用的协议。
-KEYED_PROTOCOLS = (PROTOCOL_TAVILY, PROTOCOL_EXA)
+KEYED_PROTOCOLS = (PROTOCOL_DEEPSEEK, PROTOCOL_TAVILY, PROTOCOL_EXA)
 #: 免注册协议：没有 key 也能搜。
 KEYLESS_PROTOCOLS = (PROTOCOL_FIRECRAWL, PROTOCOL_KEENABLE)
 #: 外部 CLI 协议：需要本机装好并登录对应命令行。
 CLI_PROTOCOLS = (PROTOCOL_ANTIGRAVITY, PROTOCOL_GROK)
 #: 配置里 ``api_key_env`` 留空时按协议回落到这个环境变量名。
 DEFAULT_KEY_ENV = {
+    PROTOCOL_DEEPSEEK: DEEPSEEK_KEY_ENVS[0],
     PROTOCOL_TAVILY: "TAVILY_API_KEY",
     PROTOCOL_FIRECRAWL: "FIRECRAWL_API_KEY",
     PROTOCOL_KEENABLE: "KEENABLE_API_KEY",
     PROTOCOL_EXA: "EXA_API_KEY",
+}
+#: 首选密钥环境变量都没配时，再回落这些（只用于「同一提供商另有通用 key」的场景）。
+FALLBACK_KEY_ENV = {
+    PROTOCOL_DEEPSEEK: DEEPSEEK_KEY_ENVS[1],
 }
 #: 必须显式给服务地址的协议（自建 SearXNG 没有官方默认端点）。
 ENDPOINT_REQUIRED_PROTOCOLS = (PROTOCOL_SEARXNG,)
@@ -73,10 +87,34 @@ ENDPOINT_REQUIRED_PROTOCOLS = (PROTOCOL_SEARXNG,)
 KEYLESS_APP_TITLE = "atri-x"
 #: Keenable 只接受 1 到 50 的结果数。
 KEENABLE_MAX_RESULTS = 50
+#: DeepSeek 搜索的 ``count`` 取值范围。
+DEEPSEEK_MAX_RESULTS = 50
 #: Firecrawl 的 ``timeout`` 字段取值范围（毫秒）。
 FIRECRAWL_TIMEOUT_FLOOR_MS = 1_000
 FIRECRAWL_TIMEOUT_CEILING_MS = 300_000
 _MAX_HTTP_BODY = 2048
+
+
+def key_env_names(protocol: str, api_key_env: str = "") -> tuple[str, ...]:
+    """一条通道按优先级读取的密钥环境变量名。
+
+    显式配置了 ``api_key_env`` 就只用它；显式配置成协议的首选名（或留空）时，
+    再追加该协议的兜底环境变量（目前只有 DeepSeek：``DEEPSEEK_SEARCH_KEY``
+    → ``DEEPSEEK_API_KEY``）。桌面端与工具层共用这一处口径，避免「界面显示已设置、
+    实际取不到 key」。
+    """
+    explicit = (api_key_env or "").strip()
+    default = DEFAULT_KEY_ENV.get(protocol, "")
+    fallback = FALLBACK_KEY_ENV.get(protocol, "")
+    if explicit != "":
+        names = [explicit]
+        if fallback != "" and explicit == default:
+            names.append(fallback)
+        return tuple(names)
+    names = [default] if default != "" else []
+    if fallback != "":
+        names.append(fallback)
+    return tuple(names)
 
 
 class EngineFailure(Exception):
@@ -132,8 +170,13 @@ class SearchEngineSpec:
     binary: str = ""
 
     def key_env(self) -> str:
-        """密钥环境变量名：显式配置优先，否则用协议的内置名（CLI/自建通道为空）。"""
-        return self.api_key_env.strip() or DEFAULT_KEY_ENV.get(self.protocol, "")
+        """首个密钥环境变量名（显式配置优先，否则用协议内置名；CLI/自建通道为空）。"""
+        names = key_env_names(self.protocol, self.api_key_env)
+        return names[0] if names else ""
+
+    def key_envs(self) -> tuple[str, ...]:
+        """这条通道按优先级读取的全部密钥环境变量名。"""
+        return key_env_names(self.protocol, self.api_key_env)
 
 
 def specs_from_config(config: Any) -> list[SearchEngineSpec]:
@@ -170,11 +213,83 @@ def specs_from_config(config: Any) -> list[SearchEngineSpec]:
 
 
 def default_specs() -> list[SearchEngineSpec]:
-    """``[web_search]`` 缺席时的默认通道链（与 0.9.6 的行为一致，外加 Exa 有 key 才参与）。"""
+    """``[web_search]`` 缺席时的默认通道链。
+
+    DeepSeek 官方搜索排在首位：只有 ``DEEPSEEK_SEARCH_KEY`` / ``DEEPSEEK_API_KEY``
+    配了才参与（``KEYED_PROTOCOLS`` 的跳过规则），没配时行为与 0.9.9 一致。
+    """
     return [
-        SearchEngineSpec(name=name, protocol=name, api_key_env=DEFAULT_KEY_ENV.get(name, ""))
-        for name in (PROTOCOL_TAVILY, PROTOCOL_FIRECRAWL, PROTOCOL_KEENABLE, PROTOCOL_EXA)
+        SearchEngineSpec(
+            name=name,
+            protocol=name,
+            api_key_env=DEFAULT_KEY_ENV.get(name, ""),
+        )
+        for name in (
+            PROTOCOL_DEEPSEEK,
+            PROTOCOL_TAVILY,
+            PROTOCOL_FIRECRAWL,
+            PROTOCOL_KEENABLE,
+            PROTOCOL_EXA,
+        )
     ]
+
+
+async def search_deepseek(
+    client: Any,
+    query: SearchQuery,
+    *,
+    api_key: str = "",
+    endpoint: str = "",
+    timeout: float = 15.0,
+) -> SearchOutcome:
+    """DeepSeek 官方网页搜索（``POST {base_url}/v1/tools/search``）。
+
+    请求体只发工具能给出的字段：``query`` / ``count``；``need_content`` 固定 ``false``
+    （正文交给 ``web_extract``，避免搜索把整页内容灌进上下文）。响应里的 ``summary``
+    （600~800 字，给模型阅读）填进 ``SearchHit.snippet``，``date`` 有值时前置成
+    「（发布：YYYY-MM-DD）」，没有模型写的答案，所以 ``answer`` 为空。
+    """
+    if not api_key:
+        raise EngineFailure(
+            "DeepSeek 搜索通道缺少密钥（DEEPSEEK_SEARCH_KEY / DEEPSEEK_API_KEY 未配置）"
+        )
+    payload = {
+        "query": query.query,
+        "count": _clamp_deepseek_count(query.max_results),
+        "need_content": False,
+    }
+    data = await _post_json(
+        client,
+        (endpoint or "").strip() or DEEPSEEK_DEFAULT_ENDPOINT,
+        payload,
+        {"Authorization": "Bearer " + api_key},
+        timeout,
+        "DeepSeek 搜索",
+    )
+    hits: list[SearchHit] = []
+    for item in data.get("results") or []:
+        if not isinstance(item, dict):
+            continue
+        snippet = _as_str(item.get("summary")) or _as_str(item.get("snippet"))
+        date = _as_str(item.get("date"))
+        if date:
+            published = f"（发布：{date[:10]}）"
+            snippet = published + ("\n" + snippet if snippet else "")
+        hits.append(
+            SearchHit(
+                title=_as_str(item.get("title")),
+                url=_as_str(item.get("url")),
+                snippet=snippet,
+            )
+        )
+    return SearchOutcome(
+        engine=PROTOCOL_DEEPSEEK,
+        hits=hits,
+        warnings=[
+            "DeepSeek 官方搜索引擎（自研索引）：结果带相关性/权威度/发布日期排序，"
+            "摘要由通道生成；该通道按成功请求计费（5 元 / 1000 次）。"
+        ],
+    )
 
 
 async def search_firecrawl(
@@ -416,6 +531,15 @@ def _clamp_max_results(max_results: int) -> int:
         return 5
     if max_results > 20:
         return 20
+    return max_results
+
+
+def _clamp_deepseek_count(max_results: int) -> int:
+    """DeepSeek 的 ``count`` 取值 1~50；工具层已经把它收敛到 1~20。"""
+    if max_results <= 0:
+        return 5
+    if max_results > DEEPSEEK_MAX_RESULTS:
+        return DEEPSEEK_MAX_RESULTS
     return max_results
 
 

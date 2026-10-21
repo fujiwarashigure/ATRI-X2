@@ -35,7 +35,7 @@ from atri_x.llm.openai.openai import (
     to_openai_messages,
 )
 from atri_x.llm.openai.stream import MAX_STREAM_LINE_BYTES
-from atri_x.llm.openai.wire import retry_delay, to_usage
+from atri_x.llm.openai.wire import retry_delay, to_usage, uses_reasoning_protocol
 from atri_x.net.httpclient import HTTPStream
 
 # ---------------------------------------------------------------------------
@@ -1154,6 +1154,75 @@ class TestRequestPayload(_StreamCase):
         tool_message = body["messages"][1]
         self.assertEqual((tool_message["role"], tool_message["tool_call_id"], tool_message["name"]),
                          ("tool", "call_1", "shell"))
+
+    def test_assistant_reasoning_content_roundtrips(self) -> None:
+        """思考模式：assistant 的 reasoning_content 必须原样出现在请求体里。"""
+        messages = to_openai_messages(
+            [
+                LLMMessage(
+                    role=Role.ASSISTANT,
+                    tool_calls=[ToolCallRequest(id="call_1", name="shell", arguments="{}")],
+                    reasoning_content="先想一下",
+                ),
+                LLMMessage(
+                    role=Role.TOOL,
+                    name="shell",
+                    tool_call_id="call_1",
+                    segments=text_segments("ok"),
+                ),
+                LLMMessage(role=Role.ASSISTANT, segments=text_segments("完成")),
+            ]
+        )
+        self.assertEqual(messages[0]["reasoning_content"], "先想一下")
+        self.assertEqual(messages[0]["tool_calls"][0]["id"], "call_1")
+        # 没有思维链的 assistant 消息不应凭空多出厂商扩展字段。
+        self.assertNotIn("reasoning_content", messages[2])
+
+    def test_deepseek_tool_calls_always_carry_reasoning_field(self) -> None:
+        """DeepSeek 系：带 tool_calls 的 assistant 即使思维链为空也要写 ``""``。"""
+        messages = to_openai_messages(
+            [
+                LLMMessage(
+                    role=Role.ASSISTANT,
+                    tool_calls=[ToolCallRequest(id="call_1", name="shell", arguments="{}")],
+                )
+            ],
+            include_reasoning=True,
+        )
+        self.assertEqual(messages[0]["reasoning_content"], "")
+        # 非 DeepSeek 目标：不写该字段。
+        plain = to_openai_messages(
+            [
+                LLMMessage(
+                    role=Role.ASSISTANT,
+                    tool_calls=[ToolCallRequest(id="call_1", name="shell", arguments="{}")],
+                )
+            ],
+            include_reasoning=False,
+        )
+        self.assertNotIn("reasoning_content", plain[0])
+
+    def test_uses_reasoning_protocol_detects_deepseek_family(self) -> None:
+        self.assertTrue(uses_reasoning_protocol("deepseek", "deepseek-v4-pro"))
+        self.assertTrue(uses_reasoning_protocol("opencode", "deepseek-v4.1-flash"))
+        self.assertFalse(uses_reasoning_protocol("openai", "gpt-4o-mini"))
+
+    def test_build_body_marks_deepseek_tool_calls_with_reasoning(self) -> None:
+        client = OpenAIClient("http://127.0.0.1:1", "k")
+        body = client.build_body(
+            ChatRequest(
+                model="deepseek-v4.1-flash",
+                provider="opencode",
+                tools=[ToolSchema(function=ToolFunctionSchema(name="shell"))],
+                messages=[
+                    LLMMessage(
+                        role=Role.ASSISTANT,
+                        tool_calls=[ToolCallRequest(id="c1", name="shell", arguments="{}")],
+                    )
+                ],
+            )
+        )
+        self.assertEqual(body["messages"][0]["reasoning_content"], "")
 
     def test_tool_images_become_one_user_message(self) -> None:
         messages = to_openai_messages(

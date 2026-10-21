@@ -15,10 +15,12 @@ from datetime import datetime, timedelta, timezone
 
 from atri_x.delivery import KindFile, KindImage
 from atri_x.errors import InvalidError, NotFoundError
+from atri_x.historygate import wrap_chat
 from atri_x.llm.llm import SegmentImage, SegmentText
 from atri_x.media import Input
 from atri_x.security import Actor, RoleSuperadmin, RoleUser, with_actor
-from atri_x.storage import Media
+from atri_x.storage import ChatMessage, Media
+from atri_x.storage.sqlite import new_chat_history
 from atri_x.tool.builtin.common import go_json
 from atri_x.tool.builtin.cron import (
     CRON_QUERY_TOOL_NAME,
@@ -458,10 +460,13 @@ class FakeHistory:
     def __init__(self, rows: dict[str, object] | None = None) -> None:
         self.rows = rows or {}
 
-    def get_by_platform_message(self, ctx, platform, scope_id, id):
-        if id not in self.rows:
+    #: 必须与 :class:`atri_x.storage.repositories.ChatHistoryRepository` 的
+    #: 真实签名一致（同步、不带 ctx）——假仓储多收一个 ``ctx`` 会把
+    #: 「调用方多传 ctx」这类 bug 全部掩盖掉（0.9.12 真机踩过）。
+    def get_by_platform_message(self, platform, scope_id, message_id):
+        if message_id not in self.rows:
             raise NotFoundError("not found")
-        return self.rows[id]
+        return self.rows[message_id]
 
 
 class FakeRow:
@@ -600,6 +605,49 @@ class FakeImageCenter:
 
     async def get_history_media(self, ctx, row, index, resolver):
         return Media(id=MEDIA_A, name="h.png", mime_type=self.mime)
+
+
+class RealHistoryRepositoryTest(unittest.TestCase):
+    """``get_media`` / ``view_image`` × 真实 SQLite 历史仓储。
+
+    真机 bug（0.9.12 群聊发图）：工具调用方给**同步**仓储
+    :meth:`ChatHistoryRepository.get_by_platform_message` 多传了一个 ``ctx``，报
+    ``ChatRepository.get_by_platform_message() takes 4 positional arguments but 5 were given``，
+    ``view_image`` / ``get_media`` 全部读不到图。这里用真仓储（外面套
+    ``historygate.ChatRepository``，与运行时同一条链路）锁住签名。
+    """
+
+    def setUp(self) -> None:
+        shutil.rmtree(TMP_ROOT, ignore_errors=True)
+        os.makedirs(TMP_ROOT, exist_ok=True)
+        self.history = new_chat_history(os.path.join(TMP_ROOT, "chat_history.db"))
+        self.wrapped = wrap_chat(self.history.repository(), None)
+        self.wrapped.append(
+            ChatMessage(
+                platform="qq",
+                platform_scope_id="g1",
+                scope_type="group",
+                platform_message_id="m1",
+                sender_id="u1",
+                sender_name="tester",
+                segments=json.dumps([{"type": SegmentImage}]),
+            )
+        )
+
+    def tearDown(self) -> None:
+        self.history.close()
+        shutil.rmtree(TMP_ROOT, ignore_errors=True)
+
+    def test_get_media_message_source(self) -> None:
+        tool = new_get_media_tool(self.wrapped, FakeCenter({1: MEDIA_A}))
+        result = _run(tool.call(_chat_ctx(), _req("get_media", {"message_id": ["m1"]})))
+        self.assertIn(f"[#m1] 1. [图片 media:{'a' * 64}]", result.content)
+
+    def test_view_image_message_source(self) -> None:
+        tool = new_view_image_tool(self.wrapped, FakeImageCenter())
+        ctx = _vision_ctx(extra=_chat_ctx())
+        result = _run(tool.call(ctx, _req(VIEW_IMAGE_NAME, {"message_id": ["m1"]})))
+        self.assertEqual(result.segments[1].type, SegmentImage)
 
 
 class ViewImageToolTest(unittest.TestCase):

@@ -53,6 +53,7 @@ __all__ = [
     "to_openai_tool_calls",
     "to_openai_tools",
     "to_usage",
+    "uses_reasoning_protocol",
     "with_image_references",
 ]
 
@@ -288,6 +289,16 @@ def openai_tool_content(
     return content, images
 
 
+def uses_reasoning_protocol(provider: str, model: str) -> bool:
+    """provider/model 是否属于 DeepSeek 系思考模式协议族。
+
+    ``reasoning_content`` 是 DeepSeek 的扩展字段；官方 provider 名是 ``deepseek``，
+    第三方中转站通常沿用 ``deepseek-*`` 模型名。只有这类目标才写该字段（含空串），
+    避免 OpenAI 等厂商拒收未知字段。
+    """
+    return "deepseek" in (str(provider or "") + " " + str(model or "")).lower()
+
+
 def to_openai_tool_calls(calls: Sequence[ToolCallRequest]) -> list[dict[str, Any]]:
     """对应 Go ``toOpenAIToolCalls``。"""
     return [
@@ -315,8 +326,19 @@ def to_openai_tools(tools: Sequence[ToolSchema]) -> list[dict[str, Any]]:
     ]
 
 
-def openai_message(message: LLMMessage, content: Any) -> dict[str, Any]:
-    """对应 Go ``openAIMessage`` 的 struct tag（空 name/tool_call_id/tool_calls 省略）。"""
+def openai_message(
+    message: LLMMessage, content: Any, *, include_reasoning: bool = False
+) -> dict[str, Any]:
+    """对应 Go ``openAIMessage`` 的 struct tag（空 name/tool_call_id/tool_calls 省略）。
+
+    ``reasoning_content`` 是 DeepSeek 思考模式的扩展字段：携带 ``tools`` 的请求必须
+    把历史 assistant 的思维链原样回传，否则上游返回 400。
+
+    * 消息本身带思维链时总是写入（能返回该字段的模型/网关通常也认它）；
+    * ``include_reasoning=True``（DeepSeek 系 provider）时，带 ``tool_calls`` 的
+      assistant 消息即使思维链为空也写 ``""``：思考模式的上游按「字段必须存在」
+      校验，缺字段同样会 400。其它厂商不写，避免它们拒收未知字段。
+    """
     out: dict[str, Any] = {"role": message.role, "content": content}
     if message.name:
         out["name"] = message.name
@@ -324,18 +346,27 @@ def openai_message(message: LLMMessage, content: Any) -> dict[str, Any]:
         out["tool_call_id"] = message.tool_call_id
     if message.tool_calls:
         out["tool_calls"] = to_openai_tool_calls(message.tool_calls)
+    if message.role == Role.ASSISTANT:
+        if message.reasoning_content:
+            out["reasoning_content"] = message.reasoning_content
+        elif include_reasoning and message.tool_calls:
+            out["reasoning_content"] = ""
     return out
 
 
 def to_openai_messages(
     messages: Sequence[LLMMessage],
     resolve_image: Callable[[MessageSegment], str] | None = None,
+    *,
+    include_reasoning: bool = False,
 ) -> list[dict[str, Any]]:
     """对应 Go ``toOpenAIMessages``。
 
     工具图片派生规则（源于架构文档）：同一批工具图片在**所有 tool message
     之后**派生为**一条** user 多模态消息，其中每张图片前插入带序号与可复用
     URL 的文本标签；这些派生内容不持久化。
+
+    ``include_reasoning`` 见 :func:`openai_message`：DeepSeek 系 provider 传 True。
     """
     out: list[dict[str, Any]] = []
     index = 0
@@ -345,7 +376,11 @@ def to_openai_messages(
         segments = resolve_segments(message.segments, resolve_image)
         if message.role != Role.TOOL:
             out.append(
-                openai_message(message, to_openai_content(with_image_references(segments)))
+                openai_message(
+                    message,
+                    to_openai_content(with_image_references(segments)),
+                    include_reasoning=include_reasoning,
+                )
             )
             index += 1
             continue
@@ -356,7 +391,11 @@ def to_openai_messages(
             content, images = openai_tool_content(
                 resolve_segments(tool_message.segments, resolve_image)
             )
-            out.append(openai_message(tool_message, content))
+            out.append(
+                openai_message(
+                    tool_message, content, include_reasoning=include_reasoning
+                )
+            )
             if images:
                 carrier.append(
                     MessageSegment(

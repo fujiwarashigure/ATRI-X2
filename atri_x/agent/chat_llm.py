@@ -81,6 +81,9 @@ class LLMCallResult:
 
     text: str = ""
     raw_text: str = ""
+    #: 思考型模型本轮返回的思维链。携带 tools 的后续请求必须把它随 assistant
+    #: 消息原样回传（DeepSeek 思考模式硬性要求），否则上游 400。
+    reasoning_content: str = ""
     usage: Usage | None = None
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     outputs: list[Output] = field(default_factory=list)
@@ -248,6 +251,7 @@ async def _stream_chat(
         messages=request_messages,
         tools=list(tools or []),
     )
+    req.provider = selection.provider
     if request_options.temperature is not None:
         req.temperature = float(request_options.temperature)
     if request_options.max_tokens is not None:
@@ -256,6 +260,7 @@ async def _stream_chat(
         req.extra_body = dict(request_options.extra_body)
 
     assistant: list[str] = []
+    reasoning: list[str] = []
     usage: Usage | None = None
     tool_calls: list[ToolCallRequest] = []
     show_reasoning = should_show_cli_reasoning(agent, ctx)
@@ -273,7 +278,7 @@ async def _stream_chat(
             iterator = await _open_stream(agent, ctx, selection, req)
         except BaseException as exc:  # noqa: BLE001 - 对应 Go 的 err != nil 分支
             if is_cancellation(ctx_error(ctx)):
-                return _accumulated(assistant, usage, tool_calls, base_messages, stream)
+                return _accumulated(assistant, usage, tool_calls, base_messages, stream, reasoning)
             if _can_retry_without_vision(
                 request_messages, exc, "".join(assistant), len(tool_calls), reasoning_open, ctx
             ):
@@ -310,11 +315,11 @@ async def _stream_chat(
             raise RuntimeError(f"chat: {exc}") from exc
         async for chunk in iterator:
             if not agent.turn_output_allowed(ctx):
-                return _accumulated(assistant, usage, tool_calls, base_messages, stream)
+                return _accumulated(assistant, usage, tool_calls, base_messages, stream, reasoning)
             error = getattr(chunk, "error", None)
             if error is not None:
                 if is_cancellation(ctx_error(ctx)):
-                    return _accumulated(assistant, usage, tool_calls, base_messages, stream)
+                    return _accumulated(assistant, usage, tool_calls, base_messages, stream, reasoning)
                 if should_fallback_vision(request_messages, error):
                     if _can_retry_without_vision(
                         request_messages,
@@ -385,6 +390,10 @@ async def _stream_chat(
             if getattr(chunk, "usage", None) is not None:
                 usage = chunk.usage
             delta_reasoning = getattr(chunk, "delta_reasoning_content", "") or ""
+            if delta_reasoning:
+                # 思维链必须完整留存：工具阶段之后的每一次续轮都要把它随
+                # assistant 消息回传，否则思考模式的上游会 400。
+                reasoning.append(delta_reasoning)
             if delta_reasoning and show_reasoning:
                 if not reasoning_open:
                     await out.send_reasoning(ctx, "[thinking] ")
@@ -399,7 +408,7 @@ async def _stream_chat(
             assistant.append(delta)
             if stream is not None and delta:
                 if not agent.turn_output_allowed(ctx):
-                    return _accumulated(assistant, usage, tool_calls, base_messages, stream)
+                    return _accumulated(assistant, usage, tool_calls, base_messages, stream, reasoning)
                 try:
                     # ``MessageStream.append`` 是 async（Python 侧 I/O 走 asyncio）；
                     # Go 的 ``stream.Append(ctx, delta)`` 是同步调用，照抄形状会丢掉
@@ -408,7 +417,7 @@ async def _stream_chat(
                 except BaseException as exc:  # noqa: BLE001 - 流式写入失败即本轮失败
                     raise RuntimeError(f"stream append: {exc}") from exc
         if not agent.turn_output_allowed(ctx):
-            return _accumulated(assistant, usage, tool_calls, base_messages, stream)
+            return _accumulated(assistant, usage, tool_calls, base_messages, stream, reasoning)
         if reasoning_open:
             await out.send_reasoning(ctx, "[/thinking]\n\n")
         elapsed_ms = elapsed_millis(started_at)
@@ -447,6 +456,7 @@ async def _stream_chat(
         return LLMCallResult(
             text=event.llm.text,
             raw_text=content,
+            reasoning_content="".join(reasoning),
             usage=usage,
             tool_calls=tool_calls,
             outputs=list(event.outputs or []),
@@ -494,11 +504,13 @@ def _accumulated(
     tool_calls: list[ToolCallRequest],
     base_messages: list[LLMMessage],
     stream: MessageStream | None,
+    reasoning: list[str],
 ) -> LLMCallResult:
     content = "".join(assistant)
     return LLMCallResult(
         text=content,
         raw_text=content,
+        reasoning_content="".join(reasoning),
         usage=usage,
         tool_calls=list(tool_calls),
         messages=base_messages,

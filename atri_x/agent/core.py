@@ -866,6 +866,9 @@ def _build_deps(agent: Agent, opts: Options) -> Any:
         cancel_session_inbox=agent.cancel_inbox_session,
         file_backups=agent.file_backups,
         doctor=agent.doctor,
+        tool_allowlist=lambda ctx: group_policy_module.group_tool_allowlist_text(
+            agent, ctx
+        ),
     )
     register_default_modules(agent.commands, deps)
     return deps

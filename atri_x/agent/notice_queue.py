@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -105,7 +106,7 @@ class NoticeQueues:
             _resolve(NoticeQueueResult(err=err))
 
         await queue.submit(
-            _as_token(ctx),
+            _run_ctx(ctx),
             Task(shutdown=CancelPending, key=notice_target_key(notice), run=_run, finish=_finish),
         )
         got = await _await_result(result, ctx)
@@ -189,6 +190,24 @@ async def _wait_event(event: asyncio.Event, ctx: Any, token: CancelToken | None)
 def _as_token(ctx: Any) -> CancelToken | None:
     """ctx 是 CancelToken 时用它做取消；其他鸭子类型 ctx 不参与取消。"""
     return ctx if isinstance(ctx, CancelToken) else None
+
+
+def _run_ctx(ctx: Any) -> CancelToken:
+    """队列任务真正拿到的 ctx：保留原 ctx 的值，同时具备取消语义。
+
+    对应 Go ``noticeQueues.send`` 把**同一个** ctx 传进任务。Python 这里
+    :class:`atri_x.signal.Queue` 只承载 :class:`CancelToken`；如果直接提交 token，
+    原 ctx 里的 message context / 远程客户端就会丢，发送者解析不到落点 —— 桌面端
+    （CLI 远程连接）的命令回执因此报 ``cli target missing``。这里把原 ctx 的值逐个
+    挂到 token 上，取消与值传递都不丢。
+    """
+    if isinstance(ctx, CancelToken):
+        return ctx
+    token = CancelToken()
+    if isinstance(ctx, Mapping):
+        for key, value in ctx.items():
+            token = token.with_value(key, value)
+    return token
 
 
 def notice_target_key(notice: Notice) -> str:

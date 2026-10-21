@@ -39,6 +39,7 @@ from atri_x.delivery import Receipt, ctx_error, split_by_delivery_timing
 from atri_x.logging import ResultFailed
 from atri_x.turn import Input as TurnInput
 from atri_x.agent.chat_llm import call_llm, llm_request_options_from_payload
+from atri_x.agent.chat_anomaly import apply_text_tool_recovery
 from dataclasses import dataclass
 from atri_x.agent.chat_tools import (
     drain_pending_user_input,
@@ -186,6 +187,7 @@ async def _run_chat_body(
     is_background_output = isinstance(out, BackgroundTurnOutput)
     final_text = ""
     final_raw_text = ""
+    final_reasoning = ""
     platform_final_text = ""
     final_stream = None
     final_receipt = Receipt()
@@ -239,6 +241,14 @@ async def _run_chat_body(
             if _is_prompt_overflow(exc):
                 return TurnInput()
             raise
+        # 上游偶尔把工具调用写成正文（DSML / <tool-call> 文本），这里救回来：
+        # 能还原就补 tool_calls 继续工具轮；否则清洗正文，绝不把协议标记发给用户。
+        result = apply_text_tool_recovery(
+            agent,
+            session.id,
+            result,
+            tools_enabled=session_tools_enabled(session),
+        )
         if result.messages:
             llm_messages = result.messages
         streaming = result.stream is not None
@@ -274,6 +284,10 @@ async def _run_chat_body(
             final_text = join_assistant_text(final_text, assistant_raw_text)
             final_raw_text = join_assistant_text(final_raw_text, assistant_raw_text)
             platform_final_text = join_assistant_text(platform_final_text, assistant_text)
+            # 最终回答这一轮的思维链也要落库：下一轮带 tools 的请求必须回传历史
+            # assistant 的 reasoning_content（同轮工具续轮见下面的 assistant 消息）。
+            if result.reasoning_content:
+                final_reasoning = result.reasoning_content
             final_stream = result.stream
             break
         await out.finish_intermediate(ctx, req_ctx, result.stream, assistant_text, streaming)
@@ -288,6 +302,9 @@ async def _run_chat_body(
                 role=RoleAssistant,
                 segments=text_segments(assistant_raw_text),
                 tool_calls=list(result.tool_calls),
+                # 工具结果之后的续轮必须把这一轮的思维链一起发回去；丢掉它上游会
+                # 以 invalid_request_error 拒收（DeepSeek 思考模式 + tools）。
+                reasoning_content=result.reasoning_content,
             )
         )
         max_rounds = max_tool_rounds_per_turn(agent)
@@ -347,11 +364,20 @@ async def _run_chat_body(
             final_text = join_assistant_text(final_text, summary_raw_text)
             final_raw_text = join_assistant_text(final_raw_text, summary_raw_text)
             platform_final_text = join_assistant_text(platform_final_text, summary_text)
+            if summary.reasoning_content:
+                final_reasoning = summary.reasoning_content
             final_stream = summary.stream
             break
         tool_rounds += 1
         execution = await execute_tool_calls(
-            agent, req_ctx, session, result.tool_calls, assistant_raw_text, assistant_raw_text, out
+            agent,
+            req_ctx,
+            session,
+            result.tool_calls,
+            assistant_raw_text,
+            assistant_raw_text,
+            out,
+            reasoning=result.reasoning_content,
         )
         if execution.stopped:
             req_error = ctx_error(req_ctx)
@@ -437,7 +463,7 @@ async def _run_chat_body(
         session_id=session.id,
         role=StorageRoleAssistant,
         content=final_text,
-        metadata=_assistant_metadata(final_text, final_raw_text),
+        metadata=_assistant_metadata(final_text, final_raw_text, final_reasoning),
     )
     pending, completed = agent.turns.complete_llm_input(session.id)
     if not completed:
@@ -552,9 +578,9 @@ def _stored_segments(segments: list[Any]) -> str:
     return stored_message_segments(segments)
 
 
-def _assistant_metadata(content: str, raw_text: str) -> str:
-    """助手消息的 metadata（含原始文本）。"""
-    return assistant_raw_text_metadata(content, raw_text)
+def _assistant_metadata(content: str, raw_text: str, reasoning_content: str = "") -> str:
+    """助手消息的 metadata（含原始文本与思维链）。"""
+    return assistant_raw_text_metadata(content, raw_text, reasoning_content)
 
 
 async def _mutate_metadata(

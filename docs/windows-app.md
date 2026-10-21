@@ -98,7 +98,7 @@ verify      : passed
 
 ```bash
 python packaging/assemble_kernel.py --modules "C:\path\to\node_modules"   # 已装 DSH 的机器
-python packaging/build.py --with-kernel                                    # 321.3 MB / 24510 个文件
+python packaging/build.py --with-kernel                                    # 333.4 MB / 24516 个文件
 ```
 
 产物：
@@ -137,7 +137,7 @@ dist\windows\atri-x\atri-x-gui.exe
    | 文件 | 作用 |
    |---|---|
    | `app.toml` | 行为、平台、工具、安全、维护等主配置 |
-   | `services.toml` | `[providers.*]`、模型元数据、生图、视觉、语音、搜索通道 `[web_search]` |
+   | `services.toml` | `[providers.*]`、模型元数据、生图、视觉、语音、搜索通道 `[web_search]`、抓取通道 `[web_extract]` |
    | `state.toml` | 默认模式与模型（程序回写） |
    | `SOUL.md` | Agent 的 System Prompt |
    | `.env.example` | 环境变量模板，复制成 `.env` 后填密钥 |
@@ -158,8 +158,10 @@ dist\windows\atri-x\atri-x-gui.exe
 2. 在同一个页面的「模型分配」里给工作/聊天模式选 provider + 模型（写 `state.toml`，
    几秒内热加载）；也可以复制 `.env.example` 为 `%APPDATA%\ATRI-X\.env` 后手填密钥；
 3. 想让它能联网搜索：**默认就能用**（Firecrawl / Keenable 两条免注册通道，不用填 key）。
-   要换通道或填 key，去同一个选项卡的「搜索服务」子页（详见 §4.2）；
-4. 点页面右下角「重启后台服务」（provider、密钥与搜索通道都是启动期配置），或
+   要换通道或填 key，去同一个选项卡的「搜索服务」子页（详见 §4.2）；想接 DeepSeek 官方
+   搜索/抓取就在那一页加 `deepseek` 通道（需要官方 API Key，按次计费），抓取通道在
+   「抓取服务」子页配置；
+4. 点页面右下角「重启后台服务」（provider、密钥、搜索与抓取通道都是启动期配置），或
    在聊天框里用 `/model` 临时切换。
 
 手改文件的等价写法是：`services.toml` 里给 provider 配 `api_key_env`、密钥放进系统
@@ -180,13 +182,13 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 
 | 位置 | 行为 |
 |---|---|
-| 选项卡 | 「对话 / 模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 日志 / 功能」10 页，配置都能在界面里改（见 §4.2），`Ctrl+1`…`Ctrl+9`（第 10 页 `Ctrl+0`）或「视图」菜单切换 |
+| 选项卡 | 「对话 / 模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 日志 / 功能 / 工具权限」11 页，配置都能在界面里改（见 §4.2），`Ctrl+1`…`Ctrl+9`（第 10、11 页用「视图」菜单）或「视图」菜单切换 |
 | 左侧会话栏 | 历史会话列表（当前会话带 `●`）；双击/回车切换会话，`刷新`/`新建` 按钮，`F5` 刷新 |
 | 聊天区 | 用户消息、助手回复、推理过程（灰色）、通知（橙色）、错误（红色）分区显示；流式输出实时刷新 |
 | 输入框 | `Enter` 发送、`Shift+Enter` 换行、`Tab` 触发补全（`/model`、`/help` 等） |
 | 状态栏 | 左边是连接状态（已连接/连接中/已断开/鉴权失败），右边是运行状态（阶段 · 耗时 · 模型 · tokens） |
 | 菜单 → 文件 | 新建会话、刷新会话列表、复制全部记录、清空聊天区、退出（后台继续）/ 退出并停止服务 |
-| 菜单 → 视图 | 切到 10 个选项卡（等价于点选项卡标题） |
+| 菜单 → 视图 | 切到 11 个选项卡（等价于点选项卡标题） |
 | 菜单 → 服务 | 重新连接、启动/确认后台服务、**重启后台服务**（改完配置用它生效）、停止后台服务（强制）、打开配置目录、打开后台日志 |
 | 菜单 → 帮助 | 关于、托盘/后台说明 |
 | 点窗口 ✕ | **隐藏到托盘**，服务继续跑；没有托盘时退化为"关闭窗口（服务仍在）"（首次会弹一次提示，见 §11） |
@@ -205,14 +207,14 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 连上后台服务时会自动拉一次会话列表；断线时列表清空。历史记录来自服务端数据库，
 不是 GUI 本地缓存 —— 所以换一台前端连同一个服务端也能看到同样的会话。
 
-### 4.2 配置选项卡（模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 日志 / 功能）
+### 4.2 配置选项卡（模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 日志 / 功能 / 工具权限）
 
-窗口上方是 10 个选项卡，**配置都能在界面里改，不用再手搓 TOML**：
+窗口上方是 11 个选项卡，**配置都能在界面里改，不用再手搓 TOML**：
 
 | 选项卡 | 能改什么 | 写入 | 生效时机 |
 |---|---|---|---|
 | 对话 | 只聊天，不写配置 | — | — |
-| 模型 | 两个子页：**LLM Provider / 模型分配**——Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议 / 请求头：每行一条 `Name: value`，网关强制要求时填，例如 OpenCode Go 的 `x-opencode-session`）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式，另可「获取可用模型」拉上游 `/models`、给模型起本地备注名；**搜索服务**——`web_search` 的通道列表（顺序即降级顺序，可上移/下移/新增自定义/删除）与单条通道表单（协议 Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI / Grok Build、密钥环境变量名与值、服务地址、CLI 可执行文件），免注册通道不填 key 也能用 | `services.toml`（`[providers.*]`、`[web_search]`）、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider、密钥与搜索通道需重启后台服务 |
+| 模型 | 三个子页：**LLM Provider / 模型分配**——Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议 / 请求头：每行一条 `Name: value`，网关强制要求时填，例如 OpenCode Go 的 `x-opencode-session`）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式，另可「获取可用模型」拉上游 `/models`、给模型起本地备注名；**搜索服务**——`web_search` 的通道列表（顺序即降级顺序，可上移/下移/新增自定义/删除）与单条通道表单（协议 DeepSeek 官方搜索 / Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI / Grok Build、密钥环境变量名与值、服务地址、CLI 可执行文件），免注册通道不填 key 也能用；**抓取服务**——`web_extract` 的通道列表与表单（协议 DeepSeek 官方抓取 / Jina Reader / 直接抓取，默认 Jina → 直接抓取） | `services.toml`（`[providers.*]`、`[web_search]`、`[web_extract]`）、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider、密钥、搜索与抓取通道需重启后台服务 |
 | 人设卡 | 角色库增删改（名称/别名/标签/简介/可见性，`profile.md`、`world.md`、`greeting.md`、`examples.md`、`image_prompt.md`、`notes/*`）、生图预设、系统人设 `SOUL.md` | `characters/`、`SOUL.md` | 角色库 3 秒内自动重扫；`SOUL.md` 下一轮对话生效 |
 | 平台 | QQ（OneBot v11）/ QQ 官方机器人 / Telegram 的启用、地址、token 变量与值、唤醒词；本地 CLI 服务端；各平台超级管理员 | `app.toml`、`.env` | 重启后台服务 |
 | 在线 | 三段状态（后台服务 / OneBot 协议端 / QQ 平台）+ **连接/断开开关**：只改 `[platform.qqonebot].enabled` 并重启后台服务，不用手改 TOML（见 §4.8）；还可就地改**唤醒词**（写回 `[platform.qqonebot].trigger_keywords`，逗号分隔；群里 @机器人 或消息以唤醒词开头都会叫醒） | `app.toml` 的 `[platform.qqonebot].enabled` / `trigger_keywords` | 点按钮即重启生效；唤醒词需重启后台服务 |
@@ -221,9 +223,15 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 | 进阶 | 生图 / 图片转提示词 / 视觉回退 / 语音转写；**本地生图服务挂载**（端口映射 / SSL 链接）；长期记忆、自学习、群分析、群服务、Atrinis 开关；日志级别与保留天数；生图 API 的「获取可用模型」与模型备注名；三个二级设置窗口（自学习 / HOOK 插件 / 定时维护任务，其中维护任务支持每天 / 每周 / 每月 / 自定义 cron / 指定日期一次性）；整页可竖向滚动 | `services.toml`、`app.toml`、`atrinis.toml`、`plugins/hooks.toml`（+ `.env`、`gui/model_catalog.json`） | 重启后台服务；Hook 配置可用 `/hooks reload` |
 | 日志 | 运行日志 / 审计日志 / Atrinis 日志 / 后台服务输出 / 界面操作五个通道；按日期、级别、关键字筛选，可自动刷新、打开文件/目录、复制、**导出当前视图** | 只读 | — |
 | 功能 | 只读清单：逐项显示"已启用 / 已停用 / 未配置"与关键配置；双击跳到对应选项卡；右侧是连接状态与日志入口 | — | — |
+| 工具权限 | 按群设置工具授权：左栏是群列表 + 作用域输入，右栏是**纵向滚动的工具菜单**——每个工具一行（激活状态徽标 + 中文名 + 工具名 + 风险等级 + 一句话功能解释 + 激活 / 停用按钮），支持搜索、「只看已激活」与「常用」「只读」预设；三种模式（继承全局 / 仅白名单 / 禁止全部）；下方是"群聊里显示工具调用进度"开关 | `state.toml` 的 `[group_policy."<平台:scope>"]`、`app.toml` 的 `[platform.qqonebot].show_tool_preview_in_group` | 工具授权 15 秒内热加载；进度开关需重启后台服务 |
 
 约定：
 
+- **工具权限页的菜单**：工具清单（中文名 / 一句话功能解释 / 分组 / 风险等级）在
+  `atri_x/gui/toolcatalog.py`，菜单控件在 `atri_x/gui/toolmenu.py`；点「激活」按钮或点
+  整行都能切换，徽标显示「已激活 / 未激活」；「继承全局」「禁止全部」模式下按钮统一置灰
+  （全群策略由模式决定，不逐个选）。白名单保存时自动补 `discover_tool`，否则模型发现
+  不了工具；没有激活任何工具时，保存后本群只剩 `discover_tool`。
 - **密钥只写 `.env`**：界面只显示"已设置 / 未设置 + 掩码"，不回显明文；读取时
   进程环境变量优先于 `.env`（与 `docs/configuration.md` 的规则一致）。输入框默认
   掩码，右侧「显示 / 隐藏」按钮可以临时看明文；保存成功后会自动清空并恢复掩码。
@@ -566,8 +574,8 @@ python packaging/build.py --with-kernel --installer   # 构建 + 打包一条龙
 | 静默安装 | `ATRI-X-<版本>-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=<目录> /MERGETASKS=!autostart,!desktopicon` |
 | 覆盖升级 | 直接再跑新安装包即可；**先退出正在运行的 ATRI-X**——安装器带 `AppMutex=ATRI-X-GUI`，检测到 GUI 在跑会提示「当前正在运行」并中止（自检脚本也会因此失败） |
 
-实测 0.9.9（含内置内核的 318.8 MB onedir → 56.5 MB 安装包）：静默安装 51.8 s / 23865 个文件，
-`atri-x.exe --version` 正常，静默卸载 14.4 s 且目录被清空。构建环境有两个坑（TEMP 必须在
+实测 0.9.10（含内置内核与内置 QQ 协议端的 1,535.6 MB onedir → 436.2 MB 安装包）：静默安装
+65.4 s / 27032 个文件，`atri-x.exe --version` 正常，静默卸载 8.3 s 且目录被清空。构建环境有两个坑（TEMP 必须在
 本地盘、安装根路径要够短）写在 [`packaging/README.md`](../packaging/README.md) §7.1。
 
 ### 7.2 便携版 zip（解压即用）

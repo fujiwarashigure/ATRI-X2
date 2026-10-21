@@ -106,6 +106,7 @@ USER_COMMANDS = {
     "signup",
     "status",
     "stop",
+    "tools",
     "unarchive",
     "unpin",
     "vote",

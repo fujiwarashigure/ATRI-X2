@@ -207,7 +207,7 @@ class ToolCommandTests(unittest.TestCase):
         harness = Harness()
         self.assertEqual(
             dispatch(harness, "/tools bogus"),
-            "usage: /tools [reload|uninstall|remove] [name]",
+            "usage: /tools [list|perm|allow|reload|remove] [name]",
         )
         self.assertEqual(
             dispatch(harness, "/tools remove"),
@@ -221,7 +221,8 @@ class ToolCommandTests(unittest.TestCase):
             handler.complete(harness.ctx, _completion("/tools ", name="tools", args=""))
         )
         self.assertEqual(
-            [item.text for item in items], ["reload", "remove", "uninstall"]
+            [item.text for item in items],
+            ["list", "perm", "allow", "reload", "remove", "uninstall"],
         )
         items = run(
             handler.complete(
@@ -229,6 +230,67 @@ class ToolCommandTests(unittest.TestCase):
             )
         )
         self.assertEqual([item.text for item in items], ["read_file"])
+
+
+class ToolPermissionTests(unittest.TestCase):
+    """`/tools` 的群工具授权面：普通成员可见、群主可授权、改运行态仍限超管。"""
+
+    def test_group_member_can_list_tools(self) -> None:
+        from atri_x.security import RoleUser  # noqa: F401  (Harness 只看 admin 参数)
+
+        harness = Harness(group=True, admin=False)
+        self.assertEqual(
+            dispatch(harness, "/tools"), "tools:\n  read_file [builtin] tags=fs 读文件"
+        )
+
+    def test_group_member_cannot_mutate_runtime(self) -> None:
+        harness = Harness(group=True, admin=False)
+        content = dispatch(harness, "/tools reload")
+        self.assertIn("需要超级管理员权限", content)
+        self.assertEqual(harness.tools.calls, [])
+
+    def test_perm_shows_group_allowlist_status(self) -> None:
+        harness = Harness(group=True, admin=False)
+        harness.deps.tool_allowlist = lambda _ctx: "仅允许：web_search"
+        content = dispatch(harness, "/tools perm")
+        self.assertIn("本群工具授权：仅允许：web_search", content)
+
+    def test_tools_list_appends_group_status(self) -> None:
+        harness = Harness(group=True)
+        harness.deps.tool_allowlist = lambda _ctx: "空（已禁止全部群工具）"
+        content = dispatch(harness, "/tools")
+        self.assertIn("本群工具授权：空（已禁止全部群工具）", content)
+
+    def test_group_owner_can_grant_tools(self) -> None:
+        from atri_x.security import GroupRoleOwner
+
+        harness = Harness(group=True, admin=False, group_role=GroupRoleOwner)
+        content = dispatch(harness, "/tools allow web_search,web_extract")
+        self.assertIn("群策略已更新", content)
+        self.assertEqual(
+            harness.group_policy.calls,
+            ["set:tool-allow:discover_tool,web_search,web_extract"],
+        )
+
+    def test_group_owner_can_disable_all_tools(self) -> None:
+        from atri_x.security import GroupRoleOwner
+
+        harness = Harness(group=True, admin=False, group_role=GroupRoleOwner)
+        dispatch(harness, "/tools allow none")
+        self.assertEqual(harness.group_policy.calls, ["set:tool-allow:none"])
+
+    def test_group_owner_can_inherit_global_tools(self) -> None:
+        from atri_x.security import GroupRoleOwner
+
+        harness = Harness(group=True, admin=False, group_role=GroupRoleOwner)
+        dispatch(harness, "/tools allow all")
+        self.assertEqual(harness.group_policy.calls, ["set:tool-allow:clear"])
+
+    def test_plain_member_cannot_grant_tools(self) -> None:
+        harness = Harness(group=True, admin=False)
+        content = dispatch(harness, "/tools allow web_search")
+        self.assertIn("需要群主、群管理员或超级管理员权限", content)
+        self.assertEqual(harness.group_policy.calls, [])
 
 
 class LogCommandTests(unittest.TestCase):

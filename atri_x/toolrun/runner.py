@@ -75,6 +75,9 @@ class RunRequest:
     calls: list[ToolCallRequest] = field(default_factory=list)
     assistant_text: str = ""
     assistant_raw_text: str = ""
+    #: 发起这批工具调用的那一轮 assistant 思维链。会随工具调用记录一起落库，
+    #: 让后续轮次（含下一轮对话）能把 ``reasoning_content`` 原样回传给上游。
+    assistant_reasoning: str = ""
     cached_tools: list[CachedTool] = field(default_factory=list)
     actor: Actor = field(default_factory=Actor)
     #: 非 None 时是服务端的工具名白名单，在确认/执行**之前**生效。
@@ -212,6 +215,7 @@ class RunnerDeps(Protocol):
         content: str,
         raw_text: str,
         calls: list[ToolCallRequest],
+        reasoning: str = "",
     ) -> Any: ...
 
     def persisted_tool_message(self, message: LLMMessage) -> LLMMessage: ...
@@ -505,7 +509,11 @@ async def run(manager: Manager, ctx: Any, deps: RunnerDeps, req: RunRequest) -> 
     transcript.insert(
         0,
         deps.tool_call_message(
-            session_id, req.assistant_text, req.assistant_raw_text, prepared_calls
+            session_id,
+            req.assistant_text,
+            req.assistant_raw_text,
+            prepared_calls,
+            req.assistant_reasoning,
         ),
     )
     return RunResult(

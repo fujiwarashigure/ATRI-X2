@@ -175,10 +175,15 @@ queue_timeout_seconds = 0
 # retry_initial_delay_seconds = 1
 
 # Optional web_search channels. Leave this section out to keep the environment
-# default chain (Tavily -> Firecrawl -> Keenable -> Exa, keyed ones only when
-# their key is set). Desktop app: Models tab -> "Search services" page.
+# default chain (DeepSeek -> Tavily -> Firecrawl -> Keenable -> Exa, keyed ones
+# only when their key is set). Desktop app: Models tab -> "Search services" page.
 # [web_search]
-# engine_order = ["firecrawl", "keenable", "tavily"]
+# engine_order = ["deepseek", "firecrawl", "keenable", "tavily"]
+#
+# [web_search.engines.deepseek]
+# protocol = "deepseek"       # DeepSeek official search (POST /v1/tools/search)
+# api_key_env = "DEEPSEEK_SEARCH_KEY"   # falls back to DEEPSEEK_API_KEY
+# # base_url = ""             # empty = https://api.deepseek.com/v1/tools/search
 #
 # [web_search.engines.tavily]
 # protocol = "tavily"         # built-in names may omit protocol
@@ -188,3 +193,22 @@ queue_timeout_seconds = 0
 # [web_search.engines.my-searx]
 # protocol = "searxng"        # custom channel: protocol is required
 # base_url = "https://searx.example.com"
+
+# Optional web_extract channels (page fetching). Leave this section out to keep
+# the default chain: Jina Reader (only when JINA_API_KEY is set) -> direct fetch.
+# Desktop app: Models tab -> "Fetch services" page.
+# [web_extract]
+# engine_order = ["deepseek", "jina", "direct"]
+#
+# [web_extract.engines.deepseek]
+# protocol = "deepseek"       # DeepSeek official fetch (POST /v1/tools/fetch)
+# api_key_env = "DEEPSEEK_SEARCH_KEY"   # falls back to DEEPSEEK_API_KEY
+# # base_url = ""             # empty = https://api.deepseek.com/v1/tools/fetch
+#
+# [web_extract.engines.jina]
+# protocol = "jina"
+# api_key_env = "JINA_API_KEY"
+# # base_url = ""             # empty = https://r.jina.ai/
+#
+# [web_extract.engines.direct]
+# protocol = "direct"         # plain GET + stdlib HTML stripping, no key

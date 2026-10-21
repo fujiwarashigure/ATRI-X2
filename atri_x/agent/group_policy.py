@@ -68,6 +68,7 @@ __all__ = [
     "group_policy_snapshot",
     "group_policy_state",
     "group_quiet_hours_active",
+    "group_tool_allowlist_text",
     "history_enabled",
     "int64_budget_text",
     "is_group_scope",
@@ -512,6 +513,22 @@ def group_policy_status(agent: Any, ctx: Any) -> str:
     )
     lines.append("修改：/grouppolicy <field> <value>；重置：/grouppolicy reset [field]")
     return "\n".join(lines) + "\n"
+
+
+def group_tool_allowlist_text(agent: Any, ctx: Any) -> str:
+    """当前群工具白名单的一句话视图（``/tools`` 用，也便于排障）。
+
+    与 :func:`atri_x.agent.tool_auth.group_tool_allowlist` 同一套语义：
+    ``继承全局`` = 不受群白名单限制；``空`` = 当前群禁止全部工具。
+    """
+    if agent is None or not is_group_scope(agent, ctx):
+        return "非群聊，工具不受群白名单限制"
+    policy = group_policy_for_scope(agent, _scope(agent, ctx))
+    if not policy.tool_allowlist_restricted():
+        return "继承全局（不限制）"
+    if not policy.tool_allowlist:
+        return "空（已禁止全部群工具）"
+    return display_string_list(policy.tool_allowlist)
 
 
 def budget_text(limit: int, used: int) -> str:

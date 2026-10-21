@@ -264,6 +264,22 @@ class ToolTranscriptTests(unittest.TestCase):
         message = tt.tool_call_storage_message("s1", "same", "same", [])
         self.assertEqual(json.loads(message.metadata), {})
 
+    def test_tool_call_message_persists_reasoning_content(self) -> None:
+        """思考模式的思维链要能落库并读回，供后续请求原样回传。"""
+        calls = [ToolCallRequest(id="c1", name="shell", arguments="{}")]
+        message = tt.tool_call_storage_message(
+            "s1", "", "", calls, reasoning_content="先想想再调工具"
+        )
+        metadata = json.loads(message.metadata)
+        self.assertEqual(metadata["reasoning_content"], "先想想再调工具")
+        parsed = tt.AssistantMetadata.from_json(message.metadata)
+        self.assertEqual(parsed.reasoning_content, "先想想再调工具")
+        self.assertEqual(parsed.tool_calls[0].id, "c1")
+        # 没有思维链时不写字段：避免把厂商扩展发给不认识的模型。
+        plain = tt.tool_call_storage_message("s1", "", "", calls)
+        self.assertNotIn("reasoning_content", json.loads(plain.metadata))
+        self.assertEqual(tt.AssistantMetadata.from_json(plain.metadata).reasoning_content, "")
+
     def test_stored_segments_clears_url_for_media(self) -> None:
         from atri_x.llm import MessageSegment
 
@@ -294,6 +310,12 @@ class ToolTranscriptTests(unittest.TestCase):
         self.assertEqual(tt.assistant_raw_text_metadata("a", "a"), "")
         self.assertEqual(tt.assistant_raw_text_metadata("a", ""), "")
         self.assertIn("raw_text", tt.assistant_raw_text_metadata("a", "b"))
+        # 只有思维链时也要落 metadata（下一轮请求要回传 reasoning_content）。
+        only_reasoning = json.loads(tt.assistant_raw_text_metadata("a", "a", "想了想"))
+        self.assertEqual(only_reasoning, {"reasoning_content": "想了想"})
+        both = json.loads(tt.assistant_raw_text_metadata("a", "b", "想了想"))
+        self.assertEqual(both["raw_text"], "b")
+        self.assertEqual(both["reasoning_content"], "想了想")
 
     def test_persisted_tool_message_summarizes_discovery(self) -> None:
         message = LLMMessage(role="tool", name="discover_tool")

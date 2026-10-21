@@ -290,8 +290,16 @@ class GroupPolicyConfig(StrictConfig):
         out = self.copy()
         out.wake_keywords = normalize_string_list(self.wake_keywords or [])
         out.allowed_models = normalize_string_list(self.allowed_models or [])
-        out.tool_allowlist = normalize_string_list(self.tool_allowlist or [])
-        if self.tool_allowlist is not None or out.tool_allowlist:
+        # ``tool_allowlist`` 是 nil / 空切片二态字段，**必须在归一化后仍然保留这个区分**：
+        #   * ``None``（没有这个键）＝继承全局工具策略，不受群白名单限制；
+        #   * 显式列表（含 ``[]``）＝当前群有工具策略，空列表表示禁止全部群工具。
+        # 若把 ``None`` 归一成 ``[]``，下一次 :meth:`tool_allowlist_restricted` 会把
+        # "空列表非 None" 当成显式策略 → 所有没配过群策略的群都会被判成"禁止全部工具"
+        # （真机事故：QQ 群里所有工具调用都回 tool is not in this group's allowlist）。
+        if self.tool_allowlist is None:
+            out.tool_allowlist = None
+        else:
+            out.tool_allowlist = normalize_string_list(self.tool_allowlist)
             out.tool_allowlist_set = True
         out.learning_moderation_actions = normalize_learning_moderation_actions(
             self.learning_moderation_actions or []

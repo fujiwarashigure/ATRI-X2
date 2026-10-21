@@ -607,6 +607,57 @@ class TestRemoteServerEndToEnd(RemoteServerTestCase):
         finally:
             await self.stop_server()
 
+    async def test_each_input_frame_gets_fresh_message_context(self) -> None:
+        """一条连接上的多条 ``input`` 不能共用一份 ``MessageContext``。
+
+        回归：``MessageContext`` 是可变对象，入站处理会就地写回 ``msg.segments``
+        （:func:`atri_x.agent.segments.with_inbound_segments`）。共用一份上下文时，
+        同一条连接上的第二条消息会读到第一条的段与正文——表现为"第二条消息重放上一条"，
+        命令帧则被执行两次。
+        """
+        from atri_x.agent.segments import (
+            inbound_segments,
+            segments_text_only,
+            with_inbound_segments,
+        )
+        from atri_x.platform.platform import message_context_from
+
+        seen: list[tuple[str, str]] = []
+        messages: list = []
+        first_done = asyncio.Event()
+        both_done = asyncio.Event()
+
+        class InboundHandler:
+            async def handle_message(self, ctx, value: str) -> None:
+                message, ok = message_context_from(ctx)
+                messages.append(message)
+                # 与 Agent._handle_message_inner 同一条路径：先取段，再就地写回。
+                first = segments_text_only(inbound_segments(ctx, value))
+                with_inbound_segments(ctx, inbound_segments(ctx, value))
+                again = segments_text_only(inbound_segments(ctx, value))
+                seen.append((first, again) if ok else ("", ""))
+                if len(seen) == 1:
+                    first_done.set()
+                if len(seen) >= 2:
+                    both_done.set()
+
+        server = await self.start_server(InboundHandler())
+        try:
+            connection = await self.connect()
+            await self.handshake(connection)
+            await connection.send_text(
+                _json(RemoteMessage(type=REMOTE_MSG_INPUT, text="第一句"))
+            )
+            await asyncio.wait_for(first_done.wait(), WAIT)
+            await connection.send_text(
+                _json(RemoteMessage(type=REMOTE_MSG_INPUT, text="第二句"))
+            )
+            await asyncio.wait_for(both_done.wait(), WAIT)
+            self.assertEqual(seen, [("第一句", "第一句"), ("第二句", "第二句")])
+            self.assertIsNot(messages[0], messages[1])
+        finally:
+            await self.stop_server()
+
     async def test_connected_client_ids_and_removal(self) -> None:
         config = server_config(
             server=ServerConfig(

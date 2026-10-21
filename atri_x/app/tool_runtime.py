@@ -81,6 +81,7 @@ class ToolRuntimeOptions:
     artist_metadata_store: Any = None
     image_generation: Any = None
     web_search: Any = None
+    web_extract: Any = None
     prompt_rewriter: Any = None
     image_prompt_service: Any = None
     process_env: Any = None
@@ -178,6 +179,7 @@ def build_tool_runtime(opts: ToolRuntimeOptions) -> ToolRuntime:
             image_limiter=image_limiter,
             artists=artists,
             web_search=opts.web_search,
+            web_extract=opts.web_extract,
             prompt_rewriter=opts.prompt_rewriter,
             image_prompt_service=opts.image_prompt_service,
             skill_manager=skill_manager,

@@ -344,11 +344,17 @@ class RemoteServer(SessionBrowseMixin):
             await self.add_client(client)
             try:
                 await client.write(ctx, RemoteMessage(type=REMOTE_MSG_HELLO_OK, client_id=client_id))
-                message_ctx = self.message_context(ctx, client)
                 while True:
                     raw = await connection.recv()
                     msg = RemoteMessage.from_json(_decode(raw))
-                    await self.handle_client_message(message_ctx, handler, client, msg)
+                    # 每帧都新建消息上下文：``MessageContext`` 是可变对象，入站处理会
+                    # 就地写回 ``msg.segments`` / ``raw_text``（见
+                    # :func:`atri_x.agent.segments.with_inbound_segments`）；一条连接
+                    # 共用同一份上下文时，第二条消息会看到上一条的段与正文（表现为
+                    # "第二条消息重放上一条"，命令则被执行两次）。Go 里
+                    # ``MessageContext`` 是值类型，入站改写只落在副本上，所以没有这个问题。
+                    frame_ctx = self.message_context(ctx, client)
+                    await self.handle_client_message(frame_ctx, handler, client, msg)
             finally:
                 await self.remove_client(client)
         except ws.ConnectionClosed:

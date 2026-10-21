@@ -72,6 +72,9 @@ from atri_x.tool.builtin.send_file import new_send_file_tool
 from atri_x.tool.builtin.shell import new_shell_tool_with_environment
 from atri_x.tool.builtin.view_image import new_view_image_tool
 from atri_x.tool.builtin.web_extract import new_web_extract_tool
+from atri_x.tool.builtin.web_extract_engines import (
+    specs_from_config as extract_specs_from_config,
+)
 from atri_x.tool.builtin.web_search import new_web_search_tool
 from atri_x.tool.builtin.web_search_engines import specs_from_config
 from atri_x.tool.builtin.workspace import new_workspace_tool
@@ -206,6 +209,7 @@ class RegisterOptions:
     child_process_env: Environment = field(default_factory=Environment)
     config_dir: str = ""
     web_search: Any = None
+    web_extract: Any = None
     #: 后台（cron / Atrinis）无人值守的 shell 放行策略；``None`` 用 ShellTool 内置默认。
     background_shell_policy: Any = None
     character_store: Any = None
@@ -296,7 +300,12 @@ def register_all(registry: Registry, opts: RegisterOptions) -> None:
     registry.register(
         new_web_search_tool(opts.process_env, specs=specs_from_config(opts.web_search) or None)
     )
-    registry.register(new_web_extract_tool(opts.process_env))
+    registry.register(
+        new_web_extract_tool(
+            opts.process_env,
+            specs=extract_specs_from_config(opts.web_extract) or None,
+        )
+    )
 
     if opts.character_store is not None and _enabled(opts.character_store):
         for character_tool in new_character_tools(opts.character_store, media_center):

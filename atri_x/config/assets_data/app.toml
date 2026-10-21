@@ -454,6 +454,7 @@ token_env = ["ATRIX_CLI_LOCAL_TOKEN"]
 # preprocess_queue_size = 256 # full means the message is dropped locally, not queued as unbounded goroutines
 # high_priority_workers = 1 # recall / member / admin notices must not wait behind chat traffic
 # high_priority_queue_size = 128
+# show_tool_preview_in_group = false # deliver "calling tool X" progress previews in group chats (default off)
 
 # [platform.telegram]
 # enabled = false

@@ -6,6 +6,478 @@
 
 ---
 
+## [0.9.13] - 2026-10-22 — 正式版：并入两轮真机热修（思考模式工具链 HTTP 400 / 图片媒体读不到）
+
+> 旧状态（0.9.12 便携版真机，QQ 群 `929911642`）：让 ATRI-X 抽图片里的画师串与 prompt 时，
+> 工具确实被调用了，但整轮拿不到任何结果：
+>
+> 1. 工具轮之后的续轮请求被上游拒收：
+>    `HTTP 400: Upstream request failed: [invalid_request_error] The reasoning_content in the
+>    thinking mode must be passed back to the API.`；
+> 2. `view_image` / `get_media` 始终回「图片获取失败 / 媒体获取失败」，入站引用图显示
+>    `[媒体不可用；…]`，`media` / `media_history` 两张表一直为空。
+>
+> 0.9.12 曾在本机真机部署两轮未单独发版的热修（见下面 `[0.9.12-hotfix.1]` /
+> `[0.9.12-hotfix.2]` 两节）；本版把它们并入正式版本，并连同 0.9.10–0.9.12 的开发线
+> 一起发版，同时补上 0.9.10 之后未再重建的 Windows 安装包。
+
+### 修复
+
+- **思考模式工具链回传 `reasoning_content`**（对应 `[0.9.12-hotfix.2]`）：DeepSeek 思考模式要求
+  携带 `tools` 的请求在后续每一轮把历史 assistant 消息的 `reasoning_content` 原样回传，
+  否则部分上游路由直接 400。`atri_x/llm/llm.py` 的 `LLMMessage` / `ChatRequest` 增加对应字段；
+  `atri_x/llm/openai/wire.py` 负责序列化（DeepSeek 系目标在 tool_calls 消息上即使思维链为空
+  也写 `""`，其它厂商不写）；`atri_x/agent/chat_llm.py` 累积流式思维链，
+  `chat_turn.py` / `chat_tools.py` / `toolrun/` 把它随工具调用记录与最终回答一起落库，
+  `agent/prompt.py` 在历史重建时读回——同轮续轮与跨回合都满足协议。
+- **图片媒体导入的 `Source` 类型错用**（对应 `[0.9.12-hotfix.2]`）：`atri_x/media/platform.py`
+  的 `import_platform` 把解析器返回的 `delivery.Source`（带 `mime_type/path/data/media_id`）
+  误当成 `media.types.Source`，读 `source.mime_type` 必抛 `AttributeError`，又被失败降级吞成
+  `[媒体不可用]`，于是所有入站/历史媒体都进不了媒体库。现按 Go 的
+  `delivery.Source` / `media.Source` 分工修正，`url` / `path` / `data` / `media_id` 四种来源分派恢复。
+- **同步仓储调用签名**（对应 `[0.9.12-hotfix.1]`）：`view_image` / `get_media` /
+  `inbound_media` 不再给同步的 `ChatHistoryRepository.get_by_platform_message` 多传 `ctx`。
+
+### 变更
+
+- 版本 `0.9.12` → `0.9.13`：`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION`、README 同步。
+- 重新构建并交付三种产物：便携版 zip、安装版 `setup.exe`、完整仓库源码归档（zip / tar.gz）；
+  安装版是 0.9.10 之后首次重建，便携版与安装版都内置 DSH 内核与内置 QQ 协议端（同 0.9.9 起的交付形态）。
+- 仓库脱敏后推送 GitHub：`check_secrets.py --all` 零命中、无本地个人目录/令牌/`.env`/构建产物；
+  README 的版本号、模块与测试计数、发行物清单同步更新（新增模块计入 699 个 `.py` / 1023 个受控文件）。
+
+### 验证
+
+- 真实聊天历史库副本 + 真实 QQ 图 URL 的修复前/后对照：修复前
+  `AttributeError: 'Source' object has no attribute 'mime_type'`；修复后 `#1006665254` 与
+  `#842717537` 都下载入库（`media:7ec4ffb2…`，1,776,523 字节）。
+- 真实上游探针（`opencode` 中转 / `deepseek-v4.1-flash`，带 tools）：模型返回
+  `reasoning_content`，续轮「不带 / 空串 / 原样」三种写法都符合协议要求。
+- 全量 `python -m unittest discover -s tests -t .`：**Ran 5922 tests … OK (skipped=4)**；
+  `check_syntax` / `check_imports` / `check_integration` / `check_except` / `check_secrets --all` 全绿。
+- 冻结产物 PYZ 核验：新 exe 11 项全部通过，旧 exe 对照 9 项 FAIL；便携版解压自检
+  与安装包静默安装/卸载自检通过（细节见发行证据）。
+
+---
+
+## [0.9.12-hotfix.2] - 2026-10-21 — 修复"思考模式工具链 HTTP 400"与"图片媒体仍读不到"
+
+> 旧状态（0.9.12-hotfix.1 之后，同一台便携版真机 / QQ 群 `929911642`）：
+>
+> 1. 让 ATRI-X 抽图里的画师串与提示词时，工具已经真的跑起来了，但整轮最后只回一条
+>    `请求失败：HTTP 400: Upstream request failed: [invalid_request_error] The
+>    reasoning_content in the thinking mode must be passed back to the API.`；
+>    群里看到的是"工具调了一堆、什么都没返回"。
+> 2. 同一时间 `view_image` / `get_media` 仍回 `图片获取失败` /
+>    `[媒体获取失败：来源不可用、超限或关联保存失败]`，引用消息里的图显示
+>    `[媒体不可用；…]`，`media` / `media_history` 两张表始终为空——即 hotfix.1 只修掉了
+>    第一个 `TypeError`，图片仍然进不了媒体库。
+
+### 修复（思考模式续轮回传）
+
+DeepSeek 思考模式的协议要求：**请求带 `tools` 时，历史 assistant 消息里的
+`reasoning_content` 必须原样回传**；本轮工具调用之后的续轮尤其不能丢。旧实现只把流式
+思维链拿去 CLI 展示，随后就丢弃，因此一旦上游路由执行硬校验就会 400，工具全跑完也拿不到
+任何结果。
+
+- `atri_x/llm/llm.py`：`LLMMessage` 增加 `reasoning_content`（Python 侧字段，不落用户可见
+  文本）；`ChatRequest` 增加 `provider` 供请求体判断协议；`clone_messages` 一并复制。
+- `atri_x/llm/openai/wire.py`：`openai_message` / `to_openai_messages` 回传
+  `reasoning_content`。对 DeepSeek 系目标（provider 或 model 名含 `deepseek`），带
+  `tool_calls` 的 assistant 消息即使思维链为空也写 `""`——思考模式上游按"字段必须存在"
+  校验，缺字段同样 400；其它厂商不写该字段，避免拒收未知扩展。
+- `atri_x/llm/openai/openai.py`：非流式响应的 `ChatResponse` 也解析 `reasoning_content`；
+  `build_body` 按 `uses_reasoning_protocol(provider, model)` 决定是否写扩展字段。
+- `atri_x/agent/chat_llm.py`：`LLMCallResult.reasoning_content`；流式增量无条件完整累积
+  （不再受"是否给 CLI 展示"影响）。
+- `atri_x/agent/chat_turn.py`：工具轮追加的 assistant 消息带 `reasoning_content`，并把
+  本轮思维链交给工具批次。
+- `atri_x/agent/chat_tools.py` / `atri_x/toolrun/runner.py` / `atri_x/agent/toolrun_adapter.py`
+  / `atri_x/agent/tool_transcript.py`：`RunRequest.assistant_reasoning` → assistant 工具调用
+  记录的 metadata（`reasoning_content`）落库；最终回答那一轮的思维链同样写进 assistant
+  消息 metadata（`assistant_raw_text_metadata` 新增参数）。
+- `atri_x/agent/prompt.py`：从会话历史重建请求时，把 metadata 里的 `reasoning_content`
+  读回 `LLMMessage`，因此**跨回合**（不只是同轮续轮）也能按协议回传。
+
+### 修复（媒体导入的 `Source` 类型错用）
+
+- `atri_x/media/platform.py`：`import_platform` 把解析器结果误用成
+  `atri_x.media.types.Source`（只有 `platform/url/file_id`），却按
+  `delivery.Source`（带 `mime_type/path/data/media_id`）去读 `source.mime_type`，
+  于是**每一张入站图/文件**都抛
+  `AttributeError: 'Source' object has no attribute 'mime_type'`，又被
+  `materialize_platform_segment` / `materialize_with_limits` 的"失败降级"吞成
+  `[媒体不可用]`：媒体库永远为空，历史取图只能再走下载、又撞同一个异常。
+  现在解析器结果用 `delivery.Source`，`Input.source` 仍用 `media.types.Source`，与
+  Go 的 `delivery.Source` / `media.Source` 分工一致；`path` / `data` / `media_id` 分支也
+  一并恢复。
+
+### 新增 / 回归用例
+
+- 新增 `tests/test_media_platform.py`（7 例）：URL 段没有 mime_type、解析器补 mime_type、
+  path / data / media_id 四种来源分派、已有 media_id 短路、超限拒绝。
+- `tests/test_openai_adapter.py`：assistant `reasoning_content` 原样进请求体；DeepSeek 系
+  tool_calls 空思维链也写 `""`；非 DeepSeek 不写；`uses_reasoning_protocol` 判定。
+- `tests/test_agent_chat.py`：工具轮续轮请求里 assistant 消息带 `reasoning_content`，且
+  思维链被交给工具批次落库。
+- `tests/test_agent_tools.py` / `tests/test_agent_prompt.py`：metadata 落库/读回与历史重建
+  的 `reasoning_content` 往返。
+
+### 验证
+
+- 真实聊天历史库副本 + 真实 QQ 图 URL 的端到端复现：修复前
+  `get_history_media` 抛 `AttributeError: 'Source' object has no attribute 'mime_type'`；
+  修复后两条历史消息（`#1006665254`、`#842717537`）都成功下载并入库
+  （`media:7ec4ffb2…`，1,776,523 字节），`media_history` 正常写入。
+- 真实上游探针（`opencode` 中转 / `deepseek-v4.1-flash`，带 tools）：第一轮返回
+  `reasoning_content`（158 字符）；续轮带 / 不带 / 空串三种写法该中转都回 200，说明它是
+  宽容路由——真机 400 来自会硬校验的上游路由，修复后三种情形都符合协议。
+- 专项单测（openai adapter / agent chat / prompt / tools / toolrun / media 系列）全过；
+  `check_syntax` / `check_imports` / `check_integration` / `check_except` 全绿；全量套件
+  结果与真机冻结产物核验见证据目录。
+- 便携版热修重建并替换二进制（Python 3.14.7 / PyInstaller 6.22.3，复用已部署的 DSH 内核
+  与内置协议端），重启后台服务后 `/healthz` `ready=true`、`qqonebot connected`。
+  版本号仍为 `0.9.12`（不 bump、不重出安装包）。
+
+---
+
+## [0.9.12-hotfix.1] - 2026-10-21 — 修复"群里发图后 `view_image` / `get_media` 读不到图"
+
+> 旧状态（0.9.12 便携版真机，QQ 群 `929911642`）：群里发图让 ATRI-X 抽画师串与提示词时，
+> `view_image` / `get_media` 全部失败，工具侧报
+> `ChatRepository.get_by_platform_message() takes 4 positional arguments but 5 were given`；
+> 模型只能答复"图片媒体拿不到、读不到像素数据"。
+
+### 修复
+
+- `atri_x/tool/builtin/view_image.py` / `atri_x/tool/builtin/get_media.py`：按平台消息 ID
+  查历史的调用点不再给**同步**仓储多传 `ctx`。Python 的
+  `ChatHistoryRepository.get_by_platform_message` 签名是
+  `(platform, scope_id, platform_message_id)`（Go 的 `ctx` 只用于取消，移植时已去掉），
+  多传一个参数会直接 `TypeError`，于是两个工具都在查历史这一步就挂了。
+- `atri_x/agent/inbound_media.py`：`_history_lookup` 同样去掉 `ctx`，并删掉并不存在的
+  `get_by_platform` 名字回退。此前 `TypeError` 被 `associate_inbound_history` 吞成一条
+  WARN，入站图片永远关联不到历史消息位序（`media_history` 一直为空）。
+- 回归用例：`tests/test_builtin_tools3.py` 的假仓储改成与协议**逐字一致**的 3 参签名
+  ——假仓储多收一个 `ctx` 正是这个 bug 一直没被测试抓到的原因；另新增
+  `RealHistoryRepositoryTest`（真实 SQLite 仓储 + `historygate.ChatRepository` 包装）与
+  `tests/test_agent_inbound_media.py`（入站媒体 → 历史位序关联）。
+
+### 验证
+
+- 修复前同一组用例报 `takes 4 positional arguments but 5 were given`；修复后
+  `python -m unittest tests.test_builtin_tools3 tests.test_agent_inbound_media` 全过。
+- 全仓体检 `check_syntax` / `check_imports` / `check_integration` / `check_except` 全绿。
+- 便携版热修重建（Python 3.14.7 / PyInstaller 6.22.3，复用已部署的 DSH 内核与内置协议端），
+  冻结产物 PYZ 核验三个调用点均为 3 参；重启后 `/healthz` `ready=true`、`qqonebot connected`。
+
+---
+
+## [0.9.12] - 2026-10-21 — 修复"所有群工具被误判为未授权"、桌面端命令回执丢失；新增群工具授权机制
+
+> 旧状态（0.9.11 便携版真机，QQ 群 `1126294273`）：
+>
+> 1. 群里问"现在几点 / 查查最新显卡"时，`discover_tool` / `web_search` 全部被拒，
+>    工具结果只有 `tool is not in this group's allowlist`，于是模型回答"联网搜索这个群
+>    也没开权限"，而 `state.toml` 里**根本没有** `[group_policy]` 段——不是有人配了白名单，
+>    是判定把"没配过"读成了"禁止全部"。
+> 2. 桌面端切会话（GUI 发 `/resume <id>`）与命令回执报
+>    `请求失败：cli target missing`；通知队列把原 ctx 换成裸 `CancelToken`，任务里丢了
+>    message context / 远程客户端，CLI 发送者解析不到落点。
+> 3. 群里看不到工具调用进度（`should_drop_group_tool_preview` 硬编码丢弃），
+>    `/tools` 又是超管专用，普通群成员既看不到"有哪些工具"，也看不到"为什么用不了"，
+>    桌面端没有任何工具授权入口。
+> 4. 操作者实测还撞上 OneBot 断线窗口（14:45:57–14:54:25），期间群消息根本没有进来。
+
+### 修复
+
+- `atri_x/config/state.py`：`GroupPolicyConfig.normalize()` 保留 `tool_allowlist` 的
+  **nil / 空列表二态**（`None` = 继承全局；显式列表含 `[]` = 本群有策略、空列表禁止全部）。
+  旧实现把 `None` 归一成 `[]`，第二次 `tool_allowlist_restricted()` 就把"没配过群策略"
+  判成"显式禁止全部工具"——**任何没配置群策略的群，所有工具调用都会被拒**（真机事故）。
+  归一化现在幂等，配套回归用例钉住 nil / 空列表 / 具名列表三种语义。
+- `atri_x/agent/notice_queue.py`：队列任务改用 `_run_ctx()`——把原 ctx 的值逐个挂到
+  `CancelToken` 上再入队，取消语义与值传递都不丢。修复桌面端（CLI 远程连接）命令回执、
+  `/resume`、钩子通知的 `cli target missing`（`请求失败` 落盘到 CLI 通道）。
+- `/tools` 的列出与授权状态对普通用户开放：`Info.min_role = RoleUser`，
+  `reload` / `uninstall` / `remove` 仍要求超级管理员（命令内再判一次）。
+
+### 新增
+
+- **群工具授权机制（群内）**：`/tools perm` 查看本群工具授权；
+  `/tools allow <工具名,工具名|all|none>` 由群主 / 群管理员 / 超级管理员授权
+  （与 `/grouppolicy tool-allow` 同一份策略，写入 `state.toml`
+  `[group_policy."<平台:scope>"]`，15 秒内热加载）；白名单自动补 `discover_tool`
+  （缺了它模型无法发现工具）。`/tools` 列表末尾附带本群授权状态与修改提示。
+- **桌面端「工具权限」选项卡**（`atri_x/gui/tabs/toolperm.py`）：按群列出 / 新增作用域，
+  三态（继承全局 / 仅白名单 / 禁止全部），工具勾选列表（静态目录 + 自定义工具名），
+  「常用」「只读」预设与全选/全不选；下方"群聊里显示工具调用进度"开关。
+  写入 `state.toml` 的群策略热加载，进度开关写 `[platform.qqonebot]
+  .show_tool_preview_in_group`（需重启后台服务）。
+- `[platform.qqonebot].show_tool_preview_in_group` / `[platform.qqofficial]` 同名字段：
+  群聊是否投递工具调用进度预览，默认 `false`（与上游 Go 一致）。
+  `should_drop_group_tool_preview` 增加 `show_in_group` 参数，两个平台适配器传入配置。
+- `atri_x/agent/group_policy.py`：`group_tool_allowlist_text()` 一句话授权视图；
+  `Deps.tool_allowlist` 回调由 `_build_deps` 接线给 `/tools`。
+
+### 变更
+
+- 版本 0.9.11 → 0.9.12：`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION`、README 同步。
+- 文档：`docs/commands.md`（`/tools` 全量重写 + `tool-allow` 交叉引用）、
+  `docs/configuration.md`（nil/空列表语义、`show_tool_preview_in_group`、群策略与 GUI 入口）、
+  `docs/windows-app.md`（11 个选项卡 + 工具权限页）、`devdocs/code-map.md`、资产 `app.toml` 注释。
+
+### 修复（发行复验时发现）
+
+- `atri_x/platform/cli/remote_server.py`：远程 CLI 服务端每条 `input` 都新建消息上下文。
+  `MessageContext` 是可变对象，入站处理会就地写回 `msg.segments` / `raw_text`
+  （`agent.segments.with_inbound_segments`）；此前一条连接只建一份上下文，于是**同一条连接上的
+  第二条消息会读到第一条的正文**——聊天表现为"第二条消息被吞掉"，命令表现为**同一条命令被执行两次**
+  （回执也发两次）。Go 里 `MessageContext` 是值类型，入站改写只落在副本上，所以这是移植期的语义差异。
+  回归用例：`tests/test_platform_cli_remote.py::test_each_input_frame_gets_fresh_message_context`
+  （先发 `/status` 再发聊天，断言第二条的段与正文是它自己的）。
+
+### 验证
+
+- 门禁：`check_syntax` / `check_imports` / `check_integration` / `check_coverage` /
+  `check_except` / `gen_stats --check` / `check_secrets --all` 全绿（数字见发行证据）。
+- 单测：新增/改写 `toolperm` 桌面页 5 例、`/tools` 授权 8 例、
+  `GroupPolicyConfig` 归一化幂等回归、通知队列 ctx 保留回归、群聊进度开关回归；
+  相关模块（config / agent / commands / delivery / gui / toolrun）全过。
+- 真机记录（0.9.11 便携版日志）：DSML 还原正常（`llm_tool_calls_in_text recovered=true`），
+  随后两次 `permission_denied reason="tool is not in this group's allowlist"`
+  （`discover_tool`、两次 `web_search`），`state.toml` 无 `[group_policy]` → 指向本节的
+  归一化 bug；同一时段 `message_error error="cli target missing"` ×5 全部由桌面端
+  `/resume` 触发（`session_resume` 审计同刻出现）。
+- 冻结产物 e2e（0.9.12 便携版，假上游 + 真实 CLI WebSocket，群作用域 `group:123456`、
+  `state.toml` 无 `[group_policy]`）：`/status` 回执 1 次（无 `cli target missing`）、
+  随后聊天触发模型轮 → 文本工具调用被还原为 `discover_tool` 并真的执行 →
+  最终回答落地，全程无 `allowlist` 拒绝、无协议标记外发。
+
+### 变更（桌面端「工具权限」页改版）
+
+- 旧状态：工具授权区是 4 列复选框矩阵，只有工具英文名——用户看不出某个工具是干什么的，
+  也分不清"已放行 / 没放行"；窗口缩到最小高度时下方开关与按钮还会被挤出可视区。
+- 新状态：改成**纵向滚动的工具菜单**，一个工具一行：
+  「激活状态徽标（已激活 / 未激活 / 继承全局 / 禁止使用）+ 中文名 + 工具名 + 风险等级 +
+  一句话功能解释 + 激活 / 停用按钮」；点按钮或点整行都能切换，非白名单模式自动置灰。
+  新增搜索框、「只看已激活」、分组标题（带分组内已激活计数）、已激活总数与
+  「有未保存改动」提示；群作用域列表与新建输入移到左栏，菜单拿到整页剩余高度。
+- 拆分：工具展示信息（49 个内置工具的中文名 / 解释 / 分组 / 风险）进
+  `atri_x/gui/toolcatalog.py`；菜单行控件进 `atri_x/gui/toolmenu.py`；群策略读写
+  （`load/save_scope_policy`、预设）进 `atri_x/gui/toolpolicy.py`，
+  `atri_x/gui/tabs/toolperm.py` 只留页面编排（仍从原位置再导出旧名字，调用方不用改）。
+- 测试：`tests/test_gui_tabs.py` 新增工具目录 4 例（目录与 `REGISTERED_TOOLS` 集合相等、
+  每条都有标题/解释/分组/风险、目录外工具归「其它工具」、分组顺序）与菜单交互 4 例
+  （激活/停用与状态徽标、锁定模式、搜索与「只看已激活」、激活后保存回读）。
+
+## [0.9.11] - 2026-10-21 — 修复上游把工具调用写成正文导致搜索不执行、协议标记被发到用户
+
+> 旧状态：`atri_x` 只认 OpenAI 结构化 `tool_calls`。2026-10-21 线上事故（0.9.10 便携版 +
+> `opencode-go` / `deepseek-v4.1-flash`）里，网关没把模型的原生工具调用翻译成 `tool_calls`，
+> 而是把 DSML 文本协议 / `<tool-call>` JSON 原样塞进 assistant 正文：`tool_call_records`
+> 为空（工具一次都没执行），用户拿不到搜索结果，QQ 群里还收到了
+> `<｜｜DSML｜｜ calls> …` 协议原文。
+> 新状态：每条模型回复都过一遍「文本工具调用兜底」——正文里有协议标记时先尝试还原成
+> `ToolCallRequest` 并**继续工具轮**（还原成功时正文清空，与原生 `tool_calls` 回合一致）；
+> 还原不出来、或 chat 会话本来就不吃工具 schema，则把正文换成可读提示，**协议标记绝不外发**；
+> 每次处置写一条 WARN 日志 + `llm_tool_calls_in_text` 审计（只记工具名与是否还原，不记正文）。
+
+### 新增
+
+- `atri_x/llm/tooltext.py`：文本工具调用的判定 / 还原 / 清洗（纯函数，无 I/O）。
+  - `looks_like_text_tool_call`：按 `` ｜DSML｜ `` 协议分隔符或 `<tool-call>` 标签判定，
+    日常文本不会误判；
+  - `recover_text_tool_calls` / `parse_text_tool_calls`：还原成 `ToolCallRequest`
+    （`arguments` 统一为 JSON 对象字符串），同时给出清洗后的正文；
+  - `strip_text_tool_calls`：删掉正文里的协议标记（含 `</` 被打成
+    `<｜place▁holder▁no▁73｜>` 的碎片）；
+  - 覆盖线上四种破损形态：`parameter name=` 被吞、`invoke` 无 name、外层 `calls` 标签缺失、
+    `<｜place▁holder▁no▁73｜>` 替代 `</`；另外支持 `<tool-call>` JSON（单对象 / 数组 /
+    逐行 / `arguments` 为 JSON 字符串 / 缺闭合标签）。
+- `atri_x/agent/chat_anomaly.py`：`apply_text_tool_recovery` —— 把还原结果接回
+  `LLMCallResult`（补 `tool_calls` 与缺失的 call id、清空正文）；已有结构化调用时只清洗
+  正文、不重复执行；写 WARN 日志与 `llm_tool_calls_in_text` 审计。
+  生产装配只把 `AgentOptions.logs` 存成 `agent.logs`（`set_log_manager` 没有任何调用点），
+  因此日志/审计通道按需从 `agent.logs.runtime()` / `agent.logs.audit()` 补挂一次——
+  否则这两条证据会静默丢失。
+- 测试：`tests/test_llm_tooltext.py`（夹具直接取自线上泄漏原文）、
+  `tests/test_agent_chat_anomaly.py`（含"通道未接线时日志/审计仍落盘"的回归用例）。
+
+### 变更
+
+- `atri_x/agent/chat_turn.py`：每次 `call_llm` 返回后统一过一遍
+  `apply_text_tool_recovery`，工具轮、最终回答、chat 会话三条路径都受保护。
+- 版本 0.9.10 → 0.9.11：`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION`、README 同步。
+- 0.9.11 产物已重建：**便携版 zip + 全仓库源码归档**（zip / tar.gz）；安装版本轮不重建，
+  0.9.10 安装包归档在发行库 `_previous/0.9.10/`。
+- `devdocs/code-map.md`、`PORTING.md` §4.1 登记两个新模块。
+
+### 验证
+
+- 门禁：`check_syntax` 893 个文件 0 错（`bom=0`、`crlf=0`、`damaged=0`）；
+  `check_imports` `modules=695 imported=695`；`check_integration` 74/0；
+  `check_coverage` packages=72 covered=72（weighted=100.0%）；`check_except` 119=基线 119；
+  `gen_stats --check` OK；`check_secrets --all` 0 命中。
+- 单测：新增 2 个用例文件 28 用例全过；相关模块（chat / agent / toolrun / openai 适配器 /
+  装配）共 **547 用例 OK**。
+- 端到端（本地假上游复现事故）：
+  - 源码层：假上游把 `discover_tool` 的 DSML 原文当正文返回 → 自动还原 → 执行
+    `discover_tool` → 继续工具轮并给出答案；
+  - **冻结产物层**：对 0.9.11 便携版解压后跑同一复现，CLI 侧看到
+    `NOTICE 正在调用 discover_tool`、工具轮真的执行、最终回答正常，日志里有
+    `WARN llm returned tool calls as text` 与 `llm_tool_calls_in_text` 审计；
+    唯一残留是流式中间帧会先显示被泄漏的协议标记（GUI/CLI 观感问题，QQ 非流式不受影响）。
+- 脱敏：构建前源码树 999 个文本文件 0 命中；产物内 onedir 25,613 / 便携 zip 25,618 个
+  文本条目 0 命中。
+
+---
+
+## [0.9.10] - 2026-10-21 — 接入 DeepSeek 官方网页搜索与网页抓取、仓库脱敏与 0.9.10 三产物重建
+
+> 旧状态（一）：`web_search` 的通道链只有 Tavily / Firecrawl / Keenable / Exa / SearXNG /
+> Antigravity / Grok 七种协议，没有 DeepSeek 官方搜索（`POST /v1/tools/search`）。
+> 新状态：新增协议 `deepseek`——`query` + `count`（`need_content` 固定 `false`），
+> 用 `summary`（600~800 字，给模型读）填 `snippet`、`date` 非空时前置成
+> 「（发布：YYYY-MM-DD）」；`rerank_score` / `authority` 不落库，只在通道说明里提示。
+> 计费口径写进通道 `warnings`（5 元 / 1000 次成功请求）。默认链变为
+> **DeepSeek（有 key 才参与）→ Tavily → Firecrawl → Keenable → Exa**：没配 key 的部署
+> 行为与 0.9.9 完全一致（`KEYED_PROTOCOLS` 的跳过规则）。
+>
+> 旧状态（二）：`web_extract` 是写死的「Jina（有 `JINA_API_KEY`）→ 直接抓取」两级，
+> 没有任何配置段，也没有官方抓取通道。
+> 新状态：新增 `[web_extract]` 配置段（`engine_order` + `engines.<name>`，字段与
+> `[web_search]` 同形），通道抽象为 `deepseek` / `jina` / `direct` 三种协议，单条失败
+> 自动降级；`deepseek` 调 `POST /v1/tools/fetch` 返回标题 + Markdown 正文，按次计费，
+> **不在默认链里**（默认仍是 Jina → 直接抓取，旧行为不变）。缓存 key 已按通道
+> `source` 区分，同一 URL 走不同通道不会串缓存。
+>
+> 旧状态（三）：GUI 只有「搜索服务（web_search）」一个子页；密钥只有一个环境变量名。
+> 新状态：「模型」页新增第三个子页「抓取服务（web_extract）」；DeepSeek 的密钥口径统一为
+> **`DEEPSEEK_SEARCH_KEY` 优先、回落 `DEEPSEEK_API_KEY`**，工具层与界面密钥状态用同一个
+> `key_env_names`（避免「界面显示已设置、实际取不到 key」）。
+
+### 新增
+
+- `atri_x/tool/builtin/web_search_engines.py`：协议 `deepseek`（常量、默认端点
+  `https://api.deepseek.com/v1/tools/search`、`search_deepseek`、`key_env_names` 与
+  `FALLBACK_KEY_ENV`）；`BUILTIN_PROTOCOLS` / `KEYED_PROTOCOLS` / `DEFAULT_KEY_ENV` /
+  `default_specs` 同步加入。
+- `atri_x/tool/builtin/web_extract_engines.py`：抓取通道（`deepseek` / `jina` / `direct`）
+  的请求与解析、`ExtractEngineSpec` / `specs_from_config` / `default_specs` /
+  `key_env_names`；纯标准库 HTML 清洗函数从 `web_extract.py` 迁到这里。
+- `atri_x/config/services.py`：`WebExtractEngineConfig` / `WebExtractConfig` +
+  `ServicesConfig.web_extract`；`atri_x/config/app.py` 的 `AppConfig` 与 `merge_services`
+  同步（缺席段保留旧值，与 `[web_search]` 一致）。
+- `atri_x/app/tool_runtime.py`、`atri_x/app/runtime.py`、`atri_x/tool/builtin/register.py`：
+  把 `web_extract` 配置沿装配链传到工具（`RegisterOptions.web_extract`）。
+- `atri_x/gui/extractconfig.py`、`atri_x/gui/tabs/extractpanel.py`：抓取服务的桌面端数据层
+  与子页；`atri_x/gui/tabs/model.py` 增加「抓取服务（web_extract）」二级页签。
+- `atri_x/gui/searchconfig.py`：DeepSeek 协议的显示名/说明/地址占位，默认链加入
+  `deepseek`；`engine_key_state` 改用 `key_env_names` 的回落口径。
+- 测试：`tests/test_web_extract_engines.py`（新）、`tests/test_gui_extractconfig.py`（新），
+  以及 `tests/test_web_search_engines.py` / `tests/test_config_web_search.py` /
+  `tests/test_gui_searchconfig.py` 的 DeepSeek 与 `[web_extract]` 用例。
+
+### 变更
+
+- `atri_x/tool/builtin/web_search.py`：`run_engine` 增加 `deepseek` 分支；`engine_api_key`
+  按 `spec.key_envs()` 依次尝试（DeepSeek 回落 `DEEPSEEK_API_KEY`）；默认链、工具说明与
+  无可用通道的报错文案同步更新。
+- `atri_x/tool/builtin/web_extract.py`：改为按 `[web_extract]` 通道链编排（缓存、分段输出、
+  代理与 `jina=false` 语义保留）；`web_extract` 工具说明更新。
+- 发行资产 `atri_x/config/assets_data/services.toml` / `.env.example`：补 `[web_search.engines.deepseek]`、
+  `[web_extract]` 示例与 `DEEPSEEK_SEARCH_KEY`。
+- 文档：`docs/configuration.md`（协议表、默认链、`[web_extract]` 配置与计费/QPS 说明）、
+  `devdocs/code-map.md`（搜索/抓取通道与两个 GUI 数据层）。
+
+### 测试
+
+- `python -m unittest tests.test_web_search_engines tests.test_web_extract_engines tests.test_config_web_search tests.test_gui_searchconfig tests.test_gui_extractconfig`：覆盖 DeepSeek 搜索请求/解析/密钥回落/降级、DeepSeek 抓取 404 降级到直接抓取、按通道缓存、
+  `[web_extract]` 严格解析与 GUI 存取。
+- `python scripts/check_syntax.py`、`python scripts/check_imports.py`、`python scripts/check_integration.py`。
+
+### 脱敏
+
+- 仓库侧复跑 `python scripts/check_secrets.py --all` → **0 处命中**（git 跟踪 + 未跟踪文本：
+  真实个人目录、`atrix-gui-*` / `atrix-ops-*` 令牌、`sk-*` 密钥形状、`.env` 真值赋值）。
+- 历史 CHANGELOG 里残留的本机构建机绝对路径（构建目录、发行库盘符、工作区盘符、本机 DSH 的
+  `node_modules` 路径）统一改成 `<构建目录>` / `<工作区>` / `C:\path\to\node_modules` 占位；
+  仓库内不再出现 `C:\Users\<真实用户名>`、主机名、内网 IP 或真实 key（`tests/` 只有固定假值）。
+- 代码与配置侧再扫一遍：无本机用户名、无盘符绝对路径写死、无 `DESKTOP-*` 主机名；
+  `docs/` 与 `packaging/README.md` 里的 `C:\path\to\node_modules`、`D:\napcat\...` 都是示例占位。
+- 发行物侧：内置 QQ 协议端继续由 `packaging/qqproto.py` 跳过
+  `resources\app\napcat\{config,cache,logs}` 与 `*.log`；便携包/安装包内的文本条目再按同一套
+  规则扫描（结果见下方「发行」与发行库的 `自检报告.md`）。
+
+### 版本
+
+- `atri_x/__init__.py`（`__version__`）、`pyproject.toml`、`deploy/VERSION` 三处同步
+  `0.9.9` → `0.9.10`；`README.md` 版本行与性能说明里的版本引用、`docs/windows-app.md` 与
+  `packaging/README.md` 的发行实测数字同步。
+
+### 发行（0.9.10 全仓库归档 + 便携版 + 安装版）
+
+构建环境：Windows 10 x64、Python 3.14.7 + PyInstaller 6.22.3 + Pillow 12.3.0（保留可选加速）、
+Inno Setup 7；内置 DSH 内核 0.2.0-rc.2（384 包 / 189.1 MB + Node v24.19.0，
+ACP `initialize` 握手通过）。构建在**仓库外**的干净树（`<构建目录>\src`，避开 DSH 工作区的
+Low 完整性标签）进行，一条命令出两个自检产物：
+
+```powershell
+robocopy <仓库> <构建目录>\src /E /XD <仓库>\.git <仓库>\dist <仓库>\build __pycache__ tmp_* /XF *.pyc
+cd <构建目录>\src
+python packaging\assemble_kernel.py --modules "C:\path\to\node_modules"      # 首次 / 换 DSH 版本时
+python packaging\build.py --release --with-pillow --with-kernel --with-qqproto "<NapCat.52230.Shell>"
+```
+
+| 产物 | 体积 | 自检 |
+|---|---|---|
+| onedir（中间产物） | 333.4 MB / 24,516 文件（其中内核 277.6 MB） | `--version`（`atri-x 0.9.10`）、`config check`、`-m` 转发、`sidecar`（内核 `found: true`）、GUI `--selftest` 全过 |
+| `ATRI-X-0.9.10-portable-win64.zip` | 682,683,109 字节（651.1 MB，deflate 42%，打包 42.6 s） | 解压 14.4 s / 27,034 条目后 10 项全过（`--version` / `config check` / 数据目录落包内 / `qqproto` / `-m` 转发 / `sidecar` / GUI `--selftest` / `start-portable.bat` / `debug-console.bat` / APPDATA 重定向） |
+| `ATRI-X-0.9.10-setup.exe` | 457,387,788 字节（436.2 MB，ISCC lzma2/max 293.6 s） | 静默安装 65.4 s / 27,032 文件 → `--version` 通过 → 静默卸载 8.3 s，安装目录清空 |
+| `ATRI-X-0.9.10-repo.zip` / `.tar.gz` | 全仓库源码归档（不含 `.git`、`dist/`、`build/`、`runtime/`；工作树含未提交改动） | zip/tar 条目数与 `git ls-files` + 未跟踪文件清单一致、CRC 校验通过；文件大小与 SHA256 见发行库 `SHA256SUMS.txt` |
+
+包内规模：内置协议端 `qqproto` 2,513 文件 / 1,202.3 MB（跳过 NapCat
+`resources\app\napcat\{config,cache,logs}` 与 `*.log`，最长相对路径 128 字符，`sanitized: yes`），
+NapCat 4.18.38 + 便携 QQ 9.9.33-52230。
+
+| 文件 | SHA-256 |
+|---|---|
+| `ATRI-X-0.9.10-portable-win64.zip` | `2370c7b21857ccc36cb0ee046c7e0703b4279baf13bb0d76dda1c14af50a11ef` |
+| `ATRI-X-0.9.10-setup.exe` | `8e34fa95d29097002780c2e68e16c95fe361772085f73b2e37663b74779f92dd` |
+
+独立复验（构建脚本之外另跑）：便携包解压 27,034 条目 → `--version` / `config check` /
+`-m atri_x.sidecar status` / `-m atri_x.dist.install status` / `-m atri_x.gui.qqproto --json`，
+断言 `.env` 令牌 == `onebot11.json` 令牌、`app.toml` 的 `ws_url` 端口 == OneBot 端口（3001）、
+WebUI 配置存在、`qqproto` 下没有 `.env`；安装包静默安装 70.0 s / 27,032 文件后做同样断言，
+卸载 6.0 s、`leftover=0`、安装目录被删除。两个产物均 `ok=true`。
+
+> 构建注意（本版首次构建踩到并已修正）：清构建树时若用 `robocopy /XD dist build` 这类**裸目录名**，
+> 它会排除任意层级的同名目录，连 `atri_x/dist/` 这个 Python 包也一起排掉，冻结产物里
+> `-m atri_x.dist.install` 会报 `No module named 'atri_x.dist'`。排除项必须限定到仓库根
+> （`/XD <仓库>\dist <仓库>\build`）。修正后重建，独立复验已把
+> `-m atri_x.dist.install status --json` 纳入断言。
+
+### 验证
+
+```
+python scripts/check_syntax.py      889 个文件，0 错（bom=0 / crlf=0 / damaged=0）
+python scripts/check_imports.py     693/693，0 失败
+python scripts/check_integration.py 74 项，0 失败
+python scripts/check_coverage.py --summary   72/72，weighted=100.0%
+python scripts/check_except.py      OK（119 = 基线 119）
+python scripts/gen_stats.py --check OK
+python scripts/check_secrets.py --all        0 命中
+python -m unittest（DeepSeek 搜索/抓取 + 配置 + GUI + 装配相关模块）  203 用例 OK
+```
+
+- 发行物脱敏扫描（构建脚本之外）：onedir 25,613 个文本条目、便携 zip 25,618 个文本条目
+  → **0 命中**（个人目录 / `atrix-*` 令牌 / `sk-*` 密钥 / `.env` 真值 / 本机构建路径）。
+- 完整 `unittest discover` 在本机沙箱里会被 Docker 部署类用例卡住（`tmp_deploy_harness_*`），
+  与本次改动无关；相关用例已按模块单独跑过。
+
+---
+
 ## [0.9.9-local.5] - 2026-10-20 — 修复 retain 参数错位导致所有工具被拦下、会话命名通知者签名错位与命名 token 上限过小
 
 > 旧状态（一）：从 0.9.8 起，`toolrun.runner` 在"已确认并即将执行"的媒体参数留存一步，
@@ -68,7 +540,7 @@
 
 ### 发行（本机重建 0.9.9 便携版 + 安装版，均内置 QQ 协议端与 DSH 内核）
 
-产物、校验和与自检报告见发行库 `M:\ATRI-X-release`（`SHA256SUMS.txt` / `发行说明.md` /
+产物、校验和与自检报告见本机发行库（`SHA256SUMS.txt` / `发行说明.md` /
 `自检报告.md`）：便携 zip 681,260,343 字节（SHA256 `b742b533…`）、Inno 安装包
 456,714,636 字节（SHA256 `ff0aa20c…`）。构建命令与上一版相同：
 `python packaging/build.py --release --with-pillow --with-kernel --with-qqproto "<NapCat.52230.Shell>"`。
@@ -172,7 +644,7 @@
 
 ### 发行（本机重建 0.9.9 便携版 + 安装版，均内置 QQ 协议端与 DSH 内核）
 
-产物、校验和与自检报告见发行库 `M:\ATRI-X-release`（`SHA256SUMS.txt` / `发行说明.md` /
+产物、校验和与自检报告见本机发行库（`SHA256SUMS.txt` / `发行说明.md` /
 `自检报告.md`）：便携 zip 649.7 MB（SHA256 `97a67ab4…`）、Inno 安装包 435.6 MB
 （SHA256 `6dfb5b4f…`）。构建命令
 `python packaging/build.py --release --with-pillow --with-kernel --with-qqproto <NapCat.52230.Shell>`；
@@ -250,7 +722,7 @@
 
 ### 发行（本机重建 0.9.9 便携版 + 安装版，均内置协议端）
 
-产物与 SHA256 见发行库 `D:\ATRI-X-release`（`SHA256SUMS.txt` / `发行说明.md`）；
+产物与 SHA256 见本机发行库（`SHA256SUMS.txt` / `发行说明.md`）；
 本机构建日志与自检报告见 `自检报告.md`。仓库改动仅本地提交，**未推送**。
 
 ---
@@ -304,7 +776,7 @@
 
 ### 发行（本机重建 0.9.9 便携版）
 
-构建命令与上一版相同，工作区外（`D:\ATRI-X-build`）构建，内置内核沿用本机 DSH 0.2.0-rc.2：
+构建命令与上一版相同，工作区外（`<构建目录>`）构建，内置内核沿用本机 DSH 0.2.0-rc.2：
 
 | 产物 | 体积 | 自检 |
 |---|---|---|
@@ -317,7 +789,7 @@ SHA256：`6a0e81594618d31ebeb761592a1a12088c941671027f6082faf31cab639ff7d7`
 对着本机假 OneBot v11 协议端跑 `-m atri_x.platform.qq_onebot.smoke --listen 3 --json`
 得到 `ok=true, event_count=1`（连接/登录信息/事件上报）；后台服务指向该假协议端后
 `GET /healthz` 返回 `platforms[qqonebot].connected=true`，「在线」页显示「已连接（QQ 在线）」
-（`D:\ATRI-X-rebuilt\evidence\shot_link_tab.png`）。
+（`<构建目录>\evidence\shot_link_tab.png`）。
 
 > 与官方 v0.9.9 便携包的差异同上一版：本机重建包多 648 个非内核文件（构建解释器用户级
 > `tzdata` 被 PyInstaller 收集 + UCRT/API-set DLL），内核文件数与官方一致。
@@ -338,7 +810,7 @@ python scripts/gen_stats.py --check OK
 ## [0.9.9-local.1] - 2026-10-20 — 桌面端诊断可见性（本机重建，未随上游发布）
 
 > 本版是**本机重建**：只改桌面端两处「失败看不见」，并按同一份源码重新打包 Windows 便携版。
-> 触发背景：本机把便携版解压到带 **Low 强制完整性标签** 的目录（`D:\opencode` 根带
+> 触发背景：本机把便携版解压到带 **Low 强制完整性标签** 的目录（`<工作区>` 根带
 > `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)`）后启动——进程以 Low 完整性运行，
 > 写 `%APPDATA%\ATRI-X` 被拒（WinError 5）、`Shell_NotifyIconW(NIM_ADD)` 返回
 > ACCESS_DENIED（没有托盘图标）。以前这两种失败分别是「点掉就没线索的弹窗」和
@@ -374,8 +846,8 @@ python scripts/gen_stats.py --check OK
 ### 发行（本机重建 0.9.9 便携版）
 
 `python packaging/build.py --with-kernel --with-portable --portable-verify`，在工作区外
-（`D:\ATRI-X-build`，避开 Low 完整性标签）构建；内置内核用
-`assemble_kernel.py --modules "D:\DSH\Deepseek Harness EAC\dsh-desktop\node_modules"`
+（`<构建目录>`，避开 Low 完整性标签）构建；内置内核用
+`assemble_kernel.py --modules "C:\path\to\node_modules"`
 从本机 DSH 0.2.0-rc.2 重新组装（384 包 / 189.1 MB + node v24.19.0 92.8 MB，ACP
 `initialize` 握手通过）：
 

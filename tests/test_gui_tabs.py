@@ -33,12 +33,14 @@ from atri_x.gui import (
     about,
     avatars,
     configedit,
+    extractconfig,
     featureview,
     imagemount,
     journal,
     memberdata,
     modelcatalog,
     searchconfig,
+    toolcatalog,
     widgets,
 )
 from atri_x.gui.dialogs import HooksDialog, MaintenanceDialog, SelfLearningDialog
@@ -49,6 +51,14 @@ from atri_x.gui.tabs.logs import LogsTab, channel_level_tag
 from atri_x.gui.tabs.members import MembersTab
 from atri_x.gui.tabs.model import ModelTab
 from atri_x.gui.tabs.platform import PlatformTab
+from atri_x.gui.tabs.toolperm import (
+    DISCOVER_TOOL,
+    PRESET_COMMON,
+    ToolPermTab,
+    load_scope_policies,
+    load_tool_choices,
+    save_scope_policy,
+)
 from atri_x.media.imagecodec import Image, encode_png
 from atri_x.storage.sqlite.chat_history_repository import new_chat_history
 
@@ -166,11 +176,21 @@ class LayoutCase(unittest.TestCase):
     """不建窗口：选项卡清单、「功能」页跳转键、关于文案。"""
 
     def test_tab_list_and_keys(self) -> None:
-        self.assertEqual(len(gui_app._TABS), 10)
-        self.assertEqual(len(set(gui_app._TABS)), 10)
+        self.assertEqual(len(gui_app._TABS), 11)
+        self.assertEqual(len(set(gui_app._TABS)), 11)
         self.assertIn("在线", gui_app._TABS)
+        self.assertIn("工具权限", gui_app._TABS)
         self.assertLess(gui_app._TABS.index("平台"), gui_app._TABS.index("在线"))
-        for key in ("model", "character", "platform", "advanced", "members", "knowledge", "logs"):
+        for key in (
+            "model",
+            "character",
+            "platform",
+            "advanced",
+            "members",
+            "knowledge",
+            "logs",
+            "toolperm",
+        ):
             self.assertIn(key, gui_app._TAB_KEYS)
             self.assertIn(gui_app._TAB_KEYS[key], gui_app._TABS)
 
@@ -194,6 +214,37 @@ class LayoutCase(unittest.TestCase):
         self.assertEqual(about.POWERED_BY, "POWERED BY DAFEIYU")
         self.assertIn("POWERED BY DAFEIYU", text)
         self.assertTrue(about.DESCRIPTION.strip())
+
+
+class ToolCatalogCase(unittest.TestCase):
+    """「工具权限」页的工具目录：覆盖全部内置工具，分组/风险/兜底都对。"""
+
+    def test_catalog_covers_registered_tools_exactly(self) -> None:
+        names = toolcatalog.catalog_names()
+        self.assertEqual(set(names), set(load_tool_choices()))
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_every_entry_has_title_summary_category_and_risk(self) -> None:
+        self.assertEqual(toolcatalog.CATEGORY_ORDER[-1], toolcatalog.OTHER_CATEGORY)
+        self.assertEqual(
+            len(toolcatalog.CATEGORY_ORDER), len(set(toolcatalog.CATEGORY_ORDER))
+        )
+        for meta in toolcatalog.TOOL_CATALOG:
+            self.assertTrue(meta.title.strip(), meta.name)
+            self.assertTrue(meta.summary.strip(), meta.name)
+            self.assertIn(meta.category, toolcatalog.CATEGORY_ORDER, meta.name)
+            self.assertIn(meta.risk, toolcatalog.RISK_LABELS, meta.name)
+
+    def test_ordered_names_puts_unknown_tools_last(self) -> None:
+        names = toolcatalog.ordered_names(["my_skill", "web_search", "read_file"])
+        self.assertEqual(names, ["web_search", "read_file", "my_skill"])
+        fallback = toolcatalog.tool_meta("my_skill")
+        self.assertEqual(fallback.category, toolcatalog.OTHER_CATEGORY)
+        self.assertTrue(fallback.summary.strip())
+
+    def test_catalog_by_category_keeps_menu_order(self) -> None:
+        groups = toolcatalog.catalog_by_category(["read_file", "web_search"])
+        self.assertEqual([category for category, _ in groups], ["联网", "文件与执行"])
 
 class ModelTabCase(TkCase):
     """模型页：模型目录、备注名、刷新、标签还原。"""
@@ -293,12 +344,13 @@ class ModelTabCase(TkCase):
     # -- 搜索服务子页 -------------------------------------------------------
     def test_search_page_exists_with_default_chain(self) -> None:
         panel = self.tab.search_panel
-        self.assertEqual(self.tab.notebook.index("end"), 2)
+        self.assertEqual(self.tab.notebook.index("end"), 3)
         self.assertEqual(
-            [view.name for view in panel.engines], ["tavily", "firecrawl", "keenable", "exa"]
+            [view.name for view in panel.engines],
+            ["deepseek", "tavily", "firecrawl", "keenable", "exa"],
         )
-        self.assertEqual(len(panel.tree.get_children("")), 4)
-        self.assertEqual(panel.engines[0].protocol, "tavily")
+        self.assertEqual(len(panel.tree.get_children("")), 5)
+        self.assertEqual(panel.engines[0].protocol, "deepseek")
 
     def test_search_state_column_marks_keyless_and_missing_keys(self) -> None:
         panel = self.tab.search_panel
@@ -339,15 +391,16 @@ class ModelTabCase(TkCase):
         panel._move_engine(-1)
         data = self.read_toml("services.toml")
         self.assertEqual(
-            data["web_search"]["engine_order"], ["tavily", "keenable", "firecrawl", "exa"]
+            data["web_search"]["engine_order"],
+            ["deepseek", "tavily", "keenable", "firecrawl", "exa"],
         )
-        self.assertEqual(panel.engines[1].name, "keenable")
+        self.assertEqual(panel.engines[2].name, "keenable")
 
     def test_search_delete_requires_confirmation(self) -> None:
         panel = self.tab.search_panel
         panel._select_row("exa")
         panel._delete_engine()  # askyesno 在测试里被 mock 成 False
-        self.assertEqual(len(panel.engines), 4)
+        self.assertEqual(len(panel.engines), 5)
         self.assertNotIn("web_search", self.read_toml("services.toml"))
 
     def test_search_reset_restores_default_chain(self) -> None:
@@ -358,8 +411,53 @@ class ModelTabCase(TkCase):
             panel._reset_engines()
         data = self.read_toml("services.toml")
         self.assertEqual(
-            data["web_search"]["engine_order"], ["tavily", "firecrawl", "keenable", "exa"]
+            data["web_search"]["engine_order"],
+            ["deepseek", "tavily", "firecrawl", "keenable", "exa"],
         )
+
+    # -- 抓取服务子页 -------------------------------------------------------
+    def test_extract_page_exists_with_default_chain(self) -> None:
+        panel = self.tab.extract_panel
+        self.assertEqual([view.name for view in panel.engines], ["jina", "direct"])
+        self.assertEqual(len(panel.tree.get_children("")), 2)
+        self.assertEqual(panel.engines[0].protocol, "jina")
+        rows = {
+            name: panel.tree.item(name, "values")[2] for name in panel.tree.get_children("")
+        }
+        self.assertEqual(rows["jina"], "缺密钥")
+        self.assertEqual(rows["direct"], "无需密钥")
+
+    def test_extract_saves_deepseek_channel(self) -> None:
+        panel = self.tab.extract_panel
+        panel._new_engine()
+        panel.name_var.set("deepseek")
+        panel.protocol_var.set(extractconfig.PROTOCOL_LABELS["deepseek"])
+        panel._save_engine()
+        data = self.read_toml("services.toml")
+        self.assertEqual(data["web_extract"]["engine_order"][-1], "deepseek")
+        entry = data["web_extract"]["engines"]["deepseek"]
+        self.assertEqual(entry["protocol"], "deepseek")
+        self.assertEqual(entry["api_key_env"], "DEEPSEEK_SEARCH_KEY")
+        self.assertIn("deepseek", panel.tree.get_children(""))
+
+    def test_extract_writes_key_to_dotenv(self) -> None:
+        panel = self.tab.extract_panel
+        panel._select_row("jina")
+        self.assertIn("JINA_API_KEY", panel.key_env_var.get())
+        panel.key_entry.set("jina-123")
+        panel._save_key()
+        env_text = Path(self.paths.env_path).read_text(encoding="utf-8")
+        self.assertIn("JINA_API_KEY=jina-123", env_text)
+        self.assertEqual(panel.key_entry.get(), "")
+
+    def test_extract_reset_restores_default_chain(self) -> None:
+        panel = self.tab.extract_panel
+        panel._new_engine()
+        panel._save_engine()
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            panel._reset_engines()
+        data = self.read_toml("services.toml")
+        self.assertEqual(data["web_extract"]["engine_order"], ["jina", "direct"])
 
 
 class LogsTabCase(TkCase):
@@ -792,6 +890,153 @@ class PlatformTabCase(TkCase):
         env_text = Path(self.paths.env_path).read_text(encoding="utf-8")
         self.assertIn("QQONEBOT_TOKEN=secret-value", env_text)
         self.assertEqual(tab.qqonebot.token_entry.get(), "")
+
+
+class ToolPermTabCase(TkCase):
+    """工具权限页：群白名单读写 + 群聊工具进度开关。"""
+
+    SCOPE = "qqonebot:group:1126294273"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tab = self.build(ToolPermTab)
+
+    def test_save_whitelist_writes_state_and_auto_includes_discover(self) -> None:
+        self.tab.scope_var.set(self.SCOPE)
+        self.tab._locate_scope()
+        self.tab.mode_var.set("whitelist")
+        self.tab._set_all(False)
+        self.tab._tool_vars["web_search"].set(True)
+        self.tab._save()
+        policies = load_scope_policies(self.paths.state_path)
+        mode, names = policies[self.SCOPE]
+        self.assertEqual(mode, "whitelist")
+        self.assertIn("web_search", names)
+        self.assertIn(DISCOVER_TOOL, names)
+
+    def test_save_none_and_inherit_roundtrip(self) -> None:
+        save_scope_policy(self.paths.state_path, self.SCOPE, "none", [])
+        self.assertEqual(load_scope_policies(self.paths.state_path)[self.SCOPE][0], "none")
+        save_scope_policy(self.paths.state_path, self.SCOPE, "inherit", [])
+        self.assertNotIn(self.SCOPE, load_scope_policies(self.paths.state_path))
+
+    def test_inherit_keeps_other_group_policy_fields(self) -> None:
+        save_scope_policy(self.paths.state_path, self.SCOPE, "none", [])
+        configedit.patch_section(
+            self.paths.state_path,
+            f'group_policy."{self.SCOPE}"',
+            {"wake_keywords": ["atri"]},
+        )
+        save_scope_policy(self.paths.state_path, self.SCOPE, "inherit", [])
+        state = self.read_toml("state.toml")
+        self.assertEqual(state["group_policy"][self.SCOPE]["wake_keywords"], ["atri"])
+        self.assertIsNone(state["group_policy"][self.SCOPE].get("tool_allowlist"))
+
+    def test_preset_fills_common_tools(self) -> None:
+        self.tab.scope_var.set(self.SCOPE)
+        self.tab._locate_scope()
+        self.tab._apply_preset(PRESET_COMMON)
+        self.assertEqual(self.tab.mode_var.get(), "whitelist")
+        for name in PRESET_COMMON:
+            self.assertTrue(self.tab._tool_vars[name].get(), name)
+
+    def test_reload_lists_existing_scopes(self) -> None:
+        save_scope_policy(self.paths.state_path, self.SCOPE, "whitelist", ["web_search"])
+        self.tab.reload()
+        self.assertEqual(len(self.tab.scope_tree.get_children("")), 1)
+        values = self.tab.scope_tree.item(self.SCOPE, "values")
+        self.assertEqual(values[0], self.SCOPE)
+        self.assertIn("白名单", values[1])
+        self.assertTrue(self.tab._tool_vars["web_search"].get())
+        self.assertEqual(self.tab.mode_var.get(), "whitelist")
+
+    def test_preview_switch_saved_into_app_toml(self) -> None:
+        self.tab.preview_var.set(True)
+        self.tab._save_preview_switch()
+        app = self.read_toml("app.toml")
+        self.assertTrue(
+            app["platform"]["qqonebot"]["show_tool_preview_in_group"]
+        )
+
+    # -- 纵向滚动工具菜单（激活按钮 + 状态 + 功能解释）-----------------------
+    def _open_whitelist(self) -> None:
+        self.tab.scope_var.set(self.SCOPE)
+        self.tab._locate_scope()
+        self.tab.mode_var.set("whitelist")
+        self.tab._on_mode_changed()
+
+    def test_menu_renders_every_tool_with_state_and_description(self) -> None:
+        self._open_whitelist()
+        self.assertEqual(len(self.tab._rows), len(self.tab._tool_vars))
+        row = self.tab._rows["web_search"]
+        self.assertEqual(row.meta, toolcatalog.tool_meta("web_search"))
+        self.assertEqual(row.badge.cget("text"), "未激活")
+        self.assertEqual(row.button.cget("text"), "激活")
+        self.assertIn("搜索", row.summary.cget("text"))
+        self.assertEqual(row.summary.cget("wraplength") > 0, True)
+        # 点激活按钮：状态翻转、徽标/按钮跟着变，discover_tool 自动补上。
+        row.button.invoke()
+        self.assertTrue(self.tab._tool_vars["web_search"].get())
+        self.assertTrue(self.tab._tool_vars[DISCOVER_TOOL].get())
+        row = self.tab._rows["web_search"]
+        self.assertEqual(row.badge.cget("text"), "已激活")
+        self.assertEqual(row.button.cget("text"), "停用")
+        self.assertIn("有未保存改动", self.tab.count_label.cget("text"))
+        # 再点一次（停用）。
+        row.button.invoke()
+        self.assertFalse(self.tab._tool_vars["web_search"].get())
+        self.assertEqual(self.tab._rows["web_search"].badge.cget("text"), "未激活")
+
+    def test_menu_locks_in_inherit_and_none_modes(self) -> None:
+        self.tab.scope_var.set(self.SCOPE)
+        self.tab._locate_scope()
+        self.tab.mode_var.set("inherit")
+        self.tab._on_mode_changed()
+        row = self.tab._rows["web_search"]
+        self.assertEqual(row.badge.cget("text"), "继承全局")
+        self.assertEqual(str(row.button.cget("state")), str(tk.DISABLED))
+        self.assertIn("全部工具可用", self.tab.count_label.cget("text"))
+        # 锁定模式点行不改状态（并给出提示，不弹窗）。
+        self.tab._toggle_tool("web_search")
+        self.assertFalse(self.tab._tool_vars["web_search"].get())
+        self.tab.mode_var.set("none")
+        self.tab._on_mode_changed()
+        self.assertEqual(self.tab._rows["web_search"].badge.cget("text"), "禁止使用")
+        self.assertIn("全部工具已禁止", self.tab.count_label.cget("text"))
+
+    def test_menu_search_and_only_active_filter(self) -> None:
+        self._open_whitelist()
+        self.tab.search_var.set("记忆")
+        self.assertTrue(self.tab._rows)
+        for name in self.tab._rows:
+            self.assertEqual(toolcatalog.tool_meta(name).category, "记忆", name)
+        self.assertIn("当前显示", self.tab.count_label.cget("text"))
+        self.tab.search_var.set("没有这个工具xyz")
+        self.assertEqual(self.tab._rows, {})
+        self.tab._clear_search()
+        self.assertEqual(len(self.tab._rows), len(self.tab._tool_vars))
+        # 只看已激活：列表 == 当前勾选的工具。
+        self.tab._apply_preset(PRESET_COMMON)
+        self.tab.only_active_var.set(True)
+        self.tab._render_rows()
+        active = {
+            name for name, variable in self.tab._tool_vars.items() if variable.get()
+        }
+        self.assertEqual(set(self.tab._rows), active)
+
+    def test_menu_activation_save_roundtrip(self) -> None:
+        self._open_whitelist()
+        self.tab._rows["web_search"].button.invoke()
+        self.tab._save()
+        mode, names = load_scope_policies(self.paths.state_path)[self.SCOPE]
+        self.assertEqual(mode, "whitelist")
+        self.assertEqual(set(names), {"web_search", DISCOVER_TOOL})
+        self.assertNotIn("有未保存改动", self.tab.count_label.cget("text"))
+        # 保存后重新载入：菜单里的状态与落盘一致。
+        self.tab.reload()
+        self.assertTrue(self.tab._tool_vars["web_search"].get())
+        self.assertTrue(self.tab._tool_vars[DISCOVER_TOOL].get())
+        self.assertFalse(self.tab._tool_vars["web_extract"].get())
 
 
 class FeaturesTabCase(TkCase):

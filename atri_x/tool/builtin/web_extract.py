@@ -1,4 +1,4 @@
-"""``web_extract``：网页正文提取（Jina Reader 优先，失败/禁用时直接抓取）。
+"""``web_extract``：网页正文提取（可配置的抓取通道链）。
 
 对应 Go：``internal/tool/builtin/web_extract.go``。
 
@@ -7,19 +7,25 @@
 * ``net/http`` → :class:`atri_x.net.httpclient.HTTPClient`；代理通过带
   ``proxy`` 的 ``HTTPClient`` 表达（Go 是自建 ``http.Transport``）。
 * ``sync.Mutex`` → :class:`threading.Lock`（缓存是同步内存结构）。
-* HTML 清洗是纯标准库实现，逐函数对齐 Go：``extractSimpleHTMLText`` /
-  ``extractTagContent`` / ``removeTagBlocks`` / ``removeHTMLComments`` / ``stripTags``。
-* 请求体字段名逐字照抄 Go struct tag，``omitempty`` 逐字段复刻。
+* HTML 清洗与各通道的请求/解析在 :mod:`atri_x.tool.builtin.web_extract_engines`，
+  本模块只负责通道链、缓存与分段输出。
+
+与 Go 的差异（行为）：
+
+* Go 版固定「Jina（有 key）→ 直接抓取」两级；本仓按 ``[web_extract]`` 配置
+  （桌面端「模型 → 抓取服务」页写的就是它）逐条尝试通道，单条失败自动换下一条。
+  配置段缺席时仍是「Jina → 直接抓取」，旧部署行为不变。
+* 可选通道 ``deepseek`` 用 DeepSeek 官方抓取接口（返回 Markdown 正文），按成功请求
+  计费，所以不在默认链里；要显式写进 ``engine_order`` 才启用。
 """
 
 from __future__ import annotations
 
-import html
 import json
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Sequence
 from urllib.parse import urlsplit
 
 from atri_x.errors import InvalidError
@@ -28,13 +34,37 @@ from atri_x.net.httpclient import HTTPClient, HTTPError
 from atri_x.processenv import Environment
 from atri_x.tool.builder import Builder, required
 from atri_x.tool.builtin.common import optional_builtin_env
-from atri_x.tool.builtin.web_search import truncate_http_body
+from atri_x.tool.builtin.web_extract_engines import (
+    BUILTIN_PROTOCOLS,
+    DEFAULT_KEY_ENV,
+    JINA_DEFAULT_ENDPOINT,
+    KEYED_PROTOCOLS,
+    PROTOCOL_DEEPSEEK,
+    PROTOCOL_DIRECT,
+    PROTOCOL_JINA,
+    ExtractEngineFailure,
+    ExtractEngineSpec,
+    ExtractPage,
+    JinaData as JinaResponseData,
+    JinaResponse,
+    default_specs,
+    extract_deepseek,
+    extract_direct,
+    extract_jina,
+    extract_simple_html_text,
+    extract_tag_content,
+    jina_reader_url,
+    normalize_jina_response,
+    remove_html_comments,
+    remove_tag_blocks,
+    strip_tags,
+)
 from atri_x.tool.capability import ctx_raise_if_cancelled
 from atri_x.tool.tool import CallRequest, Info, Result, RiskLow
 
-JINA_API_KEY_ENV = "JINA_API_KEY"
+JINA_API_KEY_ENV = DEFAULT_KEY_ENV[PROTOCOL_JINA]
 WEB_EXTRACT_PROXY_ENV = "WEB_EXTRACT_PROXY"
-DEFAULT_EXTRACT_ENDPOINT = "https://r.jina.ai/"
+DEFAULT_EXTRACT_ENDPOINT = JINA_DEFAULT_ENDPOINT
 DEFAULT_REMOVE_SELECTOR = "header, .class, #id"
 DEFAULT_EXTRACT_CHARS = 8000
 MAX_EXTRACT_CHARS = 16000
@@ -54,27 +84,6 @@ class WebExtractArgs:
     proxy: str = ""
     jina: bool | None = None
     force_refresh: bool = False
-
-
-@dataclass
-class JinaResponseData:
-    """对应 Go ``jinaResponseData``。"""
-
-    url: str = ""
-    title: str = ""
-    content: str = ""
-    timestamp: str = ""
-
-
-@dataclass
-class JinaResponse:
-    """对应 Go ``jinaResponse``。"""
-
-    url: str = ""
-    title: str = ""
-    content: str = ""
-    timestamp: str = ""
-    data: JinaResponseData | None = None
 
 
 @dataclass
@@ -160,7 +169,7 @@ class ExtractProxyConfig:
 
 
 class WebExtractTool:
-    """对应 Go ``WebExtractTool``。"""
+    """对应 Go ``WebExtractTool``；抓取通道可配置，单条失败自动换下一条。"""
 
     def __init__(
         self,
@@ -168,9 +177,12 @@ class WebExtractTool:
         *,
         client: HTTPClient | None = None,
         endpoint: str = "",
+        specs: Sequence[ExtractEngineSpec] | None = None,
     ) -> None:
         self.client = client
         self.endpoint = endpoint
+        #: 来自 ``[web_extract]`` 配置；为空表示走 Jina → 直抓的默认链。
+        self.specs = list(specs) if specs else []
         self.process_env = environment if environment is not None else Environment()
         self.cache = ExtractCache()
 
@@ -184,7 +196,7 @@ class WebExtractTool:
         return web_extract_builder().build_schema()
 
     async def call(self, ctx: Any, req: CallRequest) -> Result:
-        """对应 Go ``WebExtractTool.Call``。"""
+        """按通道链抓取网页；单条失败换下一条，全部失败才报错。"""
         ctx_raise_if_cancelled(ctx)
         args = parse_web_extract_args(req.arguments)
         target_url = (args.url or "").strip()
@@ -192,94 +204,91 @@ class WebExtractTool:
             raise InvalidError("url is required")
         selector = (args.remove_selector or "").strip() or DEFAULT_REMOVE_SELECTOR
         proxy = resolve_extract_proxy(self.process_env, args.proxy, ctx)
-        cache = self.cache
+        client = self.http_client(proxy)
         use_jina = True if args.jina is None else bool(args.jina)
-        api_key = ""
-        has_jina_key = False
-        if use_jina:
-            api_key = _lookup_env(self.process_env, ctx, JINA_API_KEY_ENV)
-            has_jina_key = api_key != ""
-        source = "jina" if (use_jina and has_jina_key) else "direct"
-        key = extract_cache_key(source, target_url, selector, proxy)
-        entry = CachedExtract()
-        cached = False
-        if not args.force_refresh:
-            entry, cached = cache.get(key)
-        if not cached:
-            if use_jina and has_jina_key:
-                entry = await self.fetch_jina(
-                    ctx, api_key, target_url, selector, args.timeout_ms, proxy
-                )
-            else:
-                entry = await self.fetch_direct(
-                    ctx, target_url, args.timeout_ms, proxy
-                )
-            cache.set(key, entry)
-        data = slice_extract(entry, args.offset, args.max_chars, cached)
-        return Result(content=format_extract_content(data))
+        failures: list[str] = []
+        for spec in self.extract_chain(ctx, use_jina):
+            ctx_raise_if_cancelled(ctx)
+            key = extract_cache_key(spec.protocol, target_url, selector, proxy)
+            if not args.force_refresh:
+                entry, cached = self.cache.get(key)
+                if cached:
+                    data = slice_extract(entry, args.offset, args.max_chars, True)
+                    return Result(content=format_extract_content(data))
+            try:
+                page = await self.run_engine(ctx, client, spec, target_url, selector, args.timeout_ms)
+            except ExtractEngineFailure as exc:
+                failures.append(f"{spec.name}：{exc}")
+                continue
+            entry = CachedExtract(
+                url=page.url, title=page.title, source=page.source, content=page.content
+            )
+            self.cache.set(key, entry)
+            data = slice_extract(entry, args.offset, args.max_chars, False)
+            return Result(content=format_extract_content(data))
+        raise InvalidError("web_extract 所有抓取通道均失败：" + "；".join(failures))
 
-    async def fetch_jina(
+    def extract_chain(self, ctx: Any, use_jina: bool) -> list[ExtractEngineSpec]:
+        """候选通道：``[web_extract]`` 配置优先，否则 Jina → 直抓的默认链。"""
+        candidates = self.specs or default_specs()
+        chain: list[ExtractEngineSpec] = []
+        for spec in candidates:
+            if spec.protocol == PROTOCOL_JINA and not use_jina:
+                continue
+            if spec.protocol in KEYED_PROTOCOLS and self.engine_api_key(ctx, spec) == "":
+                continue
+            chain.append(spec)
+        if chain:
+            return chain
+        raise InvalidError(
+            "web_extract 没有可用抓取通道：候选 "
+            + "、".join(spec.name for spec in candidates)
+            + " 都缺少必要配置（Jina / DeepSeek 需要各自的 API Key；也可以加入 direct "
+            + "直抓通道）。到「模型 → 抓取服务」页补上，或删掉 [web_extract] 段用默认链。"
+        )
+
+    async def run_engine(
         self,
         ctx: Any,
-        api_key: str,
+        client: HTTPClient,
+        spec: ExtractEngineSpec,
         target_url: str,
         selector: str,
         timeout_ms: int,
-        proxy: ExtractProxyConfig,
-    ) -> CachedExtract:
-        """对应 Go ``fetchJina``。"""
-        reader_url = jina_reader_url(self.extract_endpoint(), target_url)
-        headers = {
-            "Authorization": "Bearer " + api_key,
-            "Accept": "application/json",
-            "X-Respond-With": "json",
-            "X-Remove-Selector": selector,
-            "X-Robots-Txt": "JinaReader",
-            "X-With-Generated-Alt": "true",
-            "X-With-Images-Summary": "true",
-            "X-With-Links-Summary": "true",
-        }
-        try:
-            response = await self.http_client(proxy).request(
-                "GET",
-                reader_url,
-                headers=headers,
-                timeout=_timeout_seconds(timeout_ms),
-            )
-        except HTTPError as exc:
-            raise InvalidError(f"Jina request: {exc}") from exc
-        if not response.ok:
-            raise InvalidError(
-                f"Jina HTTP {response.status}: {truncate_http_body(response.body)}"
-            )
-        try:
-            data = _parse_jina_response(response.json())
-        except ValueError as exc:
-            raise InvalidError(f"parse Jina response: {exc}") from exc
-        return normalize_jina_response(data, target_url)
-
-    async def fetch_direct(
-        self, ctx: Any, target_url: str, timeout_ms: int, proxy: ExtractProxyConfig
-    ) -> CachedExtract:
-        """对应 Go ``fetchDirect``。"""
-        try:
-            response = await self.http_client(proxy).request(
-                "GET",
+    ) -> ExtractPage:
+        """按协议跑一条通道；通道级失败抛 :class:`ExtractEngineFailure`。"""
+        api_key = self.engine_api_key(ctx, spec)
+        timeout = _timeout_seconds(timeout_ms)
+        if spec.protocol == PROTOCOL_DEEPSEEK:
+            return await extract_deepseek(
+                client,
+                api_key,
                 target_url,
-                headers={"User-Agent": "ATRI-X-WebExtract/1.0"},
-                timeout=_timeout_seconds(timeout_ms),
+                timeout=timeout,
+                endpoint=spec.base_url,
             )
-        except HTTPError as exc:
-            raise InvalidError(f"direct extract request: {exc}") from exc
-        if not response.ok:
-            raise InvalidError(
-                f"direct extract HTTP {response.status}: "
-                f"{truncate_http_body(response.body)}"
+        if spec.protocol == PROTOCOL_JINA:
+            return await extract_jina(
+                client,
+                api_key,
+                target_url,
+                selector,
+                timeout=timeout,
+                endpoint=spec.base_url or self.extract_endpoint(),
             )
-        title, content = extract_simple_html_text(response.text())
-        return CachedExtract(
-            url=target_url, title=title, source="direct", content=content
+        if spec.protocol == PROTOCOL_DIRECT:
+            return await extract_direct(client, target_url, timeout=timeout)
+        raise InvalidError(
+            f"未知抓取协议：{spec.protocol}（可选 {', '.join(BUILTIN_PROTOCOLS)}）"
         )
+
+    def engine_api_key(self, ctx: Any, spec: ExtractEngineSpec) -> str:
+        """取一条通道的密钥：按 ``key_envs()`` 顺序找第一个非空环境变量。"""
+        for name in spec.key_envs():
+            value = _lookup_env(self.process_env, ctx, name)
+            if value != "":
+                return value
+        return ""
 
     def http_client(self, proxy: ExtractProxyConfig) -> HTTPClient:
         """对应 Go ``WebExtractTool.httpClient``。"""
@@ -292,9 +301,7 @@ class WebExtractTool:
             plain.proxy = ""
             return plain
         if proxy.proxy_url:
-            return HTTPClient(
-                timeout=DEFAULT_EXTRACT_TIMEOUT, proxy=proxy.proxy_url
-            )
+            return HTTPClient(timeout=DEFAULT_EXTRACT_TIMEOUT, proxy=proxy.proxy_url)
         return HTTPClient(timeout=DEFAULT_EXTRACT_TIMEOUT)
 
     def extract_endpoint(self) -> str:
@@ -303,9 +310,11 @@ class WebExtractTool:
         return endpoint if endpoint != "" else DEFAULT_EXTRACT_ENDPOINT
 
 
-def new_web_extract_tool(*environment: Environment) -> WebExtractTool:
-    """对应 Go ``NewWebExtractTool``。"""
-    return WebExtractTool(environment[0] if environment else None)
+def new_web_extract_tool(
+    *environment: Environment, specs: Sequence[ExtractEngineSpec] | None = None
+) -> WebExtractTool:
+    """对应 Go ``NewWebExtractTool``；``specs`` 来自 ``[web_extract]`` 配置。"""
+    return WebExtractTool(environment[0] if environment else None, specs=specs)
 
 
 def web_extract_builder() -> Builder:
@@ -314,6 +323,8 @@ def web_extract_builder() -> Builder:
         Builder("web_extract")
         .description(
             "提取网页正文；默认返回前 8000 字符，可用同一 URL 加 offset 继续读取后续内容。"
+            "抓取通道在「模型 → 抓取服务」页配置（DeepSeek / Jina / 直接抓取），按顺序自动"
+            "降级；未配置时用 Jina（有 key 才参与）→ 直接抓取的默认链。"
         )
         .risk(RiskLow)
         .tags("web")
@@ -330,8 +341,7 @@ def web_extract_builder() -> Builder:
         )
         .boolean(
             "jina",
-            "是否使用 Jina Reader 提取网页，默认 true；Jina 失败或效果不佳时可传 false "
-            "改用直接爬取。",
+            "是否允许使用 Jina Reader 通道，默认 true；传 false 时跳过 Jina，直接用其它通道。",
         )
         .boolean(
             "force_refresh",
@@ -360,31 +370,6 @@ def parse_web_extract_args(raw: str) -> WebExtractArgs:
     args.jina = None if data.get("jina") is None else bool(data.get("jina"))
     args.force_refresh = bool(data.get("force_refresh"))
     return args
-
-
-def normalize_jina_response(data: JinaResponse, fallback_url: str) -> CachedExtract:
-    """对应 Go ``normalizeJinaResponse``。"""
-    if data.data is not None:
-        data.url = data.data.url
-        data.title = data.data.title
-        data.content = data.data.content
-        data.timestamp = data.data.timestamp
-    if data.url == "":
-        data.url = fallback_url
-    return CachedExtract(
-        url=data.url, title=data.title, source="jina", content=data.content
-    )
-
-
-def jina_reader_url(endpoint: str, target_url: str) -> str:
-    """对应 Go ``jinaReaderURL``：``<endpoint>/http://host/path?query``。"""
-    parsed = urlsplit((target_url or "").strip())
-    if not parsed.scheme or not parsed.netloc:
-        raise InvalidError(f"invalid url: {target_url}")
-    path = parsed.path or "/"
-    if parsed.query:
-        path += "?" + parsed.query
-    return endpoint.rstrip("/") + "/http://" + parsed.netloc + path
 
 
 def slice_extract(
@@ -453,76 +438,6 @@ def resolve_extract_proxy(
     return ExtractProxyConfig(proxy_url=proxy, cache_key=proxy)
 
 
-def extract_simple_html_text(raw: str) -> tuple[str, str]:
-    """对应 Go ``extractSimpleHTMLText``。"""
-    title = html.unescape(strip_tags(extract_tag_content(raw, "title"))).strip()
-    text = raw
-    for tag in ("script", "style", "noscript"):
-        text = remove_tag_blocks(text, tag)
-    text = remove_html_comments(text)
-    text = html.unescape(strip_tags(text))
-    return title, " ".join(text.split())
-
-
-def extract_tag_content(raw: str, tag: str) -> str:
-    """对应 Go ``extractTagContent``。"""
-    lower = raw.lower()
-    open_tag = "<" + tag
-    start = lower.find(open_tag)
-    if start < 0:
-        return ""
-    open_end = lower.find(">", start)
-    if open_end < 0:
-        return ""
-    content_start = open_end + 1
-    close = lower.find("</" + tag + ">", content_start)
-    if close < 0:
-        return ""
-    return raw[content_start:close]
-
-
-def remove_tag_blocks(raw: str, tag: str) -> str:
-    """对应 Go ``removeTagBlocks``。"""
-    while True:
-        lower = raw.lower()
-        open_index = lower.find("<" + tag)
-        if open_index < 0:
-            return raw
-        close_start = lower.find("</" + tag + ">", open_index)
-        if close_start < 0:
-            return raw[:open_index]
-        end = close_start + len(tag) + 3
-        raw = raw[:open_index] + " " + raw[end:]
-
-
-def remove_html_comments(raw: str) -> str:
-    """对应 Go ``removeHTMLComments``。"""
-    while True:
-        start = raw.find("<!--")
-        if start < 0:
-            return raw
-        end = raw.find("-->", start + 4)
-        if end < 0:
-            return raw[:start]
-        raw = raw[:start] + " " + raw[end + 3 :]
-
-
-def strip_tags(raw: str) -> str:
-    """对应 Go ``stripTags``。"""
-    out: list[str] = []
-    in_tag = False
-    for ch in raw:
-        if ch == "<":
-            in_tag = True
-            out.append(" ")
-        elif ch == ">":
-            in_tag = False
-            out.append(" ")
-        elif not in_tag:
-            out.append(ch)
-    return "".join(out)
-
-
 def extract_cache_key(
     source: str, target_url: str, selector: str, proxy: ExtractProxyConfig
 ) -> str:
@@ -534,27 +449,6 @@ def extract_cache_key(
             (selector or "").strip(),
             proxy.cache_key,
         ]
-    )
-
-
-def _parse_jina_response(payload: Any) -> JinaResponse:
-    if not isinstance(payload, dict):
-        raise ValueError("response is not a JSON object")
-    data = payload.get("data")
-    parsed_data = None
-    if isinstance(data, dict):
-        parsed_data = JinaResponseData(
-            url=_as_str(data.get("url")),
-            title=_as_str(data.get("title")),
-            content=_as_str(data.get("content")),
-            timestamp=_as_str(data.get("timestamp")),
-        )
-    return JinaResponse(
-        url=_as_str(payload.get("url")),
-        title=_as_str(payload.get("title")),
-        content=_as_str(payload.get("content")),
-        timestamp=_as_str(payload.get("timestamp")),
-        data=parsed_data,
     )
 
 

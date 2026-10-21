@@ -114,7 +114,7 @@ async def associate_inbound_history(
     if history is None or not message_id:
         return
     try:
-        row = await _history_lookup(agent, ctx, msg, message_id)
+        row = await _history_lookup(agent, msg, message_id)
     except BaseException as exc:  # noqa: BLE001 - 与 Go 相同：查不到就跳过
         _warn(agent, "associate inbound history media failed", exc)
         return
@@ -138,18 +138,19 @@ async def associate_inbound_history(
             _warn(agent, "associate inbound history media failed", exc)
 
 
-async def _history_lookup(agent: Any, ctx: Any, msg: Any, message_id: str) -> Any:
-    """按平台消息 ID 查历史行。对应 Go ``a.media.History.GetByPlatformMessage``。"""
+async def _history_lookup(agent: Any, msg: Any, message_id: str) -> Any:
+    """按平台消息 ID 查历史行。对应 Go ``a.media.History.GetByPlatformMessage``。
+
+    Python 的 :class:`atri_x.storage.repositories.ChatHistoryRepository` 是**同步**
+    仓储，签名里没有 ``ctx``（Go 的 ``ctx`` 只用于取消）；多传一个 ``ctx`` 会直接
+    抛 ``TypeError``，而这里又把异常吞成一条 WARN，于是入站媒体永远关联不上历史位序。
+    """
     history = getattr(agent.media, "history", None)
-    for name in ("get_by_platform_message", "get_by_platform"):
-        getter = getattr(history, name, None)
-        if getter is None:
-            continue
-        result = getter(ctx, getattr(msg, "platform", ""), getattr(msg, "scope_id", ""), message_id)
-        if hasattr(result, "__await__"):
-            result = await result
-        return result
-    return None
+    if history is None:
+        return None
+    return history.get_by_platform_message(
+        getattr(msg, "platform", ""), getattr(msg, "scope_id", ""), message_id
+    )
 
 
 def unavailable_platform_segment(segment: Any) -> Any:

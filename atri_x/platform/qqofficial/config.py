@@ -50,6 +50,8 @@ class Config:
     http_timeout_seconds: int = 0
     reconnect_interval_seconds: int = 0
     trigger_keywords: list[str] = field(default_factory=list)
+    #: 群聊里是否投递工具调用进度预览。默认 ``False``（与上游 Go 一致）。
+    show_tool_preview_in_group: bool = False
     # 以下字段来自平台外层配置（Go 的 ``toml:"-"`` / 无 tag）。
     command_prefixes: list[str] = field(default_factory=list)
     superadmins: list[str] = field(default_factory=list)

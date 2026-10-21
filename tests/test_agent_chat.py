@@ -202,7 +202,7 @@ class ToolRoundTest(unittest.TestCase):
         out = _Out()
         executed: list[list[ToolCallRequest]] = []
 
-        async def fake_execute(agent_arg, ctx, session_arg, calls, text, raw, out_arg):
+        async def fake_execute(agent_arg, ctx, session_arg, calls, text, raw, out_arg, *, reasoning=""):
             from atri_x.toolrun import RunResult
 
             executed.append(list(calls))
@@ -225,6 +225,58 @@ class ToolRoundTest(unittest.TestCase):
         second = client.requests[1].messages
         self.assertEqual(second[-2].tool_calls[0].id, "c1")
         self.assertEqual(second[-1].role, "tool")
+
+    def test_reasoning_content_is_passed_back_in_tool_loop(self) -> None:
+        """思考模式：带 tool_calls 的 assistant 消息必须把思维链一起回传。"""
+        tool_calls = [ToolCallDelta(id="c1", name="read_file", args='{"path": "a.txt"}')]
+        client = _ScriptedClient(
+            [
+                [
+                    StreamChunk(
+                        delta_reasoning_content="先看看文件",
+                        tool_call_deltas=tool_calls,
+                    )
+                ],
+                [_chunk("读完了。", delta_reasoning_content="收尾思考")],
+            ]
+        )
+        agent = _agent_with_client(client)
+        session = agent.sessions.get_or_create_current(agent.scope(make_ctx()), "hi")
+        out = _Out()
+        captured: dict[str, str] = {}
+
+        async def fake_execute(
+            agent_arg, ctx, session_arg, calls, text, raw, out_arg, *, reasoning=""
+        ):
+            from atri_x.toolrun import RunResult
+
+            captured["reasoning"] = reasoning
+            return RunResult(
+                messages=[
+                    LLMMessage(role="tool", tool_call_id="c1", segments=text_segments("内容"))
+                ],
+                prepared_calls=list(calls),
+                transcript=[],
+            )
+
+        with mock.patch.object(chat_turn, "execute_tool_calls", fake_execute):
+            asyncio.run(chat.start_chat_with_output(agent, make_ctx(), session, "hi", out))
+
+        # 1) 思维链被交给工具批次落库（下一轮对话还要用）。
+        self.assertEqual(captured["reasoning"], "先看看文件")
+        # 2) 续轮请求里那条 assistant 消息带上了 reasoning_content。
+        second = client.requests[1].messages
+        assistant_with_tools = second[-2]
+        self.assertEqual(assistant_with_tools.tool_calls[0].id, "c1")
+        self.assertEqual(assistant_with_tools.reasoning_content, "先看看文件")
+        # 3) 工具结果之后模型才给出最终回答。
+        self.assertEqual(out.sent, ["读完了。"])
+        # 4) 最终回答这一轮的思维链也落库（下一轮带 tools 的请求要回传）。
+        from atri_x.agent.tool_transcript import AssistantMetadata
+
+        answer_rows = [row for row in agent.store.messages().rows if row.role == "assistant"]
+        metadata = AssistantMetadata.from_json(answer_rows[-1].metadata)
+        self.assertEqual(metadata.reasoning_content, "收尾思考")
 
     def test_max_tool_rounds_produces_summary_request(self) -> None:
         tool_calls = [ToolCallDelta(id="c1", name="read_file", args="{}")]

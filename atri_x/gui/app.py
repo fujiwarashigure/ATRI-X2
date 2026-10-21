@@ -52,6 +52,7 @@ from atri_x.gui.tabs import (
     MembersTab,
     ModelTab,
     PlatformTab,
+    ToolPermTab,
 )
 from atri_x.gui.tray import TrayIcon
 from atri_x.platform.cli.protocol import (
@@ -68,7 +69,7 @@ WINDOW_TITLE = "ATRI-X"
 POLL_INTERVAL_MS = 80
 
 #: 选项卡顺序（索引 → 名字）；菜单和 Ctrl+N 快捷键共用。
-_TABS = ("对话", "模型", "人设卡", "平台", "在线", "群友", "知识库", "进阶", "日志", "功能")
+_TABS = ("对话", "模型", "人设卡", "平台", "在线", "群友", "知识库", "进阶", "日志", "功能", "工具权限")
 
 #: 选项卡名字 → 索引（供「功能」页双击跳转）。
 _TAB_INDEX = {name: index for index, name in enumerate(_TABS)}
@@ -82,6 +83,7 @@ _TAB_KEYS = {
     "members": "群友",
     "knowledge": "知识库",
     "logs": "日志",
+    "toolperm": "工具权限",
 }
 
 
@@ -186,6 +188,7 @@ class GuiApp:
         self.knowledge_tab = KnowledgeTab(notebook, self.paths, on_restart=self._restart_backend)
         self.advanced_tab = AdvancedTab(notebook, self.paths, on_restart=self._restart_backend)
         self.logs_tab = LogsTab(notebook, self.paths, on_restart=self._restart_backend)
+        self.toolperm_tab = ToolPermTab(notebook, self.paths, on_restart=self._restart_backend)
         self.features_tab = FeaturesTab(
             notebook,
             self.paths,
@@ -206,6 +209,7 @@ class GuiApp:
                 self.advanced_tab,
                 self.logs_tab,
                 self.features_tab,
+                self.toolperm_tab,
             )
         ):
             notebook.add(tab.frame, text=f" {_TABS[index]} ")

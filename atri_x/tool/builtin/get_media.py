@@ -165,7 +165,7 @@ class GetMediaTool:
             indexes = [1] if args.media_index is None else args.media_index[position]
             try:
                 row = self.history.get_by_platform_message(
-                    ctx, chat.platform, chat.scope_id, id
+                    chat.platform, chat.scope_id, id
                 )
             except NotFoundError:
                 lines.append(f"[#{id}] 当前聊天没有该消息。")

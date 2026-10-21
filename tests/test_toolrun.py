@@ -620,9 +620,9 @@ class FakeDeps:
         self.calls.append("tool_result_message")
         return ("result", message)
 
-    def tool_call_message(self, session_id, content, raw_text, calls):
+    def tool_call_message(self, session_id, content, raw_text, calls, reasoning=""):
         self.calls.append("tool_call_message")
-        return ("call", content, raw_text, list(calls))
+        return ("call", content, raw_text, list(calls), reasoning)
 
     def persisted_tool_message(self, message):
         return message

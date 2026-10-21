@@ -73,6 +73,9 @@ class Config:
     forward_fetch_timeout_seconds: int = 0
     #: 未配置时为 ``None`` → 默认开启。见 Go 的同名字段注释。
     inbound_dedup_enabled: bool | None = None
+    #: 群聊里是否投递工具调用进度预览（"正在调用 web_search"这类提示）。
+    #: 默认 ``False``，与上游 Go 一致（群里的进度预览是噪声）。
+    show_tool_preview_in_group: bool = False
     inbound_dedup_ttl_seconds: int = 0
     inbound_dedup_max_entries: int = 0
     preprocess_workers: int = 0

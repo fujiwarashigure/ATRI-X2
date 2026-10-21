@@ -335,7 +335,12 @@ default_context_window = 256000
 ```toml
 [web_search]
 # 自上而下逐条尝试；没写进来的内置通道不参与
-engine_order = ["tavily", "firecrawl", "keenable", "exa", "my-searx"]
+engine_order = ["deepseek", "tavily", "firecrawl", "keenable", "exa", "my-searx"]
+
+[web_search.engines.deepseek]
+protocol = "deepseek"                  # DeepSeek 官方搜索（自研索引，按次计费）
+api_key_env = "DEEPSEEK_SEARCH_KEY"    # 留空默认同名；没配时回落 DEEPSEEK_API_KEY
+# base_url = ""                        # 留空 = https://api.deepseek.com/v1/tools/search
 
 [web_search.engines.tavily]
 protocol = "tavily"             # 内置名可省略（等于通道名）；自定义名必填
@@ -361,7 +366,8 @@ protocol = "antigravity"        # 可选：本机装好并登录 Antigravity CLI
 
 | protocol | 需要什么 | 说明 |
 | --- | --- | --- |
-| `tavily` | `api_key_env` 指向的密钥（默认 `TAVILY_API_KEY`） | 官方端点，每月 1,000 credits；**唯一会返回 `Answer:` 摘要的通道** |
+| `deepseek` | `api_key_env` 指向的密钥（默认 `DEEPSEEK_SEARCH_KEY`，没配时回落 `DEEPSEEK_API_KEY`） | DeepSeek 官方搜索 `POST /v1/tools/search`（自研索引，结果带 600~800 字长摘要、发布日期与权威度）；**按成功请求计费 5 元 / 1000 次**，账号级 QPS 100 |
+| `tavily` | `api_key_env` 指向的密钥（默认 `TAVILY_API_KEY`） | 官方端点，每月 1,000 credits；返回 `Answer:` 摘要 |
 | `firecrawl` | 不需要 key（可填 `FIRECRAWL_API_KEY` 提额） | 免注册按出口 IP 每月 1,000 credits；填 key 换成自己的额度 |
 | `keenable` | 不需要 key（可填 `KEENABLE_API_KEY` 提额） | 免注册按出口 IP 每小时 1,000 次；填 key 每月 100,000 次 |
 | `exa` | `EXA_API_KEY` | 官方端点，每月 $10 循环免费额度（约 1,400 次） |
@@ -371,19 +377,23 @@ protocol = "antigravity"        # 可选：本机装好并登录 Antigravity CLI
 
 规则：
 
-- `base_url` 对 HTTP 通道是**完整接口地址**（Tavily `/search`、Firecrawl `/v2/search`、
-  Keenable `/v1/search` 或 `/public`、Exa `/search`），留空用官方端点；`searxng` 写实例
-  根地址（程序自己拼 `/search`）；CLI 通道忽略这个字段。
+- `base_url` 对 HTTP 通道是**完整接口地址**（DeepSeek `/v1/tools/search`、Tavily `/search`、
+  Firecrawl `/v2/search`、Keenable `/v1/search` 或 `/public`、Exa `/search`），留空用官方端点；
+  `searxng` 写实例根地址（程序自己拼 `/search`）；CLI 通道忽略这个字段。
 - `bin` 只对 `antigravity` / `grok` 有效，留空用 `agy` / `grok`。
-- 缺配置的通道自动跳过：Tavily / Exa 没 key、SearXNG 没地址时不参与尝试，也不会白跑一次
-  请求；CLI 通道要跑起来之后才会报「找不到可执行文件 / 未登录」。
+- 缺配置的通道自动跳过：DeepSeek / Tavily / Exa 没 key、SearXNG 没地址时不参与尝试，也不会
+  白跑一次请求；CLI 通道要跑起来之后才会报「找不到可执行文件 / 未登录」。
 - 全部通道失败、或者配置里一条可用通道都没有时，错误信息会逐条列出各通道的原因。
 - CLI 通道的登录态归对应的 CLI 自己保存，ATRI-X2 不读也不写它们的凭据。
+- DeepSeek 的搜索/抓取接口只在**官方 `api.deepseek.com`** 上有效：如果聊天 provider 的
+  `base_url` 指向中转站，请把搜索通道的 `api_key_env` 指到单独一把官方 key
+  （推荐 `DEEPSEEK_SEARCH_KEY`），不要复用中转 key。
 
 `[web_search]` 整段缺席时走**环境变量默认链**（旧部署行为不变）：
 
 ```env
-WEB_SEARCH_ENGINES=firecrawl,keenable     # 覆盖通道顺序；不写则 tavily,firecrawl,keenable,exa
+WEB_SEARCH_ENGINES=firecrawl,keenable     # 覆盖通道顺序；不写则 deepseek,tavily,firecrawl,keenable,exa
+DEEPSEEK_SEARCH_KEY=your_deepseek_key     # DeepSeek 官方搜索；有 key 才参与（也接受 DEEPSEEK_API_KEY）
 TAVILY_API_KEY=your_tavily_api_key        # 有 key 才参与
 FIRECRAWL_API_KEY=your_firecrawl_api_key  # 可选：换成自己的额度
 KEENABLE_API_KEY=your_keenable_api_key    # 可选：换成自己的额度
@@ -393,11 +403,40 @@ EXA_API_KEY=your_exa_api_key              # 有 key 才参与
 不配置任何 key 时 `web_search` 照样能用（Firecrawl → Keenable 两条免注册通道）；
 `WEB_SEARCH_ENGINES` 在 `[web_search]` 存在时也生效，便于临时只跑某一条通道。
 
-`web_extract` 默认优先使用 Jina Reader。配置 `JINA_API_KEY` 后会通过 Jina Reader 提取网页；未配置时回退为直接抓取：
+`web_extract`（网页抓取）同样支持通道链，写在 `services.toml` 的 `[web_extract]` 里；桌面端
+「模型 → 抓取服务」子页编辑的就是这一段。整段缺席时仍是旧行为：**Jina Reader（有
+`JINA_API_KEY` 才参与）→ 直接抓取**：
 
-```env
-JINA_API_KEY=your_jina_api_key
+```toml
+[web_extract]
+# 自上而下逐条尝试，单条失败自动换下一条
+engine_order = ["deepseek", "jina", "direct"]
+
+[web_extract.engines.deepseek]
+protocol = "deepseek"             # DeepSeek 官方抓取 POST /v1/tools/fetch（Markdown 正文）
+api_key_env = "DEEPSEEK_SEARCH_KEY"   # 留空默认同名；没配时回落 DEEPSEEK_API_KEY
+# base_url = ""                   # 留空 = https://api.deepseek.com/v1/tools/fetch
+
+[web_extract.engines.jina]
+protocol = "jina"
+api_key_env = "JINA_API_KEY"
+# base_url = ""                   # 留空 = https://r.jina.ai/
+
+[web_extract.engines.direct]
+protocol = "direct"               # 直接 GET 目标网页 + 标准库剥标签，不需要 key
 ```
+
+各协议：
+
+| protocol | 需要什么 | 说明 |
+| --- | --- | --- |
+| `deepseek` | `DEEPSEEK_SEARCH_KEY`（回落 `DEEPSEEK_API_KEY`） | DeepSeek 官方抓取 `POST /v1/tools/fetch`，返回标题 + Markdown 正文；**按成功请求计费 5 元 / 1000 次**，账号级 QPS 25（另有按域名的 QPS）。默认不在链里，要显式加 |
+| `jina` | `JINA_API_KEY` | `https://r.jina.ai/` 的 Reader 接口；默认首选通道 |
+| `direct` | 不需要 key | 直接 GET 网页并用纯标准库剥 HTML；遇到反爬会拿不到正文 |
+
+抓取通道的降级顺序是 `engine_order`；`deepseek` 抓不到正文（HTTP 404）、被安全策略拒绝
+（403）、限速（429）或 5xx 时会自动换下一条通道。`web_extract` 工具参数里的 `jina=false`
+只表示「跳过 Jina 通道」，不影响 `deepseek` / `direct`。
 
 `web_extract` 的 `proxy` 参数用于控制网页提取请求的代理：
 如果希望所有默认 `web_extract` 调用都走固定代理，可以设置 `WEB_EXTRACT_PROXY`：
@@ -1078,7 +1117,8 @@ report_days = 1
 - 群管理员只能改当前群的普通策略；`allowed-models`、`learning-moderation`、`learning-moderation-actions` 只能由超级管理员配置。群管理员不能修改其他群、provider/密钥或全局 Shell 权限。
 - 机器人自身被禁言、被踢或主动离群时，服务端按当前群维护运行状态并写入 `state.toml` 的 `group_runtime`（`active` / `muted` / `removed` / `unavailable`，缺省视为 `active`）。`muted` / `removed` 期间：拒绝该群新的模型调用、取消该群在途请求、丢弃发往该群的定时任务/提醒/后台通知，避免“模型继续计费但结果发不出去”；每次状态变化只向超管发送一次聚合通知，重复事件不重复通知。解除禁言或重新入群后恢复为 `active`，暂停期间的通知不会集中补发。
 - 模型目录 `allowed-models` 为空时，群默认模型只能从已配置的模型别名/profile 中选择；显式填入 `provider/model` 或 `*` 才会放开对应范围。模型别名解析后仍会对最终 `provider/model` 再做一次目录校验。
-- 工具白名单由服务端在工具解析后和执行前分别校验：`clear` 表示继承全局工具策略，`none` 表示当前群禁止全部工具。`discover_tool` 也是普通工具，只有显式写入白名单才可用；工具 profile 会被展开为具体工具名，因此通过 `@use:`、技能或缓存间接调用也必须命中白名单。`discover_tool` 在受限群里还会收到当前白名单过滤器，列表和详情只返回本群允许的工具。群分析摘要模型也会在工具执行前按当前群模型目录重新授权。
+- 工具白名单是 **nil / 空列表二态**：没有配置（`state.toml` 里没有该键）表示继承全局工具策略、不限制；显式空列表 `tool_allowlist = []` 表示当前群禁止全部工具；显式列表表示只放行这些工具。`/grouppolicy tool-allow clear` 回到继承，`none` 写空列表。归一化必须保留这个区分，否则"没配过策略"会被误读成"禁止全部工具"（0.9.11 真机事故）。群主/管理员可以用更短的 `/tools allow <工具,工具|all|none>` 改同一份策略，桌面端「工具权限」页提供按群的纵向工具菜单（逐个激活，每行带功能解释）。
+- 工具白名单由服务端在工具解析后和执行前分别校验：`clear` 表示继承全局工具策略，`none` 表示当前群禁止全部工具。`discover_tool` 也是普通工具，只有显式写入白名单才可用（`/tools allow` 与桌面端会自动补上它）；工具 profile 会被展开为具体工具名，因此通过 `@use:`、技能或缓存间接调用也必须命中白名单。`discover_tool` 在受限群里还会收到当前白名单过滤器，列表和详情只返回本群允许的工具。群分析摘要模型也会在工具执行前按当前群模型目录重新授权。
 - 工具白名单和每日额度在请求排队后、真正执行前重新校验；排队期间被管理员关闭的工具不会继续执行。私聊、定时任务和后台任务没有群 scope 时使用全局安全策略，不套用某个群的策略。
 - 生图/视觉额度按“调用前原子预占、按唯一调用 ID 防重复计数”的每日次数账本执行，写入 `state.toml` 的 `budget.reservations`，重启后保留。同一调用 ID 会被绑定到参数摘要（`budget.digests`）；重放相同参数不重复计数，复用 ID 但参数不同会被拒绝。预占在账本无法可靠落盘时会回滚并拒绝受限调用；已经发出的 provider 调用不会因本地超时/取消自动退款，重启后结果未知时按保守占用处理。
 - 额度支持群、群内单用户、全局和全局单用户四个维度：群策略可设置 `image-quota` / `vision-quota` / `asr-quota` / `user-image-quota` / `user-vision-quota` / `user-asr-quota` / `chat-tokens-quota` / `chat-cost-quota`，应用配置 `[budget_limits]` 可设置全局与单用户维度。chat token/费用默认在执行前检查、provider 返回 usage 后按 `[maintenance.daily_report].prices` 计价写入 `budget.tokens` / `budget.costs`；这种软模式在并发下可能多放行一个在途请求。
@@ -1622,6 +1662,7 @@ preprocess_workers = 4 # 解析 @、引用、合并转发的有界 worker 数
 preprocess_queue_size = 256 # 普通消息预处理队列；满时本地丢弃，不产生无界 asyncio task
 high_priority_workers = 1 # 撤回/成员/管理事件专用 worker，不排在普通消息后面
 high_priority_queue_size = 128 # 高优先级事件队列；满时 readLoop 内联执行而不是丢弃
+show_tool_preview_in_group = false # 群聊里是否投递"正在调用某工具"的进度预览（默认关闭）
 ```
 
 > **容器部署注意**：`ws_url` 是 **ATRI-X 容器内**要访问的地址。`ws://127.0.0.1:6700/` 在容器内指向 ATRI-X 自身。OneBot 在同一个 Compose 项目（或同一 Docker 网络）的服务中用服务名，例如 `ws://onebot:6700/`；OneBot 在宿主机时，需要配置容器可访问的宿主机地址（Linux 可加 `extra_hosts: ["host.docker.internal:host-gateway"]` 后写 `ws://host.docker.internal:6700/`）；OneBot 在另一台机器时写其 IP / 域名。
@@ -1635,6 +1676,8 @@ high_priority_queue_size = 128 # 高优先级事件队列；满时 readLoop 内�
 > `%APPDATA%\ATRI-X\.env` 里的 OneBot 令牌与 NapCat 的 `onebot11.json` / `webui.json`；
 > **已有值一律不动**，没有内置环境的构建或自备 NapCat 的配置完全不受影响。之后在「在线」页
 > 点「启动协议端」→「打开 WebUI」扫码 → 「连接（上线）」即可。
+
+`show_tool_preview_in_group` 控制群聊里是否投递工具调用进度预览（例如"正在调用 web_search"）。默认 `false`，与上游 Go 一致——群里的进度提示通常被当成噪声；想在群里看到"现在在用什么工具"就打开它（`[platform.qqofficial]` 有同名字段）。桌面端「工具权限」页提供了这个开关。
 
 `send_file_mode` 同时控制 QQ OneBot 本地图片、文件和 `record` 语音的发送方式。`base64` 适用于 ATRI-X 与 OneBot 不共享文件系统的部署；`file_uri` 仅适用于双方能访问同一本地路径的场景。
 

@@ -212,7 +212,10 @@ def is_tool_preview_notice(outputs: Sequence[Output] | None) -> bool:
 
 
 def should_drop_group_tool_preview(
-    target: Target, outputs: Sequence[Output] | None, group_context: bool
+    target: Target,
+    outputs: Sequence[Output] | None,
+    group_context: bool,
+    show_in_group: bool = False,
 ) -> bool:
     """"群聊里不投递工具调用进度预览"这条平台跳过规则的唯一入口。
 
@@ -220,7 +223,13 @@ def should_drop_group_tool_preview(
     （发给当前会话）、当前上下文是群聊、且这条通知就是工具调用进度预览——群聊里的
     进度预览是噪声，丢弃时也不算失败。唯一按平台变化的部分是"当前上下文是不是
     群聊"，由调用方传入；Telegram 与本地 CLI 不跳过预览。
+
+    ``show_in_group`` 是 Python 侧新增的开关（``[platform.qqonebot]
+    .show_tool_preview_in_group`` / ``[platform.qqofficial]`` 同名字段）：打开后
+    群聊也投递进度预览，群成员能看到"正在调用哪个工具"。
     """
+    if show_in_group:
+        return False
     return target.empty() and bool(group_context) and is_tool_preview_notice(outputs)
 
 

@@ -149,8 +149,9 @@ class SearchServicePanel:
             form,
             text=(
                 "按列表顺序逐条尝试，失败自动换下一条。免注册通道（Firecrawl / Keenable）"
-                "不填 key 也能用；Tavily / Exa 需要 key；SearXNG 需要自建实例地址；"
-                "agy / grok 需要本机装好并登录对应 CLI。"
+                "不填 key 也能用；Tavily / Exa / DeepSeek 需要 key；SearXNG 需要自建实例地址；"
+                "agy / grok 需要本机装好并登录对应 CLI。DeepSeek 官方搜索按成功请求计费"
+                "（5 元 / 1000 次），密钥优先 DEEPSEEK_SEARCH_KEY、回落 DEEPSEEK_API_KEY。"
             ),
             foreground="#8a8a8a",
             wraplength=520,
@@ -413,7 +414,8 @@ class SearchServicePanel:
         if not confirm(
             self.tab.frame,
             "恢复默认链",
-            "把搜索通道恢复成默认的 Tavily → Firecrawl → Keenable → Exa？",
+            "把搜索通道恢复成默认的 DeepSeek（有 key 才参与）→ Tavily → Firecrawl → "
+            "Keenable → Exa？",
         ):
             return
         try:

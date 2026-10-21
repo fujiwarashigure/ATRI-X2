@@ -156,6 +156,20 @@ class TestPromptHelpers(unittest.TestCase):
         self.assertEqual(len(out.tool_calls), 1)
         self.assertEqual(out.tool_calls[0].id, "1")
 
+        with_reasoning = Message(
+            role="assistant",
+            metadata=(
+                '{"tool_calls":[{"id":"2","name":"n","arguments":"{}"}],'
+                '"reasoning_content":"想一下"}'
+            ),
+        )
+        out = storage_message_to_llm(Role.ASSISTANT, [], with_reasoning)
+        self.assertEqual(out.reasoning_content, "想一下")
+        # 历史重建时没有思维链的 assistant 消息不应凭空出现该字段。
+        self.assertEqual(
+            storage_message_to_llm(Role.ASSISTANT, [], assistant).reasoning_content, ""
+        )
+
 
 class TestPromptBuilder(unittest.IsolatedAsyncioTestCase):
     async def test_requires_system_prompt(self) -> None:

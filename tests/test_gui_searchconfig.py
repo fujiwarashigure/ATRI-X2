@@ -35,7 +35,14 @@ class SearchConfigCase(unittest.TestCase):
         self.paths = configedit.ConfigPaths.from_config(str(self.config_dir / "app.toml"))
         self._env = mock.patch.dict(os.environ, {}, clear=False)
         self._env.start()
-        for name in ("TAVILY_API_KEY", "FIRECRAWL_API_KEY", "KEENABLE_API_KEY", "EXA_API_KEY"):
+        for name in (
+            "TAVILY_API_KEY",
+            "FIRECRAWL_API_KEY",
+            "KEENABLE_API_KEY",
+            "EXA_API_KEY",
+            "DEEPSEEK_SEARCH_KEY",
+            "DEEPSEEK_API_KEY",
+        ):
             os.environ.pop(name, None)
 
     def tearDown(self) -> None:
@@ -50,9 +57,14 @@ class SearchConfigCase(unittest.TestCase):
 class LoadDefaultsCase(SearchConfigCase):
     def test_absent_section_returns_default_chain(self) -> None:
         engines = searchconfig.load_engines(self.paths)
-        self.assertEqual([view.name for view in engines], ["tavily", "firecrawl", "keenable", "exa"])
-        self.assertEqual(engines[0].protocol, "tavily")
-        self.assertEqual(engines[0].api_key_env, "TAVILY_API_KEY")
+        self.assertEqual(
+            [view.name for view in engines],
+            ["deepseek", "tavily", "firecrawl", "keenable", "exa"],
+        )
+        self.assertEqual(engines[0].protocol, "deepseek")
+        self.assertEqual(engines[0].api_key_env, "DEEPSEEK_SEARCH_KEY")
+        self.assertEqual(engines[1].protocol, "tavily")
+        self.assertEqual(engines[1].api_key_env, "TAVILY_API_KEY")
 
     def test_existing_section_is_loaded(self) -> None:
         configedit.patch_section(
@@ -158,6 +170,32 @@ class KeyStateCase(SearchConfigCase):
         view = searchconfig.SearchEngineView(name="exa", protocol="exa", api_key_env="EXA_API_KEY")
         state = searchconfig.engine_key_state(self.paths, view)
         self.assertFalse(state.configured)
+
+    def test_deepseek_falls_back_to_provider_key(self) -> None:
+        configedit.set_env_value(self.paths.env_path, "DEEPSEEK_API_KEY", "sk-provider-123456")
+        view = searchconfig.SearchEngineView(
+            name="deepseek", protocol="deepseek", api_key_env="DEEPSEEK_SEARCH_KEY"
+        )
+        state = searchconfig.engine_key_state(self.paths, view)
+        self.assertTrue(state.configured)
+        self.assertEqual(state.name, "DEEPSEEK_API_KEY")
+
+    def test_deepseek_search_key_wins(self) -> None:
+        configedit.set_env_value(self.paths.env_path, "DEEPSEEK_API_KEY", "sk-provider-123456")
+        configedit.set_env_value(self.paths.env_path, "DEEPSEEK_SEARCH_KEY", "sk-search-654321")
+        view = searchconfig.SearchEngineView(
+            name="deepseek", protocol="deepseek", api_key_env="DEEPSEEK_SEARCH_KEY"
+        )
+        state = searchconfig.engine_key_state(self.paths, view)
+        self.assertTrue(state.configured)
+        self.assertEqual(state.name, "DEEPSEEK_SEARCH_KEY")
+
+    def test_deepseek_protocol_is_offered_in_gui(self) -> None:
+        self.assertIn("deepseek", searchconfig.PROTOCOL_LABELS)
+        self.assertIn("DeepSeek", searchconfig.PROTOCOL_LABELS["deepseek"])
+        self.assertIn("tools/search", searchconfig.SearchEngineView(
+            name="deepseek", protocol="deepseek"
+        ).base_placeholder())
 
 
 if __name__ == "__main__":

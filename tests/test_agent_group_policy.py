@@ -113,7 +113,17 @@ class FieldRulesTests(unittest.TestCase):
         policy = GroupPolicyConfig(wake_keywords=["a"], image_quota=3).normalize()
         self.assertEqual(rules.group_policy_field_audit_value(policy, "wake"), "a")
         self.assertEqual(rules.group_policy_field_audit_value(policy, "image-quota"), "3")
-        self.assertEqual(rules.group_policy_field_audit_value(policy, "tool-allow"), "none")
+        self.assertEqual(rules.group_policy_field_audit_value(policy, "tool-allow"), "inherit")
+        restricted = GroupPolicyConfig(tool_allowlist=[], tool_allowlist_set=True).normalize()
+        self.assertEqual(
+            rules.group_policy_field_audit_value(restricted, "tool-allow"), "none"
+        )
+        allowed = GroupPolicyConfig(
+            tool_allowlist=["web_search"], tool_allowlist_set=True
+        ).normalize()
+        self.assertEqual(
+            rules.group_policy_field_audit_value(allowed, "tool-allow"), "web_search"
+        )
 
 
 class GroupPolicyTests(unittest.TestCase):
@@ -151,13 +161,13 @@ class GroupPolicyTests(unittest.TestCase):
 
             all_reset = await gp.reset_group_policy(agent, None, "all")
             self.assertEqual(all_reset, "当前群策略已重置为全局默认。")
-            # 与 Go 一致：reset 写回的是"已归一化"的空策略，而
-            # ``Normalize()`` 非幂等会把空名单判成"显式受限"，因此条目仍在
-            # （见 test_upstream_normalize_is_not_idempotent）。这里固定住该事实。
-            self.assertIn(GROUP_KEY, agent.group_policy)
-            self.assertEqual(
-                gp.group_policy_for_scope(agent, agent.scope(None)).wake_keywords, []
-            )
+            # 整表重置写回的是"零策略"：归一化后仍是零，所以条目被删掉，
+            # 该群回到"继承全局"（工具不受群白名单限制）。
+            self.assertNotIn(GROUP_KEY, agent.group_policy)
+            policy_after = gp.group_policy_for_scope(agent, agent.scope(None))
+            self.assertEqual(policy_after.wake_keywords, [])
+            self.assertIsNone(policy_after.tool_allowlist)
+            self.assertFalse(policy_after.tool_allowlist_restricted())
 
         import asyncio
 
@@ -207,6 +217,28 @@ class GroupPolicyTests(unittest.TestCase):
         self.assertEqual(gp.budget_text(10, 12), "已用 12 / 10（剩余 0）")
         self.assertEqual(gp.cost_budget_text(0, 1_500_000), "已用 1.500000，未设置上限")
         self.assertEqual(gp.int64_budget_text(1000, 250), "已用 250 / 1000（剩余 750）")
+
+    def test_tool_allowlist_text(self) -> None:
+        agent = FakeAgent()
+        self.assertEqual(
+            gp.group_tool_allowlist_text(agent, None), "继承全局（不限制）"
+        )
+        agent.group_policy[GROUP_KEY] = GroupPolicyConfig(
+            tool_allowlist=[], tool_allowlist_set=True
+        ).normalize()
+        self.assertEqual(
+            gp.group_tool_allowlist_text(agent, None), "空（已禁止全部群工具）"
+        )
+        agent.group_policy[GROUP_KEY] = GroupPolicyConfig(
+            tool_allowlist=["web_search", "web_extract"], tool_allowlist_set=True
+        ).normalize()
+        text = gp.group_tool_allowlist_text(agent, None)
+        self.assertIn("web_search", text)
+        self.assertIn("web_extract", text)
+        self.assertEqual(
+            gp.group_tool_allowlist_text(FakeAgent(group=False), None),
+            "非群聊，工具不受群白名单限制",
+        )
 
     def test_request_keys(self) -> None:
         agent = FakeAgent()

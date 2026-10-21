@@ -110,13 +110,21 @@ class ToolCallRequest:
 
 @dataclass
 class LLMMessage:
-    """对话中的一条消息。对应 Go ``LLMMessage``。"""
+    """对话中的一条消息。对应 Go ``LLMMessage``。
+
+    ``reasoning_content`` 是 Python 侧新增字段（Go 版没有）：思考型模型在
+    ``assistant`` 消息里除了 ``content`` 还会返回思维链，**携带 tools 的请求必须
+    在后续每一轮把历史 assistant 消息的 ``reasoning_content`` 原样回传**，否则
+    上游会以 ``invalid_request_error``（HTTP 400）拒收。该字段不落用户可见文本，
+    只参与请求序列化。
+    """
 
     role: str = Role.USER
     segments: list[MessageSegment] = field(default_factory=list)
     name: str = ""
     tool_call_id: str = ""
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
+    reasoning_content: str = ""
 
     def content_text(self) -> str:
         return segments_text_only(self.segments)
@@ -145,6 +153,10 @@ class ChatRequest:
 
     model: str = ""
     session_id: str = ""
+    #: Python 侧新增：本次调用实际使用的 provider 名。请求体构造需要它判断
+    #: 是否写思考模式的 ``reasoning_content`` 扩展字段（DeepSeek 系要求，
+    #: 其它厂商不认这个字段）。Go 版 ChatRequest 没有该字段。
+    provider: str = ""
     messages: list[LLMMessage] = field(default_factory=list)
     tools: list[ToolSchema] = field(default_factory=list)
     temperature: float = 0.0
@@ -254,6 +266,7 @@ def clone_messages(messages: Sequence[LLMMessage] | None) -> list[LLMMessage] | 
             name=m.name,
             tool_call_id=m.tool_call_id,
             tool_calls=[dataclasses.replace(tc) for tc in m.tool_calls],
+            reasoning_content=m.reasoning_content,
         )
         for m in messages
     ]

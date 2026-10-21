@@ -1,11 +1,12 @@
 """共享只读服务配置：``[providers.*]`` / ``[model_metadata]`` / ``[model_profiles]`` /
 ``[image_generation]`` / ``[image_to_prompt]`` / ``[vision]`` / ``[asr]`` /
-``[web_search]``。
+``[web_search]`` / ``[web_extract]``。
 
 对应 Go：``internal/config/config.go`` 里的 ``ProviderConfig`` / ``ModelConfig`` /
 ``ModelMetadataConfig`` / ``ModelProfileConfig`` / ``ServicesConfig`` /
 ``ImageGenerationConfig(ProfileConfig)`` / ``ImageToPromptConfig`` / ``VisionConfig`` /
 ``ASRConfig``，以及 ``ParseAPIProtocol`` / ``VisionSupport`` / ``AudioSupport``。
+``[web_extract]`` 是 Python 版新增的段（Go 的 ``web_extract`` 没有通道配置）。
 
 分工（与 :mod:`atri_x.config.app` 的分界）：本模块只管**多个进程共享的只读服务配置**，
 它们来自 ``[config_files].services``（新布局 ``services.toml``）或旧的 ``providers.toml``；
@@ -47,6 +48,8 @@ __all__ = [
     "VisionSupport",
     "WebSearchConfig",
     "WebSearchEngineConfig",
+    "WebExtractConfig",
+    "WebExtractEngineConfig",
     "audio_support_from_bool",
     "load_services_config",
     "parse_api_protocol",
@@ -507,9 +510,9 @@ class ASRConfig(StrictConfig):
 class WebSearchEngineConfig(StrictConfig):
     """``[web_search.engines.<name>]``：一条搜索通道。
 
-    ``protocol`` 决定用哪个实现（``tavily`` / ``firecrawl`` / ``keenable`` /
-    ``exa`` / ``searxng`` / ``antigravity`` / ``grok``）；内置名留空时等于名字，
-    自定义名字必须显式写 ``protocol``。``bin`` 只给 ``antigravity`` / ``grok``
+    ``protocol`` 决定用哪个实现（``deepseek`` / ``tavily`` / ``firecrawl`` /
+    ``keenable`` / ``exa`` / ``searxng`` / ``antigravity`` / ``grok``）；内置名留空时
+    等于名字，自定义名字必须显式写 ``protocol``。``bin`` 只给 ``antigravity`` / ``grok``
     这类外部 CLI 通道覆盖可执行文件名。
     """
 
@@ -524,12 +527,39 @@ class WebSearchConfig(StrictConfig):
     """``[web_search]``：``web_search`` 工具的搜索通道与尝试顺序。
 
     ``engine_order`` 里的名字按顺序逐条尝试；``engines`` 里没有列出的内置通道不参与。
-    整段缺席时回落到「Tavily → Firecrawl → Keenable → Exa（有 key 才参与）」的环境变量
-    默认链，保持旧部署行为不变。
+    整段缺席时回落到「DeepSeek（有 key 才参与）→ Tavily → Firecrawl → Keenable → Exa
+    （有 key 才参与）」的环境变量默认链，保持旧部署行为不变。
     """
 
     engine_order: list[str] = field(default_factory=list)
     engines: dict[str, WebSearchEngineConfig] = field(default_factory=dict)
+
+
+@dataclass
+class WebExtractEngineConfig(StrictConfig):
+    """``[web_extract.engines.<name>]``：一条抓取通道。
+
+    ``protocol`` 决定用哪个实现（``deepseek`` / ``jina`` / ``direct``）；内置名留空时
+    等于名字，自定义名字必须显式写 ``protocol``。``base_url`` 是完整接口地址
+    （DeepSeek 的 ``/v1/tools/fetch`` 或 Jina Reader 的根地址），留空用官方端点。
+    """
+
+    protocol: str = ""
+    api_key_env: str = ""
+    base_url: str = ""
+
+
+@dataclass
+class WebExtractConfig(StrictConfig):
+    """``[web_extract]``：``web_extract`` 工具的抓取通道与尝试顺序。
+
+    ``engine_order`` 里的名字按顺序逐条尝试，单条失败自动换下一条。整段缺席时回落到
+    「Jina（有 ``JINA_API_KEY`` 才参与）→ 直接抓取」的默认链，与 0.9.9 的既有行为一致；
+    ``deepseek`` 通道按次计费，不在默认链里，要显式写进 ``engine_order`` 才启用。
+    """
+
+    engine_order: list[str] = field(default_factory=list)
+    engines: dict[str, WebExtractEngineConfig] = field(default_factory=dict)
 
 
 @dataclass
@@ -549,6 +579,7 @@ class ServicesConfig(StrictConfig):
     vision: VisionConfig | None = None
     asr: ASRConfig | None = None
     web_search: WebSearchConfig | None = None
+    web_extract: WebExtractConfig | None = None
 
 
 def load_services_config(path: str, *, strict: bool = True) -> ServicesConfig:

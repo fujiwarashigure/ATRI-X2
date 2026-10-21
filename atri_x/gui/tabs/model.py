@@ -1,6 +1,6 @@
-"""「模型」选项卡：LLM Provider（含 API Key）、模型分配与搜索服务。
+"""「模型」选项卡：LLM Provider（含 API Key）、模型分配、搜索服务与抓取服务。
 
-这是桌面端最常用的配置页，拆成两块（二级页签）：
+这是桌面端最常用的配置页，拆成三块（二级页签）：
 
 1. **LLM Provider**（写 ``services.toml`` 的 ``[providers.<name>]``）：
    ``base_url`` / ``api_key_env`` / ``models`` / ``api_mode`` / ``extra_headers``
@@ -10,15 +10,19 @@
    另有**模型分配**（写 ``state.toml``）：工作/聊天/命名/压缩四个槽位 + 默认模式。
    ``state.toml`` 是运行期回写的文件，后台服务会热加载，保存后几秒生效，不需要重启。
 2. **搜索服务**（写 ``services.toml`` 的 ``[web_search]``）：``web_search`` 工具按列表
-   自上而下逐条尝试通道——Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI /
-   Grok Build，外加任意「自定义」通道（选一个协议 + 服务地址 + 密钥）。免注册通道不填 key
-   也能用；密钥值和 provider 一样写进 ``.env``，这里只存环境变量名。
+   自上而下逐条尝试通道——DeepSeek 官方搜索 / Tavily / Firecrawl / Keenable / Exa /
+   SearXNG / Antigravity CLI / Grok Build，外加任意「自定义」通道（选一个协议 + 服务地址
+   + 密钥）。免注册通道不填 key 也能用；密钥值和 provider 一样写进 ``.env``，这里只存
+   环境变量名。
+3. **抓取服务**（写 ``services.toml`` 的 ``[web_extract]``）：``web_extract`` 工具按列表
+   逐条尝试通道——DeepSeek 官方抓取 / Jina Reader / 直接抓取，失败自动降级；默认链是
+   Jina（有 key 才参与）→ 直接抓取。
 
 模型名不用手打：点「获取可用模型」会 ``GET {base_url}/models`` 把上游模型列出来，之后
 在下拉里点选；每个模型还能起一个**本地备注名**（``gui/model_catalog.json``，不影响上游
 模型名），下拉里显示成 ``备注（模型）``，保存时再还原成真模型名。
 
-Provider、``.env`` 与搜索服务都属于启动期配置，改完要点底部的「重启后台服务」。
+Provider、``.env``、搜索服务与抓取服务都属于启动期配置，改完要点底部的「重启后台服务」。
 """
 
 from __future__ import annotations
@@ -43,6 +47,7 @@ from atri_x.gui.configmodel import (
     secret_value,
 )
 from atri_x.gui.tabs.base import ConfigTab, confirm, message
+from atri_x.gui.tabs.extractpanel import ExtractServicePanel
 from atri_x.gui.tabs.searchpanel import SearchServicePanel
 
 __all__ = ["ModelTab"]
@@ -58,7 +63,7 @@ _DROPDOWN_HEIGHT = 14
 
 
 class ModelTab(ConfigTab):
-    """Provider 列表 + 表单 + 模型分配 + 搜索服务。"""
+    """Provider 列表 + 表单 + 模型分配 + 搜索服务 + 抓取服务。"""
 
     hint = ""
 
@@ -76,8 +81,10 @@ class ModelTab(ConfigTab):
         self.notebook.pack(fill=tk.BOTH, expand=True)
         llm_page = ttk.Frame(self.notebook)
         search_page = ttk.Frame(self.notebook)
+        extract_page = ttk.Frame(self.notebook)
         self.notebook.add(llm_page, text="LLM Provider / 模型分配")
         self.notebook.add(search_page, text="搜索服务（web_search）")
+        self.notebook.add(extract_page, text="抓取服务（web_extract）")
 
         provider_box = ttk.LabelFrame(llm_page, text="LLM Provider（services.toml）", padding=8)
         provider_box.pack(fill=tk.BOTH, expand=True)
@@ -291,6 +298,7 @@ class ModelTab(ConfigTab):
         ).pack(side=tk.LEFT)
 
         self.search_panel = SearchServicePanel(search_page, self)
+        self.extract_panel = ExtractServicePanel(extract_page, self)
 
     def _row(self, parent: Any, row: int, label: str, variable: tk.StringVar) -> ttk.Entry:
         ttk.Label(parent, text=label, width=20).grid(row=row, column=0, sticky="w", pady=2)
@@ -319,8 +327,10 @@ class ModelTab(ConfigTab):
         self._refresh_slot_providers()
         self._load_model_selection()
         self.search_panel.reload()
+        self.extract_panel.reload()
         self.notify(
-            f"已载入 {len(self._providers)} 个 provider、{len(self.search_panel.engines)} 条搜索通道"
+            f"已载入 {len(self._providers)} 个 provider、{len(self.search_panel.engines)} 条搜索通道、"
+            f"{len(self.extract_panel.engines)} 条抓取通道"
         )
 
     def _refresh_tree(self) -> None:

@@ -60,6 +60,19 @@ def run_selftest() -> int:
             app.notebook.select(index)
             root.update_idletasks()
             root.update()
+        # 「工具权限」页的自检：纵向工具菜单每行都必须有激活按钮、状态和功能解释。
+        # （打包产物的 ``--selftest`` 也走这里，所以冻结版少画一样东西就会被卡住。）
+        toolperm = app.toolperm_tab
+        assert toolperm._rows, "工具权限页没有渲染出工具菜单"
+        for name, row in toolperm._rows.items():
+            assert row.badge.cget("text") in ("已激活", "未激活", "继承全局", "禁止使用"), (
+                f"工具 {name} 的激活状态徽标不对"
+            )
+            assert str(row.button.cget("text")).strip(), f"工具 {name} 缺少激活按钮文案"
+            assert str(row.summary.cget("text")).strip(), f"工具 {name} 缺少功能解释"
+            assert int(row.summary.cget("wraplength")) > 0, (
+                f"工具 {name} 的功能解释没有设置换行宽度"
+            )
         app.notebook.select(0)
         root.update_idletasks()
         root.update()

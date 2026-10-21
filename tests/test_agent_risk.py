@@ -506,18 +506,26 @@ class ToolsHelperTests(unittest.TestCase):
             )[0]
         )
 
-    def test_upstream_normalize_is_not_idempotent(self) -> None:
-        """上游 Go ``Normalize`` 非幂等：二次归一化会把空名单判成"显式受限"。
+    def test_normalize_keeps_nil_allowlist_and_is_idempotent(self) -> None:
+        """``Normalize`` 必须保留 nil / 空切片二态，并且幂等。
 
-        与 Go 逐字一致（``normalizeStringList(nil)`` 返回非 nil 空切片，
-        第二次的 ``c.ToolAllowlist != nil`` 因此成立）。这里固定住该行为，
-        免得有人"顺手修好"一个跨仓兼容性事实。
+        真机事故（0.9.11）：旧实现把 ``None`` 归一成 ``[]``，于是第二次
+        ``tool_allowlist_restricted()`` 把"这个群没配过工具策略"读成"显式禁止
+        全部工具"，任何没配置群策略的群所有工具调用都被拒
+        （``tool is not in this group's allowlist``）。nil 表示继承全局，空列表
+        才表示禁止全部。
         """
         raw = GroupPolicyConfig(history=False)
         self.assertFalse(raw.tool_allowlist_restricted())
-        # 一次 Normalize 后 tool_allowlist 变成非 nil 空切片，受限判定立刻翻成 True。
-        self.assertTrue(raw.normalize().tool_allowlist_restricted())
-        self.assertTrue(raw.normalize().normalize().tool_allowlist_restricted())
+        once = raw.normalize()
+        self.assertIsNone(once.tool_allowlist)
+        self.assertFalse(once.tool_allowlist_restricted())
+        self.assertFalse(once.normalize().tool_allowlist_restricted())
+
+        explicit = GroupPolicyConfig(tool_allowlist=[]).normalize()
+        self.assertEqual(explicit.tool_allowlist, [])
+        self.assertTrue(explicit.tool_allowlist_restricted())
+        self.assertTrue(explicit.normalize().tool_allowlist_restricted())
 
 
 def _assessment() -> object:

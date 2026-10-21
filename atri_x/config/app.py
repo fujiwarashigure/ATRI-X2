@@ -72,6 +72,7 @@ from atri_x.config.services import (
     ServicesConfig,
     VisionConfig,
     VisionSupport,
+    WebExtractConfig,
     WebSearchConfig,
     parse_api_protocol,
     validate_provider_extra_headers,
@@ -163,6 +164,7 @@ class AppConfig(StrictConfig):
     vision: VisionConfig = field(default_factory=VisionConfig)
     asr: ASRConfig = field(default_factory=ASRConfig)
     web_search: WebSearchConfig = field(default_factory=WebSearchConfig)
+    web_extract: WebExtractConfig = field(default_factory=WebExtractConfig)
     group_analysis: GroupAnalysisConfig = field(default_factory=GroupAnalysisConfig)
     group_knowledge: GroupKnowledgeConfig = field(default_factory=GroupKnowledgeConfig)
     group_services: GroupServicesConfig = field(default_factory=GroupServicesConfig)
@@ -560,6 +562,8 @@ class AppConfig(StrictConfig):
             self.asr = services.asr
         if services.web_search is not None:
             self.web_search = services.web_search
+        if services.web_extract is not None:
+            self.web_extract = services.web_extract
 
     # -- 校验 ---------------------------------------------------------------
     def validate_provider_protocols(self) -> None:

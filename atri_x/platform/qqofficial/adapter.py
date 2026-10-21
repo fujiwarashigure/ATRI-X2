@@ -152,7 +152,12 @@ class Adapter:
         """对应 Go ``SendNotice``：空 Target 表示发回当前会话。"""
         target = notice.target
         outputs = notice.outputs
-        if should_drop_group_tool_preview(target, outputs, is_group_context(ctx)):
+        if should_drop_group_tool_preview(
+            target,
+            outputs,
+            is_group_context(ctx),
+            getattr(self.cfg, "show_tool_preview_in_group", False),
+        ):
             return Receipt()
         if target.empty():
             return await self.send_chat(ctx, outputs)

@@ -45,12 +45,22 @@ __all__ = [
 class AssistantMetadata:
     """助手消息 metadata。对应 Go ``assistantMetadata``。
 
-    json tag：``tool_calls,omitempty`` / ``raw_text,omitempty``。
+    json tag：``tool_calls,omitempty`` / ``raw_text,omitempty`` / ``reasoning_content,omitempty``。
+
+    ``reasoning_content`` 是 Python 侧追加字段（Go 版没有）：思考模式的模型在
+    assistant 消息里会带思维链，携带 tools 的请求必须把历史思维链原样回传，否则
+    上游 400。它只落 metadata，不进用户可见文本。
     """
 
-    def __init__(self, tool_calls: list[Any] | None = None, raw_text: str = "") -> None:
+    def __init__(
+        self,
+        tool_calls: list[Any] | None = None,
+        raw_text: str = "",
+        reasoning_content: str = "",
+    ) -> None:
         self.tool_calls = list(tool_calls or [])
         self.raw_text = raw_text or ""
+        self.reasoning_content = reasoning_content or ""
 
     def to_json(self) -> str:
         data: dict[str, Any] = {}
@@ -60,6 +70,8 @@ class AssistantMetadata:
             ]
         if self.raw_text:
             data["raw_text"] = self.raw_text
+        if self.reasoning_content:
+            data["reasoning_content"] = self.reasoning_content
         return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
     @classmethod
@@ -72,7 +84,10 @@ class AssistantMetadata:
             return cls()
         if not isinstance(data, dict):
             return cls()
-        status = cls(raw_text=str(data.get("raw_text") or ""))
+        status = cls(
+            raw_text=str(data.get("raw_text") or ""),
+            reasoning_content=str(data.get("reasoning_content") or ""),
+        )
         calls = data.get("tool_calls")
         if isinstance(calls, list):
             status.tool_calls = [_tool_call_from_json(item) for item in calls]
@@ -106,10 +121,16 @@ def _tool_call_from_json(raw: Any) -> Any:
 
 
 def tool_call_storage_message(
-    session_id: str, content: str, raw_text: str, calls: list[Any]
+    session_id: str,
+    content: str,
+    raw_text: str,
+    calls: list[Any],
+    reasoning_content: str = "",
 ) -> Message:
     """助手侧的"我发起了这些工具调用"记录。对应 Go ``toolCallStorageMessage``。"""
-    metadata = AssistantMetadata(tool_calls=list(calls or []))
+    metadata = AssistantMetadata(
+        tool_calls=list(calls or []), reasoning_content=reasoning_content
+    )
     if raw_text and raw_text != content:
         metadata.raw_text = raw_text
     return Message(
@@ -141,11 +162,22 @@ def segments_text_only(segments: list[MessageSegment] | None) -> bool:
     return True
 
 
-def assistant_raw_text_metadata(content: str, raw_text: str) -> str:
-    """仅存原始文本的助手 metadata。对应 Go ``assistantRawTextMetadata``。"""
-    if not raw_text or raw_text == content:
+def assistant_raw_text_metadata(
+    content: str, raw_text: str, reasoning_content: str = ""
+) -> str:
+    """助手 metadata：保留原始文本（与正文不同时）与思维链。
+
+    对应 Go ``assistantRawTextMetadata``；``reasoning_content`` 是 Python 侧追加：
+    思考模式的历史思维链必须能在下一轮请求里原样回传，因此与 raw_text 一起落
+    metadata（不进用户可见正文）。
+    """
+    keep_raw = bool(raw_text) and raw_text != content
+    if not keep_raw and not reasoning_content:
         return ""
-    return AssistantMetadata(raw_text=raw_text).to_json()
+    return AssistantMetadata(
+        raw_text=raw_text if keep_raw else "",
+        reasoning_content=reasoning_content,
+    ).to_json()
 
 
 def tool_result_storage_message(session_id: str, message: LLMMessage) -> Message:

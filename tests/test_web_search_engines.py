@@ -24,10 +24,12 @@ from atri_x.tool.builtin.web_search import (
     parse_tavily_response,
 )
 from atri_x.tool.builtin.web_search_engines import (
+    DEEPSEEK_DEFAULT_ENDPOINT,
     EXA_DEFAULT_ENDPOINT,
     KEENABLE_KEYED_ENDPOINT,
     KEENABLE_KEYLESS_ENDPOINT,
     PROTOCOL_ANTIGRAVITY,
+    PROTOCOL_DEEPSEEK,
     PROTOCOL_EXA,
     PROTOCOL_FIRECRAWL,
     PROTOCOL_GROK,
@@ -40,6 +42,8 @@ from atri_x.tool.builtin.web_search_engines import (
     SearchOutcome,
     SearchQuery,
     default_specs,
+    key_env_names,
+    search_deepseek,
     search_exa,
     search_firecrawl,
     search_keenable,
@@ -58,6 +62,8 @@ _ENV_KEYS = (
     "FIRECRAWL_API_KEY",
     "KEENABLE_API_KEY",
     "EXA_API_KEY",
+    "DEEPSEEK_SEARCH_KEY",
+    "DEEPSEEK_API_KEY",
     WEB_SEARCH_ENGINES_ENV,
 )
 
@@ -163,6 +169,86 @@ class TestFirecrawlEngine(unittest.TestCase):
         with self.assertRaises(EngineFailure) as ctx:
             _run(search_firecrawl(client, SearchQuery(query="q")))
         self.assertIn("不是一个 JSON 对象", str(ctx.exception))
+
+
+class TestDeepSeekEngine(unittest.TestCase):
+    def test_request_and_parse(self) -> None:
+        client = _RoutingClient(
+            {
+                DEEPSEEK_DEFAULT_ENDPOINT: _Response(
+                    200,
+                    {
+                        "results": [
+                            {
+                                "title": "T1",
+                                "url": "https://a",
+                                "snippet": "short",
+                                "summary": "long summary",
+                                "date": "2026-06-01T00:00:00+00:00",
+                                "authority": 3,
+                            },
+                            {"title": "T2", "url": "https://b", "summary": ""},
+                        ]
+                    },
+                )
+            }
+        )
+        outcome = _run(
+            search_deepseek(
+                client,
+                SearchQuery(query="q", max_results=7),
+                api_key="dk",
+                timeout=12.0,
+            )
+        )
+        self.assertEqual(outcome.engine, PROTOCOL_DEEPSEEK)
+        self.assertEqual([hit.title for hit in outcome.hits], ["T1", "T2"])
+        self.assertIn("long summary", outcome.hits[0].snippet)
+        self.assertIn("2026-06-01", outcome.hits[0].snippet)
+        self.assertEqual(outcome.hits[1].snippet, "")
+        self.assertEqual(outcome.answer, "")
+        self.assertTrue(outcome.warnings)
+        method, path, kw = client.calls[0]
+        self.assertEqual((method, path), ("POST", DEEPSEEK_DEFAULT_ENDPOINT))
+        self.assertEqual(kw["headers"]["Authorization"], "Bearer dk")
+        self.assertEqual(kw["json"], {"query": "q", "count": 7, "need_content": False})
+        self.assertEqual(kw["timeout"], 12.0)
+
+    def test_custom_base_url(self) -> None:
+        endpoint = "https://relay.example.com/v1/tools/search"
+        client = _RoutingClient({endpoint: _Response(200, {"results": []})})
+        _run(
+            search_deepseek(
+                client, SearchQuery(query="q"), api_key="k", endpoint=endpoint, timeout=15.0
+            )
+        )
+        self.assertEqual(client.calls[0][1], endpoint)
+
+    def test_missing_key_is_engine_failure(self) -> None:
+        with self.assertRaises(EngineFailure) as ctx:
+            _run(search_deepseek(_RoutingClient({}), SearchQuery(query="q")))
+        self.assertIn("DEEPSEEK_SEARCH_KEY", str(ctx.exception))
+
+    def test_http_402_becomes_engine_failure(self) -> None:
+        client = _RoutingClient({DEEPSEEK_DEFAULT_ENDPOINT: _Response(402, {}, "no balance")})
+        with self.assertRaises(EngineFailure) as ctx:
+            _run(search_deepseek(client, SearchQuery(query="q"), api_key="k", timeout=15.0))
+        self.assertIn("HTTP 402", str(ctx.exception))
+        self.assertIn("no balance", str(ctx.exception))
+
+    def test_key_fallback_names(self) -> None:
+        self.assertEqual(
+            key_env_names(PROTOCOL_DEEPSEEK),
+            ("DEEPSEEK_SEARCH_KEY", "DEEPSEEK_API_KEY"),
+        )
+        self.assertEqual(
+            key_env_names(PROTOCOL_DEEPSEEK, "DEEPSEEK_SEARCH_KEY"),
+            ("DEEPSEEK_SEARCH_KEY", "DEEPSEEK_API_KEY"),
+        )
+        self.assertEqual(
+            key_env_names(PROTOCOL_DEEPSEEK, "MY_KEY"), ("MY_KEY",)
+        )
+        self.assertEqual(key_env_names(PROTOCOL_TAVILY), ("TAVILY_API_KEY",))
 
 
 class TestKeenableEngine(unittest.TestCase):
@@ -452,8 +538,15 @@ class TestSpecsFromConfig(unittest.TestCase):
     def test_default_specs_order(self) -> None:
         self.assertEqual(
             [spec.protocol for spec in default_specs()],
-            [PROTOCOL_TAVILY, PROTOCOL_FIRECRAWL, PROTOCOL_KEENABLE, PROTOCOL_EXA],
+            [
+                PROTOCOL_DEEPSEEK,
+                PROTOCOL_TAVILY,
+                PROTOCOL_FIRECRAWL,
+                PROTOCOL_KEENABLE,
+                PROTOCOL_EXA,
+            ],
         )
+        self.assertEqual(default_specs()[0].key_env(), "DEEPSEEK_SEARCH_KEY")
 
 
 class TestConfiguredChain(unittest.TestCase):
@@ -507,6 +600,47 @@ class TestConfiguredChain(unittest.TestCase):
         )
         _run(tool.call(None, _call({"query": "hi"})))
         self.assertEqual(client.calls[0][2]["headers"]["x-api-key"], "secret")
+
+    def test_deepseek_falls_back_to_provider_key(self) -> None:
+        specs = [SearchEngineSpec(name="deepseek", protocol=PROTOCOL_DEEPSEEK)]
+        client = _RoutingClient(
+            {DEEPSEEK_DEFAULT_ENDPOINT: _Response(200, {"results": []})}
+        )
+        tool = WebSearchTool(
+            Environment(["DEEPSEEK_API_KEY=provider-key"]), client=client, specs=specs
+        )
+        _run(tool.call(None, _call({"query": "hi"})))
+        self.assertEqual(
+            client.calls[0][2]["headers"]["Authorization"], "Bearer provider-key"
+        )
+
+    def test_deepseek_search_key_wins_over_provider_key(self) -> None:
+        specs = [SearchEngineSpec(name="deepseek", protocol=PROTOCOL_DEEPSEEK)]
+        client = _RoutingClient(
+            {DEEPSEEK_DEFAULT_ENDPOINT: _Response(200, {"results": []})}
+        )
+        tool = WebSearchTool(
+            Environment(["DEEPSEEK_SEARCH_KEY=search-key", "DEEPSEEK_API_KEY=provider-key"]),
+            client=client,
+            specs=specs,
+        )
+        _run(tool.call(None, _call({"query": "hi"})))
+        self.assertEqual(
+            client.calls[0][2]["headers"]["Authorization"], "Bearer search-key"
+        )
+
+    def test_deepseek_without_key_is_skipped(self) -> None:
+        specs = [
+            SearchEngineSpec(name="deepseek", protocol=PROTOCOL_DEEPSEEK),
+            SearchEngineSpec(name="firecrawl", protocol=PROTOCOL_FIRECRAWL),
+        ]
+        client = _RoutingClient(
+            {FIRECRAWL_ENDPOINT: _Response(200, {"data": {"web": [{"title": "F", "url": "u"}]}})}
+        )
+        tool = WebSearchTool(client=client, specs=specs)
+        result = _run(tool.call(None, _call({"query": "hi"})))
+        self.assertIn("1. F", result.content)
+        self.assertEqual([call[1] for call in client.calls], [FIRECRAWL_ENDPOINT])
 
     def test_cli_engine_reports_missing_binary(self) -> None:
         specs = [SearchEngineSpec(name="agy", protocol=PROTOCOL_ANTIGRAVITY)]

@@ -189,6 +189,8 @@
 | `atri_x/media/imagecodec/` | 标准库无图像编解码 | `image`、`image/jpeg`、`image/png` |
 | `atri_x/platform/cli/tui/` | bubbletea 的 Elm 架构 + ANSI cell 渲染（可用行式渲染简化，但命令/状态栏/输入行为必须实现） | `bubbletea`+`lipgloss`+`bubbles` |
 | `atri_x/utils/runes.py` | Go 的 `[]rune` 语义与 `runewidth` | `mattn/go-runewidth` |
+| `atri_x/llm/tooltext.py` | 上游网关会把模型原生工具调用以文本协议（DSML / `<tool-call>` JSON）泄漏进正文；Go 侧没有这层防御，需要判定/还原/清洗 | 无（健壮性补丁） |
+| `atri_x/agent/chat_anomaly.py` | 把上面的还原结果接回 `LLMCallResult`：能还原就继续工具轮，否则清洗正文并写 WARN 日志与 `llm_tool_calls_in_text` 审计 | `internal/agent/chat.go` 的 `callLLM` 返回处 |
 
 重定向：`atri_x/net/httpclient.py` 的三条请求路径（`request(...)`、`request_multipart(...)`、
 `open_stream(...)`）已与 Go 缺省 `http.Client` 对齐——默认跟随最多 10 次

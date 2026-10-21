@@ -210,8 +210,14 @@ async def execute_tool_calls(
     assistant_text: str,
     assistant_raw_text: str,
     out: Any,
+    *,
+    reasoning: str = "",
 ) -> Any:
-    """跑一批工具调用。对应 Go ``Agent.executeToolCalls``。"""
+    """跑一批工具调用。对应 Go ``Agent.executeToolCalls``。
+
+    ``reasoning`` 是发起这批调用的那一轮 assistant 思维链，随工具调用记录落库，
+    供后续请求按思考模式的协议原样回传。
+    """
     from atri_x.toolrun import RunRequest
     from atri_x.toolrun import run as run_tool_calls
 
@@ -229,6 +235,7 @@ async def execute_tool_calls(
             calls=list(calls),
             assistant_text=assistant_text,
             assistant_raw_text=assistant_raw_text,
+            assistant_reasoning=reasoning,
             cached_tools=agent.cached_tools_for_session(session),
             actor=agent.actor(ctx),
             authorize_tool=authorize,
