@@ -142,7 +142,7 @@ async def _run_chat_body(
     agent.authorize_execution_model_selection(ctx, selection)
     # turn hook 可能换了模型，工具能力要跟着真正会被调用的模型走。
     ctx = with_model_capabilities(agent, ctx, selection.provider, selection.model)
-    # chat 会话不吃工具 schema，包括 turn hook 硬塞进来的。
+    # 只有模式不支持工具的会话才丢弃 schema；本仓 work / chat 都吃（含 turn hook 塞进来的）。
     tools = list(turn_event.llm.tools or []) if session_tools_enabled(session) else []
     request_options = llm_request_options_from_payload(turn_event.llm)
     await out.publish_runtime_status(

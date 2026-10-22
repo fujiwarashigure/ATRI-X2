@@ -12,7 +12,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from atri_x.llm.llm import ToolSchema
-from atri_x.storage.models import SessionModeChat, SessionModeWork
+from atri_x.storage.models import (
+    SessionModeChat,
+    SessionModeWork,
+    session_mode_supports_tools,
+)
 from atri_x.tool.capability import ctx_raise_if_cancelled
 from atri_x.tool.tool import (
     Actor,
@@ -68,10 +72,10 @@ class SchemaProvider:
         session: Any = None,
         scope: Any = None,
     ) -> list[ToolSchema]:
-        """对应 Go ``SchemaProvider.Schemas``：只有 work 模式注入工具。"""
+        """对应 Go ``SchemaProvider.Schemas``：work / chat 模式都注入工具。"""
         del session, scope
         ctx_raise_if_cancelled(ctx)
-        if mode != SESSION_MODE_WORK or self.registry is None:
+        if not session_mode_supports_tools(mode) or self.registry is None:
             return []
         return self.registry.schemas()
 
@@ -85,7 +89,7 @@ class SchemaProvider:
         """对应 Go ``SchemaProvider.ToolNames``。"""
         del session
         ctx_raise_if_cancelled(ctx)
-        if mode != SESSION_MODE_WORK or self.registry is None:
+        if not session_mode_supports_tools(mode) or self.registry is None:
             return PromptNames()
         actor = actor_from_scope(ctx, scope)
         return prompt_names_from_infos(self.allowed_infos(actor))

@@ -31,7 +31,11 @@ from atri_x.security import (
     default_policy,
     policy_from_context,
 )
-from atri_x.storage.models import SessionModeChat, SessionModeWork
+from atri_x.storage.models import (
+    SessionModeChat,
+    SessionModeWork,
+    session_mode_supports_tools,
+)
 from atri_x.tool.executor import Executor
 from atri_x.tool.sandbox import (
     background_context,
@@ -118,7 +122,11 @@ class Manager:
     async def tool_infos(self, ctx: Any, view: Context) -> list[Info]:
         """对应 Go ``ToolInfos``。"""
         _raise_if_cancelled(ctx)
-        if view.disable_base_tools or view.mode != SessionModeWork or self.native is None:
+        if (
+            view.disable_base_tools
+            or not session_mode_supports_tools(view.mode)
+            or self.native is None
+        ):
             return []
         return self.native.tool_infos(ctx, actor_for_view(ctx, view), policy_for_manager(ctx, self.policy))
 
@@ -129,7 +137,11 @@ class Manager:
     async def base_schemas(self, ctx: Any, view: Context) -> list[ToolSchema]:
         """对应 Go ``BaseSchemas``。"""
         _raise_if_cancelled(ctx)
-        if view.disable_base_tools or view.mode != SessionModeWork or self.native is None:
+        if (
+            view.disable_base_tools
+            or not session_mode_supports_tools(view.mode)
+            or self.native is None
+        ):
             return []
         return self.native.base_schemas(ctx)
 

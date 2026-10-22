@@ -263,6 +263,13 @@ class GroupPolicyConfig(StrictConfig):
     #: 这与 Go 的 nil/空切片 + ``,omitempty`` + ``ToolAllowlistSet`` 完全一致。
     tool_allowlist: list[str] | None = field(default=None, metadata=OMITEMPTY)
     tool_allowlist_set: bool = field(default=False, metadata=OMITEMPTY)
+    #: 分模式白名单（本仓扩展，上游没有）：``None`` = 该模式没有单独配置、回退到上面的
+    #: 通用 ``tool_allowlist``；显式空列表 = 该模式禁止全部工具。``_set`` 用来在
+    #: omitempty 写回后仍然记得"这是显式策略"（与 ``tool_allowlist_set`` 同理）。
+    tool_allowlist_chat: list[str] | None = field(default=None, metadata=OMITEMPTY)
+    tool_allowlist_chat_set: bool = field(default=False, metadata=OMITEMPTY)
+    tool_allowlist_work: list[str] | None = field(default=None, metadata=OMITEMPTY)
+    tool_allowlist_work_set: bool = field(default=False, metadata=OMITEMPTY)
     image_quota: int = field(default=0, metadata=OMITEMPTY)
     vision_quota: int = field(default=0, metadata=OMITEMPTY)
     asr_quota: int = field(default=0, metadata=OMITEMPTY)
@@ -301,6 +308,18 @@ class GroupPolicyConfig(StrictConfig):
         else:
             out.tool_allowlist = normalize_string_list(self.tool_allowlist)
             out.tool_allowlist_set = True
+        # 分模式白名单与通用字段同一套 nil / 空切片二态语义。
+        for mode_name in ("chat", "work"):
+            value = getattr(self, "tool_allowlist_" + mode_name)
+            if value is None:
+                setattr(out, "tool_allowlist_" + mode_name, None)
+                continue
+            setattr(
+                out,
+                "tool_allowlist_" + mode_name,
+                normalize_string_list(value),
+            )
+            setattr(out, "tool_allowlist_" + mode_name + "_set", True)
         out.learning_moderation_actions = normalize_learning_moderation_actions(
             self.learning_moderation_actions or []
         )
@@ -384,6 +403,10 @@ class GroupPolicyConfig(StrictConfig):
             and not norm.allowed_models
             and not norm.tool_allowlist
             and not norm.tool_allowlist_set
+            and not norm.tool_allowlist_chat
+            and not norm.tool_allowlist_chat_set
+            and not norm.tool_allowlist_work
+            and not norm.tool_allowlist_work_set
             and norm.image_quota == 0
             and norm.vision_quota == 0
             and norm.asr_quota == 0
@@ -409,6 +432,33 @@ class GroupPolicyConfig(StrictConfig):
         """显式工具策略（空列表表示**禁用全部**群工具）。对应 Go ``ToolAllowlistRestricted``。"""
         norm = self.normalize()
         return norm.tool_allowlist_set or bool(norm.tool_allowlist)
+
+    def mode_tool_allowlist(self, mode: str) -> tuple[bool, list[str] | None]:
+        """某个会话模式生效的工具白名单：``(是否显式限制, 名单)``。
+
+        优先级：该模式的分模式名单 → 通用 ``tool_allowlist`` → 不限制（返回 ``False, None``）。
+        显式空名单表示"该模式禁止全部工具"，与通用字段的 nil/空列表二态一致。
+        """
+        norm = self.normalize()
+        mode_name = (mode or "").strip().lower()
+        if mode_name in ("chat", "work"):
+            value = getattr(norm, "tool_allowlist_" + mode_name)
+            explicit = getattr(norm, "tool_allowlist_" + mode_name + "_set")
+            if value is not None or explicit:
+                return True, list(value or [])
+        if norm.tool_allowlist_set or norm.tool_allowlist:
+            return True, list(norm.tool_allowlist or [])
+        return False, None
+
+    def mode_tool_allowlist_configured(self, mode: str) -> bool:
+        """该模式是否**单独**配置过白名单（不看通用兜底）。"""
+        norm = self.normalize()
+        mode_name = (mode or "").strip().lower()
+        if mode_name not in ("chat", "work"):
+            return False
+        value = getattr(norm, "tool_allowlist_" + mode_name)
+        explicit = getattr(norm, "tool_allowlist_" + mode_name + "_set")
+        return value is not None or explicit
 
     def learning_moderation_actions_value(self) -> list[str]:
         """受权群管的生效动作；老 state 文件默认 view+decide。"""

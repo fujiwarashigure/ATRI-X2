@@ -235,6 +235,51 @@ class ToolAuthTests(unittest.TestCase):
         agent = FakeAgent(policy=policy)
         self.assertIsNone(tool_auth.group_tool_allowlist(agent, None))
 
+    def test_allowlist_uses_session_mode(self) -> None:
+        # 本仓扩展：chat / work 各一份白名单，未配置的模式回退通用。
+        policy = GroupPolicyConfig(
+            tool_allowlist=["web_extract"],
+            tool_allowlist_set=True,
+            tool_allowlist_chat=["web_search"],
+            tool_allowlist_chat_set=True,
+            tool_allowlist_work=[],
+            tool_allowlist_work_set=True,
+        ).normalize()
+        agent = FakeAgent(policy=policy)
+        chat = Session(id="s1", mode="chat")
+        work = Session(id="s2", mode="work")
+        self.assertEqual(
+            sorted(tool_auth.group_tool_allowlist(agent, None, chat).keys()),
+            ["web_search"],
+        )
+        # work 显式空列表 = 禁止全部（空 dict 而不是 None）。
+        self.assertEqual(tool_auth.group_tool_allowlist(agent, None, work), {})
+        # 不带 session（纯展示等调用点）只按通用策略判断。
+        self.assertEqual(
+            sorted(tool_auth.group_tool_allowlist(agent, None).keys()),
+            ["web_extract"],
+        )
+
+    def test_authorize_uses_session_mode(self) -> None:
+        policy = GroupPolicyConfig(
+            tool_allowlist_chat=["web_search"],
+            tool_allowlist_chat_set=True,
+            tool_allowlist_work=["read_file"],
+            tool_allowlist_work_set=True,
+        ).normalize()
+        agent = FakeAgent(policy=policy)
+        chat = Session(id="s1", mode="chat")
+        read_call = ToolCallRequest(id="c1", name="read_file", arguments="{}")
+        allowed, _reason = tool_auth.authorize_tool_call(
+            agent, None, read_call, ResolvedTool(name="read_file"), chat
+        )
+        self.assertFalse(allowed)
+        search_call = ToolCallRequest(id="c2", name="web_search", arguments="{}")
+        allowed, _reason = tool_auth.authorize_tool_call(
+            agent, None, search_call, ResolvedTool(name="web_search"), chat
+        )
+        self.assertTrue(allowed)
+
     def test_authorize_uses_cached_alias(self) -> None:
         policy = GroupPolicyConfig(
             tool_allowlist=["read_file"], tool_allowlist_set=True

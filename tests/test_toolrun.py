@@ -341,11 +341,14 @@ class TestManagerResolve(unittest.TestCase):
 
 
 class TestManagerSchemas(unittest.TestCase):
-    def test_chat_mode_yields_nothing(self) -> None:
+    def test_chat_mode_yields_tools(self) -> None:
+        # 本仓有意偏离上游：chat 会话同样拿到 schema / 工具名。
         manager = Manager(registry=FakeRegistry([FakeToolDef(name="t")]))
-        self.assertEqual([], run(manager.base_schemas(None, view(SessionModeChat))))
-        self.assertEqual([], run(manager.tool_infos(None, view(SessionModeChat))))
-        self.assertEqual([], run(manager.tool_names(None, view(SessionModeChat))))
+        self.assertEqual(1, len(run(manager.base_schemas(None, view(SessionModeChat)))))
+        self.assertEqual(
+            ["t"], [info.name for info in run(manager.tool_infos(None, view(SessionModeChat)))]
+        )
+        self.assertEqual(["t"], run(manager.tool_names(None, view(SessionModeChat))))
 
     def test_disable_base_tools(self) -> None:
         manager = Manager(registry=FakeRegistry([FakeToolDef(name="t")]))
@@ -665,12 +668,14 @@ class TestRunner(unittest.TestCase):
         base.update(kwargs)
         return RunRequest(**base), deps
 
-    def test_chat_mode_runs_nothing(self) -> None:
+    def test_chat_mode_runs_tools(self) -> None:
+        # 本仓有意偏离上游：chat 会话的工具调用照常执行。
         deps = FakeDeps()
         req, _ = self._req(deps, session=make_session(SessionModeChat))
         result = run(runner_mod.run(self.manager, None, deps, req))
-        self.assertEqual([], result.messages)
-        self.assertEqual([], deps.calls)
+        self.assertEqual(1, len(result.messages))
+        self.assertEqual("ok:echo", segments_content_text(result.messages[0].segments))
+        self.assertIn("add_tool_use:echo", deps.calls)
 
     def test_success_path(self) -> None:
         deps = FakeDeps()

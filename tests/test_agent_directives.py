@@ -217,10 +217,22 @@ class TestToolDirectiveReasons(unittest.TestCase):
 
 
 class TestApplyToolDirectives(unittest.TestCase):
-    def test_mode_blocked_in_chat(self) -> None:
+    def test_chat_mode_preloads_tools(self) -> None:
+        # 本仓有意偏离上游：chat 模式也允许 @tool: 预载。
         registry = _Registry({"t": _Tool("t")})
         host = _DirectiveHost(registry)
         result = apply_tool_directives(host, None, Session(id="s", mode="chat"), "@tool:t hello")
+        self.assertFalse(result.mode_blocked)
+        self.assertEqual(result.injected, ["t"])
+        self.assertEqual(result.invalid, [])
+        self.assertEqual(result.text, "hello")
+
+    def test_unknown_mode_blocks_tools(self) -> None:
+        registry = _Registry({"t": _Tool("t")})
+        host = _DirectiveHost(registry)
+        result = apply_tool_directives(
+            host, None, Session(id="s", mode="background"), "@tool:t hello"
+        )
         self.assertTrue(result.mode_blocked)
         self.assertEqual(result.invalid, ["t"])
         self.assertEqual(result.text, "hello")
@@ -276,12 +288,13 @@ class TestApplyToolDirectives(unittest.TestCase):
         self.assertEqual(result.injected_wrappers, ["w1"])
         self.assertEqual(result.text, "hi")
 
-    def test_skill_directives_mode_blocked(self) -> None:
+    def test_skill_directives_in_chat_mode(self) -> None:
+        # 本仓有意偏离上游：chat 模式也允许 @skill: 预载。
         registry = _Registry({"sk": _DetailTool("sk")})
         host = _DirectiveHost(registry)
         result = apply_skill_directives(host, None, Session(id="s", mode="chat"), "@skill:sk hi")
-        self.assertTrue(result.mode_blocked)
-        self.assertEqual(result.invalid, ["sk"])
+        self.assertFalse(result.mode_blocked)
+        self.assertEqual(result.skills, ["sk"])
         self.assertEqual(result.text, "hi")
 
     def test_skill_directives_reject_non_skill(self) -> None:
@@ -295,11 +308,11 @@ class TestApplyToolDirectives(unittest.TestCase):
 class TestDirectiveNotifications(unittest.IsolatedAsyncioTestCase):
     async def test_tool_notification_lines(self) -> None:
         host = _DirectiveHost(_Registry({"t": _Tool("t")}))
-        result = apply_tool_directives(host, None, Session(id="s", mode="chat"), "@tool:t hi")
+        # work / chat 都允许预载，用未知模式覆盖"模式阻止"兜底分支。
+        result = apply_tool_directives(host, None, Session(id="s", mode="background"), "@tool:t hi")
         await notify_tool_directive_result(host, None, result)
-        # 模式被挡时不列"未找到"，只提示怎么切回 work（与 Go 一致）
         self.assertEqual(len(host.sent), 1)
-        self.assertIn("工具预载仅在 work 模式可用", host.sent[0])
+        self.assertIn("当前会话模式不支持工具预载", host.sent[0])
         self.assertNotIn("未找到", host.sent[0])
 
         host.sent.clear()

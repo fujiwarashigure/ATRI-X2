@@ -58,6 +58,9 @@ from atri_x.media import (
     valid_id,
 )
 from atri_x.media.imagecodec import Image, encode_png
+from atri_x.ops.diskguard import Config as DiskGuardConfig
+from atri_x.ops.diskguard import Guard as DiskGuard
+from atri_x.safecontext import CancelledError
 from atri_x.storage.ids import new_id
 from atri_x.storage.models import (
     ChatMessage,
@@ -782,6 +785,54 @@ class TestImportAndDedup(AsyncMediaTestCase):
         manager.max_import_bytes = 3
         with self.assertRaises(MediaError):
             await self.guard(manager.import_reader(None, b"1234", -1, Input()))
+
+
+class TestImportWithDiskGuard(AsyncMediaTestCase):
+    """磁盘守卫必须接受"只承载值的 ctx"（入站平台路径的真实形状）。
+
+    真机事故（1.0.0 群聊发图全部 ``[媒体不可用；…]``）：媒体中心在
+    ``app/runtime.py`` 里**总是**挂一个磁盘守卫；入站平台消息的 ctx 是
+    ``ctx_with_value`` 落成的普通 ``dict``（没有 ``raise_if_cancelled``），旧实现
+    无条件调用该方法抛 ``AttributeError``，又被失败降级吞成"媒体不可用"。
+    """
+
+    def _guarded(self) -> tuple[Manager, MemoryStore, str]:
+        manager, store, root = self.make_manager()
+        manager.guard = DiskGuard(
+            root, DiskGuardConfig(cache_ttl=60.0), lambda _path: (1000, 500)
+        )
+        return manager, store, root
+
+    async def test_import_with_mapping_context_succeeds(self) -> None:
+        manager, _store, _root = self._guarded()
+        item = await self.guard(
+            manager.import_bytes({"platform": "qqonebot"}, b"guarded", Input(name="a.bin"))
+        )
+        self.assertTrue(valid_id(item.id))
+
+    async def test_import_with_platform_run_flag_succeeds(self) -> None:
+        """``app/platforms.py::_RunFlag`` 也没有 ``raise_if_cancelled``。"""
+        manager, _store, _root = self._guarded()
+
+        class RunFlag:
+            cancelled = False
+
+            def is_set(self) -> bool:
+                return False
+
+        item = await self.guard(
+            manager.import_bytes(RunFlag(), b"guarded", Input(name="b.bin"))
+        )
+        self.assertTrue(valid_id(item.id))
+
+    async def test_cancelled_context_still_blocks_import(self) -> None:
+        manager, _store, _root = self._guarded()
+        from atri_x.safecontext import with_cancel
+
+        token = with_cancel(None)
+        token.cancel("test")
+        with self.assertRaises(CancelledError):
+            await self.guard(manager.import_bytes(token, b"guarded", Input(name="c.bin")))
 
 
 class TestValidID(MediaTestCase):

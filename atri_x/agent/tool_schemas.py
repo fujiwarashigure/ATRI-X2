@@ -69,7 +69,7 @@ def skipped_tool_messages(calls: list[ToolCallRequest], max_rounds: int) -> list
 
 
 async def tools_for_session(agent: Any, ctx: Any, session: Any) -> list[ToolSchema]:
-    """这一轮该给模型哪些工具 schema。对应 Go ``Agent.toolsForSession``。"""
+    """这一轮该给模型哪些工具 schema（work / chat 都给）。对应 Go ``Agent.toolsForSession``。"""
     if not session_tools_enabled(session):
         return []
     runtime = getattr(agent, "tool_runtime", None)
@@ -91,7 +91,7 @@ async def tools_for_session(agent: Any, ctx: Any, session: Any) -> list[ToolSche
     name = turn_tool_profile(ctx)
     if name:
         schemas = merge_tool_schemas(schemas, turn_tool_schemas(agent, ctx, name))
-    allowlist = agent.group_tool_allowlist(ctx)
+    allowlist = agent.group_tool_allowlist(ctx, session)
     if allowlist is not None:
         schemas = filter_tool_schemas_by_allowlist(schemas, allowlist)
     return list(agent.filter_group_feature_schemas(ctx, schemas))
@@ -148,10 +148,17 @@ def merge_tool_schemas(
 
 
 def session_tools_enabled(session: Any) -> bool:
-    """只有 work 会话能用工具。对应 Go ``sessionToolsEnabled``。"""
-    from atri_x.storage import SessionModeWork
+    """该会话是否允许工具（work / chat 都允许；本仓有意偏离上游）。
 
-    return session is not None and getattr(session, "mode", "") == SessionModeWork
+    上游 Go 只在 work 会话启用工具；本仓放开到 chat——``chat`` 仍是更便宜的模型槽位，
+    但同样能注入 schema、跑工具轮。见 ``CHANGELOG`` 与
+    :func:`atri_x.storage.models.session_mode_supports_tools`。
+    """
+    from atri_x.storage import session_mode_supports_tools
+
+    if session is None:
+        return False
+    return session_mode_supports_tools(getattr(session, "mode", ""))
 
 
 def with_tool_capabilities(agent: Any, ctx: Any, session: Any) -> Any:

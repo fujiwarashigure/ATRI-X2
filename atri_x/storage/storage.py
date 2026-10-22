@@ -62,6 +62,7 @@ from atri_x.storage.models import (
     UpsertCronJobRequest,
     parse_segments,
     segments_json,
+    session_mode_supports_tools,
 )
 from atri_x.storage.repositories import (
     AtrinisEventRepository,
@@ -156,4 +157,5 @@ __all__ = [
     "parse_segments",
     "parse_time",
     "segments_json",
+    "session_mode_supports_tools",
 ]

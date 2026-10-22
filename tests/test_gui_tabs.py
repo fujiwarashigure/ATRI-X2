@@ -53,12 +53,16 @@ from atri_x.gui.tabs.model import ModelTab
 from atri_x.gui.tabs.platform import PlatformTab
 from atri_x.gui.tabs.toolperm import (
     DISCOVER_TOOL,
+    MODE_ORDER,
+    PARAMS_TAB_TITLE,
     PRESET_COMMON,
     ToolPermTab,
-    load_scope_policies,
+    load_scope_mode_policies,
     load_tool_choices,
-    save_scope_policy,
+    save_scope_mode_policy,
 )
+from atri_x.gui.toolsettings import GROUPS, groups_for_tool
+from atri_x.gui.toolsettings_base import TRILABELS
 from atri_x.media.imagecodec import Image, encode_png
 from atri_x.storage.sqlite.chat_history_repository import new_chat_history
 
@@ -893,62 +897,152 @@ class PlatformTabCase(TkCase):
 
 
 class ToolPermTabCase(TkCase):
-    """工具权限页：群白名单读写 + 群聊工具进度开关。"""
+    """工具权限页：chat / work 分模式白名单读写 + 群聊工具进度开关。"""
 
-    SCOPE = "qqonebot:group:1126294273"
+    SCOPE = "qqonebot:group:123456789"
+    LEGACY = "qqonebot\u00b7group:123456789"
 
     def setUp(self) -> None:
         super().setUp()
         self.tab = self.build(ToolPermTab)
 
-    def test_save_whitelist_writes_state_and_auto_includes_discover(self) -> None:
+    # -- 工具 ---------------------------------------------------------------
+    def _open(self) -> None:
         self.tab.scope_var.set(self.SCOPE)
         self.tab._locate_scope()
-        self.tab.mode_var.set("whitelist")
-        self.tab._set_all(False)
-        self.tab._tool_vars["web_search"].set(True)
+
+    def _editor(self, mode_key: str):
+        return self.tab.editors[mode_key]
+
+    def _save_mode(self, mode_key: str, mode: str, names: list[str]) -> None:
+        save_scope_mode_policy(self.paths.state_path, self.SCOPE, mode_key, mode, names)
+
+    def _policies(self):
+        return load_scope_mode_policies(self.paths.state_path).get(self.SCOPE, {})
+
+    # -- 分模式保存 ---------------------------------------------------------
+    def test_save_chat_and_work_whitelists_separately(self) -> None:
+        self._open()
+        chat = self._editor("chat")
+        work = self._editor("work")
+        chat.mode_var.set("whitelist")
+        chat.set_all(False)
+        chat.tool_vars["web_search"].set(True)
+        work.mode_var.set("whitelist")
+        work.set_all(False)
+        work.tool_vars["read_file"].set(True)
         self.tab._save()
-        policies = load_scope_policies(self.paths.state_path)
-        mode, names = policies[self.SCOPE]
-        self.assertEqual(mode, "whitelist")
-        self.assertIn("web_search", names)
-        self.assertIn(DISCOVER_TOOL, names)
 
-    def test_save_none_and_inherit_roundtrip(self) -> None:
-        save_scope_policy(self.paths.state_path, self.SCOPE, "none", [])
-        self.assertEqual(load_scope_policies(self.paths.state_path)[self.SCOPE][0], "none")
-        save_scope_policy(self.paths.state_path, self.SCOPE, "inherit", [])
-        self.assertNotIn(self.SCOPE, load_scope_policies(self.paths.state_path))
+        policies = self._policies()
+        self.assertEqual(policies["chat"][0], "whitelist")
+        self.assertEqual(set(policies["chat"][1]), {"web_search", DISCOVER_TOOL})
+        self.assertEqual(policies["work"][0], "whitelist")
+        self.assertEqual(set(policies["work"][1]), {"read_file", DISCOVER_TOOL})
+        # 通用（/tools allow 写入的那份）不被界面改动。
+        self.assertEqual(policies["generic"][0], "inherit")
 
-    def test_inherit_keeps_other_group_policy_fields(self) -> None:
-        save_scope_policy(self.paths.state_path, self.SCOPE, "none", [])
+    def test_chat_none_does_not_affect_work(self) -> None:
+        self._save_mode("work", "whitelist", ["web_search"])
+        self._save_mode("chat", "none", [])
+        policies = self._policies()
+        self.assertEqual(policies["chat"], ("none", []))
+        self.assertEqual(policies["work"][0], "whitelist")
+
+    def test_inherit_removes_only_that_mode(self) -> None:
+        self._save_mode("work", "whitelist", ["web_search"])
+        self._save_mode("chat", "none", [])
+        self._save_mode("chat", "inherit", [])
+        policies = self._policies()
+        self.assertEqual(policies["chat"][0], "inherit")
+        self.assertEqual(policies["work"][0], "whitelist")
+        state = self.read_toml("state.toml")
+        self.assertNotIn(
+            "tool_allowlist_chat", state["group_policy"][self.SCOPE]
+        )
+        self.assertIn("tool_allowlist_work", state["group_policy"][self.SCOPE])
+
+    def test_generic_allowlist_survives_and_is_shown_as_fallback(self) -> None:
+        # 群内 /tools allow 写的通用白名单：界面不改它，但要在页面上显示为兜底。
         configedit.patch_section(
             self.paths.state_path,
             f'group_policy."{self.SCOPE}"',
-            {"wake_keywords": ["atri"]},
+            {"tool_allowlist": ["web_extract"]},
         )
-        save_scope_policy(self.paths.state_path, self.SCOPE, "inherit", [])
+        self.tab.reload()
+        self._open()
+        text = self.tab.generic_label.cget("text")
+        self.assertIn("web_extract", text)
+        self._save_mode("chat", "whitelist", ["web_search"])
         state = self.read_toml("state.toml")
-        self.assertEqual(state["group_policy"][self.SCOPE]["wake_keywords"], ["atri"])
-        self.assertIsNone(state["group_policy"][self.SCOPE].get("tool_allowlist"))
+        self.assertEqual(
+            state["group_policy"][self.SCOPE]["tool_allowlist"], ["web_extract"]
+        )
 
-    def test_preset_fills_common_tools(self) -> None:
-        self.tab.scope_var.set(self.SCOPE)
-        self.tab._locate_scope()
-        self.tab._apply_preset(PRESET_COMMON)
-        self.assertEqual(self.tab.mode_var.get(), "whitelist")
-        for name in PRESET_COMMON:
-            self.assertTrue(self.tab._tool_vars[name].get(), name)
-
+    # -- 结算 / 载入 --------------------------------------------------------
     def test_reload_lists_existing_scopes(self) -> None:
-        save_scope_policy(self.paths.state_path, self.SCOPE, "whitelist", ["web_search"])
+        self._save_mode("chat", "whitelist", ["web_search"])
         self.tab.reload()
         self.assertEqual(len(self.tab.scope_tree.get_children("")), 1)
         values = self.tab.scope_tree.item(self.SCOPE, "values")
         self.assertEqual(values[0], self.SCOPE)
-        self.assertIn("白名单", values[1])
-        self.assertTrue(self.tab._tool_vars["web_search"].get())
-        self.assertEqual(self.tab.mode_var.get(), "whitelist")
+        self.assertIn("chat:白名单", values[1])
+        self.assertTrue(self._editor("chat").tool_vars["web_search"].get())
+        self.assertEqual(self._editor("chat").mode_var.get(), "whitelist")
+        self.assertEqual(self._editor("work").mode_var.get(), "inherit")
+
+    def test_scope_separator_normalized_on_save(self) -> None:
+        # 从「群友」页复制来的 `平台 · group:id`（间隔号 + 空格）必须落成半角冒号键。
+        self.tab.scope_var.set("qqonebot · group:123456789")
+        self.tab._locate_scope()
+        self.assertEqual(self.tab._current_scope, self.SCOPE)
+        editor = self._editor("work")
+        editor.mode_var.set("whitelist")
+        editor.set_all(False)
+        editor.tool_vars["web_search"].set(True)
+        self.tab._save()
+        state = self.read_toml("state.toml")
+        self.assertIn(self.SCOPE, state["group_policy"])
+        self.assertNotIn("qqonebot · group:123456789", state["group_policy"])
+
+    def test_legacy_scope_key_migrated_on_save(self) -> None:
+        configedit.patch_section(
+            self.paths.state_path,
+            f'group_policy."{self.LEGACY}"',
+            {"wake_keywords": ["atri"], "tool_allowlist_work": ["web_search"]},
+        )
+        self._save_mode("work", "whitelist", ["web_extract"])
+        state = self.read_toml("state.toml")
+        self.assertNotIn(self.LEGACY, state["group_policy"])
+        self.assertEqual(state["group_policy"][self.SCOPE]["wake_keywords"], ["atri"])
+        names = state["group_policy"][self.SCOPE]["tool_allowlist_work"]
+        self.assertIn("web_extract", names)
+        self.assertIn(DISCOVER_TOOL, names)
+
+    def test_invalid_scope_rejected(self) -> None:
+        with self.assertRaises(configedit.ConfigEditError):
+            save_scope_mode_policy(self.paths.state_path, "qqonebot", "chat", "none", [])
+        self.assertNotIn("qqonebot", self.read_toml("state.toml").get("group_policy", {}))
+
+    def test_discover_group_scopes_from_sessions_db(self) -> None:
+        from atri_x.gui import toolpolicy
+
+        db = self.paths.sessions_db_path
+        Path(db).parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(db)
+        try:
+            connection.execute(
+                "CREATE TABLE sessions (platform TEXT, platform_scope_id TEXT)"
+            )
+            connection.execute(
+                "INSERT INTO sessions VALUES ('qqonebot', 'group:42')"
+            )
+            connection.execute(
+                "INSERT INTO sessions VALUES ('qqonebot', 'private:7')"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        self.assertEqual(["qqonebot:group:42"], toolpolicy.discover_group_scopes(db, ""))
 
     def test_preview_switch_saved_into_app_toml(self) -> None:
         self.tab.preview_var.set(True)
@@ -959,16 +1053,17 @@ class ToolPermTabCase(TkCase):
         )
 
     # -- 纵向滚动工具菜单（激活按钮 + 状态 + 功能解释）-----------------------
-    def _open_whitelist(self) -> None:
-        self.tab.scope_var.set(self.SCOPE)
-        self.tab._locate_scope()
-        self.tab.mode_var.set("whitelist")
-        self.tab._on_mode_changed()
+    def _open_whitelist(self, mode_key: str = "work"):
+        self._open()
+        editor = self._editor(mode_key)
+        editor.mode_var.set("whitelist")
+        editor.refresh_rows()
+        return editor
 
     def test_menu_renders_every_tool_with_state_and_description(self) -> None:
-        self._open_whitelist()
-        self.assertEqual(len(self.tab._rows), len(self.tab._tool_vars))
-        row = self.tab._rows["web_search"]
+        editor = self._open_whitelist()
+        self.assertEqual(len(editor._rows), len(editor.tool_vars))
+        row = editor._rows["web_search"]
         self.assertEqual(row.meta, toolcatalog.tool_meta("web_search"))
         self.assertEqual(row.badge.cget("text"), "未激活")
         self.assertEqual(row.button.cget("text"), "激活")
@@ -976,67 +1071,287 @@ class ToolPermTabCase(TkCase):
         self.assertEqual(row.summary.cget("wraplength") > 0, True)
         # 点激活按钮：状态翻转、徽标/按钮跟着变，discover_tool 自动补上。
         row.button.invoke()
-        self.assertTrue(self.tab._tool_vars["web_search"].get())
-        self.assertTrue(self.tab._tool_vars[DISCOVER_TOOL].get())
-        row = self.tab._rows["web_search"]
+        self.assertTrue(editor.tool_vars["web_search"].get())
+        self.assertTrue(editor.tool_vars[DISCOVER_TOOL].get())
+        row = editor._rows["web_search"]
         self.assertEqual(row.badge.cget("text"), "已激活")
         self.assertEqual(row.button.cget("text"), "停用")
-        self.assertIn("有未保存改动", self.tab.count_label.cget("text"))
+        self.assertIn("有未保存改动", editor.count_label.cget("text"))
         # 再点一次（停用）。
         row.button.invoke()
-        self.assertFalse(self.tab._tool_vars["web_search"].get())
-        self.assertEqual(self.tab._rows["web_search"].badge.cget("text"), "未激活")
+        self.assertFalse(editor.tool_vars["web_search"].get())
+        self.assertEqual(editor._rows["web_search"].badge.cget("text"), "未激活")
 
     def test_menu_locks_in_inherit_and_none_modes(self) -> None:
-        self.tab.scope_var.set(self.SCOPE)
-        self.tab._locate_scope()
-        self.tab.mode_var.set("inherit")
-        self.tab._on_mode_changed()
-        row = self.tab._rows["web_search"]
+        editor = self._open_whitelist()
+        editor.mode_var.set("inherit")
+        editor.refresh_rows()
+        row = editor._rows["web_search"]
         self.assertEqual(row.badge.cget("text"), "继承全局")
         self.assertEqual(str(row.button.cget("state")), str(tk.DISABLED))
-        self.assertIn("全部工具可用", self.tab.count_label.cget("text"))
+        self.assertIn("跟随通用策略", editor.count_label.cget("text"))
         # 锁定模式点行不改状态（并给出提示，不弹窗）。
-        self.tab._toggle_tool("web_search")
-        self.assertFalse(self.tab._tool_vars["web_search"].get())
-        self.tab.mode_var.set("none")
-        self.tab._on_mode_changed()
-        self.assertEqual(self.tab._rows["web_search"].badge.cget("text"), "禁止使用")
-        self.assertIn("全部工具已禁止", self.tab.count_label.cget("text"))
+        editor._toggle_tool("web_search")
+        self.assertFalse(editor.tool_vars["web_search"].get())
+        editor.mode_var.set("none")
+        editor.refresh_rows()
+        self.assertEqual(editor._rows["web_search"].badge.cget("text"), "禁止使用")
+        self.assertIn("全部工具已禁止", editor.count_label.cget("text"))
 
     def test_menu_search_and_only_active_filter(self) -> None:
-        self._open_whitelist()
-        self.tab.search_var.set("记忆")
-        self.assertTrue(self.tab._rows)
-        for name in self.tab._rows:
+        editor = self._open_whitelist()
+        editor.search_var.set("记忆")
+        self.assertTrue(editor._rows)
+        for name in editor._rows:
             self.assertEqual(toolcatalog.tool_meta(name).category, "记忆", name)
-        self.assertIn("当前显示", self.tab.count_label.cget("text"))
-        self.tab.search_var.set("没有这个工具xyz")
-        self.assertEqual(self.tab._rows, {})
-        self.tab._clear_search()
-        self.assertEqual(len(self.tab._rows), len(self.tab._tool_vars))
+        self.assertIn("当前显示", editor.count_label.cget("text"))
+        editor.search_var.set("没有这个工具xyz")
+        self.assertEqual(editor._rows, {})
+        editor._clear_search()
+        self.assertEqual(len(editor._rows), len(editor.tool_vars))
         # 只看已激活：列表 == 当前勾选的工具。
-        self.tab._apply_preset(PRESET_COMMON)
-        self.tab.only_active_var.set(True)
-        self.tab._render_rows()
-        active = {
-            name for name, variable in self.tab._tool_vars.items() if variable.get()
-        }
-        self.assertEqual(set(self.tab._rows), active)
+        editor.apply_preset(PRESET_COMMON)
+        editor.only_active_var.set(True)
+        editor.render_rows()
+        active = {name for name, variable in editor.tool_vars.items() if variable.get()}
+        self.assertEqual(set(editor._rows), active)
 
     def test_menu_activation_save_roundtrip(self) -> None:
-        self._open_whitelist()
-        self.tab._rows["web_search"].button.invoke()
+        editor = self._open_whitelist("chat")
+        editor._rows["web_search"].button.invoke()
         self.tab._save()
-        mode, names = load_scope_policies(self.paths.state_path)[self.SCOPE]
+        policies = self._policies()
+        mode, names = policies["chat"]
         self.assertEqual(mode, "whitelist")
         self.assertEqual(set(names), {"web_search", DISCOVER_TOOL})
-        self.assertNotIn("有未保存改动", self.tab.count_label.cget("text"))
+        # 另一个模式不受影响，仍是继承通用。
+        self.assertEqual(policies["work"][0], "inherit")
+        self.assertNotIn("有未保存改动", editor.count_label.cget("text"))
         # 保存后重新载入：菜单里的状态与落盘一致。
         self.tab.reload()
-        self.assertTrue(self.tab._tool_vars["web_search"].get())
-        self.assertTrue(self.tab._tool_vars[DISCOVER_TOOL].get())
-        self.assertFalse(self.tab._tool_vars["web_extract"].get())
+        self._open()
+        editor = self._editor("chat")
+        self.assertTrue(editor.tool_vars["web_search"].get())
+        self.assertTrue(editor.tool_vars[DISCOVER_TOOL].get())
+        self.assertFalse(editor.tool_vars["web_extract"].get())
+        self.assertEqual(self._editor("work").mode_var.get(), "inherit")
+
+
+class ToolParamsTabCase(TkCase):
+    """工具参数子选项卡：面板渲染 / 只写改动字段 / 校验 / 从工具行跳转。"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tab = self.build(ToolPermTab)
+
+    # -- 工具 ---------------------------------------------------------------
+    def panel(self, key: str):
+        return self.tab.params_editor.panels[key]
+
+    def open_whitelist(self, mode_key: str = "work"):
+        self.tab.scope_var.set("qqonebot:group:123456789")
+        self.tab._locate_scope()
+        editor = self.tab.editors[mode_key]
+        editor.mode_var.set("whitelist")
+        editor.refresh_rows()
+        return editor
+
+    def set_tristate(self, panel, key: str, value: str) -> None:
+        label = {item: text for item, text in TRILABELS}[value]
+        panel._vars[key].set(label)
+
+    def set_choice(self, panel, key: str, value: str) -> None:
+        field = next(item for item in panel.group.fields if item.key == key)
+        panel._vars[key].set(field.choice_label(value))
+
+    def set_text(self, panel, key: str, value: str) -> None:
+        widget = panel._texts[key]
+        widget.delete("1.0", tk.END)
+        widget.insert("1.0", value)
+
+    # -- 结构 ---------------------------------------------------------------
+    def test_third_sub_tab_and_panels(self) -> None:
+        titles = [
+            self.tab.notebook.tab(index, "text")
+            for index in range(len(self.tab.notebook.tabs()))
+        ]
+        self.assertEqual(len(titles), 3)
+        self.assertIn("chat 模式", titles[0])
+        self.assertIn("work 模式", titles[1])
+        self.assertEqual(titles[2], PARAMS_TAB_TITLE)
+        self.assertEqual(set(self.tab.params_editor.panels), {group.key for group in GROUPS})
+        # 全局面板默认展开，其余默认收起（页面不会一进来就长得离谱）。
+        self.assertTrue(self.panel("global").expanded)
+        self.assertFalse(self.panel("image_prompt").expanded)
+
+    def test_panels_render_a_widget_per_field(self) -> None:
+        for key, panel in self.tab.params_editor.panels.items():
+            rendered = set(panel._vars) | set(panel._texts)
+            expected = {field.key for field in panel.group.fields}
+            self.assertEqual(rendered, expected, f"面板 {key} 的控件数量不对")
+            self.assertTrue(panel.status_label.cget("text"), f"面板 {key} 没有状态文字")
+            self.assertEqual(
+                str(panel.toggle_button.cget("text")),
+                "▾" if panel.expanded else "▸",
+            )
+
+    def test_expand_collapse_all(self) -> None:
+        editor = self.tab.params_editor
+        editor.expand_all()
+        for panel in editor.panels.values():
+            self.assertTrue(panel.expanded)
+            self.assertTrue(panel.body.winfo_manager())
+            self.assertEqual(str(panel.toggle_button.cget("text")), "▾")
+        editor.collapse_all()
+        for panel in editor.panels.values():
+            self.assertFalse(panel.expanded)
+            self.assertEqual(str(panel.toggle_button.cget("text")), "▸")
+
+    def test_params_tab_hides_scope_list_and_restores(self) -> None:
+        # 参数是全局的、跟群无关：切到参数页时隐藏左侧群列表，把宽度让给参数面板。
+        self.tab.notebook.select(len(self.tab.notebook.tabs()) - 1)
+        self.root.update()
+        self.assertFalse(self.tab._left_frame.winfo_manager())
+        self.tab.notebook.select(0)
+        self.root.update()
+        self.assertTrue(self.tab._left_frame.winfo_manager())
+
+    def test_footer_lists_tools_without_params(self) -> None:
+        text = self.tab.params_editor.footer_label.cget("text")
+        self.assertIn("没有可调参数", text)
+        self.assertIn(DISCOVER_TOOL, text)
+
+    # -- 保存 ---------------------------------------------------------------
+    def test_save_only_touched_field_keeps_other_keys_and_comments(self) -> None:
+        panel = self.panel("image_prompt")
+        before = self.read_toml("services.toml")
+        self.set_text(panel, "preset_prompt", "masterpiece, best quality")
+        self.assertTrue(panel.save())
+        services = self.read_toml("services.toml")
+        self.assertEqual(
+            services["image_generation"]["preset_prompt"], "masterpiece, best quality"
+        )
+        # 同小节其它键一个都没被重写（行内注释还在）。
+        self.assertEqual(
+            services["image_generation"]["optimize_max_anchors"],
+            before["image_generation"]["optimize_max_anchors"],
+        )
+        text = Path(self.paths.services_path).read_text(encoding="utf-8")
+        self.assertIn("# low / medium / high", text)
+        self.assertIn("已保存", self.tab._status.get())
+        # 保存后不再是脏面板，状态回到"已配置 N / M 项"。
+        self.assertFalse(panel.dirty())
+
+    def test_global_panel_writes_app_toml(self) -> None:
+        panel = self.panel("global")
+        panel._vars["max_rounds_per_turn"].set("4")
+        self.assertTrue(panel.save())
+        app = self.read_toml("app.toml")
+        self.assertEqual(app["tools"]["max_rounds_per_turn"], 4)
+        self.assertEqual(panel._vars["max_rounds_per_turn"].get(), "4")
+
+    def test_tristate_save_and_delete(self) -> None:
+        panel = self.panel("image_core")
+        self.set_tristate(panel, "superadmin_only", "off")
+        self.assertTrue(panel.save())
+        self.assertIs(
+            self.read_toml("services.toml")["image_generation"]["superadmin_only"], False
+        )
+        self.set_tristate(panel, "superadmin_only", "default")
+        self.assertTrue(panel.save())
+        self.assertNotIn(
+            "superadmin_only", self.read_toml("services.toml")["image_generation"]
+        )
+        self.assertFalse(panel.dirty())
+
+    def test_choice_save(self) -> None:
+        panel = self.panel("image_core")
+        self.set_choice(panel, "quality", "medium")
+        self.assertTrue(panel.save())
+        self.assertEqual(
+            self.read_toml("services.toml")["image_generation"]["quality"], "medium"
+        )
+
+    def test_path_field_and_bool_field(self) -> None:
+        panel = self.panel("artist")
+        panel._vars["metadata_store"].set("image_metadata.json")
+        self.assertTrue(panel.save())
+        self.assertEqual(
+            self.read_toml("services.toml")["image_generation"]["metadata_store"],
+            "image_metadata.json",
+        )
+        core = self.panel("image_core")
+        core._vars["send_by_default"].set(True)
+        self.assertTrue(core.save())
+        self.assertIs(
+            self.read_toml("services.toml")["image_generation"]["send_by_default"], True
+        )
+
+    def test_invalid_int_shows_error_and_does_not_write(self) -> None:
+        path = Path(self.paths.config_path)
+        before = path.read_text(encoding="utf-8")
+        panel = self.panel("global")
+        panel._vars["max_rounds_per_turn"].set("很多次")
+        self.assertFalse(panel.save())
+        self.assertIn("失败", self.tab._status.get())
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+        self.assertTrue(panel.dirty())
+
+    def test_save_all_without_changes(self) -> None:
+        self.tab.params_editor.save_all()
+        self.assertIn("没有未保存的改动", self.tab._status.get())
+
+    def test_save_all_saves_every_dirty_panel(self) -> None:
+        global_panel = self.panel("global")
+        global_panel._vars["max_rounds_per_turn"].set("5")
+        prompt_panel = self.panel("image_prompt")
+        self.set_text(prompt_panel, "preset_prompt", "cinematic lighting")
+        self.assertEqual(len(self.tab.params_editor.dirty_panels()), 2)
+        self.tab.params_editor.save_all()
+        app = self.read_toml("app.toml")
+        self.assertEqual(app["tools"]["max_rounds_per_turn"], 5)
+        services = self.read_toml("services.toml")
+        self.assertEqual(
+            services["image_generation"]["preset_prompt"], "cinematic lighting"
+        )
+        self.assertEqual(self.tab.params_editor.dirty_panels(), [])
+        self.assertIn("已保存 2 组", self.tab._status.get())
+
+    def test_reload_picks_up_external_change(self) -> None:
+        configedit.patch_section(
+            self.paths.services_path,
+            "image_generation",
+            {"preset_prompt": "外部改的值"},
+        )
+        self.tab.reload()
+        text = self.panel("image_prompt")._texts["preset_prompt"].get("1.0", tk.END)
+        self.assertIn("外部改的值", text)
+
+    # -- 从工具行跳转 -------------------------------------------------------
+    def test_tool_row_params_button_reveals_panel(self) -> None:
+        editor = self.open_whitelist("work")
+        row = editor._rows["web_search"]
+        self.assertIsNotNone(row.params_button)
+        row.params_button.invoke()
+        selected = self.tab.notebook.select()
+        self.assertEqual(selected, str(self.tab.params_editor.frame))
+        panels = [group.key for group in groups_for_tool("web_search")]
+        for key in panels:
+            self.assertTrue(self.panel(key).expanded)
+        self.assertIn("web_search", self.tab.params_editor.panels["web_search"].group.tools)
+
+    def test_tool_rows_without_params_have_no_button(self) -> None:
+        editor = self.open_whitelist("work")
+        self.assertIsNone(editor._rows[DISCOVER_TOOL].params_button)
+        self.assertIsNotNone(editor._rows["image_generate"].params_button)
+
+    def test_show_tool_params_for_image_generate_expands_both_panels(self) -> None:
+        self.tab.show_tool_params("image_generate")
+        self.assertTrue(self.panel("image_core").expanded)
+        self.assertTrue(self.panel("image_prompt").expanded)
+        self.assertEqual(
+            self.tab.notebook.select(), str(self.tab.params_editor.frame)
+        )
 
 
 class FeaturesTabCase(TkCase):

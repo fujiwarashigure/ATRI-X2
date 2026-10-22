@@ -29,6 +29,7 @@ from atri_x.gui.client import (
     RemoteClient,
 )
 from atri_x.gui.configedit import ConfigEditError, default_config_path, load_paths
+from atri_x.gui.icon import app_icon, app_icon_png
 from atri_x.gui.process import load_window_state, save_window_state
 from atri_x.gui.protocol import (
     Transcript,
@@ -112,6 +113,7 @@ class GuiApp:
         self._tray_enabled = tray_enabled
         self._tray_error = ""
         self._tray_warned = False
+        self._icon_photo: Any = None
         self._minimized = minimized
         self._dirty = True
         self._status_text = "未连接"
@@ -126,6 +128,7 @@ class GuiApp:
         self._active_tab_index: int | None = None
 
         root.title(WINDOW_TITLE)
+        self._apply_window_icon()
         # 1100 宽是「进阶」页两列布局与「模型 → 搜索服务」页左右并列表单的最小舒适宽度；
         # 高度不足时这两页都可以竖向滚动，所以 700 够用。
         root.minsize(1100, 700)
@@ -521,6 +524,36 @@ class GuiApp:
 
     # ---------------------------------------------------------------- 托盘 / 生命周期
 
+    def _apply_window_icon(self) -> None:
+        """给主窗口挂品牌图标。
+
+        **必须显式设置**：Windows 上 Tk 顶层窗口默认用 Tk 自己的羽毛图标，不会继承 exe
+        的资源图标（所以只给 exe 换图标，标题栏/任务栏仍然是羽毛）。优先用多尺寸
+        ``.ico``（Windows 会按 DPI 自己挑档位，最清晰），失败再退回 ``iconphoto``。
+
+        素材缺失或 Tk 不支持都只是「没有图标」，不能影响启动。
+        """
+        ico = app_icon()
+        if ico:
+            try:
+                self.root.iconbitmap(ico)
+                return
+            except tk.TclError:
+                pass
+        png = app_icon_png()
+        if not png:
+            return
+        try:
+            photo = tk.PhotoImage(file=png)
+        except tk.TclError:
+            return
+        try:
+            self.root.iconphoto(True, photo)
+        except tk.TclError:
+            return
+        # 必须留引用：PhotoImage 被回收后窗口图标会退回 Tk 默认图标。
+        self._icon_photo = photo
+
     def _start_tray(self) -> None:
         if not self._tray_enabled:
             return
@@ -537,6 +570,7 @@ class GuiApp:
                 ("退出并停止服务", lambda: self.post("tray", "quit-stop")),
             ],
             on_activate=lambda: self.post("tray", "show"),
+            icon_path=app_icon(),
         )
         if tray.start():
             self._tray = tray

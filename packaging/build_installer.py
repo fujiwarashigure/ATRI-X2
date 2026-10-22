@@ -133,6 +133,25 @@ def find_iscc(explicit: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 
+def _assert_qqproto_sanitized(dist: Path) -> None:
+    """打包前复查内置协议端：残留 NapCat 运行期文件（可能带来源机令牌）就拒绝打包。
+
+    正常构建路径上 ``qqproto.stage()`` 末尾已经核验过；这道门禁针对的是
+    **拿现成的 dist 目录重打安装包**（``python packaging/build_installer.py``）——
+    如果那个目录在两次打包之间被运行过，程序会把自己的 OneBot / WebUI 令牌写回
+    ``qqproto`` 目录，而此时没有任何核验兜底。
+    """
+    payload = dist / QQPROTO_DIR
+    if not payload.is_dir():
+        return
+    import qqproto  # noqa: PLC0415 - 只有真的带内置协议端时才需要
+
+    try:
+        qqproto.assert_sanitized(payload)
+    except qqproto.QqProtoError as exc:
+        raise InstallerError(str(exc)) from exc
+
+
 def _check_dist(dist: Path) -> dict[str, Any]:
     """校验 dist 目录并汇总体积信息。"""
     if not dist.is_dir():
@@ -181,6 +200,7 @@ def build(
 ) -> dict[str, Any]:
     """调 ISCC 编译安装包；返回产物信息。"""
     info = _check_dist(dist)
+    _assert_qqproto_sanitized(dist)
     output.mkdir(parents=True, exist_ok=True)
     work.mkdir(parents=True, exist_ok=True)
     if not ISS_PATH.is_file():

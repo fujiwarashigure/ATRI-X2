@@ -52,10 +52,10 @@ _DENY_ALL_VALUES = ("", "none", "deny", "denyall")
 
 
 def authorize_tool_call(
-    agent: Any, ctx: Any, call: Any, resolved: ResolvedTool
+    agent: Any, ctx: Any, call: Any, resolved: ResolvedTool, session: Any = None
 ) -> tuple[bool, str]:
     """服务端的工具执行闸门（与提示词和参数无关）。对应 Go ``authorizeToolCall``。"""
-    allowlist = group_tool_allowlist(agent, ctx)
+    allowlist = group_tool_allowlist(agent, ctx, session)
     if allowlist is None:
         return True, ""
     for name in tool_authorization_names(call, resolved):
@@ -85,25 +85,44 @@ def tool_authorization_names(call: Any, resolved: ResolvedTool | None) -> list[s
     return names
 
 
-def group_tool_allowlist(agent: Any, ctx: Any) -> dict[str, bool] | None:
-    """当前群的工具白名单。对应 Go ``groupToolAllowlist``。
+def group_tool_allowlist(
+    agent: Any, ctx: Any, session: Any = None
+) -> dict[str, bool] | None:
+    """当前群、当前会话模式的工具白名单。对应 Go ``groupToolAllowlist``。
 
-    ``None`` = 继承全局工具策略（不限制）；非 None 的空 dict = 禁止全部群工具。
+    ``None`` = 继承全局工具策略（不限制）；非 None 的空 dict = 该模式禁止全部群工具。
+
+    本仓扩展（上游没有）：群策略可以给 ``chat`` / ``work`` 分别配白名单
+    （``tool_allowlist_chat`` / ``tool_allowlist_work``）；某个模式没单独配时回退到
+    通用 ``tool_allowlist``。``session`` 为 None（拿不到会话模式的调用点，例如
+    纯展示）时只按通用策略判断。
     """
     if agent is None or not _is_group_scope(agent, ctx):
         return None
     policy = _group_policy_for_scope(agent, ctx)
-    if not policy.tool_allowlist_restricted():
+    mode = str(getattr(session, "mode", "") or "").strip().lower() if session is not None else ""
+    if mode in ("chat", "work"):
+        restricted, names = policy.mode_tool_allowlist(mode)
+    else:
+        restricted = policy.tool_allowlist_restricted()
+        names = list(policy.tool_allowlist or ()) if restricted else None
+    if not restricted:
         return None
+    lowered = [str(value or "").strip().lower() for value in (names or [])]
+    if any(value in _ALLOW_ALL_VALUES for value in lowered):
+        return None
+    return _expand_allowlist(agent, lowered)
+
+
+def _expand_allowlist(agent: Any, names: Sequence[str]) -> dict[str, bool]:
+    """把白名单条目展开成 ``{工具名: True}``（别名 / profile 一并展开）。"""
     allowed: dict[str, bool] = {}
     aliases = getattr(agent, "tool_aliases", None) or {}
     profiles = getattr(agent, "tool_profiles", None) or {}
-    for raw in policy.tool_allowlist or ():
+    for raw in names:
         value = str(raw or "").strip().lower()
         if value in _DENY_ALL_VALUES:
             continue
-        if value in _ALLOW_ALL_VALUES:
-            return None
         profile_name = value
         resolved = aliases.get(value)
         if resolved is not None:
@@ -119,12 +138,14 @@ def group_tool_allowlist(agent: Any, ctx: Any) -> dict[str, bool] | None:
     return allowed
 
 
-def before_execute_tool_call(agent: Any, ctx: Any, call: Any, resolved: ResolvedTool) -> None:
+def before_execute_tool_call(
+    agent: Any, ctx: Any, call: Any, resolved: ResolvedTool, session: Any = None
+) -> None:
     """执行前最后一道闸门。对应 Go ``beforeExecuteToolCall``（Go 返回 error）。"""
     if agent is None or getattr(agent, "platform", None) is None:
         return
     # 排队期间策略可能被撤销 —— 执行前再授权一次。
-    allowed, reason = authorize_tool_call(agent, ctx, call, resolved)
+    allowed, reason = authorize_tool_call(agent, ctx, call, resolved, session)
     if not allowed:
         raise ValueError("工具授权已变更：%s" % reason)
     policy = _group_policy_for_scope(agent, ctx)
@@ -252,14 +273,20 @@ def image_generate_is_dry_run(arguments: str) -> bool:
 class ToolAuthMixin:
     """Go ``*Agent`` 的群级工具授权方法组。"""
 
-    def authorize_tool_call(self, ctx: Any, call: Any, resolved: ResolvedTool) -> tuple[bool, str]:
-        return authorize_tool_call(self, ctx, call, resolved)
+    def authorize_tool_call(
+        self, ctx: Any, call: Any, resolved: ResolvedTool, session: Any = None
+    ) -> tuple[bool, str]:
+        return authorize_tool_call(self, ctx, call, resolved, session)
 
-    def group_tool_allowlist(self, ctx: Any) -> dict[str, bool] | None:
-        return group_tool_allowlist(self, ctx)
+    def group_tool_allowlist(
+        self, ctx: Any, session: Any = None
+    ) -> dict[str, bool] | None:
+        return group_tool_allowlist(self, ctx, session)
 
-    def before_execute_tool_call(self, ctx: Any, call: Any, resolved: ResolvedTool) -> None:
-        before_execute_tool_call(self, ctx, call, resolved)
+    def before_execute_tool_call(
+        self, ctx: Any, call: Any, resolved: ResolvedTool, session: Any = None
+    ) -> None:
+        before_execute_tool_call(self, ctx, call, resolved, session)
 
     def filter_group_feature_schemas(self, ctx: Any, schemas: Sequence[Any]) -> list[Any]:
         return filter_group_feature_schemas(self, ctx, schemas)

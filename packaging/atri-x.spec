@@ -11,7 +11,9 @@
 ``ATRIX_PKG_NAME``
     产物名，默认 ``atri-x``。窗口版自动叫 ``<name>-gui``。
 ``ATRIX_PKG_ICON``
-    可选 ``.ico`` 路径（两个 exe 共用）。
+    可选 ``.ico`` 路径（两个 exe 共用）。**留空不是「没有图标」而是 PyInstaller 自带
+    的默认图标**（EXE(icon=None) 时 PyInstaller 用 ``bootloader/images/icon-windowed.ico``），
+    所以正常构建由 :mod:`packaging.build` 默认传 ``atri_x/gui/brand/app.ico``。
 ``ATRIX_PKG_GUI``
     ``0`` 时不生成窗口版 exe（只出控制台版）。
 ``ATRIX_PKG_RUNTIME_DIR``
@@ -68,6 +70,9 @@ hiddenimports = collect_submodules("atri_x")
 datas = [
     (os.path.join(REPO_ROOT, "atri_x", "config", "assets_data"), "atri_x/config/assets_data"),
     (os.path.join(REPO_ROOT, "atri_x", "imagegen", "prompts"), "atri_x/imagegen/prompts"),
+    # 品牌图标：窗口图标（Tk iconbitmap）与托盘图标（LoadImageW）都要在运行期读文件，
+    # 所以不能只嵌进 exe 资源。素材由 packaging/make_assets.py 生成。
+    (os.path.join(REPO_ROOT, "atri_x", "gui", "brand"), "atri_x/gui/brand"),
 ]
 
 #: 可选内置运行时（DSH 内核等）：整目录复制到 ``runtime/``。

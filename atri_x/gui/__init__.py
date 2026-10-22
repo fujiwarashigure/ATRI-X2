@@ -28,11 +28,15 @@
 | :mod:`atri_x.gui.widgets` | 密钥显示/隐藏输入框、可滚动下拉、竖向滚动容器、后台 IO 回主线程 |
 | :mod:`atri_x.gui.toolcatalog` | 「工具权限」页工具目录：中文名 / 一句话功能解释 / 分组 / 风险等级（静态） |
 | :mod:`atri_x.gui.toolmenu` | 「工具权限」页的纵向工具菜单行：激活按钮 + 状态徽标 + 功能解释 |
+| :mod:`atri_x.gui.toolmode` | 「工具权限」页的 chat / work 分模式编辑器：三态 + 搜索 + 预设 + 工具菜单 |
 | :mod:`atri_x.gui.toolpolicy` | 「工具权限」页的群工具白名单读写与预设（无 Tk） |
+| :mod:`atri_x.gui.toolsettings` | 「工具参数」子选项卡的数据层：工具 → 配置键注册表、读写与状态（无 Tk；定义在 ``toolsettings_general`` / ``toolsettings_media``，字段类型在 ``toolsettings_base``） |
+| :mod:`atri_x.gui.toolparams` | 「工具参数」子选项卡的控件：一组参数一个可展开 / 收起的面板 + 整页列表 |
 | :mod:`atri_x.gui.modelcatalog` | 模型目录（``/models`` 拉取 + 本地备注名） |
 | :mod:`atri_x.gui.imagemount` | 本地生图服务挂载（端口映射 / SSL 链接 → OpenAI 兼容 Base URL） |
 | :mod:`atri_x.gui.memberdata` | 群友档案 + 从聊天历史库发现群友 |
 | :mod:`atri_x.gui.avatars` | 头像下载与 PNG 缓存（纯标准库图像编解码） |
+| :mod:`atri_x.gui.icon` | 品牌图标素材（``brand/app.ico``）的运行时解析：窗口 / 托盘 / exe 共用一份 |
 | :mod:`atri_x.gui.journal` | 界面操作日志（``<配置目录>/gui/gui.log``） |
 | :mod:`atri_x.gui.configedit` | 配置路径、TOML 行级补丁、``.env``、原子写 + 备份 |
 | :mod:`atri_x.gui.configmodel` | LLM Provider 与模型分配的数据模型 |

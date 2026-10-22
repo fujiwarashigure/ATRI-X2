@@ -12,8 +12,9 @@
   注册表内的 schema 注入与策略裁决，并把异步的落库/文案加载**排进事件循环**；异步版
   （:func:`apply_tool_directives_async`）是完整保真实现，供调用点改成 ``await`` 后使用。
 
-指令被剥除后，``@tool:`` 的发现文案会拼到正文后面；模式不是 ``work`` 时整条指令按
-"不可用"处理（工具预载只在 work 模式生效）。
+指令被剥除后，``@tool:`` 的发现文案会拼到正文后面；当前会话模式不支持工具时
+整条指令按"不可用"处理。本仓 ``work`` / ``chat`` 两种模式都支持工具，所以正常情况
+不会再触发"模式阻止"，该分支只作为未知/后台模式的兜底。
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from atri_x.directive import (
     tool_matches,
 )
 from atri_x.logging import ResultRejected, ResultSkipped
-from atri_x.storage.models import SessionModeWork
+from atri_x.storage.models import session_mode_supports_tools
 from atri_x.tool import (
     TOOL_REASON_RISK_DENIED,
     TOOL_REASON_SUPERADMIN_ONLY,
@@ -369,7 +370,7 @@ def apply_tool_directives(agent: Any, ctx: Any, session: Any, text: str) -> Any:
     matches = tool_matches(text or "")
     if not matches:
         return _outcome(**vars(result))
-    if getattr(session, "mode", "") != SessionModeWork:
+    if not session_mode_supports_tools(getattr(session, "mode", "")):
         result.mode_blocked = True
         remove = [True] * len(matches)
         result.invalid = [str(match.name) for match in matches]
@@ -427,7 +428,7 @@ async def apply_tool_directives_async(
     matches = tool_matches(text or "")
     if not matches:
         return _outcome(**vars(result))
-    if getattr(session, "mode", "") != SessionModeWork:
+    if not session_mode_supports_tools(getattr(session, "mode", "")):
         result.mode_blocked = True
         remove = [True] * len(matches)
         result.invalid = [str(match.name) for match in matches]
@@ -542,9 +543,8 @@ async def notify_tool_directive_result(agent: Any, ctx: Any, result: Any) -> Non
         parts.append("未找到或不可用的工具：" + ", ".join(_sorted_unique(invalid)))
     if getattr(result, "mode_blocked", False):
         parts.append(
-            "工具预载仅在 work 模式可用，当前是 chat 模式。发送 "
-            + host.command_prefix()
-            + "work 切换后再试。"
+            "当前会话模式不支持工具预载（本仓 work / chat 都支持；"
+            "请确认会话模式是否正确）。"
         )
     if not parts:
         return
@@ -562,7 +562,9 @@ async def preload_tool_names(
 ) -> list[str]:
     """按名字批量预载工具。对应 Go ``preloadToolNames``。"""
     host = host_of(agent)
-    if session is None or getattr(session, "mode", "") != SessionModeWork:
+    if session is None or not session_mode_supports_tools(
+        getattr(session, "mode", "")
+    ):
         return []
     registry = _registry(host)
     if registry is None:

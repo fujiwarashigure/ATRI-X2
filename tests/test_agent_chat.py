@@ -226,6 +226,53 @@ class ToolRoundTest(unittest.TestCase):
         self.assertEqual(second[-2].tool_calls[0].id, "c1")
         self.assertEqual(second[-1].role, "tool")
 
+    def test_chat_session_runs_tool_round(self) -> None:
+        """本仓有意偏离上游：chat 会话同样注入 schema 并跑工具轮。"""
+        from atri_x.llm import ToolFunctionSchema, ToolSchema
+        from atri_x.session import CreateRequest
+        from atri_x.storage import SessionModeChat
+
+        tool_calls = [ToolCallDelta(id="c1", name="read_file", args='{"path": "a.txt"}')]
+        client = _ScriptedClient(
+            [
+                [StreamChunk(delta_content="", tool_call_deltas=tool_calls)],
+                [_chunk("读完了。")],
+            ]
+        )
+        agent = _agent_with_client(client)
+
+        class _Provider:
+            async def schemas(self, ctx, mode, session, scope):
+                return [ToolSchema(function=ToolFunctionSchema(name="read_file"))]
+
+        agent.tool_runtime.provider = _Provider()
+        agent.tool_runtime.default_provider = False
+        session = agent.sessions.create(
+            agent.scope(make_ctx()),
+            CreateRequest(title="hi", mode=SessionModeChat),
+        )
+        out = _Out()
+        executed: list[list[ToolCallRequest]] = []
+
+        async def fake_execute(agent_arg, ctx, session_arg, calls, text, raw, out_arg, *, reasoning=""):
+            from atri_x.toolrun import RunResult
+
+            executed.append(list(calls))
+            return RunResult(
+                messages=[
+                    LLMMessage(role="tool", tool_call_id="c1", segments=text_segments("内容"))
+                ],
+                prepared_calls=list(calls),
+                transcript=[],
+            )
+
+        with mock.patch.object(chat_turn, "execute_tool_calls", fake_execute):
+            asyncio.run(chat.start_chat_with_output(agent, make_ctx(), session, "hi", out))
+
+        self.assertEqual([call.name for call in executed[0]], ["read_file"])
+        self.assertEqual([tool.function.name for tool in client.requests[0].tools], ["read_file"])
+        self.assertEqual(out.sent, ["读完了。"])
+
     def test_reasoning_content_is_passed_back_in_tool_loop(self) -> None:
         """思考模式：带 tool_calls 的 assistant 消息必须把思维链一起回传。"""
         tool_calls = [ToolCallDelta(id="c1", name="read_file", args='{"path": "a.txt"}')]
@@ -514,7 +561,8 @@ class CallLlmTest(unittest.TestCase):
         self.assertEqual(result.raw_text, "原始回答")
         self.assertEqual([call.id for call in result.tool_calls], ["c1"])
 
-    def test_chat_session_never_receives_tools(self) -> None:
+    def test_tools_disabled_flag_strips_tool_calls(self) -> None:
+        # call_llm 的 tools_enabled（第 4 个参数）为假时不把工具带回结果——与模式无关。
         client = _ScriptedClient([[_chunk("x", tool_call_deltas=[ToolCallDelta(id="c1", name="t")])]])
         agent = _agent_with_client(client)
         session = agent.sessions.get_or_create_current(agent.scope(make_ctx()), "hi")
@@ -580,7 +628,9 @@ class ToolsForSessionTest(unittest.TestCase):
         session = Session(id="s1", mode=SessionModeWork)
         self.assertEqual(asyncio.run(chat_tools.tools_for_session(agent, make_ctx(), session)), [])
 
-    def test_chat_session_has_no_schemas(self) -> None:
+    def test_chat_session_without_tool_manager_has_no_schemas(self) -> None:
+        # 没有工具运行时（registry/provider 都为空）时，chat 会话也拿不到 schema；
+        # "chat 模式本身是否有工具"由 test_chat_session_runs_tool_round 覆盖。
         agent = _agent_with_client(_ScriptedClient())
         session = Session(id="s1", mode="chat")
         self.assertEqual(asyncio.run(chat_tools.tools_for_session(agent, make_ctx(), session)), [])

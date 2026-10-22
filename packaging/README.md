@@ -57,7 +57,7 @@ python packaging/build.py --no-verify        # 只构建
 |---|---|---|
 | `--onefile` | 关 | 单文件 exe；启动时自解压，体积小但首启慢、杀软误报更多，且**依赖可写的 `%TEMP%`**（TEMP 不可用时直接启动失败，实测报 `Could not create temporary directory!`）。单文件模式**不出窗口版、不打内置内核** |
 | `--name` | `atri-x` | 产物名（窗口版自动叫 `<name>-gui.exe`） |
-| `--icon` | 无 | `.ico` 路径（两个 exe 共用） |
+| `--icon` | `atri_x/gui/brand/app.ico` | 品牌 `.ico` 路径（两个 exe 共用）。**留空不是「没有图标」**：PyInstaller 会嵌它自带的默认图标；显式指错文件会直接报错退出（见 §3.6） |
 | `--no-gui` | 关 | 不生成窗口版 exe |
 | `--with-kernel` / `--no-kernel` | 自动 | 默认看 `runtime/dsh-kernel/kernel.json` 是否存在；`--with-kernel` 时缺文件会直接报错 |
 | `--with-qqproto` | 无 | 把 NapCat/便携 QQ 协议端环境**脱敏后**放进 `<dist>/atri-x/qqproto`（便携版与安装版都会带上，见 §3.5）；只支持 onedir |
@@ -172,6 +172,37 @@ qqproto/
 
 ---
 
+## 3.6 品牌素材（图标 / 安装包宣传图）
+
+改品牌图时手工跑一次生成脚本，产物直接提交（构建本身不需要 Pillow）。**源图随仓库提交**在
+`packaging/brand-src/`，所以换台机器也能重新生成：
+
+```bash
+python packaging/make_assets.py                          # 用 packaging/brand-src/ 里的默认源图
+python packaging/make_assets.py --icon-source D:\brand\atr.png --banner-source D:\brand\atr-big.png
+python packaging/make_assets.py --icon-variant full        # 小尺寸也用整图（默认 hybrid）
+```
+
+| 产物 | 谁在用 | 说明 |
+|---|---|---|
+| `atri_x/gui/brand/app.ico` | exe 图标 + Tk 窗口图标 + 托盘图标 + 安装包图标 | 10 档：16/20/24/32/40/48/64/96/128/256 |
+| `atri_x/gui/brand/app.png` | Tk `iconphoto` 兜底 | 与 ico 的 256 档同一张图 |
+| `packaging/assets/wizard-image*.png` | Inno 向导左侧宣传图 | 比例必须 164:314，给 100%/200%/250% 三档 |
+| `packaging/assets/wizard-small*.png` | Inno 向导右上角小图 | 58×58 / 116×116，圆角透明底 |
+
+要点：
+
+- **默认 `hybrid` 取景**：≤32px 用脸部特写、≥48px 用整图。整张插画直接缩到 16px 会糊成
+  一团，而 Windows 的小图标家族（标题栏 / 托盘 / 任务栏）恰好就是 16/20/24/32。
+- 图标容器是脚本自己写的：≤128 存 32 位 DIB + AND 掩码，256 存 PNG（Vista+ 约定）。
+  PyInstaller 的图标嵌入是「原样拷贝每个 ICONDIR 条目」，所以这种混合容器能直接进 exe。
+- 为什么运行时包里也要带 `.ico`：Windows 上 Tk 窗口图标**不会**继承 exe 的资源图标
+  （默认是 Tk 自己的羽毛图标），托盘 `LoadImageW` 也必须给真实文件路径。
+- 安装包的宣传图**只在「欢迎」和「完成」页显示**，所以 iss 里显式 `DisableWelcomePage=no`
+  ——Inno 6/7 默认不显示欢迎页，不打开的话整个安装过程左侧几乎都是空的。
+
+---
+
 ## 4. 产物级核验（`build.py` 自动做）
 
 构建退出码为 0 **不代表**产物可用。脚本会跑 exe 本体：
@@ -261,6 +292,9 @@ dist/installer/ATRI-X-<版本>-setup.exe
 | 开机自启 | **默认勾选**，写 HKCU `Run\ATRI-X`（与 `atri_x/gui/autostart.py` 同值名）；卸载自动删 |
 | 安装标记 | 安装器在 `{app}\install.json` 写 `"installer":"inno"`；`atri-x ... status` 因此能提示用 `unins000.exe` 卸载，而不是脚本强删 |
 | 卸载 | Inno 自带 `unins000.exe`；卸载前 `taskkill` 掉可能还在跑的 GUI/后台服务（后台服务不持有 GUI 互斥量） |
+| 安装包图标 | `SetupIconFile=..\atri_x\gui\brand\app.ico`：与 exe / 窗口 / 托盘**同一份**多尺寸 ico（见 §3.6） |
+| 向导宣传图 | `WizardImageFile`（左侧，欢迎页 + 完成页）/ `WizardSmallImageFile`（右上角小图），素材见 §3.6 |
+| 欢迎页 | 显式 `DisableWelcomePage=no`——Inno 6/7 默认跳过欢迎页，不打开的话左侧宣传图基本看不到 |
 
 `build_installer.py --verify` 做的事：把安装包**复制到本地临时目录**、静默装到短路径
 （默认 `C:\Users\<user>\AtriXVerify`）、断言两个 exe + `install.json` + `unins000.exe`

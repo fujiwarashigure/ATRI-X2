@@ -160,8 +160,12 @@ python -m atri_x completion nushell > ~/.config/nushell/completions/atri-x.nu
 - `/status` 查看当前 Session、模型、上下文和请求状态。
 - `/models` 查看可用模型列表。
 - `/model <编号或名称>` 切换模型。
-- `/chat` 切到低成本聊天模式。
-- `/work` 切到可使用工具的工作模式。
+- `/chat` 切到 chat 模式（用 chat 模型槽位，通常更便宜；**同样支持工具调用**）。
+- `/work` 切到 work 模式（用 work 模型槽位）。
+
+> 本仓与上游 Go 版的一处有意差异：**`chat` 模式也支持工具调用**。两个模式都能注入工具
+> schema、跑工具轮、用 `@tool:` 预载，区别只在 `mode_models.*` 里配的模型槽位和上下文策略。
+> 要禁止某个群用工具，用群策略 `/tools allow none`（或桌面端「工具权限」页设「禁止全部」）。
 
 更多命令见 [命令速查](commands.md)。
 
@@ -195,13 +199,21 @@ python -m atri_x completion nushell > ~/.config/nushell/completions/atri-x.nu
 - `model` 名称是否被 Provider 支持。
 - 可以启动后用 `/models --fresh` 或 `/models --refresh` 刷新模型列表。
 
-### 不想默认启用工具
+### 想让默认会话更便宜
 
-把 `state.toml` 中的默认模式改为 chat：
+把 `state.toml` 中的默认模式改为 chat（chat 槽位可以配更便宜的模型；**工具仍然可用**）：
 
 ```toml
 [session]
 default_mode = "chat"
 ```
 
-需要工具时再输入 `/work`。
+### 想在某些群彻底禁用工具
+
+模式不影响工具开关。按群禁止工具用群策略：
+
+```text
+/tools allow none
+```
+
+或在桌面端「工具权限」页把该群设为「禁止全部」；`/tools allow all` 恢复继承全局。

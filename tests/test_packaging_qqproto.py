@@ -206,5 +206,83 @@ class VersionCase(unittest.TestCase):
         self.assertEqual(qqproto.find_napcat_version(app), "")
 
 
+class SanitizeGateCase(unittest.TestCase):
+    """复制后的硬校验：残留 NapCat 运行期文件必须让构建**失败**。
+
+    背景：``ignore`` 只覆盖 ``versions/<版本>/resources/app/napcat`` 这一处。万一以后
+    NapCat 换布局，或者有人先在产物目录里跑了一遍程序（会把 config/onebot11.json 写回
+    程序目录），复制看起来「成功」，但来源机的 OneBot / WebUI 令牌会跟着进安装包。
+    """
+
+    def setUp(self) -> None:
+        shutil.rmtree(TEMP_ROOT, ignore_errors=True)
+        TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+        self.dest = TEMP_ROOT / "dist" / "qqproto"
+
+    def tearDown(self) -> None:
+        shutil.rmtree(TEMP_ROOT, ignore_errors=True)
+
+    def test_clean_tree_has_no_offenders(self) -> None:
+        _write(self.dest / "NapCat.52230.Shell" / "NapCatWinBootMain.exe", "stub")
+        _write(
+            self.dest
+            / "NapCat.52230.Shell"
+            / "versions"
+            / "9.9.33-52230"
+            / "resources"
+            / "app"
+            / "napcat"
+            / "napcat.mjs",
+            "console.log(1);\n",
+        )
+        self.assertEqual(qqproto.find_sanitize_offenders(self.dest), [])
+
+    def test_config_files_are_offenders(self) -> None:
+        app = self.dest / "NapCat.52230.Shell" / "versions" / "9.9.33-52230" / "resources" / "app" / "napcat"
+        _write(app / "config" / "onebot11.json", '{"token":"source-machine"}')
+        _write(app / "config" / "webui.json", '{"token":"source-machine"}')
+        _write(app / "logs" / "napcat.log", "trace")
+        _write(self.dest / "stray.log", "log")
+        offenders = qqproto.find_sanitize_offenders(self.dest)
+        self.assertIn("NapCat.52230.Shell/versions/9.9.33-52230/resources/app/napcat/config/onebot11.json", offenders)
+        self.assertIn("NapCat.52230.Shell/versions/9.9.33-52230/resources/app/napcat/config/webui.json", offenders)
+        self.assertIn("NapCat.52230.Shell/versions/9.9.33-52230/resources/app/napcat/logs/napcat.log", offenders)
+        self.assertIn("stray.log", offenders)
+
+    def test_planted_config_makes_assert_sanitized_raise(self) -> None:
+        """目录被运行期写过配置（模拟「先跑了一遍程序」）→ 打包前门禁必须报错。"""
+        app = self.dest / "NapCat.52230.Shell" / "versions" / "9.9.33-52230" / "resources" / "app" / "napcat"
+        _write(app / "config" / "onebot11.json", '{"token":"leaked"}')
+        with self.assertRaises(qqproto.QqProtoError) as ctx:
+            qqproto.assert_sanitized(self.dest)
+        self.assertIn("脱敏失败", str(ctx.exception))
+
+    def test_build_installer_refuses_dirty_qqproto(self) -> None:
+        """``build_installer`` 拿现成 dist 重打包时也要被拦住（这是最容易漏的路径）。"""
+        sys.path.insert(0, str(REPO_ROOT / "packaging"))
+        import build_installer  # noqa: PLC0415 - 需要先修 sys.path
+
+        dist = TEMP_ROOT / "dist"
+        _write(dist / "atri-x.exe", "stub")
+        _write(dist / "atri-x-gui.exe", "stub")
+        _write(dist / "qqproto" / "Start-NapCat.bat", "stub")
+        _write(
+            dist
+            / "qqproto"
+            / "NapCat.52230.Shell"
+            / "versions"
+            / "9.9.33-52230"
+            / "resources"
+            / "app"
+            / "napcat"
+            / "config"
+            / "webui.json",
+            '{"token":"leaked"}',
+        )
+        with self.assertRaises(build_installer.InstallerError) as ctx:
+            build_installer._assert_qqproto_sanitized(dist)
+        self.assertIn("脱敏失败", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

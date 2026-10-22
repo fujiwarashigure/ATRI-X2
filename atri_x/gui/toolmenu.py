@@ -6,11 +6,13 @@
 
 一行的结构::
 
-    [已激活]  网页搜索  web_search  低风险                     [停用]
+    [已激活]  网页搜索  web_search  低风险                     [参数] [停用]
               联网搜索关键词，返回简洁答案、来源链接和摘要。
 
 点按钮或点整行都会回调 ``on_toggle(tool_name)``；锁定模式（继承全局 / 禁止全部）下
-按钮置灰、状态徽标换成对应文案，点击不再改变状态。
+按钮置灰、状态徽标换成对应文案，点击不再改变状态。工具在「工具参数」页有可调参数时，
+行内还会多一个「参数」按钮（``on_params(tool_name)``），点了会跳到参数子选项卡并展开
+对应的面板。
 """
 
 from __future__ import annotations
@@ -69,7 +71,9 @@ _BADGE_FONT = ("Microsoft YaHei UI", 9, "bold")
 class ToolRow:
     """工具菜单里的一行：状态徽标 + 中文名 + 工具名 + 风险 + 功能解释 + 激活按钮。"""
 
-    def __init__(self, parent: Any, meta: ToolMeta, on_toggle: Any) -> None:
+    def __init__(
+        self, parent: Any, meta: ToolMeta, on_toggle: Any, *, on_params: Any = None
+    ) -> None:
         self.meta = meta
         self._on_toggle = on_toggle
         self._bg = _ROW_BG_IDLE
@@ -124,6 +128,24 @@ class ToolRow:
             **_BUTTON_OFF,
         )
         self.button.pack(side=tk.RIGHT)
+        #: 「参数」按钮：只有该工具在「工具参数」页有可调参数时才出现。
+        self.params_button: tk.Button | None = None
+        if on_params is not None:
+            self.params_button = tk.Button(
+                head,
+                text="参数",
+                width=5,
+                command=lambda: on_params(meta.name),
+                relief=tk.FLAT,
+                bd=0,
+                cursor="hand2",
+                font=_SMALL_FONT,
+                bg="#eef2f7",
+                fg="#2b4d9c",
+                activebackground="#dfe8f6",
+                activeforeground="#2b4d9c",
+            )
+            self.params_button.pack(side=tk.RIGHT, padx=(0, 6))
 
         self.summary = tk.Label(
             self.frame,

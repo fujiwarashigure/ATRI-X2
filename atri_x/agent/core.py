@@ -630,13 +630,18 @@ class Agent(
             return result
         return (result, True) if result is not None else (None, False)
 
-    def group_tool_allowlist(self, ctx: Any) -> dict[str, bool] | None:
+    def group_tool_allowlist(
+        self, ctx: Any, session: Any = None
+    ) -> dict[str, bool] | None:
         """群工具白名单（``None`` 表示不限制）。对应 Go ``Agent.groupToolAllowlist``。
 
         Go 里同样是直接实现（``tool_auth.go:53``），不查 ``Deps.GroupPolicy``；
         照抄 Go 的方法形状再叠加"优先用服务"的分派会自递归（见上）。
+
+        本仓扩展：``session`` 用于选取当前会话模式的分模式白名单
+        （``tool_allowlist_chat`` / ``tool_allowlist_work``）。
         """
-        return ToolAuthMixin.group_tool_allowlist(self, ctx)
+        return ToolAuthMixin.group_tool_allowlist(self, ctx, session)
 
     def filter_group_feature_schemas(self, ctx: Any, schemas: list[Any]) -> list[Any]:
         """按群策略裁掉不可用功能的 schema。对应 Go ``Agent.filterGroupFeatureSchemas``。

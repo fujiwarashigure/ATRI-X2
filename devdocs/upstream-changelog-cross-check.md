@@ -77,7 +77,7 @@
 | Agent 去除唤醒词或工具指令时合并全部文字段、打乱图文位置 | **已跟** | `CHANGELOG.md:76`（只改写实际变化的文字区间，段间图片与文件段保持原位）。 |
 | 后台任务工具缓存 bug | **已跟** | `CHANGELOG.md:69`（重建 `toolrun.CachedTool` 时带上 `ForegroundOnly`）。 |
 | 日志无意义的脱敏操作（大量正则、浪费性能） | **相反** | fork **保留并加强了**脱敏：`atri_x/redact`（fork 自加，`7d606898`）+ `CHANGELOG.md:242`/`:281`/`:296` 等条目。两边不是同一份实现，取向相反，属有意差异。 |
-| chat 模式不再能传入工具 | **已跟** | `atri_x/toolrun/runner.py:87` 注释与实现：`Chat sessions never run tools, even if a hook or the model supplied calls.`；另外 `atri_x/agent/tool_directive.py:423` 对 chat 模式拒绝预载。 |
+| chat 模式不再能传入工具 | **有意相反** | 上游（`internal/toolrun/runner.go`）让 chat 会话永不跑工具；本仓**放开 chat 模式的工具调用**（产品决策：群聊默认可能跑在 chat 槽位，但仍需要搜索等工具）。判断收敛到 `atri_x/storage/models.py` 的 `session_mode_supports_tools`，用于 `atri_x/tool/provider.py`、`atri_x/agent/tool_schemas.py`、`atri_x/toolrun/toolrun.py`、`atri_x/toolrun/runner.py`、`atri_x/agent/tool_directive*.py`。见 `CHANGELOG.md` 的 0.9.14 节。 |
 | 普通用户能 stop 其他用户的请求 | **已跟** | `CHANGELOG.md:75`（可停止集合、编号解析与补全都限定在自己当前 Session）。 |
 | 压缩期间能预载工具 | **已跟** | `CHANGELOG.md:78`（压缩准入移到输入 Hook 与指令处理之前）。 |
 | 启动中途失败时统一取消并清理 Hook／信号和延迟 Skill 加载；平台退出等待纳入共享 30 秒预算 | **未跟** | fork 只有 `atri_x/app/runner.py` 的 `cleanups` 逆序关闭（`defaultShutdownTimeout = 30s`），没有"启动中途失败取消已创建 Hook／信号／延迟 Skill 加载"这一步，也没有把平台退出等待并入同一预算。 |

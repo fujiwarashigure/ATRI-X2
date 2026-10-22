@@ -71,6 +71,10 @@ RUNTIME_DIR = REPO_ROOT / "runtime"
 #: 判断「运行时确实组装过」的标记文件。
 RUNTIME_MARKER = RUNTIME_DIR / "dsh-kernel" / "kernel.json"
 
+#: 品牌图标（exe / 窗口 / 托盘 / 安装包共用同一份；由 ``packaging/make_assets.py`` 生成）。
+#: 没显式给 ``--icon`` 时用它——否则 PyInstaller 会嵌**它自己的**默认图标。
+DEFAULT_ICON = REPO_ROOT / "atri_x" / "gui" / "brand" / "app.ico"
+
 #: ``atri_x`` 要求的最低 Python。
 MIN_PYTHON = (3, 11)
 
@@ -96,6 +100,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     with_kernel = resolve_kernel_flag(args)
     with_gui = (not args.onefile) and (not args.no_gui)
     with_pillow = args.with_pillow or args.with_all_optional
+    # 图标默认用仓库里的品牌素材；显式 --icon 指错文件要立刻报错，不能静默退回默认图标。
+    if args.icon:
+        icon_path = Path(args.icon).expanduser()
+        if not icon_path.is_file():
+            _err("--icon 指定的文件不存在: %s" % icon_path)
+            return 2
+        args.icon = str(icon_path.resolve())
+    else:
+        args.icon = str(DEFAULT_ICON) if DEFAULT_ICON.is_file() else ""
 
     plan, problems = optional_deps.plan_and_problems(args, SPEC_PATH)
     if problems:
@@ -128,6 +141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     _out("pyinstaller : %s" % version)
     _out("mode        : %s" % ("onefile" if args.onefile else "onedir"))
+    _out("icon        : %s" % (args.icon or "无（找不到品牌图标，PyInstaller 会用自带默认图标）"))
     _out("dist        : %s" % args.dist)
     _out("work        : %s" % args.work)
     _out("gui exe     : %s" % ("yes" if with_gui else "no"))
@@ -298,7 +312,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     )
     parser.add_argument("--onefile", action="store_true", help="build a single .exe")
     parser.add_argument("--name", default="atri-x", help="artifact name (default: atri-x)")
-    parser.add_argument("--icon", default="", help="optional .ico path")
+    parser.add_argument(
+        "--icon",
+        default="",
+        help="品牌 .ico 路径（默认用 atri_x/gui/brand/app.ico，见 packaging/make_assets.py）",
+    )
     optional_deps.add_cli_options(parser)
     parser.add_argument(
         "--dist", type=Path, default=DEFAULT_DIST, help="output directory (default: dist/windows)"

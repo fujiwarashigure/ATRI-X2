@@ -134,5 +134,55 @@ class AssociateInboundHistoryTest(unittest.TestCase):
         self.assertEqual(agent.media.associations, [])
 
 
+class _WarnLogger:
+    def __init__(self) -> None:
+        self.warnings: list[tuple[str, dict]] = []
+
+    def warn(self, message: str, **fields) -> None:  # noqa: ANN003
+        self.warnings.append((message, fields))
+
+
+class _FailingMedia:
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+    async def import_platform(self, ctx, platform, resolver, segment) -> None:  # noqa: ANN001
+        raise self.error
+
+
+class MaterializeSegmentFailureTest(unittest.TestCase):
+    """降级成 ``[媒体不可用；…]`` 时必须留一条 WARN，不能再静默。
+
+    真机事故（1.0.0）：磁盘守卫抛 ``AttributeError`` 被这里吞掉，日志里一个字都没有，
+    "群聊每张图都读不到"只能靠猜。
+    """
+
+    def test_failed_import_degrades_and_warns(self) -> None:
+        from atri_x.agent.inbound_media import materialize_platform_segment
+        from atri_x.platform.platform import MessageSegment, MessageSegmentType
+
+        logger = _WarnLogger()
+        agent = SimpleNamespace(
+            media=_FailingMedia(AttributeError("boom")), logger=logger
+        )
+        segment = MessageSegment(
+            type=MessageSegmentType.IMAGE, name="{B1E2D3F4}.jpg", url="https://example.invalid/a.jpg"
+        )
+        msg = SimpleNamespace(platform="qqonebot", platform_message_id="9000000001")
+        out = _run(materialize_platform_segment(agent, {"platform": "qqonebot"}, msg, segment))
+        self.assertEqual(out.type, "text")
+        self.assertIn("媒体不可用", out.text)
+        self.assertIn("{B1E2D3F4}.jpg", out.text)
+        self.assertEqual(len(logger.warnings), 1)
+        message, fields = logger.warnings[0]
+        self.assertIn("inbound platform media", message)
+        self.assertIn("boom", fields["error"])
+        self.assertEqual(fields["segment_name"], "{B1E2D3F4}.jpg")
+        self.assertEqual(fields["segment_type"], "image")
+        self.assertEqual(fields["message_id"], "9000000001")
+        # 来源 URL 可能带凭据：诊断字段里不能出现。
+        self.assertNotIn("example.invalid", repr(fields))
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

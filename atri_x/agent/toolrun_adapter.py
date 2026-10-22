@@ -247,7 +247,7 @@ class AgentToolRunDeps:
             ctx = with_shown_rule_card_formats(
                 ctx, metadata.shown_rule_card_formats
             )
-        allowlist = _group_tool_allowlist(agent, ctx)
+        allowlist = _group_tool_allowlist(agent, ctx, session)
         if allowlist is not None:
             ctx = _with_discover_filter(ctx, allowlist)
         if is_background_session(session):
@@ -823,13 +823,15 @@ async def _await_confirmation(
     return outcome
 
 
-def _group_tool_allowlist(agent: Any, ctx: Any) -> dict[str, bool] | None:
+def _group_tool_allowlist(
+    agent: Any, ctx: Any, session: Any = None
+) -> dict[str, bool] | None:
     helper = getattr(agent, "group_tool_allowlist", None)
     if helper is None:
         from atri_x.agent.tool_auth import group_tool_allowlist
 
-        return group_tool_allowlist(agent, ctx)
-    return helper(ctx)
+        return group_tool_allowlist(agent, ctx, session)
+    return helper(ctx, session)
 
 
 def _with_discover_filter(ctx: Any, allowlist: dict[str, bool]) -> Any:

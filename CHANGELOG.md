@@ -6,9 +6,280 @@
 
 ---
 
+## [1.0.1] - 2026-10-22 — 修复入站图片一律「媒体不可用」、补齐品牌图标，重建便携版与安装包
+
+> 本版是 **1.0.1 补丁版**：修掉 1.0.0 真机上「群里发图后模型只看到
+> `[媒体不可用；{文件名}.jpg]`」的入站媒体故障，补上从 exe 资源到 Tk 窗口、托盘、
+> 安装向导的一整套品牌图标；并给「工具权限 → 工具参数（全局）」补上跨字段校验，
+> 避免「启用反推」开着却填不出 provider / model 时后台服务卡在启动失败。
+> 版本号 `1.0.0` → `1.0.1`，重建 Windows 便携版、安装包与源码归档。
+
+旧状态（1.0.0 便携版真机，QQ 群）：
+
+- 群里发图后再引用它问「提取画师串与 prompt」，模型输入里是
+  `[媒体不可用；{文件名}.jpg]`；`media` / `media_history` 表里没有这条图。
+  但同一轮里模型改用 `get_media(message_id=…)` 又能把**同一张图**下载入库——
+  「入站时失败、工具里成功」。
+- 桌面端「工具权限 → 工具参数（全局）」里把「启用反推」拨到「开」但没填
+  provider / model 时，界面照常写盘；工具本身**不会注册**（群里看不到
+  `image_to_prompt`），而**下一次重启后台服务会直接起不来**：
+  `atri-x: [image_to_prompt] is enabled but incomplete: provider='' model=''`。
+
+根因（第一条）：
+
+- `atri_x/app/runtime.py` 只要装配媒体中心就总会挂一个磁盘守卫
+  （`[storage] disk_*` 那套）。`atri_x/ops/diskguard.py` 的 `Guard.check` 无条件调用
+  `ctx.raise_if_cancelled()`；但**入站平台消息的 ctx 不是 `CancelToken`**：
+  `app/platforms.py` 用 `_RunFlag` 跑平台循环，`with_message_context` / `with_actor`
+  经 `delivery.ctx_with_value` 把它落成"只承载值的普通 `dict`"，没有取消语义。
+  于是磁盘守卫在这一步抛 `AttributeError: 'dict' object has no attribute
+  'raise_if_cancelled'`，又被 `materialize_platform_segment` 的"失败降级"吞成
+  `[媒体不可用；<名字>]`——**每一张入站图片/文件**都进不了媒体库，且日志里一个字都没有。
+  工具侧（`get_media` / `view_image`）在回合 ctx（`request.Manager` 造的 `CancelToken`）
+  里跑，所以同一个 URL 又能下载成功，形成上面那种"自相矛盾"的现象。
+
+根因（第二条）：
+
+- 「工具参数（全局）」页只做单字段类型 / 范围校验，没有跨字段校验。`[image_to_prompt]`
+  的 `enabled` 与 `provider` / `model` 本来就是同一组参数，而 `save_group` 逐键写盘，
+  于是能保存出「开但空」的非法组合；后台服务启动时工具装配把它当配置错误直接退出。
+
+### 修复
+
+- `atri_x/ops/diskguard.py`：新增并导出 `raise_if_cancelled(ctx)`，按 Go `ctx.Err()` 的
+  语义**鸭子类型**判定——有 `raise_if_cancelled` 就用它，其次是 `is_cancelled` /
+  `cancelled` / `error` / `err`；普通值包视为"无取消语义"。`Guard.check` 改用它。
+- `atri_x/agent/inbound_media.py`：`materialize_platform_segment` 的失败降级**必须留一条
+  WARN**（段类型、段名字、平台消息 ID；不回显来源 URL，避免把带凭据的地址写进日志）。
+  之前的静默吞异常就是这次故障长期不可见的原因。
+- `atri_x/gui/toolsettings_base.py` / `toolsettings.py`：面板支持跨字段校验
+  （`SettingGroup.validate`，入参是"文件现有值 + 本次改动"的合成结果，失败一个字节都不写）。
+- `atri_x/gui/toolsettings_media.py`：「图片反推提示词」面板新增校验——「启用反推」选
+  「开」却没填 provider / model 时拒绝保存并说明后果（后台服务重启会失败）；
+  `metadata_store` 的标签补上配置键名，说明里补上"平台转存过的图、截图、二次编辑本来
+  就没有参数，开了也救不回来；只对开启之后新入库的图有效"。
+
+### 新增 — 品牌图标（exe / 窗口 / 托盘 / 安装包）与安装向导宣传图
+
+旧状态：ATRI-X 从桌面快捷方式到右下角托盘**全都没有自己的图标**——`build.py` 不给
+`--icon`，`atri-x.spec` 拿到 `icon=None` 后 PyInstaller 嵌的是**它自带的默认图标**，于是
+依赖 exe 图标的快捷方式、卸载器、应用列表全继承了那张默认图；Tk 主窗口从没调过
+`iconbitmap` / `iconphoto`，标题栏与任务栏按钮显示的是 **Tk 的羽毛图标**；托盘
+`TrayIcon` 没传 `icon_path`，退回 `IDI_APPLICATION` 通用图标；安装包 `setup.exe` 用 Inno
+默认图标，向导左侧也没有宣传图（而且 Inno 6/7 默认跳过欢迎页，左侧几乎全空）。
+
+- **一份 `atri_x/gui/brand/app.ico` 贯穿四处**：exe 资源图标、Tk 窗口图标、托盘图标、
+  安装包图标。10 档尺寸（16/20/24/32/40/48/64/96/128/256），≤32 用脸部特写取景、
+  ≥48 用整图；≤128 存 32 位 DIB、256 存 PNG。
+- `packaging/make_assets.py`（新增，开发期工具）：从品牌源图生成上面这套图标，以及
+  安装向导左侧宣传图（164:314，100%/200%/250% 三档）和右上角小图（58×58 / 116×116）。
+- `atri_x/gui/icon.py`（新增）：运行期图标路径解析，源码运行与冻结后走同一套
+  `__file__` 相对查找；素材缺失只是「没有图标」，不影响启动。
+- `packaging/build.py`：`--icon` 默认指向品牌 ico（显式指错文件直接 exit 2），构建日志
+  新增 `icon :` 一行；`atri-x.spec` 把 `atri_x/gui/brand` 打进 `datas`（窗口/托盘要在
+  运行期读文件，不能只嵌进 exe 资源）。
+- `packaging/atri-x.iss`：`SetupIconFile` + `WizardImageFile` + `WizardSmallImageFile`，
+  并显式 `DisableWelcomePage=no`——否则左侧宣传图只在「完成」页出现。
+- 修 `atri_x/gui/tray.py` 的托盘图标尺寸：`LoadImageW` 以前传 `0,0` 且不给
+  `LR_DEFAULTSIZE`（尺寸未定义，高 DPI 下会糊），改成按 `SM_CXSMICON` / `SM_CYSMICON` 取，
+  让 Windows 从多尺寸 ico 里挑正确档位。
+
+### 用例
+
+- `tests/test_ops.py`：值包 ctx（`dict` / 无 `raise_if_cancelled` 的对象）不再抛
+  `AttributeError`；自报 `cancelled` 的 ctx 仍会中止。
+- `tests/test_media_manager.py::TestImportWithDiskGuard`：带磁盘守卫时，`dict` /
+  `_RunFlag` 形状的 ctx 能正常导入；`CancelToken` 取消后仍拒绝写入。
+- `tests/test_agent_inbound_media.py`：导入失败降级时留下 WARN 且诊断字段不含 URL。
+- `tests/test_gui_toolsettings.py`：「启用反推」缺 provider / model 时拒绝写盘；
+  补齐后可以开；文件里已有 provider / model 时只改 `enabled` 也能通过（校验用合成值）。
+
+### 验证
+
+- 冻结产物里用真实 URL 复现（`atri-x.exe -m <probe>`）：修复前入站段变成
+  `[媒体不可用；{文件名}.jpg]`，`guard.check` 抛
+  `AttributeError: 'dict' object has no attribute 'raise_if_cancelled'`；修复后同一路径
+  直接得到 `media:e43d8e46…`，不再降级。
+- 用修复后的源码 + 真实配置（`[image_to_prompt]` 已回到"未启用"）跑
+  `python -m atri_x service run --config …`：`atri-x startup completed`，而修复前同一条
+  命令以 `[image_to_prompt] is enabled but incomplete` 退出 1。
+
+### 发行
+
+- 版本号 `1.0.0` → `1.0.1`（`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION` 与
+  README 同步）。
+- 从工作树用 `python packaging/build.py --release --with-pillow --with-kernel
+  --with-qqproto "<NapCat Shell>"` 重建 Windows x64 三件套，每一件都跑产物级自检：
+  - onedir：26,989 个文件 / 1,609,389,884 字节，内置 DSH 内核 0.2.0-rc.2 与脱敏后的协议端
+    （2,514 文件 / 1,202.4 MB）；`--version` 输出 `atri-x 1.0.1`，`config check`、`-m` 转发、
+    sidecar、GUI selftest 全过。
+  - 便携版 `ATRI-X-1.0.1-portable-win64.zip`：682,744,041 字节（651.1 MB），SHA-256
+    `af48e3e7…`；解压到短路径后 10 项自检全过（26,994 条目）。
+  - 安装包 `ATRI-X-1.0.1-setup.exe`：460,063,237 字节（438.8 MB），SHA-256 `cc05bad3…`；
+    静默安装 100.4 s / 26,992 个文件，`--version` = `atri-x 1.0.1`、`install.json` 与内置协议端
+    断言通过，静默卸载 17.8 s 且目录清空。
+- 全仓库源码归档 `ATRI-X-1.0.1-repo.zip` / `.tar.gz` 取自工作树（不含 `.git`、`dist`、`build`、
+  `runtime`、日志、本地 `.env` 与 `__pycache__`）；四个产物的尺寸与 SHA-256 见本机发行库的
+  `SHA256SUMS.txt` / `发行说明.md` / `自检报告.md` / `证据/1.0.1/`。
+- 品牌图标与安装向导宣传图由 `packaging/make_assets.py` 从 `packaging/brand-src` 重新生成，
+  设计未变，仅随 1.0.1 重出一次；`app.ico`（10 档尺寸）同时用于 exe 资源、Tk 窗口、托盘与
+  安装包，向导宣传图三档（100% / 200% / 250%）随 `atri-x.iss` 一起进安装包。
+- **脱敏**：`scripts/check_secrets.py --all` 0 命中；源码 / 内置 DSH 内核 / 协议端输入三级扫描
+  0 命中；三份产物（便携 zip、安装包二进制、源码归档）逐项重扫 0 命中（第三方依赖里
+  `@types/node` 的 `C:\Users\...` 文档示例与 AWS 文档示例 key 属已登记假值，不算泄露；平台
+  转存过的图与真实群号不入包）。
+- 本轮改动仍**未提交 Git、未推送**（本仓库工作副本没有 `.git`，源码归档直接取自工作树）。
+
+---
+
+## [1.0.0] - 2026-10-22 — 首个稳定版：工具权限页新增「工具参数（全局）」子选项卡，每个工具可展开编辑内部参数
+
+> 本版是 **1.0.0 稳定版**：把 0.9.13 之后的两轮改动一起收进正式发行——0.9.14 让 chat 模式也能
+> 调用工具、修正群作用域写法并支持 chat / work 分模式工具白名单；1.0.0 给「工具权限」页补上
+> 工具内部参数入口，并重建 Windows 便携版、安装包与源码归档（版本号 `0.9.14` → `1.0.0`）。
+>
+> 旧状态（0.9.14 便携版）：桌面端「工具权限」页只有"工具能不能调用"这一层。用户想把生图
+> 工具的 `metadata_store` 打开（让入库转码前先留档生成参数），在群里问助手，得到的答复是
+> "这个开关不是工具调用，得你手动改 `services.toml`"——GUI 里没有任何入口能改工具的
+> 内部参数，只能手搓 TOML 再重启。
+
+### 变更
+
+- **新增「工具权限 → 工具参数（全局）」子选项卡**（`atri_x/gui/toolperm.py` 的第三个
+  子选项卡）：按工具分类列出参数面板，每组参数是一个可展开 / 收起的 ▸/▾ 面板，面板标题
+  带影响哪些工具、配置状态（`已配置 N / M 项`）与「保存本组」；顶部有「保存全部改动 /
+  全部展开 / 全部收起 / 重新载入」。目前覆盖 15 组面板：全局面板（`[tools]` 每轮工具
+  轮数、`[security]` 风险阈值、`[ops]` 超时与并发）、`web_search` / `web_extract` 通道
+  顺序、工作区与后台 shell 白名单（`[sandbox]` / `[security]`）、`send_file` 模式、媒体
+  与视觉回退（`[media]` / `[vision]`）、常驻记忆 / 长期记忆 / 自学习 / 群聊统计 / 角色库
+  的开关与上限、生图基础行为与提示词优化、画师串与 `metadata_store` 留档、图片反推提示词。
+  没有可调参数的工具在页面底部统一列出（只受授权 / 风险等级控制）。
+- **数据层与界面分层**：参数定义在 `atri_x/gui/toolsettings_general.py`（文本/联网/文件/
+  记忆/群聊）与 `toolsettings_media.py`（图片/画师/视觉），字段类型与「界面值 → TOML 值」
+  转换在 `toolsettings_base.py`，注册表汇总与读写（`load_all` / `save_group`）在
+  `atri_x/gui/toolsettings.py`，控件在 `atri_x/gui/toolparams.py`。导入期自检面板 key
+  唯一、字段 key 唯一、引用的工具必须真的在工具目录里、全局面板排第一。
+- **只提交改动过的键**：面板保存时按"载入快照 vs 当前值"做差集，只把变化的键交给
+  `configedit.patch_section`，所以保存一个参数不会重写同小节其它键、不会丢掉它们的行内
+  注释，也不会把用户手写在文件里、界面不认识的取值顺手改掉（例如中转站自定义的
+  `quality` 档位）。写盘仍带 `.gui.bak` 备份与写前 `tomllib` 校验。
+- **三态字段语义**：`bool | None` 的配置（`superadmin_only`、`auto_character`、
+  `forget_on_recall`、`normal_block_instruction_patterns` …）在界面上是「默认 / 开 / 关」
+  三态，选「默认」= 删掉该键、回到配置层默认值；列表字段留空 = 删键（回落内置默认链），
+  显式填 `none` = 空数组（例如后台 shell 全部拒绝）。
+- **工具行新增「参数」按钮**（`atri_x/gui/toolmenu.py` + `toolmode.py`）：有可调参数的
+  工具在 chat / work 菜单里多一个「参数」按钮，点了自动切到「工具参数」子选项卡并展开、
+  滚到该工具的面板（`image_generate` 会同时展开"基础行为"与"提示词"两组）；
+  `atri_x/gui/widgets.py` 的 `ScrollFrame` 增加了 `scroll_to_widget` 供定位。
+- **自检与测试**：`atri_x/gui/selftest.py` 新增参数页断言（每组面板的字段控件数量、
+  展开 / 收起、"其余工具"说明），打包产物的 `--selftest` 也会卡住；新增
+  `tests/test_gui_toolsettings.py`（24 例：注册表自检 + 读写语义 + 非法输入不落盘 +
+  注释保留），`tests/test_gui_tabs.py` 新增 `ToolParamsTabCase`（17 例：渲染 / 保存 /
+  三态 / 校验 / 从工具行跳转 / 重新载入 / 参数页隐藏群列表）。
+- 工具权限页的 `hint` 从"state.toml 热加载"改为空串：这一页现在同时管 `state.toml`
+  （授权，15 秒热加载）与 `app.toml` / `services.toml`（参数，需重启），不再用一句话
+  概括两种时机。
+
+### 文档
+
+- `docs/windows-app.md`：§4.2 的「工具权限」行与约定补上第三个子选项卡、写入文件与
+  生效时机、只提交改动键的语义。
+- `docs/configuration.md`「群级策略」：补一条工具内部参数的入口说明（GUI 面板 vs 直接
+  编辑 `app.toml` / `services.toml`）。
+- `devdocs/code-map.md` 与 `atri_x/gui/__init__.py` / `atri_x/gui/tabs/__init__.py` 的
+  模块表：补 `toolmode` / `toolsettings*` / `toolparams`。
+
+### 发行
+
+- 版本号：`0.9.14` → `1.0.0`（`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION` 与
+  README 同步）。本次是首个 1.x 稳定版：0.9.x 阶段的真机事故修复、工具授权与工具参数都已
+  收进正式发行；后续 1.x 保持配置与命令向后兼容。
+- 交付物（Windows x64）：安装包 `ATRI-X-1.0.0-setup.exe`（457,650,891 字节 / 436.4 MB，
+  SHA256 `63c626c1…`）、便携版 `ATRI-X-1.0.0-portable-win64.zip`（682,875,603 字节 /
+  651.2 MB，SHA256 `e21a9f5a…`）、全仓库源码归档 `ATRI-X-1.0.0-repo.zip` / `.tar.gz`
+  （各 1,030 个文件）；逐项 SHA256、尺寸、自检记录与脱敏扫描见本机发行库
+  （`SHA256SUMS.txt` / `发行说明.md` / `自检报告.md` / `证据/1.0.0/`）。
+- 构建自检：onedir 27,029 个文件 / 1,535.8 MB，内置 DSH 内核与脱敏后的协议端（2,513 文件 /
+  1,202.3 MB）；便携包解压 27,034 条目后 10 项自检全过；安装包静默安装 27,032 个文件、
+  62.5 s，卸载 8.5 s；全量 `unittest` `Ran 5975 tests … OK (skipped=4)`；门禁全绿。
+- 产物内容：内置 DSH 内核（Node + `@deepseek-ai/dsh`）与内置 QQ 协议端（NapCat 4.18.38 +
+  便携 QQ 9.9.33-52230）；协议端的 `config` / `cache` / `logs` 与本机令牌不入包，目标机首次
+  启动时生成。
+- **脱敏**：`scripts/check_secrets.py --all` 0 命中；全仓个人标识扫描（用户名 / 本机路径 /
+  真实群号 / 真实消息 ID / 邮箱 / 内网 IP / 密钥样式）逐项清零或替换为占位符；产物级扫描
+  （便携包 + 安装包 + 源码归档）0 命中。
+- 本轮改动仍**未提交 Git、未推送**（`git status` 里是工作树改动；源码归档直接取自工作树，
+  包含未跟踪的新文件）。
+
+---
+
+## [0.9.14] - 2026-10-22 — chat 模式也支持工具调用；工具权限页修正群作用域写法并支持 chat / work 分模式白名单
+
+> 旧状态（0.9.13 便携版真机，QQ 群 `123456789`）：
+>
+> 1. 用户在桌面端「工具权限」页给群激活了 `web_search` 等 28 个工具并保存，界面上显示"已激活"，
+>    但群里怎么问都调用不了搜索；模型自己说"没有任何 function/tool 接口"，`tool_call_records`
+>    一直是 0 条。原因是该群会话全部落在 `chat` 模式，而上游 Go 语义里 **chat 会话永不注入/
+>    不执行工具**（`tool/provider.py`、`toolrun/`、`tool_directive*` 各自按 `mode == work` 判断）；
+>    `state.toml` 的 `[session] default_mode` 又是 `chat`，所以连新会话也没有工具。
+> 2. 同一份白名单其实还写在一个**永远匹配不上**的键上：界面把从「群友」页复制来的
+>    `qqonebot · group:123456789`（间隔号 `U+00B7`）原样落盘，而运行时查表键是
+>    `qqonebot:group:123456789`（半角冒号，`context_overflow_key`），
+>    `group_policy_for_scope` 查不到 → 整份白名单静默失效（回落成"不限制"）。
+> 3. 桌面端作用域只能手打，写错既不报错也不提示，是上面那个键写错的直接入口。
+
+### 变更
+
+- **chat 模式放开工具调用**（有意偏离上游 Go）：新增唯一判定
+  `atri_x/storage/models.py:session_mode_supports_tools()`（`work` / `chat` 都返回真），
+  原先散落在 `atri_x/tool/provider.py`（schema / 工具名清单）、`agent/tool_schemas.py`
+  （`session_tools_enabled`）、`toolrun/toolrun.py`（`tool_infos` / `base_schemas`）、
+  `toolrun/runner.py`（"chat 模式永远不跑工具"早退）、`agent/tool_directive.py` 与
+  `agent/tool_directive_skill.py`（`@tool:` / `@skill:` 预载）里的 `mode == work` 判断全部改用它。
+  现在两个模式都注入工具 schema、跑工具轮、允许预载；区别只剩 `mode_models.chat` /
+  `mode_models.work` 的模型槽位与上下文/溢出策略。要按群禁用工具仍用
+  `/tools allow none`（或桌面端「禁止全部」），与模式无关。
+- **工具权限页的作用域归一化与校验**（`atri_x/gui/toolpolicy.py`）：保存前把 `·` / `・` /
+  `•` / 全角 `：` 等"像冒号"的字符和空白统一转成半角 `:`，并按 `platform:scope_id`
+  校验（空值、空段、单段都直接报错，不再静默写盘）。
+- **旧写法键自动迁移**：`migrate_legacy_scope_keys()` 在保存/载入时把 `state.toml` 里
+  `group_policy` 的非规范键小节搬到规范键（字段能带的带过去，工具白名单两个键留给本次保存
+  覆盖），旧的 `qqonebot·group:...` 这类死键会被清掉。
+- **作用域候选来自真实会话库**：`discover_group_scopes()` 只读 `atrix_sessions.db` /
+  `atrix_chat_history.db`，把 `platform:group:id` 列进「工具权限」页的下拉候选与群列表
+  （未配置的群标"未配置"），不用再手打；写法不规范的旧键在列表里标黄提示。
+- **工具权限可按会话模式分开配置**（本仓扩展）：`GroupPolicyConfig` 增加
+  `tool_allowlist_chat` / `tool_allowlist_work` + 对应 `_set` 标记（nil / 空列表二态），
+  `mode_tool_allowlist(mode)` 负责"分模式 → 通用 → 不限制"的回退；运行时
+  `tool_auth.group_tool_allowlist` 多收一个 `session`，按**发起调用的会话模式**取白名单，
+  注入 schema（`tool_schemas`）、执行前授权（`runner` / `chat_tools._tool_hooks`）、
+  `discover_tool` 过滤（`toolrun_adapter`）三处已全部贯通。桌面端「工具权限」页改成
+  **chat / work 两个子选项卡**，各自有独立的三态（继承通用 / 仅白名单 / 禁止全部）、
+  工具菜单、搜索与预设；顶部显示群内 `/tools allow` 写入的通用白名单作为兜底。
+  群内命令不变，`/tools allow` 仍写通用兜底。
+
+### 打包
+
+| 产物 | 大小 / 时间 | 自检 |
+| --- | --- | --- |
+| `ATRI-X-0.9.14-portable-win64.zip` | 682,837,214 字节（651.2 MB，deflate 42%，打包 37.6 s） | 解压 14.9 s / 27,034 条目后 9 项全过（`--version` / `config check` / 数据目录落包内 / `qqproto` / `-m` 转发 / `sidecar` / GUI `--selftest` / `start-portable.bat` / `debug-console.bat`，另含 APPDATA 重定向断言） |
+| `ATRI-X-0.9.14-portable-win64.zip` | SHA256 `dcc6b895f8764b0504e2c6236c10961c32cec2f2763d7a3e2bec91c2dafc6efa` | — |
+
+- 打包输入：内置 DSH 内核 `dshVersion 0.2.0-rc.2`（277.6 MB / 23,812 文件，沿用 0.9.13 已核验的 `runtime/dsh-kernel`）；内置 QQ 协议端 NapCat 4.18.38 / QQ 9.9.33-52230（跳过 `config` / `cache` / `logs` 与 `*.log`，令牌由目标机首次启动生成）。
+- **脱敏核验**：打包前 `scripts/check_secrets.py --all` 0 命中，真机群号统一替换为占位符；产物级扫描（onedir 文本文件 + zip 内 `assets_data` / 说明 / 构建元数据）0 命中，zip 内 NapCat `onebot11.json` / `webui.json` 条目为 0，默认 `state.toml` 的 `default_mode` 为 `work`。
+
+### 文档
+
+- `README.md` / `docs/concepts.md` / `docs/commands.md` / `docs/configuration.md` /
+  `docs/getting-started.md` / `docs/windows-app.md` 同步"两个模式都支持工具"与新的作用域规则；
+  `devdocs/upstream-changelog-cross-check.md` 把"chat 模式不再能传入工具"从**已跟**改成
+  **有意相反**，记录本仓的产品决策与落点。
+
+---
+
 ## [0.9.13] - 2026-10-22 — 正式版：并入两轮真机热修（思考模式工具链 HTTP 400 / 图片媒体读不到）
 
-> 旧状态（0.9.12 便携版真机，QQ 群 `929911642`）：让 ATRI-X 抽图片里的画师串与 prompt 时，
+> 旧状态（0.9.12 便携版真机，QQ 群 `123456789`）：让 ATRI-X 抽图片里的画师串与 prompt 时，
 > 工具确实被调用了，但整轮拿不到任何结果：
 >
 > 1. 工具轮之后的续轮请求被上游拒收：
@@ -48,9 +319,9 @@
 
 ### 验证
 
-- 真实聊天历史库副本 + 真实 QQ 图 URL 的修复前/后对照：修复前
-  `AttributeError: 'Source' object has no attribute 'mime_type'`；修复后 `#1006665254` 与
-  `#842717537` 都下载入库（`media:7ec4ffb2…`，1,776,523 字节）。
+- 真实聊天历史库副本 + 真实 QQ 图 URL 的修复前/后对照（消息 ID 与媒体 ID 已脱敏）：修复前
+  `AttributeError: 'Source' object has no attribute 'mime_type'`；修复后两条历史图片消息
+  都下载入库（约 1.7 MB）。
 - 真实上游探针（`opencode` 中转 / `deepseek-v4.1-flash`，带 tools）：模型返回
   `reasoning_content`，续轮「不带 / 空串 / 原样」三种写法都符合协议要求。
 - 全量 `python -m unittest discover -s tests -t .`：**Ran 5922 tests … OK (skipped=4)**；
@@ -62,7 +333,7 @@
 
 ## [0.9.12-hotfix.2] - 2026-10-21 — 修复"思考模式工具链 HTTP 400"与"图片媒体仍读不到"
 
-> 旧状态（0.9.12-hotfix.1 之后，同一台便携版真机 / QQ 群 `929911642`）：
+> 旧状态（0.9.12-hotfix.1 之后，同一台便携版真机 / QQ 群 `123456789`）：
 >
 > 1. 让 ATRI-X 抽图里的画师串与提示词时，工具已经真的跑起来了，但整轮最后只回一条
 >    `请求失败：HTTP 400: Upstream request failed: [invalid_request_error] The
@@ -125,10 +396,9 @@ DeepSeek 思考模式的协议要求：**请求带 `tools` 时，历史 assistan
 
 ### 验证
 
-- 真实聊天历史库副本 + 真实 QQ 图 URL 的端到端复现：修复前
+- 真实聊天历史库副本 + 真实 QQ 图 URL 的端到端复现（消息 ID 与媒体 ID 已脱敏）：修复前
   `get_history_media` 抛 `AttributeError: 'Source' object has no attribute 'mime_type'`；
-  修复后两条历史消息（`#1006665254`、`#842717537`）都成功下载并入库
-  （`media:7ec4ffb2…`，1,776,523 字节），`media_history` 正常写入。
+  修复后两条历史图片消息都成功下载并入库（约 1.7 MB），`media_history` 正常写入。
 - 真实上游探针（`opencode` 中转 / `deepseek-v4.1-flash`，带 tools）：第一轮返回
   `reasoning_content`（158 字符）；续轮带 / 不带 / 空串三种写法该中转都回 200，说明它是
   宽容路由——真机 400 来自会硬校验的上游路由，修复后三种情形都符合协议。
@@ -143,7 +413,7 @@ DeepSeek 思考模式的协议要求：**请求带 `tools` 时，历史 assistan
 
 ## [0.9.12-hotfix.1] - 2026-10-21 — 修复"群里发图后 `view_image` / `get_media` 读不到图"
 
-> 旧状态（0.9.12 便携版真机，QQ 群 `929911642`）：群里发图让 ATRI-X 抽画师串与提示词时，
+> 旧状态（0.9.12 便携版真机，QQ 群 `123456789`）：群里发图让 ATRI-X 抽画师串与提示词时，
 > `view_image` / `get_media` 全部失败，工具侧报
 > `ChatRepository.get_by_platform_message() takes 4 positional arguments but 5 were given`；
 > 模型只能答复"图片媒体拿不到、读不到像素数据"。
@@ -175,7 +445,7 @@ DeepSeek 思考模式的协议要求：**请求带 `tools` 时，历史 assistan
 
 ## [0.9.12] - 2026-10-21 — 修复"所有群工具被误判为未授权"、桌面端命令回执丢失；新增群工具授权机制
 
-> 旧状态（0.9.11 便携版真机，QQ 群 `1126294273`）：
+> 旧状态（0.9.11 便携版真机，QQ 群 `123456789`）：
 >
 > 1. 群里问"现在几点 / 查查最新显卡"时，`discover_tool` / `web_search` 全部被拒，
 >    工具结果只有 `tool is not in this group's allowlist`，于是模型回答"联网搜索这个群

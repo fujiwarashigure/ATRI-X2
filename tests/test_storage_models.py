@@ -44,6 +44,7 @@ from atri_x.storage.models import (
     ToolCallRecord,
     parse_segments,
     segments_json,
+    session_mode_supports_tools,
 )
 from atri_x.storage.repositories import (
     AtrinisEventRepository,
@@ -451,6 +452,14 @@ class TestConstants(unittest.TestCase):
         self.assertEqual("user", RoleUser)
         self.assertEqual("assistant", RoleAssistant)
         self.assertEqual("tool", RoleTool)
+
+    def test_session_mode_supports_tools(self) -> None:
+        # 本仓有意偏离上游：work / chat 都支持工具；未知模式不支持（安全默认）。
+        self.assertTrue(session_mode_supports_tools(SessionModeWork))
+        self.assertTrue(session_mode_supports_tools(SessionModeChat))
+        self.assertTrue(session_mode_supports_tools(" WORK "))
+        self.assertFalse(session_mode_supports_tools("background"))
+        self.assertFalse(session_mode_supports_tools(""))
 
     def test_atrinis_delivery_constants_match_go(self) -> None:
         self.assertEqual("pending", AtrinisReportDeliveryPending)

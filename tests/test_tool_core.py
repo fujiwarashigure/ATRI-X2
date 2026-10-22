@@ -835,12 +835,21 @@ class TestProvider(unittest.TestCase):
         registry.register(FakeTool(name="resident_memory"))
         registry.register(FakeTool(name="discover_tool"))
         provider = SchemaProvider(registry=registry, policy=default_policy())
-        self.assertEqual(provider.schemas(None, SESSION_MODE_CHAT), [])
+        # 本仓有意偏离上游：chat 模式也注入 schema / 工具名清单。
+        self.assertEqual(
+            [schema.function.name for schema in provider.schemas(None, SESSION_MODE_CHAT)],
+            ["discover_tool"],
+        )
         schemas = provider.schemas(None, SESSION_MODE_WORK)
         self.assertEqual([schema.function.name for schema in schemas], ["discover_tool"])
         names = provider.tool_names(None, SESSION_MODE_WORK)
         self.assertEqual(names.tools, ["resident_memory"])
-        self.assertEqual(provider.tool_names(None, SESSION_MODE_CHAT).tools, [])
+        self.assertEqual(
+            provider.tool_names(None, SESSION_MODE_CHAT).tools, ["resident_memory"]
+        )
+        # 未知模式仍然不注入（后台/未来模式的安全默认）。
+        self.assertEqual(provider.schemas(None, "background"), [])
+        self.assertEqual(provider.tool_names(None, "background").tools, [])
 
     def test_schema_provider_hides_superadmin_tools_from_user(self) -> None:
         from atri_x.tool import SESSION_MODE_WORK, SchemaProvider

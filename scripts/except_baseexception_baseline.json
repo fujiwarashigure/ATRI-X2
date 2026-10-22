@@ -223,8 +223,8 @@
     {
       "file": "atri_x/agent/inbound_media.py",
       "qualname": "materialize_platform_segment",
-      "line_text": "except BaseException: # noqa: BLE001 - 与 Go 相同：失败的段不阻断消息 return unavailable_platform_segment(segment)",
-      "fingerprint": "9860cdb8f94b",
+      "line_text": "except BaseException as exc: # noqa: BLE001 - 与 Go 相同：失败的段不阻断消息 _warn( agent, \"materialize inbound platform media failed; segment degraded to unavailable\", exc,",
+      "fingerprint": "56d4cb951a72",
       "count": 1
     },
     {

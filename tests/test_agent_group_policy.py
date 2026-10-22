@@ -220,25 +220,65 @@ class GroupPolicyTests(unittest.TestCase):
 
     def test_tool_allowlist_text(self) -> None:
         agent = FakeAgent()
-        self.assertEqual(
-            gp.group_tool_allowlist_text(agent, None), "继承全局（不限制）"
-        )
+        text = gp.group_tool_allowlist_text(agent, None)
+        self.assertIn("chat：继承通用", text)
+        self.assertIn("work：继承通用", text)
+        self.assertIn("继承全局（不限制）", text)
+
         agent.group_policy[GROUP_KEY] = GroupPolicyConfig(
             tool_allowlist=[], tool_allowlist_set=True
         ).normalize()
-        self.assertEqual(
-            gp.group_tool_allowlist_text(agent, None), "空（已禁止全部群工具）"
-        )
+        self.assertIn("禁止全部", gp.group_tool_allowlist_text(agent, None))
+
         agent.group_policy[GROUP_KEY] = GroupPolicyConfig(
             tool_allowlist=["web_search", "web_extract"], tool_allowlist_set=True
         ).normalize()
         text = gp.group_tool_allowlist_text(agent, None)
         self.assertIn("web_search", text)
         self.assertIn("web_extract", text)
+
+        # 分模式白名单优先于通用兜底（本仓扩展）。
+        agent.group_policy[GROUP_KEY] = GroupPolicyConfig(
+            tool_allowlist=["web_extract"],
+            tool_allowlist_set=True,
+            tool_allowlist_chat=["web_search"],
+            tool_allowlist_chat_set=True,
+        ).normalize()
+        text = gp.group_tool_allowlist_text(agent, None)
+        self.assertIn("chat：仅白名单（1）：web_search", text)
+        self.assertIn("work：继承通用", text)
+        self.assertIn("通用（/tools allow 写入的兜底）：仅白名单（1）：web_extract", text)
+
         self.assertEqual(
             gp.group_tool_allowlist_text(FakeAgent(group=False), None),
             "非群聊，工具不受群白名单限制",
         )
+
+    def test_mode_tool_allowlist_falls_back_to_generic(self) -> None:
+        plain = GroupPolicyConfig().normalize()
+        self.assertEqual(plain.mode_tool_allowlist("chat"), (False, None))
+        self.assertFalse(plain.mode_tool_allowlist_configured("chat"))
+
+        generic = GroupPolicyConfig(
+            tool_allowlist=["web_search"], tool_allowlist_set=True
+        ).normalize()
+        self.assertEqual(generic.mode_tool_allowlist("chat"), (True, ["web_search"]))
+        self.assertEqual(generic.mode_tool_allowlist("work"), (True, ["web_search"]))
+        self.assertFalse(generic.mode_tool_allowlist_configured("chat"))
+
+        split = GroupPolicyConfig(
+            tool_allowlist=["web_extract"],
+            tool_allowlist_set=True,
+            tool_allowlist_chat=[],
+            tool_allowlist_chat_set=True,
+            tool_allowlist_work=["shell"],
+            tool_allowlist_work_set=True,
+        ).normalize()
+        # chat：显式禁止全部；work：显式白名单；两者都不再看通用。
+        self.assertEqual(split.mode_tool_allowlist("chat"), (True, []))
+        self.assertEqual(split.mode_tool_allowlist("work"), (True, ["shell"]))
+        self.assertTrue(split.mode_tool_allowlist_configured("chat"))
+        self.assertTrue(split.mode_tool_allowlist_configured("work"))
 
     def test_request_keys(self) -> None:
         agent = FakeAgent()

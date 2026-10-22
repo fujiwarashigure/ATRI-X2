@@ -82,12 +82,25 @@ async def materialize_platform_media(agent: Any, ctx: Any) -> Any:
 async def materialize_platform_segment(
     agent: Any, ctx: Any, msg: Any, segment: Any
 ) -> Any:
-    """导入一个媒体段；失败时降级成"媒体不可用"。对应 Go ``materializePlatformSegment``。"""
+    """导入一个媒体段；失败时降级成"媒体不可用"。对应 Go ``materializePlatformSegment``。
+
+    失败**必须留一条 WARN**：降级段会直接进模型输入（``[媒体不可用；<名字>]``），
+    而这里吞掉的异常此前完全不可见——真机事故里磁盘守卫的 ``AttributeError``
+    就是这么让"群聊每张图都读不到"静默了很久（见 :mod:`atri_x.ops.diskguard`
+    的 :func:`~atri_x.ops.diskguard.raise_if_cancelled`）。
+    """
     try:
         item = await agent.media.import_platform(
             ctx, getattr(msg, "platform", ""), getattr(msg, "media_resolver", None), segment
         )
-    except BaseException:  # noqa: BLE001 - 与 Go 相同：失败的段不阻断消息
+    except BaseException as exc:  # noqa: BLE001 - 与 Go 相同：失败的段不阻断消息
+        _warn(
+            agent,
+            "materialize inbound platform media failed; segment degraded to unavailable",
+            exc,
+            segment=segment,
+            message_id=getattr(msg, "platform_message_id", ""),
+        )
         return unavailable_platform_segment(segment)
     out = segment.clone() if hasattr(segment, "clone") else MessageSegment.from_json(
         segment.to_json() if hasattr(segment, "to_json") else {}
@@ -183,10 +196,19 @@ def _segment_key(segment: Any) -> tuple:
     )
 
 
-def _warn(agent: Any, message: str, exc: BaseException) -> None:
+def _warn(agent: Any, message: str, exc: BaseException, **fields: Any) -> None:
+    """把降级原因写进 WARN；诊断字段只放**类型/名字**，不放来源 URL（可能带凭据）。"""
     logger = getattr(agent, "logger", None)
     if logger is None:
         return
     warn = getattr(logger, "warn", None)
-    if warn is not None:
-        warn(message, error=str(exc))
+    if warn is None:
+        return
+    payload: dict[str, Any] = {"error": str(exc)}
+    segment = fields.get("segment")
+    if segment is not None:
+        payload["segment_type"] = str(getattr(segment, "type", "") or "")
+        payload["segment_name"] = str(getattr(segment, "name", "") or "")
+    if fields.get("message_id"):
+        payload["message_id"] = fields["message_id"]
+    warn(message, **payload)

@@ -347,11 +347,14 @@ class ChatToolsHelpersTest(unittest.TestCase):
         )
         self.assertEqual(len(merged), 2)
 
-    def test_session_tools_enabled_only_for_work(self) -> None:
+    def test_session_tools_enabled_for_work_and_chat(self) -> None:
+        # 本仓有意偏离上游：work / chat 都允许工具；未知模式仍视为不支持。
         work = Session(id="s1", mode=SessionModeWork)
         chat = Session(id="s2", mode="chat")
+        unknown = Session(id="s3", mode="background")
         self.assertTrue(chat_tools.session_tools_enabled(work))
-        self.assertFalse(chat_tools.session_tools_enabled(chat))
+        self.assertTrue(chat_tools.session_tools_enabled(chat))
+        self.assertFalse(chat_tools.session_tools_enabled(unknown))
         self.assertFalse(chat_tools.session_tools_enabled(None))
 
     def test_risk_texts_and_results(self) -> None:

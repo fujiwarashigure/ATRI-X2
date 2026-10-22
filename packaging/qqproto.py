@@ -191,6 +191,48 @@ def _copy_shell(shell: Path, target: Path) -> tuple[int, int]:
     return files, total
 
 
+#: 复制后**不许**出现在产物里的目录名（NapCat 运行期在本机生成的配置/缓存/日志）。
+_NAPCAT_RUNTIME_DIRS = ("config", "cache", "logs")
+
+
+def find_sanitize_offenders(target: Path) -> list[str]:
+    """扫出 ``target`` 里残留的 NapCat 运行期文件（相对路径，POSIX 分隔符）。
+
+    :func:`verify_payload` 在 ``stage()`` 末尾已经查过一次，但它只看
+    ``versions/<版本>/resources/app/napcat`` 内部。这里**有意放宽**到整棵负载树
+    （任何路径里带 ``/napcat/`` 的 config/cache/logs、任何 ``*.log``、任何
+    ``onebot11.json`` / ``webui.json``），给「拿现成产物目录重打安装包」这种路径用：
+    目录一旦被运行期写过配置（程序会把自己的令牌写回 qqproto 目录），重打包就会把
+    来源机令牌带进发行物，而这个路径上没有 stage 的核验兜底。
+    """
+    offenders: list[str] = []
+    for path in target.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(target).as_posix()
+        parts = rel.split("/")
+        if "/napcat/" in f"/{rel}" and any(d in parts for d in _NAPCAT_RUNTIME_DIRS):
+            offenders.append(rel)
+        elif path.suffix.lower() == ".log":
+            offenders.append(rel)
+        elif path.name.lower() in ("onebot11.json", "webui.json"):
+            offenders.append(rel)
+    return offenders
+
+
+def assert_sanitized(target: Path) -> None:
+    """打包前硬校验：负载树里残留 NapCat 运行期文件就失败（含疑似令牌）。"""
+    offenders = find_sanitize_offenders(Path(target))
+    if not offenders:
+        return
+    preview = "、".join(offenders[:5])
+    more = f" 等 {len(offenders)} 个" if len(offenders) > 5 else ""
+    raise QqProtoError(
+        "内置协议端脱敏失败：产物里残留 NapCat 运行期文件"
+        f"（{preview}{more}）。这些文件可能带来源机令牌，请重跑 qqproto 复制或删掉它们。"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 生成文件（启动脚本 / 说明 / 元数据）
 # ---------------------------------------------------------------------------

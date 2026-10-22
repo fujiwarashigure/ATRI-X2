@@ -16,6 +16,8 @@
 ;   CloseApplications 管不到它），否则 ``atri-x.exe`` 被占用会导致卸载删不干净。
 ; - 默认勾选「开机自启」：写 HKCU Run，值名与运行时 ``atri_x/gui/autostart.py`` 一致
 ;   （``ATRI-X``），卸载时自动删除。
+; - **品牌素材走相对路径**（``..\atri_x\gui\brand\app.ico``、``assets\wizard-*.png``）：
+;   Inno 按脚本所在目录（源目录）解析，所以不会因为 ISCC 的当前工作目录不同而找不到文件。
 
 #ifndef APP_VERSION
   #define APP_VERSION "0.0.0"
@@ -52,6 +54,18 @@ Compression=lzma2/max
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
 WizardStyle=modern
+; 必须显式打开「欢迎」页：Inno 6/7 默认 DisableWelcomePage=yes，而左侧宣传图**只在
+; 「欢迎」和「完成」两页显示**——不打开的话整个安装过程左侧几乎都是空的。
+DisableWelcomePage=no
+; ---- 品牌素材（都由 packaging/make_assets.py 从品牌源图生成）----
+; 相对路径按 Inno 的「源目录」解析，也就是本脚本所在的 packaging/。
+; SetupIconFile：安装包 setup.exe 自己的图标（不设就是 Inno 的默认图标）。
+; WizardImageFile：向导「欢迎」与「安装完成」两页左侧的宣传图，比例必须 164:314；
+;   给 100%/200%/250% 三档，ISCC 会按当前 DPI 挑最接近的一档，避免高 DPI 下拉伸发糊。
+; WizardSmallImageFile：向导右上角的小图（58×58，Inno 7 起小图区是 58×58）。
+SetupIconFile=..\atri_x\gui\brand\app.ico
+WizardImageFile=assets\wizard-image.png,assets\wizard-image-2x.png,assets\wizard-image-250.png
+WizardSmallImageFile=assets\wizard-small.png,assets\wizard-small-2x.png
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\atri-x-gui.exe

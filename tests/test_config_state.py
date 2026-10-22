@@ -182,6 +182,34 @@ class TestStateRoundTrip(StateCase):
         self.assertIsNone(loaded.group_policy["g"].tool_allowlist)
         self.assertFalse(loaded.group_policy["g"].tool_allowlist_restricted())
 
+    def test_mode_tool_allowlist_nil_and_empty_survive_round_trip(self) -> None:
+        """分模式白名单（本仓扩展）同样要保留 nil / 空列表二态。"""
+        state = StateConfig(
+            group_policy={
+                "g": GroupPolicyConfig(
+                    tool_allowlist_chat=[],  # 显式禁止 chat 工具
+                    tool_allowlist_chat_set=True,
+                    tool_allowlist_work=["web_search"],
+                    tool_allowlist_work_set=True,
+                ).normalize()
+            }
+        )
+        save_state(self.path, state)
+        loaded = load_state(self.path)
+        policy = loaded.group_policy["g"]
+        # omitempty 会把空列表省略，二态由 ``_set`` 标记保住（与通用字段同一套规则）。
+        self.assertIsNone(policy.tool_allowlist_chat)
+        self.assertTrue(policy.tool_allowlist_chat_set)
+        self.assertEqual(policy.tool_allowlist_work, ["web_search"])
+        self.assertEqual(policy.mode_tool_allowlist("chat"), (True, []))
+        self.assertEqual(policy.mode_tool_allowlist("work"), (True, ["web_search"]))
+
+        # 没配过的模式：键缺失 → None，回退通用策略。
+        self.write_state('[group_policy.g]\nresponse_mode = "all"\n')
+        loaded = load_state(self.path)
+        self.assertIsNone(loaded.group_policy["g"].tool_allowlist_chat)
+        self.assertEqual(loaded.group_policy["g"].mode_tool_allowlist("chat"), (False, None))
+
     def test_empty_state_round_trip(self) -> None:
         state = StateConfig()
         save_state(self.path, state)
@@ -284,6 +312,14 @@ class TestGroupPolicyNormalization(StateCase):
         self.assertTrue(GroupPolicyConfig(response_mode="mention").is_zero())
         self.assertFalse(GroupPolicyConfig(response_mode="all").is_zero())
         self.assertFalse(GroupPolicyConfig(tool_allowlist=[]).normalize().is_zero())
+        self.assertFalse(
+            GroupPolicyConfig(tool_allowlist_chat=[], tool_allowlist_chat_set=True)
+            .normalize()
+            .is_zero()
+        )
+        self.assertFalse(
+            GroupPolicyConfig(tool_allowlist_work=["shell"]).normalize().is_zero()
+        )
         self.assertFalse(GroupPolicyConfig(learning=False).is_zero())
 
     def test_tool_allowlist_restricted(self) -> None:

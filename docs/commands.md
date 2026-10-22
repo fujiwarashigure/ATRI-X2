@@ -80,8 +80,11 @@ Responses 模型，由 Chat Completions 产生时允许跨厂商切换。不兼�
 
 说明：
 
-- `chat` 模式不注入工具，适合闲聊、陪伴和低成本问答。
-- `work` 模式启用工具发现和工具调用。
+- 两个模式**都支持工具调用**：都注入工具 schema、跑工具轮、允许 `@tool:` / `@skill:` 预载；
+  区别只在 `state.toml` 的 `mode_models.chat` / `mode_models.work` 用哪个模型，以及
+  `[context]` 的按模式溢出策略。这是本仓相对上游 Go 版的**有意差异**（上游 chat 不注入工具）。
+- 要禁止某个群用工具，用群策略 `/tools allow none`（桌面端「工具权限」页也有同样开关），
+  与 `chat` / `work` 模式无关。
 - 已有历史的 work Session 不能直接切到 chat；需要先 `/new`，再 `/chat`。
 - 例如 `/chat 随便聊聊` 会先切换到 chat 模式，再把“随便聊聊”作为同一条用户消息发给模型；若模式切换被拒绝，消息不会发送。
 
@@ -340,17 +343,20 @@ Fork 会保留原会话，并从指定 assistant 消息位置创建新的上下�
 `allow` 需要当前群群主 / 群管理员 / 机器人超级管理员；`reload` / `remove` 仍然只允许超级管理员。
 
 `/tools allow` 与 `/grouppolicy tool-allow` 写的是同一份群策略（`state.toml` 的
-`[group_policy."<平台:scope>"]`），后台服务 15 秒内热加载，不需要重启。白名单里没写
-`discover_tool` 时命令会自动补上——缺了它，模型连"本群还有哪些工具可用"都发现不了。
-桌面端还有「工具权限」选项卡：按群在纵向工具菜单里逐个「激活」工具（每行带中文名、功能解释与激活状态，另有「常用」「只读」预设）。
+`[group_policy."<平台:scope>"]`），命令写入的是**通用白名单**，作为 chat / work 两个模式的
+兜底；桌面端「工具权限」页的 chat / work 两个子选项卡可以分别给两个模式配更细的白名单
+（`tool_allowlist_chat` / `tool_allowlist_work`），配置了就用分模式那份，没配置才回退到通用。
+后台服务 15 秒内热加载，不需要重启。白名单里没写 `discover_tool` 时命令会自动补上——
+缺了它，模型连"本群还有哪些工具可用"都发现不了。
+桌面端还有「工具权限」选项卡：按群在 chat / work 两个子选项卡里逐个「激活」工具（每行带中文名、功能解释与激活状态，另有「常用」「只读」预设）。
 
 `/tools reload` 会先完整扫描并验证候选 Skill，再一次性替换当前集合。若存在重名 Skill、与内置工具重名或读取失败，reload 会返回错误并保留原有工具集合。
 
-LLM 在 work 模式下可以通过 `discover_tool` 按需发现工具详情。聊天中也可以用 `@tool:<name-or-tag>`（简写 `@t:<name-or-tag>`）预载工具，或用 `@skill:<name>`（简写 `@s:<name>`）把 Skill 文档加入本轮消息并预载对应运行 wrapper。冒号也可以写成中文全角冒号 `：`。
+LLM 在 work / chat 模式下都可以通过 `discover_tool` 按需发现工具详情。聊天中也可以用 `@tool:<name-or-tag>`（简写 `@t:<name-or-tag>`）预载工具，或用 `@skill:<name>`（简写 `@s:<name>`）把 Skill 文档加入本轮消息并预载对应运行 wrapper。冒号也可以写成中文全角冒号 `：`。
 
 `@model:` / `@image:` / `@use:`（也支持 `#模型:`、`#生图:`、`#工具:` 和中文别名）是"单轮声明"：只对当前这一轮生效，下条消息要重新声明，且仅超级管理员可用。触发符号、关键字和别名都可配置，详见 [配置说明](configuration.md#命名-profile-与单轮声明)。
 
-`@tool:` / `@skill:` 预载只在 work 模式生效。在 chat 模式下发送预载指令时，ATRI-X 会剥离指令并提示先发送 `/work` 切换；不会静默忽略。
+`@tool:` / `@skill:` 预载在 work / chat 模式都生效（本仓 chat 也支持工具）。后台沙盒会话不使用工具，发送时会被剥离并提示。
 
 `discover_tool` 的 `name` / `names` 除了工具名和 Skill 名，也可以传 tag（例如 `chat`、`web`），会展开成该 tag 下的全部工具；`discover_tool` 列表中的 `tags` 字段可以用来发现可用的 tag。
 

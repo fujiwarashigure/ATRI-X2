@@ -225,7 +225,7 @@ async def execute_tool_calls(
 
     if not session_tools_enabled(session):
         return _empty_run_result()
-    authorize, before = _tool_hooks(agent)
+    authorize, before = _tool_hooks(agent, session)
     return await run_tool_calls(
         tool_run_manager(agent),
         ctx,
@@ -250,21 +250,24 @@ def _empty_run_result() -> Any:
     return RunResult()
 
 
-def _tool_hooks(agent: Any) -> tuple[Any, Any]:
+def _tool_hooks(agent: Any, session: Any = None) -> tuple[Any, Any]:
     """工具授权与执行前钩子。
 
     这里**不再**吞 ``ImportError``：``atri_x.agent.tool_auth`` 是硬依赖，
     静默降级会返回 ``(None, None)``，而 ``RunRequest.authorize_tool=None`` 过去等于
     "权威授权检查不存在" → 群工具白名单/超管门槛被悄悄绕过。模块缺失时应当直接
     失败（fail-closed），而不是让每次调用都失去授权。
+
+    ``session`` 用于分模式白名单（``chat`` / ``work`` 各一份）：执行闸门要按
+    **发起这次调用的会话**的模式取策略，而不是按"当前时刻"猜。
     """
     from atri_x.agent.tool_auth import authorize_tool_call, before_execute_tool_call
 
     def authorize(ctx: Any, call: Any, resolved: Any) -> Any:
-        return authorize_tool_call(agent, ctx, call, resolved)
+        return authorize_tool_call(agent, ctx, call, resolved, session)
 
     def before(ctx: Any, call: Any, resolved: Any) -> Any:
-        return before_execute_tool_call(agent, ctx, call, resolved)
+        return before_execute_tool_call(agent, ctx, call, resolved, session)
 
     return authorize, before
 

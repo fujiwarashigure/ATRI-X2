@@ -38,7 +38,7 @@ from atri_x.llm import MessageSegment, ToolFunctionSchema, ToolSchema
 from atri_x.runtime import PhaseLLM, Snapshot
 from atri_x.security import Actor, RoleSuperadmin, with_actor
 from atri_x.session import NamingCompletedEvent, NamingScheduledEvent
-from atri_x.storage import Session, SessionModeWork
+from atri_x.storage import Session, SessionModeChat, SessionModeWork
 from atri_x.tool.tool import Registry
 from atri_x.toolrun import Manager
 
@@ -272,6 +272,19 @@ class GroupPolicySeamTest(unittest.TestCase):
         registry.register(_Tool("discover_tool"))
         agent, _deps = _assembled_agent(self, tool_registry=registry)
         session = Session(id="s1", mode=SessionModeWork)
+
+        schemas = asyncio.run(tools_for_session(agent, make_ctx(), session))
+
+        self.assertEqual([schema.function.name for schema in schemas], ["discover_tool"])
+
+    def test_tools_for_session_also_serves_chat_mode(self) -> None:
+        """本仓有意偏离上游：装配后的真实取 schema 入口对 chat 会话同样返回工具。"""
+        from atri_x.agent.tool_schemas import tools_for_session
+
+        registry = Registry()
+        registry.register(_Tool("discover_tool"))
+        agent, _deps = _assembled_agent(self, tool_registry=registry)
+        session = Session(id="s2", mode=SessionModeChat)
 
         schemas = asyncio.run(tools_for_session(agent, make_ctx(), session))
 

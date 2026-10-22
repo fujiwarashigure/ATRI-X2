@@ -4,7 +4,7 @@
 
 顺序是**契约**，不要重排（每一步都有理由）：
 
-1. ``chat`` 模式一律不跑工具（哪怕 Hook 或模型塞了调用）。
+1. ``work`` / ``chat`` 会话都跑工具（本仓有意偏离上游；上游 chat 一律不跑）。
 2. 每个调用先过 ``prepare_tool_call``（Hook 可改写参数）→ 群白名单 →
    ``authorize_tool``（服务端权威检查）。
 3. 评估风险 → 扣「工具使用次数」→ ``preflight_confirmation``。
@@ -39,7 +39,7 @@ from atri_x.llm.llm import (
     text_segments,
 )
 from atri_x.security import Actor, RiskHigh
-from atri_x.storage.models import Session, SessionModeChat
+from atri_x.storage.models import Session, session_mode_supports_tools
 from atri_x.storage.times import now as storage_now
 from atri_x.tool.tool import DiscoveryResult, Result, RiskAssessment
 from atri_x.toolrun.cache import CachedTool
@@ -225,8 +225,8 @@ async def run(manager: Manager, ctx: Any, deps: RunnerDeps, req: RunRequest) -> 
     """执行一整批工具调用。对应 Go ``Manager.Run``。"""
     if req.session is None or deps is None:
         return RunResult()
-    # Chat 模式永远不跑工具
-    if req.session.mode == SessionModeChat:
+    # 本仓：work / chat 都跑工具（上游只在 work 跑）。模式判断收敛到 storage 的谓词。
+    if not session_mode_supports_tools(getattr(req.session, "mode", "")):
         return RunResult()
 
     session_id = req.session.id

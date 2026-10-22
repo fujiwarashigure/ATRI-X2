@@ -160,11 +160,16 @@ class AgentSeams:
             return bool(service.update_group_runtime_from_event(event))
         return False
 
-    def group_tool_allowlist(self, ctx: Any) -> dict[str, bool] | None:
-        """群工具白名单（``None`` 表示不限制）。对应 Go ``Agent.groupToolAllowlist``。"""
+    def group_tool_allowlist(
+        self, ctx: Any, session: Any = None
+    ) -> dict[str, bool] | None:
+        """群工具白名单（``None`` 表示不限制）。对应 Go ``Agent.groupToolAllowlist``。
+
+        ``session`` 用于分模式白名单（本仓扩展）；不传时按通用策略判断。
+        """
         service = self._svc("group_policy")
         if service is not None and hasattr(service, "group_tool_allowlist"):
-            return service.group_tool_allowlist(ctx)
+            return service.group_tool_allowlist(ctx, session)
         return None
 
     def filter_group_feature_schemas(self, ctx: Any, schemas: list[Any]) -> list[Any]:

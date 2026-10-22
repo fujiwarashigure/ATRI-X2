@@ -40,7 +40,7 @@ from atri_x.directive import (
 )
 from atri_x.logging import ResultSkipped
 from atri_x.security import WithActor
-from atri_x.storage.models import SessionModeWork
+from atri_x.storage.models import session_mode_supports_tools
 from atri_x.tool import (
     DetailBlock,
     DiscoveryResult,
@@ -136,7 +136,7 @@ def apply_skill_directives(agent: Any, ctx: Any, session: Any, text: str) -> Any
     matches = skill_matches(text or "")
     if not matches:
         return _outcome(**vars(result))
-    if getattr(session, "mode", "") != SessionModeWork:
+    if not session_mode_supports_tools(getattr(session, "mode", "")):
         result.mode_blocked = True
         remove = [True] * len(matches)
         result.invalid = [str(match.name).strip() for match in matches]
@@ -291,9 +291,8 @@ async def notify_skill_directive_result(agent: Any, ctx: Any, result: Any) -> No
         parts.append("未找到或不可用的 Skill：" + ", ".join(_sorted_unique(invalid)))
     if getattr(result, "mode_blocked", False):
         parts.append(
-            "Skill 预载仅在 work 模式可用，当前是 chat 模式。发送 "
-            + host.command_prefix()
-            + "work 切换后再试。"
+            "当前会话模式不支持 Skill 预载（本仓 work / chat 都支持；"
+            "请确认会话模式是否正确）。"
         )
     if not parts:
         return

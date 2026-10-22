@@ -60,19 +60,46 @@ def run_selftest() -> int:
             app.notebook.select(index)
             root.update_idletasks()
             root.update()
-        # 「工具权限」页的自检：纵向工具菜单每行都必须有激活按钮、状态和功能解释。
+        # 「工具权限」页的自检：chat / work 两个子选项卡都要渲染出工具菜单，且每行
+        # 必须有激活按钮、状态和功能解释。
         # （打包产物的 ``--selftest`` 也走这里，所以冻结版少画一样东西就会被卡住。）
         toolperm = app.toolperm_tab
-        assert toolperm._rows, "工具权限页没有渲染出工具菜单"
-        for name, row in toolperm._rows.items():
-            assert row.badge.cget("text") in ("已激活", "未激活", "继承全局", "禁止使用"), (
-                f"工具 {name} 的激活状态徽标不对"
+        assert toolperm.editors, "工具权限页没有创建 chat / work 子选项卡"
+        for mode_key, editor in toolperm.editors.items():
+            assert editor._rows, f"工具权限页 {mode_key} 子选项卡没有渲染出工具菜单"
+            for name, row in editor._rows.items():
+                assert row.badge.cget("text") in (
+                    "已激活",
+                    "未激活",
+                    "继承全局",
+                    "禁止使用",
+                ), f"工具 {mode_key}/{name} 的激活状态徽标不对"
+                assert str(row.button.cget("text")).strip(), f"工具 {name} 缺少激活按钮文案"
+                assert str(row.summary.cget("text")).strip(), f"工具 {name} 缺少功能解释"
+                assert int(row.summary.cget("wraplength")) > 0, (
+                    f"工具 {name} 的功能解释没有设置换行宽度"
+                )
+        # 第三个子选项卡「工具参数（全局）」：每组参数都要建出面板与字段控件，
+        # 并且能展开 / 收起（自检不写任何配置）。
+        params = toolperm.params_editor
+        assert params is not None, "工具权限页没有创建工具参数子选项卡"
+        assert params.panels, "工具参数子选项卡没有渲染出参数面板"
+        for key, panel in params.panels.items():
+            assert panel.group.fields, f"工具参数面板 {key} 没有字段"
+            rendered = len(panel._vars) + len(panel._texts)
+            assert rendered == len(panel.group.fields), (
+                f"工具参数面板 {key} 的控件数量不对：{rendered}"
+                f" != {len(panel.group.fields)}"
             )
-            assert str(row.button.cget("text")).strip(), f"工具 {name} 缺少激活按钮文案"
-            assert str(row.summary.cget("text")).strip(), f"工具 {name} 缺少功能解释"
-            assert int(row.summary.cget("wraplength")) > 0, (
-                f"工具 {name} 的功能解释没有设置换行宽度"
+            panel.expand()
+            root.update_idletasks()
+            assert panel.expanded and panel.body.winfo_manager(), (
+                f"工具参数面板 {key} 展开失败"
             )
+            panel.collapse()
+        assert params.footer_label.cget("text").strip(), (
+            "工具参数子选项卡缺少『其余工具没有可调参数』说明"
+        )
         app.notebook.select(0)
         root.update_idletasks()
         root.update()

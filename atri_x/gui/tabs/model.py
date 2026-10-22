@@ -34,7 +34,12 @@ from typing import Any
 from atri_x.config.inspect import ConfigDecodeError
 from atri_x.config.services import validate_provider_extra_headers
 from atri_x.gui import modelcatalog, widgets
-from atri_x.gui.configedit import ConfigEditError, pop_env_value, set_env_value
+from atri_x.gui.configedit import (
+    ConfigEditError,
+    pop_env_value,
+    read_toml,
+    set_env_value,
+)
 from atri_x.gui.configmodel import (
     MODEL_SLOTS,
     ProviderView,
@@ -248,7 +253,9 @@ class ModelTab(ConfigTab):
             width=10,
         ).pack(side=tk.LEFT)
         ttk.Label(
-            default_row, text="  新会话用哪个模式（work = 带工具的复杂任务）", foreground="#8a8a8a"
+            default_row,
+            text="  新会话用哪个模式（work / chat 都支持工具，区别在模型槽位）",
+            foreground="#8a8a8a",
         ).pack(side=tk.LEFT)
 
         self.slot_vars: dict[str, tuple[tk.StringVar, tk.StringVar]] = {}
@@ -678,6 +685,13 @@ class ModelTab(ConfigTab):
     def _save_slots(self) -> None:
         try:
             paths = self.require_paths()
+            previous_mode = ""
+            try:
+                session_section = read_toml(paths.state_path).get("session")
+                if isinstance(session_section, dict):
+                    previous_mode = str(session_section.get("default_mode") or "").strip()
+            except ConfigEditError:
+                previous_mode = ""
             values: dict[str, tuple[str, str]] = {}
             for slot in MODEL_SLOTS:
                 provider_var, model_var = self.slot_vars[slot.key]
@@ -688,7 +702,8 @@ class ModelTab(ConfigTab):
                 provider, model = values[slot.key]
                 if provider and not model:
                     raise ConfigEditError(f"「{slot.label}」选了 provider 但没填模型名")
-            save_model_selection(paths, self.default_mode_var.get().strip(), values)
+            default_mode = self.default_mode_var.get().strip()
+            save_model_selection(paths, default_mode, values)
         except ConfigEditError as exc:
             self.fail(exc)
             return
@@ -696,7 +711,14 @@ class ModelTab(ConfigTab):
             "保存模型分配："
             + "；".join(f"{slot.key}={values[slot.key][0]}/{values[slot.key][1]}" for slot in MODEL_SLOTS)
         )
-        self.notify("已保存 state.toml，几秒内热加载生效（无需重启）")
+        if default_mode and default_mode != previous_mode:
+            # [session].default_mode 只在后台服务启动时读取，不在 state.toml 热加载分区里。
+            self.notify(
+                f"模型槽位几秒内热加载；默认会话模式已改为 {default_mode}，"
+                "需重启后台服务后才对新会话生效"
+            )
+        else:
+            self.notify("已保存 state.toml，几秒内热加载生效（无需重启）")
 
     def _picked_model_for_slot(self, slot_key: str, raw: str) -> str:
         text = (raw or "").strip()

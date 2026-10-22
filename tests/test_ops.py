@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import types
 import unittest
 import uuid
 
@@ -178,6 +179,32 @@ class TestDiskGuard(unittest.IsolatedAsyncioTestCase):
         ctx.cancel("test")
         with self.assertRaises(CancelledError):
             await guard.check(ctx)
+
+    async def test_value_only_context_is_not_cancelled(self) -> None:
+        """入站平台路径的 ctx 是"值包"，没有取消语义，不能因此抛 AttributeError。
+
+        真机事故（1.0.0 群聊发图全部 ``[媒体不可用；…]``）：``Guard.check`` 无条件
+        调用 ``ctx.raise_if_cancelled()``，而 ``ctx_with_value`` 把平台运行期 ctx 落成
+        普通 ``dict``；异常被媒体导入的失败降级吞掉，媒体库永远空。
+        """
+        guard = Guard("/tmp", DiskConfig(cache_ttl=60.0), lambda root: (1000, 500))
+        self.assertEqual(await guard.check({"platform": "qqonebot"}), (LevelOK, False))
+        guard._checked = None  # 绕过缓存，确认每次都走取消检查
+        flag = types.SimpleNamespace(cancelled=False, is_set=lambda: False)
+        self.assertEqual(await guard.check(flag), (LevelOK, False))
+        guard._checked = None
+        self.assertEqual(await guard.check("/not-a-context"), (LevelOK, False))
+
+    async def test_cancelled_value_only_context_raises(self) -> None:
+        """没有 ``raise_if_cancelled`` 但自报 cancelled 的 ctx 仍要中止。"""
+        from atri_x.ops.diskguard import raise_if_cancelled
+
+        with self.assertRaises(CancelledError):
+            raise_if_cancelled(types.SimpleNamespace(cancelled=True))
+        with self.assertRaises(OSError):
+            raise_if_cancelled(types.SimpleNamespace(cancelled=True, error=OSError("gone")))
+        raise_if_cancelled(types.SimpleNamespace(cancelled=False))
+        raise_if_cancelled(None)
 
     async def test_zero_total_reports_ok(self) -> None:
         guard = Guard("/tmp", DiskConfig(cache_ttl=60.0), lambda root: (0, 0))

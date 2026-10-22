@@ -57,6 +57,18 @@ SessionModeWork = SessionMode.WORK
 SessionModeChat = SessionMode.CHAT
 
 
+def session_mode_supports_tools(mode: str) -> bool:
+    """该会话模式是否允许工具注入与执行。
+
+    本仓有意偏离上游 Go：``work`` 与 ``chat`` **都支持工具**，二者只差模型槽位
+    （``mode_models.*``）与上下文/溢出策略，不再是"chat 永不使用工具"。
+    上游的对应判断散在 ``internal/tool/provider.go``、``internal/toolrun/runner.go``、
+    ``internal/agent/tool_directive.go`` 里，本仓统一收敛到这一个谓词，避免各处
+    字面量判断漂移。
+    """
+    return (mode or "").strip().lower() in (SessionMode.WORK, SessionMode.CHAT)
+
+
 class SessionStatus:
     """会话状态。对应 Go ``SessionStatusActive/Paused/Closed``。"""
 

@@ -515,20 +515,45 @@ def group_policy_status(agent: Any, ctx: Any) -> str:
     return "\n".join(lines) + "\n"
 
 
-def group_tool_allowlist_text(agent: Any, ctx: Any) -> str:
-    """当前群工具白名单的一句话视图（``/tools`` 用，也便于排障）。
+def group_tool_allowlist_text(agent: Any, ctx: Any, session: Any = None) -> str:
+    """当前群工具白名单的视图（``/tools`` 用，也便于排障）。
 
     与 :func:`atri_x.agent.tool_auth.group_tool_allowlist` 同一套语义：
-    ``继承全局`` = 不受群白名单限制；``空`` = 当前群禁止全部工具。
+    ``继承全局`` = 不受群白名单限制；``空`` = 当前模式禁止全部工具。
+    本仓扩展了 ``chat`` / ``work`` 各自的白名单：没有分模式配置时回退到通用列表，
+    这里的文本会把三种情况都写清楚。
     """
     if agent is None or not is_group_scope(agent, ctx):
         return "非群聊，工具不受群白名单限制"
     policy = group_policy_for_scope(agent, _scope(agent, ctx))
-    if not policy.tool_allowlist_restricted():
-        return "继承全局（不限制）"
-    if not policy.tool_allowlist:
-        return "空（已禁止全部群工具）"
-    return display_string_list(policy.tool_allowlist)
+
+    def describe(restricted: bool, names: list[str] | None, *, generic: bool) -> str:
+        if not restricted:
+            return "继承全局（不限制）" if generic else "继承通用"
+        if not names:
+            return "禁止全部"
+        return f"仅白名单（{len(names)}）：{display_string_list(names)}"
+
+    generic = describe(
+        policy.tool_allowlist_restricted(),
+        list(policy.tool_allowlist or []),
+        generic=True,
+    )
+    parts: list[str] = []
+    if session is not None:
+        mode = str(getattr(session, "mode", "") or "").strip().lower()
+        if mode in ("chat", "work"):
+            restricted, names = policy.mode_tool_allowlist(mode)
+            parts.append(f"当前模式 {mode}：{describe(restricted, names, generic=False)}")
+    for mode in ("chat", "work"):
+        configured = policy.mode_tool_allowlist_configured(mode)
+        restricted, names = policy.mode_tool_allowlist(mode)
+        if configured:
+            parts.append(f"{mode}：{describe(restricted, names, generic=False)}")
+        else:
+            parts.append(f"{mode}：继承通用")
+    parts.append(f"通用（/tools allow 写入的兜底）：{generic}")
+    return "；".join(parts)
 
 
 def budget_text(limit: int, used: int) -> str:

@@ -237,7 +237,7 @@ ATRIX_HEALTH_LIVE_STALE_SECONDS=90
 
 ## Workspace 工具
 
-在 work 模式中，超级管理员可以让 LLM 调用 `workspace` 工具切换当前 Session 的共享工作目录。切换后，`read_file`、`edit_file`、`send_file` 和前台 `shell` 等路径类工具会基于该目录解析相对路径，避免每次都传完整路径。
+在 work / chat 模式中（本仓两种模式都支持工具），超级管理员可以让 LLM 调用 `workspace` 工具切换当前 Session 的共享工作目录。切换后，`read_file`、`edit_file`、`send_file` 和前台 `shell` 等路径类工具会基于该目录解析相对路径，避免每次都传完整路径。
 
 某个目录的 `workspace` 工具首次被发现或注入，或者首次切换、重置到该目录时，如果目录根部存在 `AGENTS.md` 或 `AGENT.md`，系统会自动把文件内容附带给 LLM，供其读取当前目录的工作约定。文件名主体必须是大写 `AGENTS` 或 `AGENT`，`.md` 后缀大小写不限；`AGENTS.md` 优先于 `AGENT.md`。
 
@@ -627,9 +627,9 @@ provider = "deepseek"
 model = "deepseek-chat"
 ```
 
-- `default_mode` 决定新 Session 默认进入 `chat` 还是 `work`。
-- `work` 模式启用工具发现和工具调用。
-- `chat` 模式不注入工具，适合闲聊和低成本对话。
+- `default_mode` 决定新 Session 默认进入 `chat` 还是 `work`；它在**后台服务启动时读取**，改完需重启后台服务，运行中的会话不受影响。
+- 两种模式**都支持工具发现与工具调用**（本仓相对上游 Go 版的有意差异），区别只在 `mode_models.chat` / `mode_models.work` 用哪个模型和按模式的上下文策略。
+- 要按群禁止工具，用群策略 `/tools allow none` 或桌面端「工具权限」页设「禁止全部」，与模式无关。
 - `atriwisp1`、`atriwisp2`、`atriwisp3` 是 Atrinis LLM 事件可选模型槽位；Atriena 请求可通过 `model_slot` 指定，未配置时回退到 `work`。
 - 运行时使用 `/model` 切换模型后，状态会写回 `state.toml`。
 
@@ -1118,6 +1118,9 @@ report_days = 1
 - 机器人自身被禁言、被踢或主动离群时，服务端按当前群维护运行状态并写入 `state.toml` 的 `group_runtime`（`active` / `muted` / `removed` / `unavailable`，缺省视为 `active`）。`muted` / `removed` 期间：拒绝该群新的模型调用、取消该群在途请求、丢弃发往该群的定时任务/提醒/后台通知，避免“模型继续计费但结果发不出去”；每次状态变化只向超管发送一次聚合通知，重复事件不重复通知。解除禁言或重新入群后恢复为 `active`，暂停期间的通知不会集中补发。
 - 模型目录 `allowed-models` 为空时，群默认模型只能从已配置的模型别名/profile 中选择；显式填入 `provider/model` 或 `*` 才会放开对应范围。模型别名解析后仍会对最终 `provider/model` 再做一次目录校验。
 - 工具白名单是 **nil / 空列表二态**：没有配置（`state.toml` 里没有该键）表示继承全局工具策略、不限制；显式空列表 `tool_allowlist = []` 表示当前群禁止全部工具；显式列表表示只放行这些工具。`/grouppolicy tool-allow clear` 回到继承，`none` 写空列表。归一化必须保留这个区分，否则"没配过策略"会被误读成"禁止全部工具"（0.9.11 真机事故）。群主/管理员可以用更短的 `/tools allow <工具,工具|all|none>` 改同一份策略，桌面端「工具权限」页提供按群的纵向工具菜单（逐个激活，每行带功能解释）。
+- 群作用域键必须写成运行时的 `platform:platform_scope_id`（半角冒号，例如 `qqonebot:group:123456789`），它不是展示用的 `qqonebot · group:...`（间隔号）。桌面端保存时会自动把 `·` / `・` / `•` / 全角 `：` 和空白归一成半角冒号、按 `platform:scope_id` 校验，并把文件里已有的旧写法小节迁移到规范键；旧版本写错的键会让整份白名单静默失效（0.9.13 真机事故）。作用域候选来自会话库，不用手打。
+- 工具白名单支持**按会话模式分开配置**（本仓扩展）：`tool_allowlist_chat` / `tool_allowlist_work` 各管一份，`tool_allowlist_chat_set` / `tool_allowlist_work_set` 记录"这是显式策略"（与通用的 `tool_allowlist_set` 同理，空列表表示该模式禁止全部工具）。某个模式没配置时回退到通用 `tool_allowlist`；通用也没配就是不限制。运行时按**发起调用的会话**的模式取策略：注入了哪些工具 schema、执行前授权、`discover_tool` 的白名单过滤都走同一份。桌面端「工具权限」页的 chat / work 两个子选项卡就是编辑这两个字段；群内 `/tools allow ...` 改的是通用兜底。
+- 工具的**内部参数**（不是"能不能调用"，而是"调用时怎么跑"）在桌面端「工具权限 → 工具参数（全局）」子选项卡里按工具分组编辑：每个工具一个可展开 / 收起的参数面板，例如生图的 `metadata_store`（入库转码前留档生成参数）、`[web_search].engine_order`（搜索通道顺序）、`[resident_memory]` 的写入上限、`[security].user_max_tool_risk`（普通用户可用最高风险）。这些键都写在 `app.toml` / `services.toml`，保存后需要重启后台服务；面板只提交改动过的键，不会重写同小节其它键的行内注释。要手改也仍然可以直接编辑配置文件，保存前记得停服务或用界面「重新载入」同步。
 - 工具白名单由服务端在工具解析后和执行前分别校验：`clear` 表示继承全局工具策略，`none` 表示当前群禁止全部工具。`discover_tool` 也是普通工具，只有显式写入白名单才可用（`/tools allow` 与桌面端会自动补上它）；工具 profile 会被展开为具体工具名，因此通过 `@use:`、技能或缓存间接调用也必须命中白名单。`discover_tool` 在受限群里还会收到当前白名单过滤器，列表和详情只返回本群允许的工具。群分析摘要模型也会在工具执行前按当前群模型目录重新授权。
 - 工具白名单和每日额度在请求排队后、真正执行前重新校验；排队期间被管理员关闭的工具不会继续执行。私聊、定时任务和后台任务没有群 scope 时使用全局安全策略，不套用某个群的策略。
 - 生图/视觉额度按“调用前原子预占、按唯一调用 ID 防重复计数”的每日次数账本执行，写入 `state.toml` 的 `budget.reservations`，重启后保留。同一调用 ID 会被绑定到参数摘要（`budget.digests`）；重放相同参数不重复计数，复用 ID 但参数不同会被拒绝。预占在账本无法可靠落盘时会回滚并拒绝受限调用；已经发出的 provider 调用不会因本地超时/取消自动退款，重启后结果未知时按保守占用处理。
@@ -1474,7 +1477,7 @@ negative_cache_ttl_seconds = 30
 - `source` 与 `message_id` 二选一；`media_index` 与 `message_id` 逐项对应，序号从 1 开始且只能选图片，省略时取每条消息的首张图片。
 - 本地路径仅超级管理员可用，读取可能包含凭据的敏感文件会进入高风险确认；HTTP(S) URL 与本地文件都按媒体导入规则入库（受媒体大小与下载超时限制）。
 - 单次调用最多 5 次未入库媒体的下载尝试，失败只返回文本提示，不回显上游错误、凭据或本地路径。
-- 可用条件：当前 work Session 使用的模型声明 `vision = false` 时（`[providers.<name>].vision` 或 `[providers.<name>.model_configs."<model>"].vision`），该工具不会被发现、预载或执行；未声明时按原有行为可用。chat 模式本来就不使用工具。
+- 可用条件：当前 Session（work / chat 都可以，本仓两种模式都使用工具）使用的模型声明 `vision = false` 时（`[providers.<name>].vision` 或 `[providers.<name>.model_configs."<model>"].vision`），该工具不会被发现、预载或执行；未声明时按原有行为可用。
 
 ## 语音转写 asr
 

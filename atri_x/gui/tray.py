@@ -55,6 +55,9 @@ _TPM_RETURNCMD = 0x0100
 _IDI_APPLICATION = 32512
 _IMAGE_ICON = 1
 _LR_LOADFROMFILE = 0x00000010
+#: 通知区域图标恒为「系统小图标」尺寸（100% DPI 下 16px，随 DPI 变 20/24/32…）。
+_SM_CXSMICON = 49
+_SM_CYSMICON = 50
 
 _NIIF_INFO = 0x00000001
 _NIIF_USER = 0x00000004
@@ -116,6 +119,8 @@ def _bind_apis() -> None:
         wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT,
         ctypes.c_int, ctypes.c_int, wintypes.UINT,
     ]
+    user32.GetSystemMetrics.restype = ctypes.c_int
+    user32.GetSystemMetrics.argtypes = [ctypes.c_int]
     user32.RegisterClassW.restype = wintypes.ATOM
     user32.RegisterClassW.argtypes = [wintypes.LPVOID]
     user32.GetMessageW.restype = wintypes.BOOL
@@ -386,8 +391,13 @@ class TrayIcon:
     def _load_icon(self) -> int:
         if self._icon_path and os.path.isfile(self._icon_path):
             user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+            # 必须显式按「系统小图标」尺寸取。传 0,0 又不给 LR_DEFAULTSIZE 时尺寸是
+            # 未定义的，通常拿到大图再被 shell 缩，125%/150% DPI 下会明显发糊；
+            # 给正确尺寸后 LoadImage 会从多尺寸 .ico 里挑最接近的那一档。
+            cx = user32.GetSystemMetrics(_SM_CXSMICON) or 16
+            cy = user32.GetSystemMetrics(_SM_CYSMICON) or 16
             handle = user32.LoadImageW(
-                None, self._icon_path, _IMAGE_ICON, 0, 0, _LR_LOADFROMFILE
+                None, self._icon_path, _IMAGE_ICON, cx, cy, _LR_LOADFROMFILE
             )
             if handle:
                 return int(handle)

@@ -200,6 +200,16 @@ class ScrollFrame(ttk.Frame):
         except tk.TclError:  # pragma: no cover - 窗口销毁
             pass
 
+    def scroll_to_widget(self, widget: Any) -> None:
+        """把某个子控件滚到可视区（「工具参数」页从工具行跳进对应面板时用）。"""
+        try:
+            self.canvas.update_idletasks()
+            height = max(1, self.inner.winfo_reqheight())
+            offset = max(0, int(widget.winfo_y()))
+            self.canvas.yview_moveto(min(1.0, offset / height))
+        except tk.TclError:  # pragma: no cover - 窗口销毁
+            pass
+
     def yview(self) -> tuple[float, float]:
         """当前可视区间 ``(首, 尾)``，0~1；用来断言"确实能滚"。"""
         return tuple(self.canvas.yview())  # type: ignore[return-value]
