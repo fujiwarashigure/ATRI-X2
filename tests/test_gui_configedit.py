@@ -212,6 +212,49 @@ class ProviderTestCase(ConfigCase):
         with self.assertRaises(configedit.ConfigEditError):
             configmodel.validate_provider_name("bad name")
 
+    def test_reasoning_effort_roundtrip_and_clear(self) -> None:
+        """推理思考强度：保存落进 services.toml，清空 = 删键（不是留空串）。"""
+        view = configmodel.load_providers(self.paths)["deepseek"]
+        self.assertEqual(view.reasoning_effort, "")
+        view.reasoning_effort = "HIGH"
+        configmodel.save_provider(self.paths, view, original="deepseek")
+        data = self.parse("services.toml")
+        self.assertEqual(data["providers"]["deepseek"]["reasoning_effort"], "high")
+        self.assertEqual(
+            configmodel.load_providers(self.paths)["deepseek"].reasoning_effort, "high"
+        )
+        view = configmodel.load_providers(self.paths)["deepseek"]
+        view.reasoning_effort = ""
+        configmodel.save_provider(self.paths, view, original="deepseek")
+        self.assertNotIn(
+            "reasoning_effort", self.parse("services.toml")["providers"]["deepseek"]
+        )
+
+    def test_reasoning_effort_unknown_value_rejected_before_write(self) -> None:
+        view = configmodel.ProviderView(
+            name="relay", base_url="https://relay/v1", reasoning_effort="ultra"
+        )
+        with self.assertRaises(configedit.ConfigEditError) as ctx:
+            configmodel.save_provider(self.paths, view)
+        self.assertIn("推理思考强度", str(ctx.exception))
+        self.assertNotIn("relay", configmodel.load_providers(self.paths))
+
+    def test_save_provider_verifies_file_roundtrip(self) -> None:
+        """写盘后必须回读一致；不一致要报错，而不是留下"界面改了、文件没改"。"""
+        view = configmodel.ProviderView(name="relay", base_url="https://relay/v1")
+        real = configmodel.load_providers
+
+        def corrupted(paths: Any) -> dict[str, configmodel.ProviderView]:
+            saved = real(paths)
+            saved["relay"].base_url = "https://wrong/v1"
+            return saved
+
+        with mock.patch.object(configmodel, "load_providers", side_effect=corrupted):
+            with self.assertRaises(configedit.ConfigEditError) as ctx:
+                configmodel.save_provider(self.paths, view)
+        self.assertIn("回读与界面不一致", str(ctx.exception))
+        self.assertIn("base_url", str(ctx.exception))
+
     def test_key_state_from_dotenv_and_process_env(self) -> None:
         providers = configmodel.load_providers(self.paths)
         self.assertFalse(configmodel.provider_key_state(self.paths, providers["deepseek"]).configured)
@@ -258,6 +301,61 @@ class ModelSelectionTestCase(ConfigCase):
     def test_save_skips_empty_slots(self) -> None:
         configmodel.save_model_selection(self.paths, "", {"naming": ("", "")})
         self.assertNotIn("naming_model", self.parse("state.toml"))
+
+    def test_clear_optional_slot_removes_section(self) -> None:
+        """清空命名/压缩槽位必须真的从 state.toml 删段，而不是留着旧值。"""
+        configmodel.save_model_selection(
+            self.paths, "", {"naming": ("deepseek", "deepseek-chat")}
+        )
+        self.assertIn("naming_model", self.parse("state.toml"))
+        configmodel.save_model_selection(self.paths, "", {"naming": ("", "")})
+        self.assertNotIn("naming_model", self.parse("state.toml"))
+        self.assertEqual(configmodel.load_model_selection(self.paths)[1]["naming"], ("", ""))
+
+    def test_clear_required_slot_rejected_without_touching_file(self) -> None:
+        """work/chat 清空会让服务启动失败，必须拒绝（且不能写半份配置）。"""
+        before = self.read("state.toml")
+        for slot in ("work", "chat"):
+            with self.subTest(slot=slot):
+                with self.assertRaises(configedit.ConfigEditError) as ctx:
+                    configmodel.save_model_selection(self.paths, "", {slot: ("", "")})
+                self.assertIn("不能清空", str(ctx.exception))
+                self.assertEqual(self.read("state.toml"), before)
+
+    def test_half_filled_slot_rejected_without_touching_file(self) -> None:
+        before = self.read("state.toml")
+        for values in ({"chat": ("deepseek", "")}, {"chat": ("", "deepseek-chat")}):
+            with self.subTest(values=values):
+                with self.assertRaises(configedit.ConfigEditError) as ctx:
+                    configmodel.save_model_selection(self.paths, "", values)
+                self.assertIn("必须同时填写", str(ctx.exception))
+                self.assertEqual(self.read("state.toml"), before)
+
+    def test_all_slots_validated_before_any_write(self) -> None:
+        """前面槽位合法、后面槽位非法时，整份文件都不应被改。"""
+        before = self.read("state.toml")
+        with self.assertRaises(configedit.ConfigEditError):
+            configmodel.save_model_selection(
+                self.paths,
+                "chat",
+                {"naming": ("deepseek", "deepseek-chat"), "work": ("", "")},
+            )
+        self.assertEqual(self.read("state.toml"), before)
+
+    def test_save_model_selection_verifies_file_roundtrip(self) -> None:
+        real = configmodel.load_model_selection
+
+        def corrupted(paths: Any) -> tuple[str, dict[str, tuple[str, str]]]:
+            mode, slots = real(paths)
+            slots["chat"] = ("deepseek", "wrong-model")
+            return mode, slots
+
+        with mock.patch.object(configmodel, "load_model_selection", side_effect=corrupted):
+            with self.assertRaises(configedit.ConfigEditError) as ctx:
+                configmodel.save_model_selection(
+                    self.paths, "", {"chat": ("deepseek", "deepseek-v4-flash")}
+                )
+        self.assertIn("回读与界面不一致", str(ctx.exception))
 
 
 class FeatureViewTestCase(ConfigCase):

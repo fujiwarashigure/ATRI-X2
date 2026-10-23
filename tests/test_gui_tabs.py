@@ -300,6 +300,45 @@ class ModelTabCase(TkCase):
         self.assertEqual(data["mode_models"]["work"]["provider"], "deepseek")
         self.assertEqual(data["mode_models"]["work"]["model"], "deepseek-chat")
 
+    def test_reasoning_effort_setting_roundtrip(self) -> None:
+        """「模型」页新增的推理思考强度：下拉选中 → 落进 services.toml → 重新载入还原。"""
+        self.tab.reasoning_var.set("high")
+        self.tab._save_provider()
+        provider = self.read_toml("services.toml")["providers"]["deepseek"]
+        self.assertEqual(provider["reasoning_effort"], "high")
+        self.assertIn("services.toml", self.tab._status.get())
+        self.tab.reload()
+        self.assertEqual(self.tab.reasoning_var.get(), "high")
+        # 选「（不设置）」保存 = 删除该键，不留下空串配置。
+        self.tab.reasoning_var.set("（不设置）")
+        self.tab._save_provider()
+        self.assertNotIn(
+            "reasoning_effort", self.read_toml("services.toml")["providers"]["deepseek"]
+        )
+
+    def test_clearing_optional_model_slot_persists(self) -> None:
+        """清空命名模型槽位必须落到 state.toml（旧版会"界面清空、文件留着旧值"）。"""
+        provider_var, model_var = self.tab.slot_vars["naming"]
+        provider_var.set("deepseek")
+        model_var.set("deepseek-chat")
+        self.tab._save_slots()
+        self.assertIn("naming_model", self.read_toml("state.toml"))
+        provider_var.set("")
+        model_var.set("")
+        self.tab._save_slots()
+        self.assertNotIn("naming_model", self.read_toml("state.toml"))
+        self.assertIn("已保存并回读校验", self.tab._status.get())
+
+    def test_clearing_required_model_slot_is_refused(self) -> None:
+        """工作/聊天槽位不能清空：界面要给出明确错误，且文件保持原样。"""
+        before = Path(self.paths.state_path).read_text(encoding="utf-8")
+        provider_var, model_var = self.tab.slot_vars["work"]
+        provider_var.set("")
+        model_var.set("")
+        self.tab._save_slots()
+        self.assertIn("不能清空", self.tab._status.get())
+        self.assertEqual(Path(self.paths.state_path).read_text(encoding="utf-8"), before)
+
     def test_extra_headers_roundtrip(self) -> None:
         self.tab.headers_text.delete("1.0", tk.END)
         self.tab.headers_text.insert("1.0", "x-opencode-session: atri-x-local\n")

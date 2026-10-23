@@ -23,7 +23,7 @@ from atri_x.app.breaker_llm import (
 )
 from atri_x.app.dependencies import ModelClients, ModelRequest
 from atri_x.app.health_llm import wrap_health_llm
-from atri_x.config import APIProtocol
+from atri_x.config import APIProtocol, normalize_reasoning_effort
 from atri_x.errors import InvalidError
 from atri_x.llm import ChatRequest
 from atri_x.llm.breaker import Breaker, Config as BreakerConfig
@@ -40,6 +40,8 @@ __all__ = [
     "model_extra_payloads",
     "newProviderLLM",
     "new_provider_llm",
+    "providerExtraPayload",
+    "provider_extra_payload",
     "setClientLogger",
     "set_client_logger",
 ]
@@ -145,13 +147,36 @@ def app_llm_request_options(cfg: Any, proxy: str) -> RequestOptions:
 
 
 def model_extra_payloads(model_configs: Any) -> dict[str, dict[str, Any]]:
-    """对应 Go ``modelExtraPayloads``：只保留显式配了 ``extra_payload`` 的模型。"""
+    """对应 Go ``modelExtraPayloads``：只保留显式配了额外字段的模型。
+
+    Python 侧比 Go 多合并一项专用配置：``reasoning_effort`` 是桌面端「模型」页
+    可编辑的一等字段，这里折进同一个 extra payload，由适配器按
+    「Provider → 模型」顺序覆盖。同名键时专用字段胜出。
+    """
     out: dict[str, dict[str, Any]] = {}
     for model, cfg in (model_configs or {}).items():
-        extra = getattr(cfg, "extra_payload", None)
+        extra = dict(getattr(cfg, "extra_payload", None) or {})
+        effort, ok = normalize_reasoning_effort(
+            getattr(cfg, "reasoning_effort", "") or ""
+        )
+        if ok and effort:
+            extra["reasoning_effort"] = effort
         if extra:
-            out[model] = dict(extra)
+            out[model] = extra
     return out
+
+
+def provider_extra_payload(provider: Any) -> dict[str, Any] | None:
+    """Provider 级 extra payload：``extra_payload`` + 专用 ``reasoning_effort``。
+
+    两者同名时**专用字段胜出**——它就是为了让用户不必手写 ``extra_payload`` 而加的
+    一等配置。返回 ``None`` 表示没有额外字段（与旧行为一致，不会多发空对象）。
+    """
+    payload = dict(getattr(provider, "extra_payload", None) or {})
+    effort, ok = normalize_reasoning_effort(getattr(provider, "reasoning_effort", "") or "")
+    if ok and effort:
+        payload["reasoning_effort"] = effort
+    return payload or None
 
 
 def new_provider_llm(name: str, provider: Any, opts: RequestOptions) -> Any:
@@ -163,7 +188,7 @@ def new_provider_llm(name: str, provider: Any, opts: RequestOptions) -> Any:
     model_extras = model_extra_payloads(getattr(provider, "model_configs", None))
     base_url = getattr(provider, "base_url", "") or ""
     api_key = getattr(provider, "api_key", "") or ""
-    extra_payload = getattr(provider, "extra_payload", None) or None
+    extra_payload = provider_extra_payload(provider)
     extra_headers = getattr(provider, "extra_headers", None) or None
     chat = OpenAIClient(
         base_url, api_key, extra_payload, model_extras, opts, extra_headers=extra_headers
@@ -294,4 +319,5 @@ protocolRouter = ProtocolRouter
 appLLMRequestOptions = app_llm_request_options
 modelExtraPayloads = model_extra_payloads
 newProviderLLM = new_provider_llm
+providerExtraPayload = provider_extra_payload
 setClientLogger = set_client_logger

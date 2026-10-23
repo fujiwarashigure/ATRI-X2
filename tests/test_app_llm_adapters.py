@@ -22,12 +22,15 @@ from atri_x.app.models import (
     ProtocolRouter,
     app_llm_request_options,
     model_extra_payloads,
+    new_provider_llm,
+    provider_extra_payload,
     set_client_logger,
 )
-from atri_x.config import APIProtocol
+from atri_x.config import APIProtocol, ModelConfig, ProviderConfig
 from atri_x.errors import ErrFallbackTotalTimeout, InvalidError, OpenError
 from atri_x.llm import ChatRequest, StreamChunk
 from atri_x.llm.breaker import Breaker, Config as BreakerConfig
+from atri_x.llm.openai import RequestOptions
 
 
 class FakeClient:
@@ -384,14 +387,66 @@ class TestModelHelpers(unittest.TestCase):
         configs = {
             "a": type("M", (), {"extra_payload": {"x": 1}})(),
             "b": type("M", (), {"extra_payload": {}})(),
+            "c": type("M", (), {"extra_payload": {}, "reasoning_effort": "HIGH"})(),
         }
-        self.assertEqual(model_extra_payloads(configs), {"a": {"x": 1}})
+        self.assertEqual(
+            model_extra_payloads(configs),
+            {"a": {"x": 1}, "c": {"reasoning_effort": "high"}},
+        )
+
+    def test_provider_extra_payload_makes_reasoning_effort_win(self):
+        provider = ProviderConfig(
+            base_url="https://x/v1",
+            extra_payload={"reasoning_effort": "low", "other": 1},
+            reasoning_effort="HIGH",
+        )
+        self.assertEqual(
+            provider_extra_payload(provider),
+            {"reasoning_effort": "high", "other": 1},
+        )
+        self.assertIsNone(
+            provider_extra_payload(ProviderConfig(base_url="https://x/v1"))
+        )
 
     def test_set_client_logger_ignores_non_supporting_client(self):
         set_client_logger(object(), "logger")
         client = FakeClient()
         set_client_logger(client, "logger")
         self.assertEqual(client.logger, "logger")
+
+
+class ReasoningEffortInjectionTest(unittest.TestCase):
+    """Provider/模型级 ``reasoning_effort`` 必须真的出现在请求 JSON 里。"""
+
+    def _body(self, provider: ProviderConfig, model: str) -> dict[str, Any]:
+        client = new_provider_llm("p", provider, RequestOptions())
+        return client.build_body(ChatRequest(model=model))
+
+    def test_provider_level_effort_is_sent(self) -> None:
+        body = self._body(ProviderConfig(base_url="https://x/v1", reasoning_effort="HIGH"), "m1")
+        self.assertEqual(body["reasoning_effort"], "high")
+
+    def test_model_level_effort_overrides_provider(self) -> None:
+        provider = ProviderConfig(
+            base_url="https://x/v1",
+            reasoning_effort="low",
+            model_configs={"m1": ModelConfig(reasoning_effort="high")},
+        )
+        self.assertEqual(self._body(provider, "m1")["reasoning_effort"], "high")
+        self.assertEqual(self._body(provider, "m2")["reasoning_effort"], "low")
+
+    def test_unset_effort_is_not_sent(self) -> None:
+        body = self._body(ProviderConfig(base_url="https://x/v1"), "m1")
+        self.assertNotIn("reasoning_effort", body)
+
+    def test_cli_hook_extra_body_still_wins(self) -> None:
+        client = new_provider_llm(
+            "p", ProviderConfig(base_url="https://x/v1", reasoning_effort="low"), RequestOptions()
+        )
+        body = client.build_body(
+            ChatRequest(model="m1", extra_body={"reasoning_effort": "high"})
+        )
+        self.assertEqual(body["reasoning_effort"], "high")
 
 
 if __name__ == "__main__":

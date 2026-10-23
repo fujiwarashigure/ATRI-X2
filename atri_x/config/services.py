@@ -42,6 +42,7 @@ __all__ = [
     "ModelMetadataConfig",
     "ModelProfileConfig",
     "ProviderConfig",
+    "REASONING_EFFORT_VALUES",
     "RESERVED_HEADER_NAMES",
     "ServicesConfig",
     "VisionConfig",
@@ -52,6 +53,7 @@ __all__ = [
     "WebExtractEngineConfig",
     "audio_support_from_bool",
     "load_services_config",
+    "normalize_reasoning_effort",
     "parse_api_protocol",
     "validate_provider_extra_headers",
     "vision_support_from_bool",
@@ -106,6 +108,29 @@ def parse_api_protocol(raw: str) -> tuple[APIProtocol, bool]:
     return APIProtocol.CHAT, False
 
 
+#: ``reasoning_effort`` 允许的取值（OpenAI 兼容上游的通用思考强度档位）。
+#:
+#: 语义是"把值原样放进请求 JSON 的 ``reasoning_effort`` 字段"，因此只收各家都认的
+#: 通用档位；个别网关的私有取值请走 ``extra_payload``（那里不做白名单）。
+REASONING_EFFORT_VALUES: tuple[str, ...] = ("none", "minimal", "low", "medium", "high")
+
+
+def normalize_reasoning_effort(raw: str) -> tuple[str, bool]:
+    """解析 ``reasoning_effort``，返回 ``(归一化值, 是否被识别)``。
+
+    空串（含仅空白）表示**未配置**：请求里不发送该字段，``(空串, True)``。
+    非空值大小写不敏感，必须属于 :data:`REASONING_EFFORT_VALUES`；不认识的写法返回
+    ``(原值, False)``——启动期校验与桌面端保存前校验都用这一个判定，避免出现
+    「界面存得进去、后台服务起不来」或反过来的配置。
+    """
+    value = (raw or "").strip().lower()
+    if not value:
+        return "", True
+    if value in REASONING_EFFORT_VALUES:
+        return value, True
+    return value, False
+
+
 @dataclass
 class ModelConfig(StrictConfig):
     """``[providers.<name>.model_configs.<model>]``。"""
@@ -115,6 +140,9 @@ class ModelConfig(StrictConfig):
     vision: bool | None = None
     audio: bool | None = None
     api_mode: str = ""
+    #: 推理思考强度（``none`` / ``minimal`` / ``low`` / ``medium`` / ``high``）。
+    #: 空串 = 不发送 ``reasoning_effort``；模型级覆盖 Provider 级。
+    reasoning_effort: str = ""
 
 
 @dataclass
@@ -145,6 +173,10 @@ class ProviderConfig(StrictConfig):
     fallback_on_error: bool = False
     fallback_timeout_seconds: int = 0
     api_mode: str = ""
+    #: Provider 级推理思考强度（写进请求 JSON 的 ``reasoning_effort``）。
+    #: 空串 = 不发送；``[providers.<name>.model_configs.<model>].reasoning_effort``
+    #: 可按模型覆盖。桌面端「模型」页直接编辑 Provider 级这一项。
+    reasoning_effort: str = ""
 
     def uses_fallback_on_error(self) -> bool:
         """首个流前错误即切备用 Provider（而不是等熔断打开）。对应 Go ``UsesFallbackOnError``。"""
@@ -196,6 +228,19 @@ class ProviderConfig(StrictConfig):
             if ok and protocol is APIProtocol.RESPONSES:
                 return True
         return False
+
+    def reasoning_effort_for(self, model: str) -> str:
+        """该模型生效的推理强度：模型级覆盖 Provider 级，空串 = 不发送。
+
+        非法值（启动期校验会先拒绝）在这里按"未配置"处理，避免把错值发到上游。
+        """
+        model_config = self.model_configs.get(model)
+        if model_config is not None:
+            value, ok = normalize_reasoning_effort(model_config.reasoning_effort)
+            if ok and value:
+                return value
+        value, ok = normalize_reasoning_effort(self.reasoning_effort)
+        return value if ok else ""
 
 
 #: Provider 自定义请求头里**不允许**覆盖的保留头：它们由适配器按协议自己构造，

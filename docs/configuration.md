@@ -293,6 +293,7 @@ base_url = "https://api.openai.com/v1"
 api_key_env = "OPENAI_API_KEY"
 models = ["gpt-4o-mini"]             # 手动补充模型列表（API 获取不到时使用）
 api_mode = "chat"                    # chat（默认）/ response，见下方说明
+reasoning_effort = "medium"          # 推理思考强度：none/minimal/low/medium/high；留空 = 不发送
 
 # 可选：网关要求的自定义请求头（保留头不能覆盖）
 [providers.openai.extra_headers]
@@ -303,6 +304,7 @@ x-opencode-session = "atri-x-local"
 # context_window = 128000
 # extra_payload = { }
 # api_mode = "response"              # 按模型覆盖 Provider 级协议
+# reasoning_effort = "high"          # 按模型覆盖 Provider 级思考强度
 
 [model_metadata]
 default_context_window = 256000
@@ -316,6 +318,7 @@ default_context_window = 256000
 - `proxy` 可选，支持 `http://` 和 `socks5://` 代理地址；省略或留空时直连，不继承 ATRI-X 进程的 `HTTP_PROXY`、`HTTPS_PROXY` 等环境代理。该设置同时作用于模型列表和聊天请求。
 - `models` 是手动补充的模型名列表，当 Provider 的模型列表接口获取不到某些模型时使用。
 - `[providers.<name>.model_configs."<model>"]` 为特定模型配置 `context_window`、`extra_payload`、`vision` 和 `audio`，都是可选的。
+- `reasoning_effort` 是**推理思考强度**，取值 `none` / `minimal` / `low` / `medium` / `high`（大小写不敏感），写进 LLM 请求 JSON 的 `reasoning_effort` 字段；留空表示**不发送**该字段。只对支持这个参数的模型/网关有效（OpenAI o 系、部分中转站），不支持的模型请保持留空——它不会自动降级，发错会由上游返回 400。Provider 级写在 `[providers.<name>]`，`[providers.<name>.model_configs."<model>"]` 可按模型覆盖（空串表示回落到 Provider 级）。桌面端「模型」页的 Provider 表单可以直接选这一项；启动期与桌面端保存前用同一个白名单校验，写错会直接报错而不是静默发出去。个别网关的私有档位（例如 `xhigh`、`auto`）请改用 `extra_payload` 透传。
 - `vision` / `audio` 是可选的三态能力声明：`true` 表示声明支持，`false` 表示明确不支持，不写则由上层按未知处理。`[vision]` 和 `[asr]` 启用时，目标模型被显式声明为 `false` 会在启动阶段报错；model 级声明优先于 provider 级。
 - `extra_payload` 会合并到 LLM 请求 JSON 中，模型级覆盖 Provider 级。
 - `extra_headers` 是 Provider 级自定义请求头（`[providers.<name>.extra_headers]` 子表），

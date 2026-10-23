@@ -4,7 +4,10 @@
 
 1. **LLM Provider**（写 ``services.toml`` 的 ``[providers.<name>]``）：
    ``base_url`` / ``api_key_env`` / ``models`` / ``api_mode`` / ``extra_headers``
-   （网关要求的自定义请求头，例如 OpenCode Go 的 ``x-opencode-session``）；
+   （网关要求的自定义请求头，例如 OpenCode Go 的 ``x-opencode-session``）/
+   ``reasoning_effort``（推理思考强度：none / minimal / low / medium / high，
+   写进请求 JSON 的 ``reasoning_effort`` 字段；留空 = 不发送，只对支持该参数的
+   模型生效；也可在 ``model_configs`` 里按模型覆盖）；
    密钥值单独写进配置根 ``.env``（界面只显示"已设置/未设置 + 掩码"，不回显明文；
    输入框默认掩码，点「显示」才明文）；
    另有**模型分配**（写 ``state.toml``）：工作/聊天/命名/压缩四个槽位 + 默认模式。
@@ -32,7 +35,7 @@ from tkinter import ttk
 from typing import Any
 
 from atri_x.config.inspect import ConfigDecodeError
-from atri_x.config.services import validate_provider_extra_headers
+from atri_x.config.services import normalize_reasoning_effort, validate_provider_extra_headers
 from atri_x.gui import modelcatalog, widgets
 from atri_x.gui.configedit import (
     ConfigEditError,
@@ -63,8 +66,36 @@ _API_MODES = ("", "chat", "response")
 #: 默认模式下拉项。
 _DEFAULT_MODES = ("work", "chat")
 
+#: 推理思考强度下拉项：``(显示文案, 写进 services.toml 的值)``；空串 = 不发送。
+_REASONING_EFFORT_CHOICES: tuple[tuple[str, str], ...] = (
+    ("（不设置）", ""),
+    ("none（关闭思考）", "none"),
+    ("minimal", "minimal"),
+    ("low", "low"),
+    ("medium", "medium"),
+    ("high", "high"),
+)
+
 #: 模型下拉一次展开多少行（超过滚动）。
 _DROPDOWN_HEIGHT = 14
+
+
+def _reasoning_effort_label(value: str) -> str:
+    """配置值 → 下拉显示文案（未识别的值原样显示，不静默吞掉）。"""
+    normalized, _ok = normalize_reasoning_effort(value)
+    for label, raw in _REASONING_EFFORT_CHOICES:
+        if raw == normalized:
+            return label
+    return (value or "").strip()
+
+
+def _reasoning_effort_value(label: str) -> str:
+    """下拉显示文案 → 要写进配置的值（手打的非标准值原样返回，由保存期校验拒绝）。"""
+    text = (label or "").strip()
+    for display, raw in _REASONING_EFFORT_CHOICES:
+        if display == text:
+            return raw
+    return text
 
 
 class ModelTab(ConfigTab):
@@ -127,6 +158,7 @@ class ModelTab(ConfigTab):
         self.key_env_var = tk.StringVar()
         self.models_var = tk.StringVar()
         self.api_mode_var = tk.StringVar()
+        self.reasoning_var = tk.StringVar()
         self.key_value_var = tk.StringVar()
         self.picker_var = tk.StringVar()
         self.alias_model_var = tk.StringVar()
@@ -183,10 +215,28 @@ class ModelTab(ConfigTab):
             foreground="#8a8a8a",
         ).pack(side=tk.LEFT)
 
+        effort_row = ttk.Frame(form)
+        effort_row.grid(row=8, column=0, columnspan=2, sticky="ew", pady=2)
+        ttk.Label(effort_row, text="推理思考强度", width=20).pack(side=tk.LEFT)
+        self.reasoning_box = widgets.dropdown(
+            effort_row,
+            self.reasoning_var,
+            values=[label for label, _raw in _REASONING_EFFORT_CHOICES],
+            width=16,
+            height=len(_REASONING_EFFORT_CHOICES),
+            state="readonly",
+        )
+        self.reasoning_box.pack(side=tk.LEFT)
+        ttk.Label(
+            effort_row,
+            text="  reasoning_effort：留空 = 不发送；只对支持该参数的模型/网关生效",
+            foreground="#8a8a8a",
+        ).pack(side=tk.LEFT)
+
         headers_box = ttk.LabelFrame(
             form, text="请求头（可选，写 [providers.<名称>.extra_headers]）", padding=6
         )
-        headers_box.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        headers_box.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         self.headers_text = tk.Text(
             headers_box, height=3, width=40, wrap="none", font=("Consolas", 9)
         )
@@ -201,7 +251,7 @@ class ModelTab(ConfigTab):
         ).pack(side=tk.LEFT, padx=(8, 0))
 
         alias_box = ttk.LabelFrame(form, text="模型备注名（本地，不写回 services.toml）", padding=6)
-        alias_box.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        alias_box.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         ttk.Label(alias_box, text="模型").pack(side=tk.LEFT)
         self.alias_model_box = widgets.dropdown(
             alias_box,
@@ -224,10 +274,10 @@ class ModelTab(ConfigTab):
             form,
             text="备注名只用于下拉里显示（形如「主力（deepseek-chat）」），保存时自动还原真模型名。",
             foreground="#8a8a8a",
-        ).grid(row=10, column=0, columnspan=2, sticky="w")
+        ).grid(row=11, column=0, columnspan=2, sticky="w")
 
         save_row = ttk.Frame(form)
-        save_row.grid(row=11, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        save_row.grid(row=12, column=0, columnspan=2, sticky="w", pady=(8, 0))
         ttk.Button(save_row, text="保存 Provider", command=self._save_provider).pack(side=tk.LEFT)
         ttk.Label(
             save_row,
@@ -368,6 +418,7 @@ class ModelTab(ConfigTab):
         self.key_env_var.set(view.api_key_env)
         self.models_var.set(", ".join(view.models))
         self.api_mode_var.set(view.api_mode if view.api_mode in _API_MODES else "")
+        self.reasoning_var.set(_reasoning_effort_label(view.reasoning_effort))
         self._set_headers(view.extra_headers)
         self.key_entry.clear()
         self.picker_var.set("")
@@ -576,6 +627,7 @@ class ModelTab(ConfigTab):
         self.key_env_var.set("")
         self.models_var.set("")
         self.api_mode_var.set("")
+        self.reasoning_var.set("")
         self._set_headers({})
         self.picker_var.set("")
         self.alias_model_var.set("")
@@ -618,6 +670,7 @@ class ModelTab(ConfigTab):
             api_key_env=self.key_env_var.get().strip(),
             models=_split_models(self.models_var.get()),
             api_mode=self.api_mode_var.get().strip(),
+            reasoning_effort=_reasoning_effort_value(self.reasoning_var.get()),
             extra_headers=headers,
         )
 
@@ -639,14 +692,16 @@ class ModelTab(ConfigTab):
             return
         self._original = view.name
         header_note = f"，请求头 {len(view.extra_headers)} 条" if view.extra_headers else ""
+        effort_note = f"，推理强度 {view.reasoning_effort}" if view.reasoning_effort else ""
         self.journal(
-            f"保存 LLM Provider：{view.name}（models={','.join(view.models) or '-'}{header_note}）"
+            f"保存 LLM Provider：{view.name}"
+            f"（models={','.join(view.models) or '-'}{header_note}{effort_note}）"
         )
         self.reload()
         self._select_row(view.name)
         where = target.replace(paths.config_dir + "\\", "").replace(paths.config_dir + "/", "")
         extra = "，密钥已写入 .env" if secret else ""
-        self.notify(f"已保存 {where}{extra}；重启后台服务后生效")
+        self.notify(f"已保存并回读校验 {where}{extra}；重启后台服务后生效")
 
     def _save_key_only(self) -> None:
         try:
@@ -698,11 +753,9 @@ class ModelTab(ConfigTab):
                 provider = provider_var.get().strip()
                 model = self._picked_model_for_slot(slot.key, model_var.get())
                 values[slot.key] = (provider, model)
-            for slot in MODEL_SLOTS:
-                provider, model = values[slot.key]
-                if provider and not model:
-                    raise ConfigEditError(f"「{slot.label}」选了 provider 但没填模型名")
             default_mode = self.default_mode_var.get().strip()
+            # 校验（半填 / 必填槽位 / 非法值）与落盘后回读校验都在 configmodel 里，
+            # 这里不再重复写一套，避免界面规则和文件规则各说各话。
             save_model_selection(paths, default_mode, values)
         except ConfigEditError as exc:
             self.fail(exc)
@@ -718,7 +771,7 @@ class ModelTab(ConfigTab):
                 "需重启后台服务后才对新会话生效"
             )
         else:
-            self.notify("已保存 state.toml，几秒内热加载生效（无需重启）")
+            self.notify("已保存并回读校验 state.toml，几秒内热加载生效（无需重启）")
 
     def _picked_model_for_slot(self, slot_key: str, raw: str) -> str:
         text = (raw or "").strip()

@@ -33,6 +33,7 @@ from atri_x.config.services import (
     APIProtocol,
     AudioSupport,
     VisionSupport,
+    normalize_reasoning_effort,
     parse_api_protocol,
 )
 
@@ -356,6 +357,55 @@ class TestProviderSemantics(ConfigCase):
         self.assertTrue(provider.uses_responses_api())
         self.assertIs(cfg.api_protocol_for("a", "m1"), APIProtocol.RESPONSES)
         self.assertIs(cfg.api_protocol_for("ghost", "m1"), APIProtocol.CHAT)
+
+    def test_reasoning_effort_parsing(self) -> None:
+        for raw, expected, ok_expected in (
+            ("", "", True),
+            ("   ", "", True),
+            ("high", "high", True),
+            ("  HIGH  ", "high", True),
+            ("minimal", "minimal", True),
+            ("none", "none", True),
+            ("typo", "typo", False),
+            ("xhigh", "xhigh", False),
+        ):
+            with self.subTest(raw=raw):
+                value, ok = normalize_reasoning_effort(raw)
+                self.assertEqual(value, expected)
+                self.assertIs(ok, ok_expected)
+
+    def test_reasoning_effort_provider_and_model_override(self) -> None:
+        app = self.write_minimal()
+        self.write(
+            "providers.toml",
+            '[providers.a]\nreasoning_effort = "LOW"\n'
+            '[providers.a.model_configs."m1"]\nreasoning_effort = "high"\n'
+            '[providers.a.model_configs."m2"]\nreasoning_effort = ""\n',
+        )
+        cfg = loader.load(app)
+        provider = cfg.providers["a"]
+        # 模型级覆盖 Provider 级；空串的模型级配置回落到 Provider 级。
+        self.assertEqual(provider.reasoning_effort_for("m1"), "high")
+        self.assertEqual(provider.reasoning_effort_for("m2"), "low")
+        self.assertEqual(provider.reasoning_effort_for("other"), "low")
+
+    def test_invalid_reasoning_effort_fails_at_load(self) -> None:
+        app = self.write_minimal()
+        self.write("providers.toml", '[providers.a]\nreasoning_effort = "ultra"\n')
+        with self.assertRaises(ConfigDecodeError) as ctx:
+            loader.load(app)
+        self.assertIn("reasoning_effort must be", str(ctx.exception))
+
+    def test_invalid_model_reasoning_effort_fails_at_load(self) -> None:
+        app = self.write_minimal()
+        self.write(
+            "providers.toml",
+            '[providers.a]\n[providers.a.model_configs."m1"]\nreasoning_effort = "hihg"\n',
+        )
+        with self.assertRaises(ConfigDecodeError) as ctx:
+            loader.load(app)
+        self.assertIn("model_configs", str(ctx.exception))
+        self.assertIn("reasoning_effort", str(ctx.exception))
 
     def test_vision_and_audio_tristate(self) -> None:
         app = self.write_minimal()

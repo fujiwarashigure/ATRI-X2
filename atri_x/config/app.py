@@ -3,7 +3,8 @@
 对应 Go：``internal/config/config.go`` 的 ``Config`` 根结构与
 ``applyAppDefaults`` / ``applyProviderDefaults`` / ``applyState`` / ``mergeProviders`` /
 ``mergeServices`` / ``Default`` / ``defaultAppConfig`` / ``newLoadConfig`` /
-``DefaultModelSelection`` / ``validateProviderProtocols`` / ``validateModeModels`` /
+``DefaultModelSelection`` / ``validateProviderProtocols`` /
+``validateProviderReasoningEffort`` / ``validateModeModels`` /
 ``validateImageGeneration`` / ``VisionSupportFor`` / ``AudioSupportFor``；
 平台默认目录（``platformDefaultConfigPath`` / ``platformDefaultDataDir``）也在这里。
 
@@ -74,6 +75,7 @@ from atri_x.config.services import (
     VisionSupport,
     WebExtractConfig,
     WebSearchConfig,
+    normalize_reasoning_effort,
     parse_api_protocol,
     validate_provider_extra_headers,
 )
@@ -587,6 +589,29 @@ class AppConfig(StrictConfig):
         """校验 ``[providers.<name>].extra_headers``（请求头在启动期就拒绝注入）。"""
         for name, provider in self.providers.items():
             validate_provider_extra_headers(name, provider.extra_headers)
+
+    def validate_provider_reasoning_effort(self) -> None:
+        """拒绝无法识别的 ``reasoning_effort``（而不是每次请求都换一个上游 400）。
+
+        与桌面端保存前用的是同一个判定 :func:`atri_x.config.services.
+        normalize_reasoning_effort`：``none`` / ``minimal`` / ``low`` / ``medium`` /
+        ``high``，大小写不敏感；留空表示不发送。私有档位请写 ``extra_payload``。
+        """
+        for name, provider in self.providers.items():
+            _, ok = normalize_reasoning_effort(provider.reasoning_effort)
+            if not ok:
+                raise ConfigDecodeError(
+                    f"[providers.{name}].reasoning_effort must be none/minimal/low/medium/high "
+                    f"or empty, got {provider.reasoning_effort!r}"
+                )
+            for model, model_config in provider.model_configs.items():
+                _, ok = normalize_reasoning_effort(model_config.reasoning_effort)
+                if not ok:
+                    raise ConfigDecodeError(
+                        f"[providers.{name}.model_configs.{model!r}].reasoning_effort must be "
+                        f"none/minimal/low/medium/high or empty, got "
+                        f"{model_config.reasoning_effort!r}"
+                    )
 
     def validate_mode_models(self) -> None:
         """``default_mode`` 只能是 work/chat，且两种模式都必须配好 provider/model。"""

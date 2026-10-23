@@ -4,11 +4,17 @@
 
 1. **Provider**（``services.toml`` 的 ``[providers.<name>]``，旧部署退回
    ``providers.toml``）：``base_url`` / ``api_key_env`` / ``models`` / ``api_mode`` /
-   ``extra_headers``（网关要求的自定义请求头，如 OpenCode Go 的 ``x-opencode-session``）。
-   密钥值不写 TOML，只写配置根 ``.env``；这里只负责"读状态 + 掩码展示"。
+   ``extra_headers``（网关要求的自定义请求头，如 OpenCode Go 的
+   ``x-opencode-session``）/ ``reasoning_effort``（推理思考强度：none / minimal /
+   low / medium / high，空串 = 不发送）。密钥值不写 TOML，只写配置根 ``.env``；
+   这里只负责"读状态 + 掩码展示"。
 2. **模型分配**（``state.toml`` 的 ``[mode_models.*]`` / ``[naming_model]`` /
    ``[compact_model]`` / ``[session].default_mode``）：运行期回写的文件，后台服务
    会热加载，保存后几秒生效。
+
+**写盘保证**（1.0.2 起）：两个保存入口都是「先全量校验 → 再落盘 → 最后回读逐字段比对」，
+不一致时抛 :class:`ConfigEditError`。这样"界面改了、文件没变"会立刻变成可见错误，而不是
+静默留下一份和界面不一致的配置。
 
 读写原语在 :mod:`atri_x.gui.configedit`（行级补丁 + 备份 + 校验）。
 """
@@ -20,6 +26,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from atri_x.config.services import normalize_reasoning_effort
 from atri_x.gui.configedit import (
     ConfigEditError,
     ConfigPaths,
@@ -34,6 +41,7 @@ __all__ = [
     "MODEL_SLOTS",
     "ModelSlot",
     "ProviderView",
+    "REQUIRED_MODEL_SLOTS",
     "delete_provider",
     "load_model_selection",
     "load_providers",
@@ -65,6 +73,9 @@ class ProviderView:
     api_key_env: str = ""
     models: list[str] = field(default_factory=list)
     api_mode: str = ""
+    #: 推理思考强度（写 ``[providers.<name>].reasoning_effort``；空串 = 不发送）。
+    #: 取值集合见 :data:`atri_x.config.services.REASONING_EFFORT_VALUES`。
+    reasoning_effort: str = ""
     #: 自定义请求头（写 ``[providers.<name>.extra_headers]`` 子表）。
     extra_headers: dict[str, str] = field(default_factory=dict)
 
@@ -133,6 +144,7 @@ def _providers_from(raw: Mapping[str, Any]) -> dict[str, ProviderView]:
             api_key_env=_text(entry.get("api_key_env")),
             models=model_list,
             api_mode=_text(entry.get("api_mode")),
+            reasoning_effort=_text(entry.get("reasoning_effort")),
             extra_headers=header_map,
         )
     return result
@@ -187,14 +199,24 @@ def save_provider(paths: ConfigPaths, view: ProviderView, *, original: str = "")
     ``original`` 非空且与新名字不同表示**改名**：先删旧小节再写新的。
     ``extra_headers`` 写在 ``[providers.<name>.extra_headers]`` 子表里；空表表示删掉
     整个子表（不留下一个空小节）。
+
+    写盘后会**从文件回读并逐字段比对**：界面上的值没有真正落进 ``services.toml``
+    时抛 :class:`ConfigEditError`，而不是留一个"界面看着改了、实际没生效"的状态。
     """
     name = validate_provider_name(view.name)
     target = _providers_path(paths)
+    effort, ok = normalize_reasoning_effort(view.reasoning_effort)
+    if not ok:
+        raise ConfigEditError(
+            "推理思考强度只能是 none / minimal / low / medium / high 或留空（不设置），"
+            f"当前是 {view.reasoning_effort!r}"
+        )
     values: dict[str, Any] = {
         "base_url": view.base_url.strip() or None,
         "api_key_env": view.api_key_env.strip() or None,
         "models": list(view.models) or None,
         "api_mode": view.api_mode.strip() or None,
+        "reasoning_effort": effort or None,
     }
     old = (original or "").strip()
     if old and old != name:
@@ -206,7 +228,61 @@ def save_provider(paths: ConfigPaths, view: ProviderView, *, original: str = "")
         header_comment=f"桌面端添加的 LLM Provider：{name}",
     )
     _save_extra_headers(target, name, view.extra_headers)
+    # 用「实际写进文件的值」做回读基准（例如 thinking 值会被归一化成小写），
+    # 不能用界面上的原始输入去比，否则归一化本身会被误报成"没落盘"。
+    written = ProviderView(
+        name=name,
+        base_url=view.base_url.strip(),
+        api_key_env=view.api_key_env.strip(),
+        models=[str(item).strip() for item in view.models],
+        api_mode=view.api_mode.strip(),
+        reasoning_effort=effort,
+        extra_headers={
+            str(key).strip(): str(value).strip()
+            for key, value in view.extra_headers.items()
+        },
+    )
+    _verify_provider_saved(paths, written)
     return target
+
+
+def _verify_provider_saved(paths: ConfigPaths, expected: ProviderView) -> None:
+    """回读 ``services.toml`` 校验界面值真的落盘；不一致时抛 :class:`ConfigEditError`。"""
+    saved = load_providers(paths).get(expected.name)
+    if saved is None:
+        raise ConfigEditError(
+            f"写入后回读不到 [providers.{expected.name}]：配置没有落到 "
+            f"{os.path.basename(paths.services_path)}"
+        )
+    pairs = (
+        ("base_url", expected.base_url, saved.base_url),
+        ("api_key_env", expected.api_key_env, saved.api_key_env),
+        ("models", expected.models, saved.models),
+        ("api_mode", expected.api_mode, saved.api_mode),
+        ("reasoning_effort", expected.reasoning_effort, saved.reasoning_effort),
+        ("extra_headers", expected.extra_headers, saved.extra_headers),
+    )
+    mismatched = [
+        label
+        for label, want, got in pairs
+        if _normalized(want) != _normalized(got)
+    ]
+    if mismatched:
+        raise ConfigEditError(
+            "写入后回读与界面不一致（这些值没有落到 "
+            f"{os.path.basename(paths.services_path)}）：{'、'.join(mismatched)}"
+        )
+
+
+def _normalized(value: Any) -> Any:
+    """比对用的归一化：字符串去空白、列表逐项去空白、映射按键排序。"""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value]
+    if isinstance(value, Mapping):
+        return {str(key).strip(): str(item).strip() for key, item in value.items()}
+    return value
 
 
 def _save_extra_headers(target: str, name: str, extra_headers: Mapping[str, Any]) -> None:
@@ -263,6 +339,10 @@ MODEL_SLOTS: tuple[ModelSlot, ...] = (
     ModelSlot("compact", "压缩模型（上下文压缩）", "compact_model"),
 )
 
+#: 后台服务启动时**必须有值**的槽位（见 ``AppConfig.validate_mode_models``）：
+#: 这两个槽位清空会让 ``state.toml`` 缺段，服务启动直接失败，所以界面不能把它们清空。
+REQUIRED_MODEL_SLOTS: tuple[str, ...] = ("work", "chat")
+
 
 def load_model_selection(paths: ConfigPaths) -> tuple[str, dict[str, tuple[str, str]]]:
     """读默认模式与各槽位的模型分配，返回 ``(default_mode, {slot: (provider, model)})``。"""
@@ -287,10 +367,24 @@ def save_model_selection(
     default_mode: str,
     values: Mapping[str, tuple[str, str]],
 ) -> str:
-    """写回默认模式与各槽位（只写非空的 provider/model），返回 ``state.toml`` 路径。"""
+    """写回默认模式与各槽位，返回 ``state.toml`` 路径。
+
+    1.0.2 修正（对应"设置里改了、文件里没落实"的缺陷）：
+
+    - **全部校验通过后才动文件**：任何一个槽位非法都不写，不会留下半份配置；
+    - provider 与 model 必须同时有值或同时为空；半填直接拒绝（旧实现只写非空的那个
+      键，会在文件里留下"旧 provider + 新 model"的错配）；
+    - 工作/聊天槽位不能清空：``state.toml`` 缺 ``[mode_models.work]`` /
+      ``[mode_models.chat]`` 时后台服务启动即报 ``provider/model is required``；
+    - 命名/压缩槽位清空 = 从 ``state.toml`` **删掉整个小节**（旧实现是"界面清空、
+      文件里旧值还在"，重启后旧模型又生效）；
+    - 写盘后回读校验，界面值与文件值不一致时抛 :class:`ConfigEditError`。
+    """
     target = paths.state_path
-    if (default_mode or "").strip():
-        patch_section(target, "session", {"default_mode": default_mode.strip()})
+    default = (default_mode or "").strip()
+    if default and default not in ("work", "chat"):
+        raise ConfigEditError(f"默认会话模式只能是 work 或 chat，当前是 {default!r}")
+    plan: list[tuple[ModelSlot, dict[str, str] | None]] = []
     for slot in MODEL_SLOTS:
         if slot.key not in values:
             continue
@@ -298,14 +392,59 @@ def save_model_selection(
         provider = (provider or "").strip()
         model = (model or "").strip()
         if not provider and not model:
+            if slot.key in REQUIRED_MODEL_SLOTS:
+                raise ConfigEditError(
+                    f"「{slot.label}」不能清空：state.toml 缺少 {slot.section} 时后台服务"
+                    "启动会直接失败（provider/model is required）。请选择 provider 和模型。"
+                )
+            plan.append((slot, None))
             continue
-        payload: dict[str, Any] = {}
-        if provider:
-            payload["provider"] = provider
-        if model:
-            payload["model"] = model
+        if not provider or not model:
+            raise ConfigEditError(
+                f"「{slot.label}」的 provider 和模型必须同时填写"
+                f"（当前 provider={provider or '空'}、model={model or '空'}）"
+            )
+        plan.append((slot, {"provider": provider, "model": model}))
+
+    if default:
+        patch_section(target, "session", {"default_mode": default})
+    expected: dict[str, tuple[str, str]] = {}
+    for slot, payload in plan:
+        if payload is None:
+            remove_section(target, slot.section)
+            expected[slot.key] = ("", "")
+            continue
         patch_section(target, slot.section, payload, header_comment="桌面端设置的模型分配")
+        expected[slot.key] = (payload["provider"], payload["model"])
+    _verify_slots_saved(paths, default, expected)
     return target
+
+
+def _verify_slots_saved(
+    paths: ConfigPaths,
+    default_mode: str,
+    expected: Mapping[str, tuple[str, str]],
+) -> None:
+    """回读 ``state.toml`` 校验模型分配真的落盘；不一致时抛 :class:`ConfigEditError`。"""
+    saved_mode, saved = load_model_selection(paths)
+    problems: list[str] = []
+    if default_mode and saved_mode != default_mode:
+        problems.append(f"默认会话模式（期望 {default_mode}，文件里是 {saved_mode or '空'}）")
+    for slot in MODEL_SLOTS:
+        if slot.key not in expected:
+            continue
+        want = tuple(_normalized(item) for item in expected[slot.key])
+        got = tuple(_normalized(item) for item in saved.get(slot.key, ("", "")))
+        if want != got:
+            problems.append(
+                f"{slot.section}（期望 {want[0] or '空'}/{want[1] or '空'}，"
+                f"文件里是 {got[0] or '空'}/{got[1] or '空'}）"
+            )
+    if problems:
+        raise ConfigEditError(
+            "写入后回读与界面不一致（这些值没有落到 "
+            f"{os.path.basename(paths.state_path)}）：{'；'.join(problems)}"
+        )
 
 
 def mask_secret(value: str) -> str:

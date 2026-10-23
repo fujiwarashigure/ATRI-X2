@@ -6,6 +6,87 @@
 
 ---
 
+## [1.0.2] - 2026-10-23 — 「模型」页新增推理思考强度，修复 GUI 设置未落实到配置文件
+
+> 本版是 **1.0.2 补丁版**：给桌面端「模型」页补上用户一直缺的**推理思考强度
+> （`reasoning_effort`）**设置——Provider 表单可选 `none` / `minimal` / `low` /
+> `medium` / `high`，保存进 `services.toml` 并真正写进 LLM 请求 JSON（模型级可覆盖）；
+> 同时修掉一类「在设置里改了、却没落实到文件，导致配置不生效」的缺陷：模型分配清空
+> 命名 / 压缩槽位现在会真的从 `state.toml` 删掉小节，工作 / 聊天槽位与 provider/model
+> 半填会明确报错且整份不写，Provider 与模型分配保存后都会**从磁盘回读逐字段校验**。
+> 版本号 `1.0.1` → `1.0.2`，重建 Windows 便携版、安装包与源码归档。
+
+旧状态（1.0.1，桌面端真机）：
+- 「模型」页的 Provider 表单只有 Base URL / 密钥环境变量 / API Key / 模型列表 /
+  API 协议 / 请求头。想调推理强度只能手写 `services.toml` 的
+  `extra_payload = { reasoning_effort = "high" }`，界面里没有任何入口，写错也没有校验。
+- **模型分配的清空不落盘**：`save_model_selection` 对「provider 和 model 都为空」的
+  槽位直接 `continue`，于是界面把命名 / 压缩槽位清空后，`state.toml` 里旧的
+  `[naming_model]` / `[compact_model]` 原封不动；重启后台服务后旧模型又生效，用户看到的
+  是「设置里改了但没生效」。
+- **半填会写出错配**：provider 留空、model 有值时，旧实现只把非空的 `model` 写进文件，
+  旧的 `provider` 键保留，形成「旧 provider + 新 model」；provider 有值、model 为空时
+  界面报错但提示只覆盖这一种组合。
+- 保存成功后只凭"写盘没抛异常"就提示成功，没有回读校验：一旦写入路径、键名或归一化
+  与界面显示不一致，用户拿不到任何信号。
+
+### 修复与新增
+
+- `atri_x/config/services.py`：新增 `REASONING_EFFORT_VALUES`（`none` / `minimal` /
+  `low` / `medium` / `high`）与 `normalize_reasoning_effort()`（大小写不敏感、空串 =
+  未配置）；`ProviderConfig` / `ModelConfig` 各加一个 `reasoning_effort` 字段，
+  `ProviderConfig.reasoning_effort_for(model)` 给出「模型级覆盖 Provider 级」的生效值。
+- `atri_x/config/app.py` + `atri_x/config/loader.py`：启动期新增
+  `validate_provider_reasoning_effort()`，Provider 级与 `model_configs` 级都校验；
+  写错档位直接报错（消息里带 `[providers.<name>]` / `model_configs` 路径），不再等
+  第一次请求才换一个上游 400。
+- `atri_x/app/models.py`：`provider_extra_payload()` / `model_extra_payloads()` 把
+  `reasoning_effort` 折进适配器已有的 extra payload（专用字段优先于同名
+  `extra_payload` 键），chat 与 responses 两种协议都会把它放进请求 JSON；未配置时不发
+  该字段。Hook 的 `llm.extra_body` 仍可做一次性覆盖。
+- `atri_x/gui/configmodel.py`：
+  - `ProviderView` 增加 `reasoning_effort`，`load_providers` / `save_provider` 读写
+    `[providers.<name>].reasoning_effort`（清空 = 删键）；保存前用同一个白名单校验。
+  - `save_model_selection()` 改成**先全量校验、后落盘**：provider/model 半填直接拒绝；
+    工作 / 聊天槽位禁止清空（缺段会让后台服务启动失败）；命名 / 压缩槽位清空 =
+    `remove_section()` 删掉 `[naming_model]` / `[compact_model]` 小节，真正落到文件。
+  - 两个保存入口都新增**回读校验**：写盘后用同一套读函数回读并逐字段比对，不一致时抛
+    「写入后回读与界面不一致」并列出字段，杜绝"界面改了、文件没变"。
+- `atri_x/gui/tabs/model.py`：Provider 表单在「API 协议」下面新增「推理思考强度」下拉
+  （`（不设置）` / `none（关闭思考）` / `minimal` / `low` / `medium` / `high`），
+  载入时按配置值还原、保存后回读；模型分配页不再自己重复一套校验，统一走
+  `configmodel` 的单一口径。保存成功的提示改为「已保存并回读校验」。
+- `atri_x/config/assets_data/services.toml`：模板注释补上 Provider 级与模型级
+  `reasoning_effort` 示例。
+
+### 用例
+
+- `tests/test_config.py`：`reasoning_effort` 解析（大小写 / 空串 / 非法值）、模型级覆盖
+  Provider 级、Provider 级与模型级非法值都在加载期报错。
+- `tests/test_app_llm_adapters.py`：Provider 级强度真的出现在 `build_body()` 的请求 JSON；
+  模型级覆盖 Provider 级；未配置不发；Hook 的 `extra_body` 仍能一次性覆盖；专用字段
+  压过同名 `extra_payload`。
+- `tests/test_gui_configedit.py`：Provider 的 `reasoning_effort` 保存 / 归一化 / 清空删键；
+  非法值在写盘前被拒；清空命名槽位会删小节；清空工作 / 聊天槽位与半填都被拒绝且文件
+  一字不改；保存后回读不一致会报错。
+- `tests/test_gui_tabs.py`：模型页下拉选中 `high` → `services.toml` 落盘 → 重新载入还原；
+  选「（不设置）」删键；命名槽位清空后 `state.toml` 无该小节；工作槽位清空给出错误且
+  文件保持原样。
+
+### 发行
+
+- 版本号 `1.0.1` → `1.0.2`（`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION` 与
+  README / 文档同步）。
+- 从工作树重建 Windows x64 三件套（onedir + 便携版 zip + Inno 安装包），每个产物都跑
+  产物级自检：`--version` = `atri-x 1.0.2`、`config check`、`-m` 转发、sidecar 状态、
+  GUI selftest、便携版解压自检、安装包静默安装/卸载自检。
+- 全仓库源码归档 `ATRI-X-1.0.2-repo.zip` / `.tar.gz` 与四个产物的尺寸 / SHA-256 见发行
+  库的 `SHA256SUMS.txt` / `发行说明.md` / `自检报告.md` / `证据/1.0.2/`。
+- 源码与产物脱敏复扫（源码树 / 内置 DSH 内核 / 内置协议端 / 三份产物）0 命中；本轮
+  改动**未提交 Git、未推送**。
+
+---
+
 ## [1.0.1] - 2026-10-22 — 修复入站图片一律「媒体不可用」、补齐品牌图标，重建便携版与安装包
 
 > 本版是 **1.0.1 补丁版**：修掉 1.0.0 真机上「群里发图后模型只看到
@@ -128,8 +209,7 @@
   0 命中；三份产物（便携 zip、安装包二进制、源码归档）逐项重扫 0 命中（第三方依赖里
   `@types/node` 的 `C:\Users\...` 文档示例与 AWS 文档示例 key 属已登记假值，不算泄露；平台
   转存过的图与真实群号不入包）。
-- 本轮改动已提交并推送到 <https://github.com/fujiwarashigure/ATRI-X2>（提交 `0d4b9e4`，
-  tag `v1.0.1`）；源码归档取自同一份工作树。
+- 本轮改动仍**未提交 Git、未推送**（本仓库工作副本没有 `.git`，源码归档直接取自工作树）。
 
 ---
 

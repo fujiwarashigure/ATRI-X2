@@ -230,7 +230,7 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 | 选项卡 | 能改什么 | 写入 | 生效时机 |
 |---|---|---|---|
 | 对话 | 只聊天，不写配置 | — | — |
-| 模型 | 三个子页：**LLM Provider / 模型分配**——Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议 / 请求头：每行一条 `Name: value`，网关强制要求时填，例如 OpenCode Go 的 `x-opencode-session`）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式，另可「获取可用模型」拉上游 `/models`、给模型起本地备注名；**搜索服务**——`web_search` 的通道列表（顺序即降级顺序，可上移/下移/新增自定义/删除）与单条通道表单（协议 DeepSeek 官方搜索 / Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI / Grok Build、密钥环境变量名与值、服务地址、CLI 可执行文件），免注册通道不填 key 也能用；**抓取服务**——`web_extract` 的通道列表与表单（协议 DeepSeek 官方抓取 / Jina Reader / 直接抓取，默认 Jina → 直接抓取） | `services.toml`（`[providers.*]`、`[web_search]`、`[web_extract]`）、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider、密钥、搜索与抓取通道需重启后台服务 |
+| 模型 | 三个子页：**LLM Provider / 模型分配**——Provider（Base URL / 密钥环境变量 / API Key / 模型列表 / API 协议 / **推理思考强度**（`reasoning_effort`：不设置 / none / minimal / low / medium / high）/ 请求头：每行一条 `Name: value`，网关强制要求时填，例如 OpenCode Go 的 `x-opencode-session`）+ 工作/聊天/命名/压缩四个模型槽位 + 默认模式，另可「获取可用模型」拉上游 `/models`、给模型起本地备注名；**搜索服务**——`web_search` 的通道列表（顺序即降级顺序，可上移/下移/新增自定义/删除）与单条通道表单（协议 DeepSeek 官方搜索 / Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity CLI / Grok Build、密钥环境变量名与值、服务地址、CLI 可执行文件），免注册通道不填 key 也能用；**抓取服务**——`web_extract` 的通道列表与表单（协议 DeepSeek 官方抓取 / Jina Reader / 直接抓取，默认 Jina → 直接抓取） | `services.toml`（`[providers.*]`、`[web_search]`、`[web_extract]`）、`.env`、`state.toml`、`gui/model_catalog.json` | `state.toml` 几秒内热加载；Provider、密钥、思考强度、搜索与抓取通道需重启后台服务 |
 | 人设卡 | 角色库增删改（名称/别名/标签/简介/可见性，`profile.md`、`world.md`、`greeting.md`、`examples.md`、`image_prompt.md`、`notes/*`）、生图预设、系统人设 `SOUL.md` | `characters/`、`SOUL.md` | 角色库 3 秒内自动重扫；`SOUL.md` 下一轮对话生效 |
 | 平台 | QQ（OneBot v11）/ QQ 官方机器人 / Telegram 的启用、地址、token 变量与值、唤醒词；本地 CLI 服务端；各平台超级管理员 | `app.toml`、`.env` | 重启后台服务 |
 | 在线 | 三段状态（后台服务 / OneBot 协议端 / QQ 平台）+ **连接/断开开关**：只改 `[platform.qqonebot].enabled` 并重启后台服务，不用手改 TOML（见 §4.8）；还可就地改**唤醒词**（写回 `[platform.qqonebot].trigger_keywords`，逗号分隔；群里 @机器人 或消息以唤醒词开头都会叫醒） | `app.toml` 的 `[platform.qqonebot].enabled` / `trigger_keywords` | 点按钮即重启生效；唤醒词需重启后台服务 |
@@ -260,6 +260,11 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
   上一份，相当于"撤销上一次保存"），可手工回滚。
 - **保存前校验**：写盘前用 `tomllib` 重新解析整份文件，解析不过就**不落盘**，避免
   把配置写坏导致服务起不来。
+- **保存后回读校验**：模型页的 Provider 与模型分配保存后，会用**同一个读配置的函数**
+  从磁盘读回来逐字段比对；界面值没有真正写进 `services.toml` / `state.toml` 时直接报错
+  （「写入后回读与界面不一致」），不再出现"界面上改了、文件里没变、重启后又变回去"。
+  模型分配还有几条硬规则：provider 与模型必须同时填写；工作 / 聊天两个槽位不能清空
+  （清空会让后台服务启动失败）；命名 / 压缩槽位清空 = 从 `state.toml` 删掉该小节。
 - 保存后状态行会说明该改动是"热加载"还是"需要重启"；每个配置页右下角有「重启后台
   服务」，也可以走「服务 → 重启后台服务」。
 - 界面只改它负责的那几个键，**不覆盖**其它键与注释；更细的参数（并发、重试、提示词
@@ -285,6 +290,15 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 「模型分配」四个槽位的下拉都是可滚动列表（点箭头展开、滚轮/方向键选择），模型名也
 允许直接手打；换过配置文件之后点 **刷新模型列表** 重读 `services.toml` 与模型目录，
 不必重启界面。
+
+**推理思考强度（`reasoning_effort`）**：Provider 表单里的「推理思考强度」下拉是
+1.0.2 新增的。选中 `none` / `minimal` / `low` / `medium` / `high` 保存后写进
+`[providers.<name>].reasoning_effort`，之后该 Provider 的每个请求都会把同名值放进
+请求 JSON；选「（不设置）」= 从文件删掉该键、请求里不发送。它只对支持这个参数的
+模型/网关有效（OpenAI o 系、部分中转站）；同一个 Provider 里想按模型区分，可在
+`services.toml` 的 `[providers.<name>.model_configs."<model>"].reasoning_effort`
+里单独覆盖（空串回落到 Provider 级）。写错档位会在启动期和保存时都被同一个白名单
+拒绝，不会静默发到上游换一个 400。改完需重启后台服务。
 
 「进阶」页的生图区同理：填好生图 Base URL 与密钥后点「获取可用模型」即可切换生图
 模型，备注名存在同一份 `gui/model_catalog.json` 里（键是 `image_generation`）。
