@@ -75,7 +75,8 @@
 - 版本号 `1.0.2` → `1.0.3`（`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION` 与 README / 文档同步）。
 - 从工作树重建 Windows x64 三件套（onedir + 便携版 zip + Inno 安装包），每个产物都跑产物级自检：`--version` = `atri-x 1.0.3`、`config check`、`-m` 转发、sidecar 状态、GUI selftest、便携版解压自检、安装包静默安装/卸载自检。
 - 全仓库源码归档 `ATRI-X-1.0.3-repo.zip` / `.tar.gz` 与四件产物的尺寸 / SHA-256 见发行库的 `SHA256SUMS.txt` / `发行说明.md` / `自检报告.md` / `证据/1.0.3/`。
-- 源码与产物脱敏复查（源码树 / 内置 DSH 内核 / 内置协议端 / 三份产物）0 命中；本次改动**未提交 Git、未推送**。
+- 源码与产物脱敏复查（源码树 / 内置 DSH 内核 / 内置协议端 / 三份产物）0 命中。
+- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：`main` 提交 `a48d459`、tag `v1.0.3`；GitHub Release `v1.0.3` 附带安装包 / 便携版 / 源码归档 / `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md` / `THIRD-PARTY-NOTICES.md` / `SHA256SUMS.txt` / `build-info.zip` / `EVIDENCE.zip`。1.0.2 补丁版同批推送（`main` 提交 `00a6653`、tag `v1.0.2`，该版本无独立 Release）。
 
 ---
 
