@@ -85,6 +85,8 @@ _TAB_KEYS = {
     "knowledge": "知识库",
     "logs": "日志",
     "toolperm": "工具权限",
+    # 「工具权限」页的第三个子选项卡「工具参数（全局）」：内容安全等全局参数在这里。
+    "toolperm_params": "工具权限",
 }
 
 
@@ -411,10 +413,16 @@ class GuiApp:
             self.notebook.select(index)
 
     def show_tab_key(self, key: str) -> None:
-        """按「功能」页给的键跳转（``model`` / ``character`` / ``platform``）。"""
+        """按「功能」页给的键跳转（``model`` / ``character`` / ``toolperm_params``…）。"""
         name = _TAB_KEYS.get(key)
-        if name is not None:
-            self.select_tab(_TAB_INDEX[name])
+        if name is None:
+            return
+        self.select_tab(_TAB_INDEX[name])
+        if key == "toolperm_params":
+            toolperm = getattr(self, "toolperm_tab", None)
+            show_params = getattr(toolperm, "show_global_params", None)
+            if callable(show_params):
+                show_params()
 
     def _on_tab_changed(self, _event: Any = None) -> None:
         try:

@@ -49,7 +49,7 @@
 ### 配置与文档
 
 - `[safety]` 新段进 `app.toml` 严格解码（未知键仍报错）；`[vision]` 新增 `detail` / `trigger` / `probe_timeout_seconds` / `allow_external_images` / `allow_group_images` / `identity_*` 八个键；`[image_to_prompt]` 新增 `detail` / `allow_external_images`。
-- 新增 [`docs/safety.md`](docs/safety.md)（词表与敏感信息类别、audit 灰度、误杀调优、审计格式、出口策略）与 [`docs/vision.md`](docs/vision.md)（两段式、detail、隐私开关、SauceNaO 配置、失败原因）；`docs/configuration.md` 补 `[safety]` 段与识图新键；`docs/README.md` / `README.md` 补入口；`devdocs/code-map.md` 新增「内容安全（safety）」小节并更新视图片；`AGENTS.md` locator 表补 `locator:safety` / `locator:vision`。
+- 新增 [`docs/safety.md`](docs/safety.md)（词表与敏感信息类别、audit 灰度、误杀调优、审计格式、出口策略、**桌面端在哪配**）与 [`docs/vision.md`](docs/vision.md)（两段式、detail、隐私开关、SauceNaO 配置、失败原因）；`docs/configuration.md` 补 `[safety]` 段与识图新键；`docs/README.md` / `README.md` 补入口；`devdocs/code-map.md` 新增「内容安全（safety）」小节并更新视图片；`AGENTS.md` locator 表补 `locator:safety` / `locator:vision`。
 
 ### 用例
 
@@ -70,13 +70,19 @@
 - 全量 unittest：`Ran 6200 tests … OK (skipped=4)`（472.110 s），日志在
   `证据/1.0.3/unittest-1.0.3.log`。
 
+### 修复（1.0.3 发布后 · 源码已改，安装包未重打包）
+
+- **「功能」页的「内容安全」行原来跳到「进阶」页**，但内容安全的开关实际在「工具权限 → 工具参数（全局）」的「全局参数」面板里，用户按提示去「进阶」页会找不到设置项。现在该行（以及将来引用 `toolperm_params` 的入口）会先切到「工具权限」，再直接打开「工具参数（全局）」子选项卡并展开「全局参数」面板；`GuiApp._TAB_KEYS` 新增 `toolperm_params`，`ToolPermTab` 新增 `show_global_params()`。
+- `docs/safety.md` 新增「桌面端（GUI）设置」一节（8 个可调项、保存与重启步骤、GUI 未覆盖的逐类细调项仍写 `app.toml`）；`README.md`「安全与可观测」补内容安全条目与 GUI 入口。
+- 这两处只改仓库源码与文档：已发布的 1.0.3 安装包 / 便携版未重打包，界面行为以该版本实际为准（设置仍然可用，只是「功能」页双击会跳错页）。
+
 ### 发行
 
 - 版本号 `1.0.2` → `1.0.3`（`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION` 与 README / 文档同步）。
 - 从工作树重建 Windows x64 三件套（onedir + 便携版 zip + Inno 安装包），每个产物都跑产物级自检：`--version` = `atri-x 1.0.3`、`config check`、`-m` 转发、sidecar 状态、GUI selftest、便携版解压自检、安装包静默安装/卸载自检。
 - 全仓库源码归档 `ATRI-X-1.0.3-repo.zip` / `.tar.gz` 与四件产物的尺寸 / SHA-256 见发行库的 `SHA256SUMS.txt` / `发行说明.md` / `自检报告.md` / `证据/1.0.3/`。
 - 源码与产物脱敏复查（源码树 / 内置 DSH 内核 / 内置协议端 / 三份产物）0 命中。
-- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：`main` 提交 `a48d459`、tag `v1.0.3`；GitHub Release `v1.0.3` 附带安装包 / 便携版 / 源码归档 / `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md` / `THIRD-PARTY-NOTICES.md` / `SHA256SUMS.txt` / `build-info.zip` / `EVIDENCE.zip`。1.0.2 补丁版同批推送（`main` 提交 `00a6653`、tag `v1.0.2`，该版本无独立 Release）。
+- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：`main` 分支、tag `v1.0.3`（= `a48d459`）；GitHub Release `v1.0.3` 附带安装包 / 便携版 / 源码归档 / `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md` / `THIRD-PARTY-NOTICES.md` / `SHA256SUMS.txt` / `build-info.zip` / `EVIDENCE.zip`。1.0.2 补丁版同批推送（tag `v1.0.2` = `00a6653`，该版本无独立 Release）。
 
 ---
 

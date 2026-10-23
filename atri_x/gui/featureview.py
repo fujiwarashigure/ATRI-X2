@@ -67,7 +67,7 @@ def collect_features(paths: ConfigPaths) -> list[FeatureRow]:
     ))
     rows.append(_section_row(
         "safety", "内容安全（道德限制 + 敏感信息过滤）", app, default_on=False,
-        tab="advanced", extra=_kv_detail(app.get("safety"), ("enabled", "mode")),
+        tab="toolperm_params", extra=_safety_detail(app.get("safety")),
     ))
     rows.append(_section_row(
         "asr", "语音转写（ASR）", services, default_on=False, tab="advanced",
@@ -313,6 +313,19 @@ def _kv_detail(section: Any, keys: tuple[str, ...]) -> str:
             value = ",".join(str(item) for item in value)
         parts.append(f"{key}={value}")
     return "；".join(parts)
+
+
+#: 内容安全的编辑入口提示：这一项**不在「进阶」页**，而在「工具权限」页的参数子选项卡里。
+_SAFETY_LOCATION = "在「工具权限 → 工具参数（全局）」的「全局参数」面板里改"
+
+
+def _safety_detail(section: Any) -> str:
+    """内容安全行的说明：当前开关 / 模式 + 编辑入口（否则用户会去「进阶」页找）。"""
+    return "；".join(
+        part
+        for part in (_kv_detail(section, ("enabled", "mode")), _SAFETY_LOCATION)
+        if part
+    )
 
 
 def _image_detail(services: Mapping[str, Any]) -> str:

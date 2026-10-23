@@ -216,6 +216,19 @@ class ToolPermTab(ConfigTab):
         if not self.params_editor.reveal_tool(tool_name):
             self.notify(f"工具 {tool_name} 没有可调参数")
 
+    def show_global_params(self) -> None:
+        """跳到「工具参数（全局）」子选项卡并展开「全局参数（所有工具）」面板。
+
+        内容安全（道德限制 + 敏感信息过滤）的开关就在那个面板里；「功能」页双击
+        「内容安全」一行会走到这里。
+        """
+        if self.params_editor is None:
+            return
+        self.notebook.select(self.params_editor.frame)
+        panel = self.params_editor.panels.get("global")
+        if panel is not None:
+            panel.expand()
+
     def _build_preview_switch(self) -> None:
         box = ttk.LabelFrame(self.body, text="群聊工具进度", padding=8)
         box.pack(fill=tk.X, pady=(8, 0))

@@ -194,6 +194,7 @@ class LayoutCase(unittest.TestCase):
             "knowledge",
             "logs",
             "toolperm",
+            "toolperm_params",
         ):
             self.assertIn(key, gui_app._TAB_KEYS)
             self.assertIn(gui_app._TAB_KEYS[key], gui_app._TABS)
@@ -1391,6 +1392,14 @@ class ToolParamsTabCase(TkCase):
         self.assertEqual(
             self.tab.notebook.select(), str(self.tab.params_editor.frame)
         )
+
+    def test_show_global_params_selects_params_sub_tab(self) -> None:
+        # 「功能」页「内容安全」行 → 工具权限 → 工具参数（全局）→ 展开全局面板。
+        self.tab.show_global_params()
+        self.assertEqual(
+            self.tab.notebook.select(), str(self.tab.params_editor.frame)
+        )
+        self.assertTrue(self.panel("global").expanded)
 
 
 class FeaturesTabCase(TkCase):

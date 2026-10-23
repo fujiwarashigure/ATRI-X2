@@ -368,6 +368,9 @@ class FeatureViewTestCase(ConfigCase):
         self.assertEqual(rows["character_library"].tab, "character")
         self.assertEqual(rows["platforms"].tab, "platform")
         self.assertEqual(rows["image_generation"].tab, "advanced")
+        # 内容安全不在「进阶」页：功能行要跳到「工具权限 → 工具参数（全局）」。
+        self.assertEqual(rows["safety"].tab, "toolperm_params")
+        self.assertIn("工具参数（全局）", rows["safety"].detail)
         self.assertEqual(rows["llm"].status, "缺密钥")
 
     def test_status_follows_config(self) -> None:
