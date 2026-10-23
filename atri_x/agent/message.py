@@ -17,8 +17,9 @@ from atri_x.hook import (
     PointAgentInputPrepared,
     PointPlatformMessageReceived,
 )
-from atri_x.llm import RoleUser, segments_text_only, text_segments
+from atri_x.llm import RoleUser, SegmentType, segments_text_only, set_segment_text, text_segments
 from atri_x.logging import ResultFailed
+from atri_x.safety import scope_from_host
 from atri_x.security import with_actor, with_policy
 
 from atri_x.agent.errors import (
@@ -146,6 +147,10 @@ async def _handle_message_inner(
         raise route_err
     if not routed or not event.control.stop_propagation:
         event = await agent.run_hook(ctx, event)
+    # safety-guard: 入站审核（platform.message.received 之后）。enforce 命中 block
+    # 时整轮结束、不进模型；audit 只记审计、不改文本。
+    if await _safety_guard_inbound(agent, ctx, event):
+        return
     if event.outputs:
         await agent.send_outputs(ctx, event.outputs)
     if event.control.consume:
@@ -175,6 +180,37 @@ async def _handle_message_inner(
             raise err
         return
     await agent.handle_input(ctx, text)
+
+
+async def _safety_guard_inbound(agent: Any, ctx: Any, event: Any) -> bool:
+    # safety-guard: 入站用户消息审核。返回 True 表示"本轮已被拦下"，调用方应立即结束。
+    #
+    # * ``guard is None`` / ``mode = off``：直接返回 False，行为与 1.0.2 完全一致；
+    # * ``audit``：只写审计（``filter_text`` 内部完成），文本不变；
+    # * ``enforce`` + 命中词表类：用 ``guard.block_reply`` 回复用户并结束本轮，
+    #   不进模型、不落库成正常对话；
+    # * ``enforce`` + 只命中可脱敏的敏感信息：把脱敏后的文本写回消息段。
+    guard = getattr(agent, "safety_guard", None)
+    if guard is None:
+        return False
+    segments = list(event.message.segments or [])
+    text = "".join(
+        segment.text for segment in segments if segment.type == SegmentType.TEXT
+    )
+    if not text.strip():
+        return False
+    filtered, decision = guard.filter_text(
+        text,
+        stage="inbound",
+        scope=scope_from_host(agent, ctx),
+        block_text=guard.block_reply,
+    )
+    if decision.action == "block" and guard.enforcing:
+        await agent.send_chat(ctx, guard.block_reply)
+        return True
+    if filtered != text:
+        event.message.segments = set_segment_text(segments, filtered)
+    return False
 
 
 def _segments_equal(left: list[Any], right: list[Any]) -> bool:

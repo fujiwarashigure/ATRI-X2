@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import base64
+import threading
 import time
 from typing import Any
 
@@ -40,6 +41,7 @@ from atri_x.vision.cache import (
     SuccessCache,
     is_cancellation,
 )
+from atri_x.vision.failures import FAILURE_PRIVACY_BLOCKED, failure_kind
 from atri_x.vision.fingerprint import (
     CacheIdentity,
     CacheSchemaVersion,
@@ -47,6 +49,8 @@ from atri_x.vision.fingerprint import (
     hash_text,
 )
 from atri_x.vision.metrics import Metrics, NoopMetrics, Snapshotter
+from atri_x.vision.privacy import blocked_reason as privacy_blocked_reason
+from atri_x.vision.privacy import current_privacy
 from atri_x.vision.prompt import (
     ChatDescriptionTemplateVersion,
     ImageAnalysisTemplateVersion,
@@ -59,7 +63,16 @@ from atri_x.vision.prompt import (
     normalize_image_prompt_language,
     normalize_image_prompt_target,
 )
-from atri_x.vision.service_types import Options, Prompt, Request, Result, Stats
+from atri_x.vision.service_types import (
+    DefaultDetail,
+    Options,
+    PrivacyBlockedError,
+    Prompt,
+    Request,
+    Result,
+    Stats,
+    clamp_probe_timeout,
+)
 
 __all__ = [
     "ChatDescriptionTemplateVersion",
@@ -87,7 +100,6 @@ __all__ = [
     "normalize_image_prompt_target",
     "truncated",
 ]
-
 #: 预处理 + 请求 + 流式读取的总时限。
 DefaultTimeout = 90.0
 #: 累计流式答案的上限。
@@ -137,6 +149,14 @@ class Service:
             max_waiters = opts.max_job_waiters
 
         self.opts = opts
+        #: 发图片段用的细节档位。空串（显式关掉）表示不写 ``detail`` 键。
+        self.detail = str(getattr(opts, "detail", DefaultDetail) or "").strip()
+        #: 聊天前置描述用的短超时，夹到 1~30 秒。
+        self.probe_timeout_seconds = clamp_probe_timeout(
+            getattr(opts, "probe_timeout_seconds", 0)
+        )
+        self._failure_lock = threading.Lock()
+        self._failures: dict[str, int] = {}
         self.success = SuccessCache(
             opts.cache_max_entries, opts.cache_ttl, opts.max_cache_value_size, opts.now
         )
@@ -153,17 +173,84 @@ class Service:
     def _metrics(self) -> Metrics:
         return self.opts.metrics or NoopMetrics()
 
+    # -- 失败观测 -----------------------------------------------------------
+
+    def privacy_reason(self, ctx: Any = None) -> str:
+        """当前是否禁止外发图片；禁止时返回可读原因，允许时返回空串。
+
+        两层条件：``Options`` 里的两个开关，以及进程级
+        :func:`atri_x.vision.privacy.configure_privacy` 的配置。任意一层拒绝即拒绝。
+        """
+        opts = self.opts
+        is_group = False
+        group_scope = getattr(opts, "group_scope", None)
+        if callable(group_scope):
+            try:
+                is_group = bool(group_scope(ctx))
+            except Exception:  # noqa: BLE001 - 判定失败不阻断识图
+                is_group = False
+        reason = ""
+        if not getattr(opts, "allow_external_images", True):
+            reason = "外部识图已关闭"
+        elif is_group and not getattr(opts, "allow_group_images", True):
+            reason = "群聊外部识图已关闭"
+        if reason:
+            return reason
+        return privacy_blocked_reason(is_group=is_group, settings=current_privacy())
+
+    def record_failure(self, kind: str, err: BaseException | None = None) -> None:
+        """记录一次失败类别（有界枚举，不含图片内容/URL/凭据）。
+
+        调用方（工具、聊天前置路径）也能用它：下载/读字节失败发生在
+        :class:`Service` 之外，只有调用方知道那是「没取到图」而不是上游错误。
+        """
+        if not kind:
+            return
+        with self._failure_lock:
+            self._failures[kind] = self._failures.get(kind, 0) + 1
+        self._log_failure(kind, err)
+
+    def failures(self) -> dict[str, int]:
+        """失败类别的当前计数副本。"""
+        with self._failure_lock:
+            return dict(self._failures)
+
+    def _log_failure(self, kind: str, err: BaseException | None) -> None:
+        """只记一行安全摘要：类别 + 异常类名。
+
+        **绝不**记图片内容、media ID、URL、prompt 或凭据；``api_key`` 之类的东西
+        只可能出现在异常 message 里，所以连 message 都不记。
+        """
+        logger = getattr(self.opts, "logger", None)
+        warn = getattr(logger, "warning", None)
+        if not callable(warn):
+            return
+        warn(
+            "vision failure kind=%s error=%s",
+            kind,
+            type(err).__name__ if err is not None else "-",
+        )
+
     # -- 主路径 -------------------------------------------------------------
 
     async def describe(self, ctx: CancelToken | None, req: Request) -> Result:
         """描述一张图片。对应 Go ``Service.Describe``。
 
         依次尝试成功缓存、负缓存、在途合并，最后才打上游。失败抛异常。
+
+        隐私开关关掉时在**打开任何上游连接之前**就抛
+        :class:`atri_x.vision.service_types.PrivacyBlockedError`：不读图、不建连、
+        不消耗任何供应商额度，也不会因为「反正结果会被丢掉」而偷偷外发。
         """
         if self.opts.client is None or (self.opts.model or "").strip() == "":
             raise ValueError("vision: model is not configured")
         if (req.media_id or "").strip() == "":
             raise ValueError("vision: media id is required")
+        reason = self.privacy_reason(ctx)
+        if reason:
+            error = PrivacyBlockedError(f"vision: {reason}")
+            self.record_failure(FAILURE_PRIVACY_BLOCKED, error)
+            raise error
 
         timeout_ctx = ctx
         deadline: float | None = None
@@ -176,6 +263,10 @@ class Service:
             deadline = time.monotonic() + self.opts.timeout
         try:
             return await self._describe_locked(timeout_ctx, req, deadline)
+        except BaseException as exc:
+            # 统一在这里记一次失败类别（超时/取消/内容超限/空结果/上游错误）。
+            self.record_failure(failure_kind(exc), exc)
+            raise
         finally:
             # Go 用 ``defer timeoutCancel()``；不取消的话每个请求都会在事件
             # 循环上留下一个直到截止时间才触发的定时器。
@@ -284,6 +375,8 @@ class Service:
         data_url = (
             "data:" + mime_type + ";base64," + base64.b64encode(data).decode("ascii")
         )
+        # 单次覆盖优先：agent 装配的 ``vision_detail`` 只影响这一张图。
+        detail = str(getattr(req, "detail", "") or "").strip() or self.detail
 
         upstream_start = time.monotonic()
         # 一个专用的可取消子上下文让我们在放弃时（输出超限、错误块、调用者
@@ -304,7 +397,10 @@ class Service:
                             segments=[
                                 MessageSegment(type=SegmentText, text=req.prompt.user),
                                 MessageSegment(
-                                    type=SegmentImage, url=data_url, mime_type=mime_type
+                                    type=SegmentImage,
+                                    url=data_url,
+                                    mime_type=mime_type,
+                                    detail=detail,
                                 ),
                             ],
                         ),
@@ -376,6 +472,7 @@ class Service:
                 }
         if self.runner is not None:
             stats.active_jobs, stats.queued_jobs = self.runner.stats()
+        stats.failures = self.failures()
         stats.max_concurrent_jobs = self.max_concurrent_jobs
         stats.max_waiters = self.max_waiters
         return stats

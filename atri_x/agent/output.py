@@ -9,11 +9,16 @@ Go 的 ``(Receipt, error)`` → Python 返回 :class:`~atri_x.delivery.delivery.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any, Callable
 
 from atri_x.delivery import (
     ContextSender,
     DeliveryError,
+    KindFile,
+    KindImage,
+    KindReply,
+    KindText,
     MessageSender,
     Notice,
     Output,
@@ -26,6 +31,8 @@ from atri_x.llm import RoleAssistant, text_segments
 from atri_x.llm import segments_text_only as llm_segments_text_only
 from atri_x.logging import ResultFailed
 from atri_x.platform import message_context_from
+# safety-guard: 发送边界的安全闸门（未装配时 safety_guard 为 None，行为与 1.0.2 一致）
+from atri_x.safety import scope_from_host
 from atri_x.storage import PlatformMessageMap
 
 from atri_x.agent.logging import audit
@@ -182,6 +189,10 @@ async def send_outputs(agent: Any, ctx: Any, outputs: list[Output] | None) -> No
         return
     if not outputs:
         return
+    # safety-guard: 发送边界的最后一道（文本脱敏幂等重扫；图片/文件按策略丢弃）
+    outputs = _safety_guard_outputs(agent, ctx, list(outputs))
+    if not outputs:
+        return
     manager = agent.outputs
     manager.sender = AgentOutputSender(agent, ctx)
     if manager.logger is None:
@@ -235,7 +246,15 @@ async def prepare_assistant_output(agent: Any, ctx: Any, point: str, text: str) 
             message=MessagePayload(role=RoleAssistant, segments=text_segments(text)),
         ),
     )
-    return llm_segments_text_only(event.message.segments)
+    prepared = llm_segments_text_only(event.message.segments)
+    # safety-guard: 发给平台前的唯一文本点；Hook 之后再过一遍（幂等）
+    guard = getattr(agent, "safety_guard", None)
+    if guard is None:
+        return prepared
+    filtered, _decision = guard.filter_text(
+        prepared, stage="output", scope=scope_from_host(agent, ctx)
+    )
+    return filtered
 
 
 async def send_chat_with_receipt(agent: Any, ctx: Any, text: str) -> Receipt:
@@ -334,8 +353,50 @@ async def send_notice_public(agent: Any, ctx: Any, notice: Notice) -> Receipt:
         notice.target
     ):
         return Receipt()
+    # safety-guard: 系统通知 / 错误提示也是外发文本，走同一套判定
+    guarded = _safety_guard_outputs(agent, ctx, list(notice.outputs or []))
+    if not guarded and notice.outputs:
+        return Receipt()
+    if guarded != list(notice.outputs or []):
+        notice = dataclasses.replace(notice, outputs=guarded)
     manager = agent.outputs
     manager.sender = AgentOutputSender(agent, ctx)
     if manager.logger is None:
         manager.logger = getattr(agent, "logger", None)
     return await manager.send_notice(ctx, notice)
+
+
+def _safety_guard_outputs(agent: Any, ctx: Any, outputs: list[Output]) -> list[Output]:
+    """逐个输出过安全闸门；被拦下的图片 / 文件换成一条文本说明。
+
+    * ``KindText`` / ``KindReply``：文本再过一次（幂等，二次扫描不会继续啃文本）；
+    * ``KindImage`` / ``KindFile``：按 ``block_image_output`` / ``block_file_output``
+      在出口丢弃（**不做内容识别**），并补一条文本说明 + 审计；
+    * 其余种类（表情、@、语音）原样放行。
+    """
+    guard = getattr(agent, "safety_guard", None)
+    if guard is None or not outputs:
+        return outputs
+    scope = scope_from_host(agent, ctx)
+    kept: list[Output] = []
+    notes: list[str] = []
+    for out in outputs:
+        kind = (out.kind or "").strip().lower()
+        if kind in (KindImage, KindFile):
+            decision = guard.allow_media_output(
+                kind, stage="send", scope=scope, meta={"name": out.name}
+            )
+            if not decision.allowed:
+                if decision.text:
+                    notes.append(decision.text)
+                continue
+            kept.append(out)
+            continue
+        if kind in (KindText, KindReply) and (out.text or "").strip():
+            filtered, _decision = guard.filter_text(out.text, stage="send", scope=scope)
+            if filtered != out.text:
+                out = dataclasses.replace(out, text=filtered)
+        kept.append(out)
+    if notes:
+        kept.append(text_output("\n".join(notes)))
+    return kept

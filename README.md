@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.0.2`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `1.0.3`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -18,7 +18,7 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行（含测试共 754 个文件 / 146,153 行） |
-| 本仓库 | 平铺布局的 `atri_x/`：705 个 `.py` 模块，约 20.4 万行（物理行，含空行/注释/docstring；`tests/` 另有约 9.7 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：715 个 `.py` 模块，约 20.9 万行（物理行，含空行/注释/docstring；`tests/` 另有约 10.0 万行） |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 平台适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
@@ -174,16 +174,8 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.0.2`**（2026-10-22，补丁版）。本版在「模型」页补上**推理思考强度
-（`reasoning_effort`）**设置：Provider 表单可选 none / minimal / low / medium / high，
-保存进 `[providers.<name>].reasoning_effort` 并真正放进 LLM 请求 JSON（也可在
-`model_configs.<model>` 按模型覆盖）；同时修掉「设置里改了、配置文件里没落实」的一类缺陷：
-模型分配清空命名 / 压缩槽位现在会从 `state.toml` 删掉小节（旧版界面清空、文件里仍是旧值），
-工作 / 聊天槽位与 provider/model 半填会给出明确错误且**整份不写**，Provider 与模型分配
-保存后都会**从磁盘回读逐字段校验**。1.0.1 的入站媒体修复、品牌图标与「工具参数（全局）」
-跨字段校验在其之前各节；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
-交付物尺寸与校验和见 Release 里的 `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md` /
-`SHA256SUMS.txt`。
+当前最新版本：**`1.0.3`**（2026-10-23）。本版三块变化：①**内置内容安全**——「道德限制 + 敏感信息过滤」原生 Python 实现（词表拦截、凭据/PII 脱敏、只存 hash 的审计日志、图片/文件出口策略），不再依赖外部插件；②**常驻记忆配额** core / normal 各提到 500 units；③**识图改造**——两段式描述（视觉模型只描述、主模型下结论）、`detail = original` 不再先把图缩糊、可选的 SauceNAO 以图搜图兜底（默认关）、3~5 秒超时降级、群图外发隐私开关与失败原因可观测。1.0.2 的「推理思考强度」与 GUI 落盘修复在其之前；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+交付物尺寸与校验和见发行库里的 `发行说明.md` / `自检报告.md` / `SHA256SUMS.txt`。
 
 | 产物 | 位置 |
 | --- | --- |
@@ -274,6 +266,8 @@ python deploy/atri_x_watchdog.py                                # 外部 watchdo
 | [docs/atriyph.md](docs/atriyph.md) | Atriyph 任务表示法 |
 | [docs/character-library.md](docs/character-library.md) | 角色素材库 |
 | [docs/image-generation.md](docs/image-generation.md) | 生图服务与提示词优化 |
+| [docs/vision.md](docs/vision.md) | 识图能力：图片精度、两段式描述、以图搜图兜底与隐私开关 |
+| [docs/safety.md](docs/safety.md) | 内容安全：道德限制词表、敏感信息脱敏、审计与出口策略 |
 | [docs/reports.md](docs/reports.md) | 定时报告 |
 | [docs/frontend-api.md](docs/frontend-api.md) | 远程 CLI / 自定义前端协议 |
 | [docs/windows-app.md](docs/windows-app.md) | Windows 桌面端、托盘/自启、安装包与接 QQ |

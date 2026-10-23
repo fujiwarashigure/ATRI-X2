@@ -49,6 +49,7 @@ from atri_x.config.app_sections import (
     PlatformFilesConfig,
     ResidentMemoryConfig,
     RuntimeConfig,
+    SafetyConfig,
     SandboxConfig,
     SecurityConfig,
     SelfLearningConfig,
@@ -150,6 +151,7 @@ class AppConfig(StrictConfig):
     resident_memory: ResidentMemoryConfig = field(default_factory=ResidentMemoryConfig)
     view: ViewConfig = field(default_factory=ViewConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
+    safety: SafetyConfig = field(default_factory=SafetyConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     llm_request: LLMRequestConfig = field(default_factory=LLMRequestConfig)
     maintenance: MaintenanceConfig = field(default_factory=MaintenanceConfig)
@@ -304,6 +306,8 @@ class AppConfig(StrictConfig):
                 setattr(image, name, fallback)
         self._apply_vision_defaults(self.image_to_prompt)
         self._apply_vision_defaults(self.vision)
+        self.vision = self.vision.normalized()
+        self.safety = self.safety.normalized()
         # [vision] 默认继承 image_to_prompt 的后端；显式 provider/model 始终优先。
         if not self.vision.provider.strip() and not self.vision.model.strip():
             self.vision.provider = self.image_to_prompt.provider
@@ -332,9 +336,9 @@ class AppConfig(StrictConfig):
         if self.tools.max_rounds_per_turn <= 0:
             self.tools.max_rounds_per_turn = 2
         if self.resident_memory.core_max_units <= 0:
-            self.resident_memory.core_max_units = 200
+            self.resident_memory.core_max_units = 500
         if self.resident_memory.normal_max_units <= 0:
-            self.resident_memory.normal_max_units = 300
+            self.resident_memory.normal_max_units = 500
         request = self.llm_request
         for name, fallback in (
             ("first_chunk_timeout_seconds", 180),
@@ -419,6 +423,12 @@ class AppConfig(StrictConfig):
             config.max_image_bytes = 12 * 1024 * 1024
         if config.timeout_seconds <= 0:
             config.timeout_seconds = 90
+        # 1.0.3：显式让上游按原始分辨率看图。``low`` 会把图缩到 512×512，
+        # 滚边纹样/肩章符号这类“用来认人”的细节会先糊掉，因此默认 original。
+        detail = str(getattr(config, "detail", "") or "").strip().lower()
+        if detail not in ("original", "high", "auto", "low"):
+            detail = "original"
+        config.detail = detail
 
     def _apply_ops_defaults(self) -> None:
         ops = self.ops

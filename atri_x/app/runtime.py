@@ -193,7 +193,7 @@ class DefaultRuntimeFactory:
         vision_metrics = VisionMetricsState()
         file_backups = new_rollback_store()
         image_to_prompt = build_image_prompt_service(
-            ctx, cfg, req.models, vision_metrics.counters_value()
+            ctx, cfg, req.models, vision_metrics.counters_value(), logger=logger
         )
         vision_metrics.set("image_to_prompt", image_to_prompt)
 

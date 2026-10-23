@@ -22,7 +22,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from atri_x.llm import LLMMessage, Role, MessageSegment, text_segments
+from atri_x.llm import (
+    LLMMessage,
+    Role,
+    MessageSegment,
+    SegmentType,
+    text_segments,
+)
 from atri_x.toolrun import (
     CachedTool,
     ConfirmResult,
@@ -32,6 +38,13 @@ from atri_x.toolrun import (
 )
 from atri_x.toolrun.toolrun import ResolvedTool
 from atri_x.tool import RiskAssessment
+# safety-guard: 工具结果审核 + 把 guard 挂到工具 ctx（image_generate / send_file 用）
+from atri_x.safety import (
+    TOOL_IMAGE_STRIPPED_TEXT,
+    scope_from_host,
+    with_safety_guard,
+    with_safety_scope,
+)
 from atri_x.agent.tools import (
     compact_arguments,
     is_background_session,
@@ -154,16 +167,27 @@ class AgentToolRunDeps:
             },
         )
         if event is None:
-            return await self._materialize(ctx, original)
+            return await self._materialize(
+                ctx, _safety_guard_segments(self.agent, ctx, original, call)
+            )
         message_payload = _payload_field(event, "message")
         tool_payload = _payload_field(event, "tool")
         hook_segments = _payload_field(message_payload, "segments") if message_payload is not None else None
         if hook_segments is not None and not _segments_equal(hook_segments, original):
-            return await self._materialize(ctx, list(hook_segments))
+            return await self._materialize(
+                ctx, _safety_guard_segments(self.agent, ctx, list(hook_segments), call)
+            )
         hook_result = _payload_field(tool_payload, "result") if tool_payload is not None else None
         if hook_result is not None and hook_result != result_text:
-            return await self._materialize(ctx, _set_segment_text(original, hook_result))
-        return await self._materialize(ctx, original)
+            return await self._materialize(
+                ctx,
+                _safety_guard_segments(
+                    self.agent, ctx, _set_segment_text(original, hook_result), call
+                ),
+            )
+        return await self._materialize(
+            ctx, _safety_guard_segments(self.agent, ctx, original, call)
+        )
 
     # -- 请求/上下文 --------------------------------------------------------
     async def start_tool_request(
@@ -220,6 +244,9 @@ class AgentToolRunDeps:
 
     async def prepare_tool_context(self, ctx: Any, session: Any, call: Any) -> Any:
         """对应 Go ``PrepareToolContext``。"""
+        # safety-guard: 把 guard 与审计归属挂到工具 ctx 上（工具拿不到 agent，只能从 ctx 取）
+        ctx = with_safety_guard(ctx, getattr(self.agent, "safety_guard", None))
+        ctx = with_safety_scope(ctx, scope_from_host(self.agent, ctx))
         if session is None:
             return ctx
         agent = self.agent
@@ -566,6 +593,43 @@ class _SessionWorkspaceStore:
 # ---------------------------------------------------------------------------
 # 公开 helper（同时供测试与别处复用）
 # ---------------------------------------------------------------------------
+def _safety_guard_segments(
+    agent: Any, ctx: Any, segments: list[MessageSegment], call: Any
+) -> list[MessageSegment]:
+    """safety-guard: 工具结果审核。
+
+    文本段逐段过 ``filter_text``（``enforce`` 下脱敏、命中词表类换成拦截文案）；
+    ``should_strip_tool_images()`` 为真时把图片段替换成文本占位（模型与后续上下文
+    看不到图）。``guard`` 未装配或 ``mode = off`` 时原样返回。
+    """
+    guard = getattr(agent, "safety_guard", None)
+    if guard is None:
+        return segments
+    scope = scope_from_host(agent, ctx)
+    strip_images = guard.should_strip_tool_images()
+    tool_name = str(getattr(call, "name", "") or "")
+    out: list[MessageSegment] = []
+    for segment in segments:
+        if segment.type == SegmentType.TEXT:
+            filtered, _decision = guard.filter_text(
+                segment.text, stage="tool", scope=scope, meta={"tool": tool_name}
+            )
+            if filtered != segment.text:
+                clone = segment.clone()
+                clone.text = filtered
+                out.append(clone)
+            else:
+                out.append(segment)
+            continue
+        if segment.type == SegmentType.IMAGE and strip_images:
+            out.append(
+                MessageSegment(type=SegmentType.TEXT, text=TOOL_IMAGE_STRIPPED_TEXT)
+            )
+            continue
+        out.append(segment)
+    return out
+
+
 def risk_confirmation_detail_text(confirmation: Any) -> str:
     """高风险调用详情文案。对应 Go ``riskConfirmationDetailText``。"""
     detail = str(getattr(confirmation, "detail", "") or "").strip()

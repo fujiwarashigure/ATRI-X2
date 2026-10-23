@@ -23,14 +23,19 @@ __all__ = ["buildImagePromptService", "build_image_prompt_service"]
 
 
 def build_image_prompt_service(
-    base_ctx: Any, cfg: Any, models: ModelClients, metrics: Any = None
+    base_ctx: Any,
+    cfg: Any,
+    models: ModelClients,
+    metrics: Any = None,
+    logger: Any = None,
 ) -> Any:
     """对应 Go ``buildImagePromptService``；未启用返回 ``None``。
 
     显式启用但配置不完整/未知时抛错，让 services.toml 里的拼写错误在启动期暴露，
     而不是看起来像"模型从来不调用这个工具"。
 
-    ``base_ctx`` 是进程生命周期上下文：关停会取消在途描述任务。
+    ``base_ctx`` 是进程生命周期上下文：关停会取消在途描述任务。``logger`` 只用于
+    失败原因的一行摘要（不含图片内容与凭据）。
     """
     section = getattr(cfg, "image_to_prompt", None)
     if cfg is None or section is None or not _enabled(section):
@@ -62,6 +67,12 @@ def build_image_prompt_service(
             max_edge=int(getattr(section, "max_edge", 0) or 0),
             max_image_bytes=int(getattr(section, "max_image_bytes", 0) or 0),
             timeout=float(getattr(section, "timeout_seconds", 0) or 0),
+            # 1.0.3：图片精度（默认 original）与隐私总开关。
+            detail=_detail_value(section),
+            allow_external_images=bool(
+                getattr(section, "allow_external_images", True)
+            ),
+            logger=logger,
             base_context=base_ctx,
             metrics=metrics,
         )
@@ -80,6 +91,12 @@ def _temperature_value(section: Any) -> float:
     if callable(method):
         return float(method())
     return float(getattr(section, "temperature", 0.0) or 0.0)
+
+
+def _detail_value(section: Any) -> str:
+    """图片精度：默认 ``original``（低精度先把认人细节糊掉）。"""
+    value = str(getattr(section, "detail", "") or "").strip().lower()
+    return value if value in ("original", "high", "auto", "low") else "original"
 
 
 buildImagePromptService = build_image_prompt_service

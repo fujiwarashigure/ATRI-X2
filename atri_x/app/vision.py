@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from atri_x.app.dependencies import ModelClients
@@ -80,12 +81,16 @@ def vision_capability_error(section: str, provider: str, model: str, cfg: Any) -
 
 
 def build_vision_describer(
-    base_ctx: Any, cfg: Any, models: ModelClients, metrics: Any = None
+    base_ctx: Any,
+    cfg: Any,
+    models: ModelClients,
+    metrics: Any = None,
+    logger: Any = None,
 ) -> Any:
     """对应 Go ``buildVisionDescriber``；未启用返回 ``None``。
 
     ``base_ctx`` 是进程生命周期上下文：关停时取消在途的共享视觉任务，而不是让它
-    跑满共享超时。
+    跑满共享超时。``logger`` 只用于失败原因的一行摘要（不含图片内容与凭据）。
     """
     if cfg is None or not _is_enabled(getattr(cfg, "vision", None)):
         return None
@@ -121,6 +126,29 @@ def build_vision_describer(
             negative_ttl=float(
                 getattr(section, "negative_cache_ttl_seconds", 0) or 0
             ),
+            # 1.0.3：图片精度 / 前置描述短超时 / 隐私开关 / 以图搜图兜底。
+            detail=_detail_value(section),
+            probe_timeout_seconds=_probe_timeout_value(section),
+            allow_external_images=bool(
+                getattr(section, "allow_external_images", True)
+            ),
+            allow_group_images=bool(getattr(section, "allow_group_images", True)),
+            identity_enabled=bool(getattr(section, "identity_enabled", False)),
+            identity_api_key=_identity_api_key(cfg, section),
+            identity_api_key_env=str(
+                getattr(section, "identity_api_key_env", "") or "SAUCENAO_API_KEY"
+            ).strip(),
+            identity_daily_limit=int(
+                getattr(section, "identity_daily_limit", 0) or 0
+            ),
+            identity_timeout_seconds=_identity_timeout_value(section),
+            identity_min_similarity=_identity_similarity_value(section),
+            identity_state_path=str(
+                getattr(section, "identity_state_path", "") or ""
+            ).strip(),
+            # 群聊隐私的 Service 层判定：工具与聊天两条路都只认这一个回调。
+            group_scope=_group_scope_callback(),
+            logger=logger,
             base_context=base_ctx,
             metrics=metrics,
         )
@@ -147,6 +175,85 @@ def _language_value(section: Any) -> str:
     if callable(method):
         return str(method())
     return str(getattr(section, "language", "") or "")
+
+
+def _detail_value(section: Any) -> str:
+    """图片精度：默认 ``original``（低精度会把认人细节先糊掉）。"""
+    value = str(getattr(section, "detail", "") or "").strip().lower()
+    return value if value in ("original", "high", "auto", "low") else "original"
+
+
+def _probe_timeout_value(section: Any) -> float:
+    method = getattr(section, "probe_timeout_value", None)
+    if callable(method):
+        return float(method())
+    try:
+        value = float(getattr(section, "probe_timeout_seconds", 0) or 0)
+    except (TypeError, ValueError):
+        return 4.0
+    if value <= 0:
+        return 4.0
+    return min(max(value, 1.0), 30.0)
+
+
+def _identity_timeout_value(section: Any) -> float:
+    method = getattr(section, "identity_timeout_value", None)
+    if callable(method):
+        return float(method())
+    try:
+        value = float(getattr(section, "identity_timeout_seconds", 0) or 0)
+    except (TypeError, ValueError):
+        return 8.0
+    if value <= 0:
+        return 8.0
+    return min(max(value, 1.0), 60.0)
+
+
+def _identity_similarity_value(section: Any) -> float:
+    method = getattr(section, "identity_min_similarity_value", None)
+    if callable(method):
+        return float(method())
+    try:
+        value = float(getattr(section, "identity_min_similarity", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.7
+    return min(max(value, 0.0), 1.0)
+
+
+def _identity_api_key(cfg: Any, section: Any) -> str:
+    """解析 SauceNAO key：进程环境变量优先，其次配置目录的 ``.env``。
+
+    key 只在内存里传给 vision 服务，绝不写日志/审计/异常文本。
+    """
+    name = str(
+        getattr(section, "identity_api_key_env", "") or "SAUCENAO_API_KEY"
+    ).strip()
+    if not name:
+        return ""
+    value = os.environ.get(name, "").strip()
+    if value:
+        return value
+    try:
+        from atri_x.config import load_dot_env
+
+        config_dir = os.path.dirname(str(getattr(cfg, "config_path", "") or ""))
+        return str(load_dot_env(config_dir).get(name) or "").strip()
+    except Exception:  # noqa: BLE001 - 读不到 .env 只是"没配 key"
+        return ""
+
+
+def _group_scope_callback() -> Any:
+    """Service 层判定「当前调用是否群聊」的回调；导入失败时不额外限制。
+
+    工具体系（view_image / image_to_prompt）不经过 Agent，只认进程级隐私开关；
+    聊天路径另外还会用 ``agent.vision_allow_group_images`` 做前置判定。
+    """
+    try:
+        from atri_x.vision.privacy import ctx_is_group_chat
+
+        return ctx_is_group_chat
+    except Exception:  # noqa: BLE001 - 视觉包缺件时退回"只看总开关"
+        return None
 
 
 visionChatDescriber = VisionChatDescriber

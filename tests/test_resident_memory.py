@@ -162,7 +162,7 @@ class TestStoreMaxUnits(ResidentTestCase):
         self.assertEqual(limits.core, DEFAULT_CORE_MAX_UNITS)
         self.assertEqual(limits.normal, DEFAULT_NORMAL_MAX_UNITS)
         self.assertEqual(Limits(core=-5, normal=0).core, -5)
-        self.assertEqual(new_store_with_limits(self.memories_path(), Limits()).limits.normal, 300)
+        self.assertEqual(new_store_with_limits(self.memories_path(), Limits()).limits.normal, 500)
 
     def test_normal_total_limit_rejects_write(self) -> None:
         """总量上限：normal 写入超过上限时整体拒绝（不是截断）。"""

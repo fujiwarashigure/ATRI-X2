@@ -27,7 +27,7 @@ rg -n "locator:tool" devdocs/code-map.md
 - `atri_x/app/foundation.py`、`atri_x/app/models.py`、`atri_x/app/runtime.py`：配置/存储基础设施、模型客户端，以及 Cron/Tool/Hook/Agent 核心装配。`atri_x/app/runtime.py` 在 Agent 就绪前把 Hook 加载告警攒进 `RuntimeComponents.HookNotices`（真实平台发送器要等 `Integrations.Attach` 才注册），由 `atri_x/app/runner.py` 在 Attach 之后用 `atri_x/app/platforms.py` 的 `deliverHookNotices` 发到 `hookNoticeTarget` 选出的落地平台超管，无可用平台时退回日志。
 - `atri_x/app/image_rewriter.py`、`atri_x/app/image_to_prompt.py`：把 `image_generate` 的低成本改写模型和 `image_to_prompt` 的视觉模型接到已有 `ModelClients`，再以接口形式注入 builtin 工具；`image_to_prompt` 显式启用但 provider/model 有误时在启动阶段报错。改写器实例是共享的，所以目标模型与提示词方言随 `ImagePromptRewriteRequest` 逐次传入，由 `imageRewriteSystemFor` 在"自然语言长句"与"逗号分隔标签、禁止输出权重表达式"两套系统提示词之间选择。
 - `atri_x/imagegen/client.py`、`atri_x/imagegen/prompt.py`、`atri_x/imagegen/optimize.py`、`atri_x/imagegen/library.py`：OpenAI 兼容生图客户端与提示词组装。`atri_x/imagegen/client.py` 的 `Config.Normalize()` 会剔除 `extra_payload` / `extra_headers` 里试图覆盖 ATRI-X 自建字段的键（结果记在 `DroppedExtraPayload` / `DroppedExtraHeaders`），负向提示词按 `NegativePromptMode` 决定走独立字段、折进正向提示词还是丢弃。
-- `atri_x/app/vision.py`、`atri_x/agent/vision.py`、`atri_x/vision/`：自动视觉兜底。`[vision]` 段显式开启后，`agent.callLLM` 在 `APIError.Category == vision_unsupported` 时调用 `VisionDescriber` 把图片段替换成文字描述（有界并行 + 整批时间预算），失败则降级回文本引用；`atri_x/vision` 是 `image_to_prompt` 工具与兜底共用的唯一描述引擎（预处理 + 流式调用 + 版本化指纹缓存 + 成功/负缓存 + 同 key 合并 + 运行器/等待者上限 + `Stats()` 接入 `/metrics` + panic 隔离），不反向依赖 `atri_x/media`。`atri_x/llm/openai` 的 `parseError` 负责把上游错误映射为 `APIError.Category`，`shouldFallbackVision` 只读该字段。
+- `atri_x/app/vision.py`、`atri_x/agent/vision.py`、`atri_x/agent/chat_turn.py`、`atri_x/vision/`：自动视觉兜底 + 1.0.3 两段式识图。`[vision]` 段显式开启后，`agent.callLLM` 在 `APIError.Category == vision_unsupported` 时调用 `VisionDescriber` 把图片段替换成文字描述（有界并行 + 整批时间预算），失败则降级回文本引用；`trigger = "always"` 时改为在首轮 `call_llm` 之前先描述（`atri_x/agent/chat_turn.py` 调用 `atri_x/agent/vision.py` 的 `describe_images_before_chat`，实现体在 `atri_x/vision/prechat.py`，短超时 + 失败降级“图没取到”）。`atri_x/vision` 是 `image_to_prompt` 工具与兜底共用的唯一描述引擎（预处理 + 流式调用 + 版本化指纹缓存 + 成功/负缓存 + 同 key 合并 + 运行器/等待者上限 + `Stats()` 接入 `/metrics` + panic 隔离），不反向依赖 `atri_x/media`；1.0.3 增加 `detail`（默认 original，`MessageSegment.detail` 经 `atri_x/llm/openai/wire.py` / `responses.py` 带到 `image_url` / `input_image`）、两段式属性模板（`prompt.py` 的 `image_attributes_prompt` + `analysis.py` 的 `ImageAttributes`）、隐私开关（`privacy.py`，进程级 + Service 前置闸门，工具路径靠 `configure_privacy` 装配）、失败原因计数（`failures.py`，12 类）与 SauceNAO 以图搜图兜底（`identity.py`，默认关闭 + UTC 日配额 + 身份问句触发）。`atri_x/llm/openai` 的 `parseError` 负责把上游错误映射为 `APIError.Category`，`shouldFallbackVision` 只读该字段。
 - `atri_x/app/asr.py`、`atri_x/agent/asr.py`、`atri_x/asr/`：可选语音转写。`[asr]` 显式开启后，`HandleMessage` 在已唤醒的入站消息上调用 `AudioTranscriber` 把语音段替换成 `[语音 N 自动转写（可能有误）：...]` 文本段；`atri_x/asr` 负责 OpenAI 兼容 multipart 上传、有界并发/队列、录音大小与响应上限、成功/负缓存和重试；预算按 `asr` kind 预占，受全局、群和群内单用户四级每日额度约束。
 - `atri_x/llm/errors.py`：结构化 `APIError`（`StatusCode`/`Code`/`Type`/`Param`/`Message`/`Cause`）与确定性失败分类；`openai` 适配器的 `parseError` 在此保留上游错误码，供视觉兜底判定和负缓存使用。
 - `atri_x/app/platforms.py`、`atri_x/app/integrations.py`：平台运行、Atrinis 和平台能力接线；`runPlatforms` 维护"仍在运行的运行时"集合并区分非预期退出（记 WARN + 交给 `PlatformRunRequest.PlatformFailure` → health 标断开 + `notifyPlatformFailure` 通知其他平台超管）与交互式 CLI 退出（`StopAppOnExit`，非 service 模式才取消整轮运行），service 模式下全部运行时退出后仍等外部停止；同目录 `atri_x/app/service_marker.py` 用 PID 标记文件做服务单实例互斥，避免陈旧 PID 在容器重建后误判。
@@ -96,7 +96,7 @@ rg -n "ATRIX_OPS_TOKEN|WATCHDOG_OPS_TOKEN|restore-verify|fallback_mode|doctor|up
 - `atri_x/agent/inbox.py`、`atri_x/agent/inbound_speaker.py`：群共享线程的有序 Session 队列与同一成员连续消息合并窗口；每条输入保留独立 Actor/Speaker 与平台消息钮，不同成员串行而不合并权限主体；共享会话的用户消息写入服务端生成的发言成员标记与 `speakers` 元数据。
 - `atri_x/agent/segments.py`：平台入站 Segment 与 LLM Segment 转换。
 - `atri_x/agent/inbound_media.py`：实际消费前的平台 resolver 与 Media Center 桥接、大小校验和不可用降级。
-- `atri_x/tool/builtin/chat_history.py`：当前聊天历史查询与媒体位置/下载状态展示，查询不下载；`atri_x/tool/builtin/get_media.py`：显式选定媒体位置获取，仅返回文本 ID，单次最多 5 次未入库媒体获取尝试；`atri_x/tool/builtin/view_image.py`：把图片本身交给模型（`source` 的媒体 ID / HTTP(S) URL / 本地路径，或 `message_id` + `media_index` 取历史图片），声明 `tool.Info.VisionRequired`，本地路径限超级管理员。
+- `atri_x/tool/builtin/chat_history.py`：当前聊天历史查询与媒体位置/下载状态展示，查询不下载；`atri_x/tool/builtin/get_media.py`：显式选定媒体位置获取，仅返回文本 ID，单次最多 5 次未入库媒体获取尝试；`atri_x/tool/builtin/view_image.py`：把图片本身交给模型（`source` 的媒体 ID / HTTP(S) URL / 本地路径，或 `message_id` + `media_index` 取历史图片），声明 `tool.Info.VisionRequired`，本地路径限超级管理员；1.0.3 起图片段带 `detail = "original"`，不再默认降采样。
 - `atri_x/tool/capability.py`：请求级工具能力（当前只有 `Vision`），随 context 传播；`InfoAvailableInContext` 据此隐藏 `VisionRequired` 工具，agent 在 `runChat` / `handleSessionInput` / 后台预载入口用 `withToolCapabilities` 按当前 work 模型的 `vision` 声明注入。
 - `atri_x/config/inspect.py`：只读配置体检（`UnknownAppConfigKeys` 用严格解码列出 `app.toml` 未消费的键；`BuiltinAssetDrift` 对比内置 Skill 文件与默认版本），由 `atri_x/app/config_check.py` 汇入警告；`atri_x/agent/commands/doctor.py` + `atri_x/app/doctor.py` 的 `doctorService` 提供仅超管的 `/doctor`（复用 `RunDoctor(SkipModel)`，无问题返回 `Everything is OK`）。
 - `atri_x/toolrun/toolrun.py`：后台任务工具白名单 `BackgroundToolAllowed`（排除 `discover_tool`/`workspace`），后台上下文里 `Resolve` 不再回落到全局 registry、`Schemas` 按同一白名单过滤；`atri_x/agent/cron.py` 的 `backgroundCachedTools` 在写入后台 metadata 前过滤外部声明。
@@ -292,6 +292,24 @@ rg -n "SKILL.atriyph|ATRIX_SKILL|AgentSkill|go_skill_run|finalize|Lint|Catalog" 
 
 ```bash
 rg -n "Event|Handler|Control|plugins/hooks.toml|exec|hook.v2|runtime|SharedState|message.segments|llm.messages" atri_x/hook atri_x/agent docs/hooks.md
+```
+
+<!-- locator:safety -->
+## 内容安全（道德限制 + 敏感信息过滤）
+
+适用任务：内容过滤词表、敏感信息/凭据脱敏、审计日志、图片/文件出口策略、`[safety]` 配置与接入点。
+
+先看：
+
+- `atri_x/safety/`：1.0.3 新增的原生 Python 内容安全包（替代 1.0.2 的外挂 Node hook 插件）。`policy.py` 是策略 dataclass 与 `policy_from_section()`（从 `[safety]` 即时构造，鸭子类型读字段，不 import `atri_x.config`）；`rules.py` 是词表类别加载与敏感信息正则（含命中豁免与幂等脱敏）；`guard.py` 是 `SafetyGuard`（`evaluate_text` / `filter_text` / `allow_media_output` / `should_strip_tool_images` / `stats`）与 `SafetyDecision`；`audit.py` 是只存 sha256 + 脱敏预览的 JSONL 审计（线程安全、写失败不阻断发送）；`wordlists/*.txt` 是八个内置类别词表。**未装配 guard 或 `mode = "off"` 时所有接入点必须完全无行为变化。**
+- 接入点：`atri_x/agent/message.py`（入站用户消息，命中 `enforce` 时用 `block_reply` 回复并结束本轮）、`atri_x/agent/chat_llm.py`（模型输出文本，`PointLLMResponseReceived` 之后写回 `event.llm.text`）、`atri_x/agent/toolrun_adapter.py`（工具结果文本/图片段）、`atri_x/agent/output.py`（`prepare_assistant_output` 发送前唯一文本点 + `send_outputs` 边界按 kind 丢弃或脱敏）、`atri_x/tool/builtin/image_generate.py`（生图 prompt 审核）、`atri_x/tool/builtin/send_file.py`（文件出口）。
+- `atri_x/app/runtime_agent.py`：`_wire_safety_and_vision()` 用 `[safety]` 构造 `SafetyGuard` 并挂成 `agent.safety_guard`；guard 构造失败只记 WARN（fail-open，不阻断启动）。
+- `docs/safety.md`：用户侧配置与误杀调优说明。
+
+常用搜索：
+
+```bash
+rg -n "safety_guard|safety-guard|filter_text|allow_media_output" atri_x tests docs/safety.md
 ```
 
 <!-- locator:output -->

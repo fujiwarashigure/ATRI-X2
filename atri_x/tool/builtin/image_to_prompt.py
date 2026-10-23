@@ -422,6 +422,10 @@ class ImageToPromptTool:
         """对应 Go ``imageToPromptErrorResult``：取消/超时按真正的调用失败抛出。"""
         if _is_cancellation(exc):
             raise exc
+        if _is_privacy_blocked(exc):
+            # 隐私开关：服务层在打开上游连接之前就拒绝了，这里给出可读原因，
+            # 而不是把异常文本`vision: 外部识图已关闭`原样回喂。
+            return Result(content="外部识图已关闭，无法反推提示词；请先开启外部识图。")
         return Result(content=prefix + str(exc))
 
 
@@ -482,6 +486,13 @@ def _is_cancellation(exc: BaseException) -> bool:
         return bool(is_cancellation(exc))
     except Exception:  # pragma: no cover - vision 一定存在，这里只是兜底
         return isinstance(exc, (asyncio.CancelledError, TimeoutError))
+
+
+def _is_privacy_blocked(exc: BaseException) -> bool:
+    """是否被外部识图开关拒绝（服务层专用的 ``PrivacyBlockedError``）。"""
+    from atri_x.vision import PrivacyBlockedError
+
+    return isinstance(exc, PrivacyBlockedError)
 
 
 __all__ = [name for name in dir() if not name.startswith("_")]

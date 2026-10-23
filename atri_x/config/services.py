@@ -463,6 +463,11 @@ class ImageToPromptConfig(StrictConfig):
     max_edge: int = 1536
     max_image_bytes: int = 12 * 1024 * 1024
     timeout_seconds: int = 90
+    #: 传给上游图片段的 ``detail``：original（默认）/ high / auto / low。
+    #: 刻意默认 original：low 会先缩到 512×512，细节在识图前就没了。
+    detail: str = "original"
+    #: 是否允许把图片字节发给外部视觉 API（隐私总开关；false 时工具直接报错）。
+    allow_external_images: bool = True
 
     def temperature_value(self) -> float:
         """未设置时 0.2；显式 0 会被保留（适配器据此不覆盖上游温度）。"""
@@ -477,7 +482,11 @@ class ImageToPromptConfig(StrictConfig):
 
 @dataclass
 class VisionConfig(StrictConfig):
-    """``[vision]``：文本模型拒绝图片时的自动视觉兜底（默认关闭，避免隐性费用）。"""
+    """``[vision]``：文本模型拒绝图片时的自动视觉兜底（默认关闭，避免隐性费用）。
+
+    1.0.3 起额外承担“两段式识图”：成功描述图片后可把结构化属性喂给主模型，
+    并可选在用户明确问“这是谁/出自哪”时用 SauceNAO 做一次以图搜图兜底。
+    """
 
     enabled: bool | None = None
     provider: str = ""
@@ -491,6 +500,32 @@ class VisionConfig(StrictConfig):
     cache_ttl_seconds: int = 1800
     negative_cache_ttl_seconds: int = 30
 
+    # -- 1.0.3 两段式 / 隐私 / 观测 -----------------------------------------
+    #: 传给上游图片段的 ``detail``：original（默认）/ high / auto / low。
+    detail: str = "original"
+    #: 触发时机：``on_error``（默认，只在主模型报“不支持图片”时兜底）或
+    #: ``always``（每轮带图都先描述成文字再交给主模型，即“两段式”）。
+    trigger: str = "on_error"
+    #: ``trigger = always`` 时整批描述的短超时（秒）。3~5 秒拿不到就降级说“图没取到”，
+    #: 绝不编造画面内容。范围 1~30。
+    probe_timeout_seconds: float = 4.0
+    #: 隐私总开关：false 时不把任何图片字节发给外部视觉 API。
+    allow_external_images: bool = True
+    #: 群聊隐私开关：false 时群聊里的图不送外部视觉 API（私聊不受影响）。
+    allow_group_images: bool = True
+
+    # -- 1.0.3 以图搜图（SauceNAO）兜底，默认关闭 -----------------------------
+    identity_enabled: bool = False
+    #: 读取 SauceNAO API key 的环境变量名（也支持写进配置目录的 ``.env``）。
+    identity_api_key_env: str = "SAUCENAO_API_KEY"
+    #: 每日请求上限（UTC 日切）；0 表示不限。
+    identity_daily_limit: int = 100
+    identity_timeout_seconds: float = 8.0
+    #: 相似度低于该值视为“没找到”，不写进描述。
+    identity_min_similarity: float = 0.7
+    #: 每日计数的持久化文件；空 = 进程内计数（重启清零）。
+    identity_state_path: str = ""
+
     def is_enabled(self) -> bool:
         return self.enabled is not None and self.enabled
 
@@ -500,6 +535,44 @@ class VisionConfig(StrictConfig):
     def language_value(self) -> str:
         """归一化为 ``zh`` / ``en``。对应 Go ``LanguageValue``。"""
         return "en" if self.language.strip().lower() == "en" else "zh"
+
+    def trigger_value(self) -> str:
+        """``on_error`` 或 ``always``；无法识别时回到保守的 ``on_error``。"""
+        value = (self.trigger or "").strip().lower()
+        return value if value in ("on_error", "always") else "on_error"
+
+    def probe_timeout_value(self) -> float:
+        value = float(self.probe_timeout_seconds or 0)
+        if value <= 0:
+            return 4.0
+        return min(max(value, 1.0), 30.0)
+
+    def identity_timeout_value(self) -> float:
+        value = float(self.identity_timeout_seconds or 0)
+        if value <= 0:
+            return 8.0
+        return min(max(value, 1.0), 60.0)
+
+    def identity_min_similarity_value(self) -> float:
+        value = float(self.identity_min_similarity or 0)
+        return min(max(value, 0.0), 1.0)
+
+    def normalized(self) -> VisionConfig:
+        """补齐 1.0.3 新字段的合法区间（旧配置文件仍可正常加载）。"""
+        out = self.copy()
+        out.detail = str(out.detail or "").strip().lower()
+        if out.detail not in ("original", "high", "auto", "low"):
+            out.detail = "original"
+        out.trigger = out.trigger_value()
+        out.probe_timeout_seconds = out.probe_timeout_value()
+        out.identity_daily_limit = max(0, int(out.identity_daily_limit or 0))
+        out.identity_timeout_seconds = out.identity_timeout_value()
+        out.identity_min_similarity = out.identity_min_similarity_value()
+        out.identity_api_key_env = (
+            (out.identity_api_key_env or "").strip() or "SAUCENAO_API_KEY"
+        )
+        out.identity_state_path = (out.identity_state_path or "").strip()
+        return out
 
 
 @dataclass

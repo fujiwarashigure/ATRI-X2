@@ -6,6 +6,79 @@
 
 ---
 
+## [1.0.3] - 2026-10-23 — 内置内容安全（道德限制 + 敏感信息过滤）、常驻记忆配额 500、识图六项改造
+
+> 本版把 1.0.2 时期的两套外挂能力收进产品内，并重做识图链路：
+> ①**内容安全内置化**——「道德限制 + 敏感信息过滤」原生 Python 实现（词表拦截、凭据/PII 脱敏、
+> 只存 hash 的审计日志、图片/文件出口策略），不再依赖外挂 Node hook 插件，也把
+> 1.0.2 Hook 够不到的图片/文件出口纳入同一层策略；
+> ②**常驻记忆配额** core / normal 各从 200 / 300 提到 **500**；
+> ③**识图六项改造**——两段式描述、`detail = "original"`、SauceNAO 以图搜图兜底（默认关）、
+> 3~5 秒短超时降级、群图外发隐私开关、失败原因可观测。
+> 版本号 `1.0.2` → `1.0.3`，重建 Windows 便携版、安装包与全仓库源码归档。
+
+旧状态（1.0.2）：
+- 内容过滤只有外挂方案 `ATRI-X-safety-gate`（Node hook 插件 + 5 个 hook 点）：要单独安装、每条命中都要拉一次 `node.exe`（50~150 ms 冷启动），而且 `image_generate` / `send_file` 的 `out.outputs` 不经过 Hook，**图片/文件发出去之前拦不住**。
+- 常驻记忆 `core_max_units = 200`、`normal_max_units = 300`；单条 normal 上限 80 units、最多 20 条。
+- 识图只有两条：`view_image` 把图片段原样交给主模型（没有任何 `detail` 控制，上游可自行降采样）；`[vision]` 只在主模型**明确报错**“不支持图片”时才兜底。`image_to_prompt` 与聊天兜底共用 `atri_x/vision` 缓存，但提示词模板只有“绘图提示词/通用分析/聊天描述”三种，没有任何“只描述可观察属性、不下结论”的两段式模板，也没有按图搜图、群图外发开关；失败只表现为“降级回文本引用”，看不到是下载失败、格式不支持还是超限。
+
+### 新增 — 内容安全（`atri_x/safety`，默认关闭）
+
+- 新包 `atri_x/safety/`：`policy.py`（`SafetyPolicy` + `policy_from_section()` 鸭子类型读 `[safety]`）、`rules.py`（词表类别 + 敏感信息正则 + 命中豁免 + 幂等脱敏）、`guard.py`（`SafetyGuard.evaluate_text` / `filter_text` / `allow_media_output` / `should_strip_tool_images` / `stats` 与 `SafetyDecision`）、`audit.py`（JSONL 审计：sha256 + 脱敏预览 + 标签 + 阶段 + 平台/scope/actor + 时间，**不存原文**）、`wordlists/*.txt`（hate_speech / illegal_method / minor_sexual / privacy_violation / self_harm / sexual_explicit / terror_extremism / violence_gore 八类，随包分发、可整类启停）。
+- 敏感信息默认动作分两档：`private_key` / `api_key` / `jwt` / `password` 默认 `redact`（直接替换）；`id_card` / `bank_card` / `phone` / `email` / `internal_ip` / `local_path` 默认 `flag`（只记审计，避免工程群正常内容被误脱敏），可用 `[safety.sensitive_actions]` 逐类改成 `redact`。
+- `mode = off | audit | enforce`：`audit` 只写审计、不改任何输出；`enforce` 才拦截/替换。**`enabled = false`（默认）时所有接入点完全无行为变化**。
+- 文本全链路接入：入站用户消息（`atri_x/agent/message.py`，命中即用 `block_reply` 回复并结束本轮、不进模型）、模型输出文本（`atri_x/agent/chat_llm.py`）、工具结果（`atri_x/agent/toolrun_adapter.py`）、发送边界（`atri_x/agent/output.py` 的 `prepare_assistant_output` 与 `send_outputs`，文本幂等重扫、图片/文件按 `block_image_output` / `block_file_output` 丢弃并补文本说明 + 审计）、生图提示词（`atri_x/tool/builtin/image_generate.py`，命中直接失败、不发 provider 请求）、文件出口（`atri_x/tool/builtin/send_file.py`）。
+- `strip_tool_images = true` 时把工具结果里的图片段剥离成文字占位（对应 1.0.2 插件“模型看不到图”的能力），默认关。
+- 装配：`atri_x/app/runtime_agent.py` 的 `_wire_safety_and_vision()` 构造 `SafetyGuard` 并挂 `agent.safety_guard`；guard 构造失败只记 WARN（fail-open，不让安全层缺失拖垮启动）。
+- GUI：「工具权限 → 工具参数（全局）」的全局面板新增 8 个安全开关（启用/模式/审计路径/拦截回复/扫描上限/剥离工具图片/禁出站图片/禁出站文件）；「功能」页新增内容安全一行。
+
+### 新增 — 识图六项改造
+
+1. **两段式描述**：`atri_x/vision/prompt.py` 新增“角色/画面属性描述”模板（新增版本常量使旧缓存 miss），要求输出紧凑 JSON：发色 / 瞳色 / 发型 / 服装配色 / 滚边纹样 / 徽章标志 / 配件 / 可见文字 / 画风倾向 / 是否疑似 AI 生成 / 构图背景 / 人物数量 / `identity_confidence` / 自然语言描述。提示词硬约束“只描述可观察特征、不猜作品与角色身份、不补充画面不存在的细节”，`atri_x/vision/analysis.py` 扩展解析与限幅。`[vision] trigger = "always"` 时由 `atri_x/agent/chat_turn.py` 在首轮 `call_llm` 之前先描述（`atri_x/agent/vision.py` 的前置函数），主模型只拿描述 + 文字回答；默认 `on_error` 保持 1.0.2 行为不变。
+2. **`detail = "original"`**：`MessageSegment` 新增 Python 侧字段 `detail`（空串不落盘，保持与 Go 落库键兼容）；`atri_x/llm/openai/wire.py` 的 `image_url` 与 `responses.py` 的 `input_image` 在非空时原样带给上游；`view_image` 的图片段与视觉服务的请求固定 `original`。`[image_to_prompt].detail` / `[vision].detail` 可改，但文档明确不要用 `low`（会先缩到 512×512，认人/认字细节在上传前就没了）。
+3. **SauceNAO 以图搜图兜底**（`atri_x/vision/identity.py`，默认关闭）：只有 `identity_enabled = true`、有 key（`identity_api_key_env` 指的环境变量或配置目录 `.env`）、当日未超 `identity_daily_limit`、用户本轮文本明确问身份（这是谁/什么角色/出自哪/who is this/which character…）、且第一段 `identity_confidence = low` 才发一次请求；结果以「[以图搜图参考] 标题/作者/相似度/链接（外部服务，仅供参考）」追加进描述，低于 `identity_min_similarity` 视为没找到。每日计数按 UTC 日切，可选用 `identity_state_path` 持久化；key 绝不进日志/审计/异常文本。
+4. **短超时降级**：`[vision].probe_timeout_seconds`（默认 4 秒，范围 1~30）包住前置描述；超时/失败把图片段替换成「图没取到（原因：超时/下载失败/格式不支持/超限）」，**绝不编造**画面内容。
+5. **隐私开关**：`[vision].allow_external_images`（总开关）与 `allow_group_images`（群聊开关）。false 时服务层在发上游前直接拒绝（不打开连接），聊天前置路径替换为「[图片未外发：外部识图已关闭]」，工具路径返回可读错误；`[image_to_prompt].allow_external_images` 同理。
+6. **失败可观测**：`atri_x/vision/failures.py` + `Service.stats()` 的 `failures` 计数，至少区分 `download_failed` / `unsupported_format` / `too_large` / `timeout` / `cancelled` / `provider_error` / `privacy_blocked` / `empty_result` / `parse_failed` / `identity_disabled` / `identity_quota` / `identity_error`；下载失败在 `atri_x/agent/vision.py` 分类记录。
+
+### 变更 — 常驻记忆配额 200 / 300 → 500 / 500
+
+- `atri_x/config/app_sections.py` 的 `ResidentMemoryConfig` 默认值与 `atri_x/config/app.py` 的补默认逻辑改成 `core_max_units = 500`、`normal_max_units = 500`（两段各自独立计算）；`atri_x/memory/resident/store.py` 的 `DEFAULT_CORE_MAX_UNITS` / `DEFAULT_NORMAL_MAX_UNITS` 同步。
+- `atri_x/config/assets_data/app.toml` 模板、GUI 参数默认值、`docs/configuration.md` 同步；已有安装的 `app.toml` 若没显式写这两个键，升级后自动按 500 生效（写死 200/300 的旧配置保持用户显式值）。
+
+### 配置与文档
+
+- `[safety]` 新段进 `app.toml` 严格解码（未知键仍报错）；`[vision]` 新增 `detail` / `trigger` / `probe_timeout_seconds` / `allow_external_images` / `allow_group_images` / `identity_*` 八个键；`[image_to_prompt]` 新增 `detail` / `allow_external_images`。
+- 新增 [`docs/safety.md`](docs/safety.md)（词表与敏感信息类别、audit 灰度、误杀调优、审计格式、出口策略）与 [`docs/vision.md`](docs/vision.md)（两段式、detail、隐私开关、SauceNaO 配置、失败原因）；`docs/configuration.md` 补 `[safety]` 段与识图新键；`docs/README.md` / `README.md` 补入口；`devdocs/code-map.md` 新增「内容安全（safety）」小节并更新视图片；`AGENTS.md` locator 表补 `locator:safety` / `locator:vision`。
+
+### 用例
+
+- 内容安全：`tests/test_safety_core.py`（策略装载 / 词表命中 / 敏感信息脱敏与幂等 /
+  审计不存原文 / `audit` 不改输出 / `enforce` 拦截与替换 / `allowlist` / `mode=off` 完全无变化 /
+  `block_*_output` 出口策略 / 审计写失败不抛）与 `tests/test_safety_integration.py`
+  （入站、模型输出、工具结果、发送边界、生图提示词、`send_file` 六个接入点，全部用 fake 宿主，
+  含「拦截后 provider 一次都没被调用」）。
+- 识图：`tests/test_vision.py` / `tests/test_vision_threading.py` 保持原有覆盖；新增
+  `tests/test_vision_attributes.py`（属性模板解析与限幅）、`tests/test_vision_identity.py`
+  （SauceNAO 请求构造 / 响应解析 / 每日配额 / 失败分类，全程离线 fake）、
+  `tests/test_vision_privacy.py`（总开关与群聊开关、Service 前置闸门不建连、工具可读错误）、
+  `tests/test_vision_prechat.py`（默认 `on_error` 不动消息、两段式触发、超时/下载失败降级、
+  `identity_confidence=low` 才查 SauceNAO）。
+- 配置与 GUI：`tests/test_config.py` 断言常驻记忆默认 500/500 与 `[safety]` 严格解码；
+  `tests/test_gui_toolsettings.py` / `tests/test_gui_tabs.py` 覆盖新面板字段与「无改动不写盘」；
+  `tests/test_resident_memory.py` 同步新的默认上限。
+- 全量 unittest：`Ran 6200 tests … OK (skipped=4)`（472.110 s），日志在
+  `证据/1.0.3/unittest-1.0.3.log`。
+
+### 发行
+
+- 版本号 `1.0.2` → `1.0.3`（`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION` 与 README / 文档同步）。
+- 从工作树重建 Windows x64 三件套（onedir + 便携版 zip + Inno 安装包），每个产物都跑产物级自检：`--version` = `atri-x 1.0.3`、`config check`、`-m` 转发、sidecar 状态、GUI selftest、便携版解压自检、安装包静默安装/卸载自检。
+- 全仓库源码归档 `ATRI-X-1.0.3-repo.zip` / `.tar.gz` 与四件产物的尺寸 / SHA-256 见发行库的 `SHA256SUMS.txt` / `发行说明.md` / `自检报告.md` / `证据/1.0.3/`。
+- 源码与产物脱敏复查（源码树 / 内置 DSH 内核 / 内置协议端 / 三份产物）0 命中；本次改动**未提交 Git、未推送**。
+
+---
+
 ## [1.0.2] - 2026-10-23 — 「模型」页新增推理思考强度，修复 GUI 设置未落实到配置文件
 
 > 本版是 **1.0.2 补丁版**：给桌面端「模型」页补上用户一直缺的**推理思考强度

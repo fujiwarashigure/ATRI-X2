@@ -70,6 +70,12 @@ hiddenimports = collect_submodules("atri_x")
 datas = [
     (os.path.join(REPO_ROOT, "atri_x", "config", "assets_data"), "atri_x/config/assets_data"),
     (os.path.join(REPO_ROOT, "atri_x", "imagegen", "prompts"), "atri_x/imagegen/prompts"),
+    # 内容安全词表：``atri_x/safety/rules.py`` 按包内相对路径读 ``wordlists/*.txt``。
+    # 不收进来时冻结产物里 8 类词表全空，过滤会静默变成"只脱敏敏感信息"。
+    (
+        os.path.join(REPO_ROOT, "atri_x", "safety", "wordlists"),
+        "atri_x/safety/wordlists",
+    ),
     # 品牌图标：窗口图标（Tk iconbitmap）与托盘图标（LoadImageW）都要在运行期读文件，
     # 所以不能只嵌进 exe 资源。素材由 packaging/make_assets.py 生成。
     (os.path.join(REPO_ROOT, "atri_x", "gui", "brand"), "atri_x/gui/brand"),

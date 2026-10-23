@@ -307,7 +307,13 @@ def to_responses_content(
         elif segment.type == SegmentType.IMAGE:
             if segment.url == "" or role == Role.ASSISTANT:
                 continue
-            parts.append({"type": "input_image", "image_url": segment.url})
+            item: dict[str, Any] = {"type": "input_image", "image_url": segment.url}
+            # ``detail`` 与 chat-completions 的 image_url 同义；空值不写，保持与
+            # 旧请求体逐字节一致（上游按默认档位处理）。
+            detail = str(getattr(segment, "detail", "") or "").strip()
+            if detail:
+                item["detail"] = detail
+            parts.append(item)
         elif segment.type == SegmentType.FILE:
             # 与 chat 适配器一致：厂商文件输入未实现，统一作为文本描述发送。
             text = segments_content_text([segment])

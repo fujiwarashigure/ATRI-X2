@@ -50,6 +50,8 @@ rg -n "locator:agent-chat" AGENTS.md devdocs/*.md
 | Slash 命令 | `locator:commands` | `atri_x/agent/commands/`、`atri_x/command/` |
 | Request/Turn 状态 | `locator:request-turn` | `atri_x/request/manager.py`、`atri_x/turn/manager.py` |
 | Tool/工具调用 | `locator:tool`, `locator:tool-flow` | `atri_x/tool/`、`atri_x/toolrun/`、[`devdocs/code-map.md`](devdocs/code-map.md) |
+| 内容安全（道德限制 / 敏感信息过滤） | `locator:safety` | `atri_x/safety/`、[`docs/safety.md`](docs/safety.md) |
+| 识图（两段式 / 隐私开关 / 以图搜图） | `locator:vision` | `atri_x/vision/`、`atri_x/agent/vision.py`、[`docs/vision.md`](docs/vision.md) |
 | Skill | `locator:skill` | `atri_x/tool/skill/`、`atri_x/atriyph/` |
 | Hook/插件 | `locator:hook` | [`docs/hooks.md`](docs/hooks.md)、`atri_x/hook/` |
 | 信号与日志边界 | `locator:signals` | [`devdocs/signals-and-logging.md`](devdocs/signals-and-logging.md)、`atri_x/signal/` |

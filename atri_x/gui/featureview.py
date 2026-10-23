@@ -66,6 +66,10 @@ def collect_features(paths: ConfigPaths) -> list[FeatureRow]:
         extra=_kv_detail(services.get("vision"), ("provider", "model")),
     ))
     rows.append(_section_row(
+        "safety", "内容安全（道德限制 + 敏感信息过滤）", app, default_on=False,
+        tab="advanced", extra=_kv_detail(app.get("safety"), ("enabled", "mode")),
+    ))
+    rows.append(_section_row(
         "asr", "语音转写（ASR）", services, default_on=False, tab="advanced",
         extra=_kv_detail(services.get("asr"), ("provider", "model", "language")),
     ))

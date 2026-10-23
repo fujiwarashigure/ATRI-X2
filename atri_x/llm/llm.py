@@ -49,6 +49,12 @@ class MessageSegment:
 
     JSON 键与 Go 的 struct tag 完全一致（``type`` / ``text`` / ``url`` /
     ``media`` / ``mime_type`` / ``name``），以便与 Go 版落库数据互通。
+
+    ``detail`` 是 Python 侧新增字段（Go 版没有）：图片段的视觉细节档位，
+    取值是供应商线上的 ``detail``（``"low"`` / ``"high"`` / ``"auto"`` /
+    ``"original"``）。空串表示**不写这个键**，因此旧数据与 Go 落库数据保持
+    逐字节兼容；``view_image`` 与视觉服务默认写 ``"original"``，让上游按原图
+    尺寸理解画面，而不是默认被降采样成 ``low``。
     """
 
     type: str = SegmentType.TEXT
@@ -57,6 +63,8 @@ class MessageSegment:
     media: str = ""
     mime_type: str = ""
     name: str = ""
+    #: 图片段的视觉细节档位；空串表示不输出该键（与 Go 落库键兼容）。
+    detail: str = ""
 
     # -- wire ---------------------------------------------------------------
     def to_json(self) -> dict[str, Any]:
@@ -71,6 +79,9 @@ class MessageSegment:
             out["mime_type"] = self.mime_type
         if self.name:
             out["name"] = self.name
+        # 空值不输出：旧库里的段没有这个键，写出去会多出一堆无意义字段。
+        if self.detail:
+            out["detail"] = self.detail
         return out
 
     @classmethod
@@ -90,6 +101,7 @@ class MessageSegment:
             media=str(raw.get("media") or ""),
             mime_type=str(raw.get("mime_type") or ""),
             name=str(raw.get("name") or ""),
+            detail=str(raw.get("detail") or ""),
         )
 
     def clone(self) -> "MessageSegment":

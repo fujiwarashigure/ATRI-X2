@@ -71,10 +71,12 @@ __all__ = [
 ]
 
 #: core 上限默认值（字数或单词数）。对应 Go ``DefaultCoreMaxUnits``。
-DEFAULT_CORE_MAX_UNITS = 200
+#: 1.0.3 起从 200 提到 500（与 normal 各自独立计算）。
+DEFAULT_CORE_MAX_UNITS = 500
 
 #: normal 上限默认值。对应 Go ``DefaultNormalMaxUnits``。
-DEFAULT_NORMAL_MAX_UNITS = 300
+#: 1.0.3 起从 300 提到 500（与 core 各自独立计算）。
+DEFAULT_NORMAL_MAX_UNITS = 500
 
 #: 乐观并发重试上限。对应 Go ``maxUpdateAttempts``。
 MAX_UPDATE_ATTEMPTS = 3
@@ -236,7 +238,7 @@ class Store:
         return self.write_normal(scope, "")
 
     def limits_or_default(self) -> Limits:
-        """归一化后的上限（未配置时 200/300）。对应 Go ``LimitsOrDefault``。"""
+        """归一化后的上限（未配置时 500/500）。对应 Go ``LimitsOrDefault``。"""
         return normalize_limits(self.limits)
 
     # -- 事务化更新 ---------------------------------------------------------

@@ -191,6 +191,13 @@
 | `atri_x/utils/runes.py` | Go 的 `[]rune` 语义与 `runewidth` | `mattn/go-runewidth` |
 | `atri_x/llm/tooltext.py` | 上游网关会把模型原生工具调用以文本协议（DSML / `<tool-call>` JSON）泄漏进正文；Go 侧没有这层防御，需要判定/还原/清洗 | 无（健壮性补丁） |
 | `atri_x/agent/chat_anomaly.py` | 把上面的还原结果接回 `LLMCallResult`：能还原就继续工具轮，否则清洗正文并写 WARN 日志与 `llm_tool_calls_in_text` 审计 | `internal/agent/chat.go` 的 `callLLM` 返回处 |
+| `atri_x/safety/` | **1.0.3 新增能力**（Go 上游没有）：内置「道德限制 + 敏感信息过滤」——词表类别 + 敏感信息正则 + 审计（只存 hash）+ 图片/文件出口策略；替代 1.0.2 时期的外挂 Node hook 插件。纯标准库实现（`re` / `hashlib` / `json` / `threading`），见 `docs/safety.md` | 无（Python 侧产品能力） |
+| `atri_x/vision/prechat.py` / `privacy.py` / `identity.py` / `failures.py` | **1.0.3 新增能力**（Go 上游没有）：聊天前置两段式描述、图片外发隐私开关、SauceNAO 以图搜图兜底（默认关闭）、失败原因分类；`atri_x/vision` 既有引擎（描述/缓存/合并/超时）仍与 Go 同构，这四个模块只在其上做扩展，见 `docs/vision.md` | 无（Python 侧产品能力） |
+
+> 1.0.3 起 `atri_x/vision/service_types.py` 的 `Options` / `Stats` 与
+> `atri_x/llm/llm.py` 的 `MessageSegment` 多了几个**Python 侧新增、带默认值**的字段
+> （`detail` / `probe_timeout_seconds` / 隐私与 `identity_*` 开关 / `failures`）。
+> 它们不写进落库 JSON 时与 Go 数据逐字节兼容；Go 侧没有对应 struct tag。
 
 重定向：`atri_x/net/httpclient.py` 的三条请求路径（`request(...)`、`request_multipart(...)`、
 `open_stream(...)`）已与 Go 缺省 `http.Client` 对齐——默认跟随最多 10 次

@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from atri_x.delivery import (
+    KindImage,
     Output,
     Target,
     file_path,
@@ -32,6 +33,8 @@ from atri_x.errors import InvalidError
 from atri_x.llm.llm import ToolSchema
 from atri_x.media import IDPrefix, ID_PREFIX, valid_id
 from atri_x.platform import message_context_from
+# safety-guard: 文件出口（guard 由 agent 挂到工具 ctx 上）
+from atri_x.safety import guard_from_context, scope_from_context
 from atri_x.tool.builder import Builder
 from atri_x.tool.builtin.common import (
     first_non_empty_string,
@@ -126,6 +129,21 @@ class SendFileTool:
             raise InvalidError("source is required")
         sandbox, _ok = sandbox_context_from_context(ctx)
         out, warnings, label = await self.build_output(ctx, args, source)
+        # safety-guard: 文件出口按策略拦截（不做文件内容识别）；
+        # 图片类 mime 走 image 判定，其余走 file 判定。
+        guard = guard_from_context(ctx)
+        if guard is not None:
+            kind = "image" if out.kind == KindImage else "file"
+            decision = guard.allow_media_output(
+                kind,
+                stage="tool",
+                scope=scope_from_context(ctx),
+                meta={"tool": SEND_FILE_TOOL_NAME, "name": label},
+            )
+            if not decision.allowed:
+                return Result(
+                    content=(decision.text or "（这个文件因内容安全策略被拦截，未发送。）")
+                )
         if sandbox is not None and sandbox.background_kind == BackgroundKindCron:
             msg, ok = message_context_from(ctx)
             if ok and (msg.platform or "").strip() != "":

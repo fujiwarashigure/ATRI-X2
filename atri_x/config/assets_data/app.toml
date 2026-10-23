@@ -383,8 +383,8 @@ chat_hard_limit_reserve_output_tokens = 0
 
 [resident_memory]
 # Memory length units: CJK characters count as one each; English/digits count by word.
-core_max_units = 200
-normal_max_units = 300
+core_max_units = 500
+normal_max_units = 500
 
 # P1/P2 normal 写入保护。显式写 0 可关闭对应限制。
 # 最小写入间隔（秒）；防止短时间内反复改写 normal。
@@ -405,6 +405,37 @@ superadmin_confirm_risk = "high"
 
 [security.superadmins]
 cli = ["local"]
+
+# 内置“道德限制 + 敏感信息过滤”（1.0.3 新增）。默认关闭：不配置就不改变任何行为。
+# mode：off 关闭 / audit 只写审计日志 / enforce 真正拦截与替换。
+# 命中规则与敏感信息正则见 docs/safety.md；审计日志只存 sha256 + 脱敏预览，不存原文。
+[safety]
+enabled = false
+mode = "audit"
+# 启用的词表类别；留空 = 全部内置类别。
+# hate_speech / illegal_method / minor_sexual / privacy_violation / self_harm /
+# sexual_explicit / terror_extremism / violence_gore
+categories = []
+# 启用的敏感信息类别；留空 = 全部内置类别。
+# private_key / api_key / jwt / password / id_card / bank_card / phone / email /
+# internal_ip / local_path
+sensitive = []
+# 覆盖单个敏感类别的动作：flag（只记审计）或 redact（替换）。
+# 用内联表写，避免后续键被 TOML 解析成 [safety.sensitive_actions.*]。
+# sensitive_actions = { phone = "redact" }
+# 命中豁免（子串匹配），用来压误杀。
+allowlist = []
+# 审计日志路径；留空 = <配置目录>/safety-audit.jsonl。
+# audit_path = ""
+# 入站消息被拦截时回复用户的文本；留空 = 用内置文案。
+block_reply = ""
+# 单次扫描最大字符数（超出截断扫描）。
+max_scan_chars = 8000
+# true：工具结果里的图片段剥离成文字（模型看不到图）。
+strip_tool_images = false
+# true：出站图片/文件被丢弃并替换成文本说明（图片内容本身不做识别）。
+block_image_output = false
+block_file_output = false
 
 [session]
 

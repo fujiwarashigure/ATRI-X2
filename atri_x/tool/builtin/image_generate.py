@@ -40,6 +40,8 @@ from atri_x.imagegen import (
 from atri_x.llm.llm import MessageSegment, SegmentImage, SegmentText, ToolSchema
 from atri_x.media import Input as MediaInput
 from atri_x.ops.concurrency import ErrFull, ErrTimeout
+# safety-guard: 提示词审核 + 图片出口（guard 由 agent 挂到工具 ctx 上）
+from atri_x.safety import guard_from_context, scope_from_context
 from atri_x.tool.builder import Builder, enum, required
 from atri_x.tool.builtin.artist_tools import ArtistTools, artist_viewer
 from atri_x.tool.builtin.character import CHARACTER_READ_NAME, character_viewer
@@ -461,6 +463,36 @@ class ImageGenerateTool:
                 artist_warnings,
             )
 
+        # safety-guard: 真正请求 provider 之前，先审核拼接好的提示词。
+        # 命中词表类且处于 enforce 时直接失败（不发起请求），audit 只记审计。
+        safety_guard = guard_from_context(ctx)
+        if safety_guard is not None:
+            safety_scope = scope_from_context(ctx)
+            positive, positive_decision = safety_guard.filter_text(
+                composition.positive,
+                stage="image_prompt",
+                scope=safety_scope,
+                meta={"tool": self.name()},
+            )
+            negative, negative_decision = safety_guard.filter_text(
+                composition.negative,
+                stage="image_prompt",
+                scope=safety_scope,
+                meta={"tool": self.name()},
+            )
+            blocked = [
+                decision
+                for decision in (positive_decision, negative_decision)
+                if decision.action == "block" and safety_guard.enforcing
+            ]
+            if blocked:
+                return Result(
+                    content="内容安全策略拒绝：生图提示词不合规，本次未发起生成请求。"
+                )
+            if positive != composition.positive or negative != composition.negative:
+                composition.positive = positive
+                composition.negative = negative
+
         request = Request(
             prompt=composition.positive,
             negative_prompt=composition.negative,
@@ -555,6 +587,22 @@ class ImageGenerateTool:
         )
         append_warnings(result, *artist_warnings)
         append_warnings(result, *composition.warnings)
+        # safety-guard: 图片输出边界。**不做图片内容识别**，只按
+        # ``[safety].block_image_output`` 在出口丢弃（发送边界还会再兜一次）。
+        safety_guard = guard_from_context(ctx)
+        if safety_guard is not None and result.outputs:
+            decision = safety_guard.allow_media_output(
+                "image",
+                stage="tool",
+                scope=scope_from_context(ctx),
+                meta={"tool": self.name()},
+            )
+            if not decision.allowed:
+                note = decision.text or "（这张图片因内容安全策略被拦截，未发送。）"
+                result.outputs = []
+                append_warnings(result, note)
+                result.content = (result.content or "") + "\n" + note
+                result.segments.append(MessageSegment(type=SegmentText, text=note))
         return result
 
 

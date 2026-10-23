@@ -333,6 +333,30 @@ MEDIA_GROUPS: tuple[SettingGroup, ...] = (
             _F("max_edge", "上传前长边上限", "int", "image_to_prompt", "services", 1536, help="0 表示保留原图尺寸。"),
             _F("max_image_bytes", "图片字节上限", "int", "image_to_prompt", "services", 12582912, help="12 MiB = 12582912。"),
             _F("timeout_seconds", "请求超时（秒）", "int", "image_to_prompt", "services", 90, help="单次反推请求的超时。"),
+            _F(
+                "detail",
+                "图片精度（detail）",
+                "choice",
+                "image_to_prompt",
+                "services",
+                None,
+                (
+                    ("", "（默认 original）"),
+                    ("original", "original（推荐，原始分辨率）"),
+                    ("high", "high"),
+                    ("auto", "auto"),
+                    ("low", "low（会缩到 512×512，不推荐）"),
+                ),
+                help="传给上游的图片精度；low 会把滚边/徽章/小字先糊掉。",
+            ),
+            _F(
+                "allow_external_images",
+                "允许图片外发",
+                "tristate",
+                "image_to_prompt",
+                "services",
+                help="隐私总开关：关掉后这个工具拒绝把图片发给外部视觉 API。",
+            ),
         ),
         note=(
             "没配 provider + model 时 image_to_prompt 工具不会注册（群里看不到它，"

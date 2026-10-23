@@ -137,6 +137,8 @@ queue_timeout_seconds = 0
 # max_edge = 1536           # downscale the long edge before upload; 0 keeps original
 # max_image_bytes = 12582912
 # timeout_seconds = 90
+# detail = "original"       # original（默认）/ high / auto / low；low 会缩到 512x512，别用
+# allow_external_images = true   # 隐私总开关：false 时工具拒绝把图发给外部 API
 
 # Optional automatic vision fallback: when a text-only chat model rejects image
 # content, ATRI-X describes the images with this vision model and retries with
@@ -155,6 +157,18 @@ queue_timeout_seconds = 0
 # language = "zh"            # description language: zh or en
 # cache_ttl_seconds = 1800
 # negative_cache_ttl_seconds = 30
+# -- 1.0.3 两段式识图与隐私 ------------------------------------------------
+# detail = "original"        # 传给上游的图片精度；low 会缩到 512x512，别用
+# trigger = "on_error"       # on_error（默认，仅模型拒图时兜底）/ always（每轮带图先描述）
+# probe_timeout_seconds = 4  # trigger = always 时的短超时；超时降级说“图没取到”
+# allow_external_images = true   # 隐私总开关：false 时不把任何图片发给外部视觉 API
+# allow_group_images = true      # 群聊隐私开关：false 时群图不送外部视觉 API
+# -- 可选：用户明确问“这是谁/出自哪”且置信度低时，用 SauceNAO 以图搜图兜底（默认关）
+# identity_enabled = false
+# identity_api_key_env = "SAUCENAO_API_KEY"
+# identity_daily_limit = 100
+# identity_timeout_seconds = 8
+# identity_min_similarity = 0.7
 
 # Optional voice-message transcription (ASR). Disabled unless enabled = true.
 # It reuses one existing [providers.*] entry (base_url, api_key_env, proxy) and

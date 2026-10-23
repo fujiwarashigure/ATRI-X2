@@ -225,6 +225,9 @@ class ViewImageTool:
         args = self.parse_args(req)
         if not vision_available(ctx):
             raise InvalidError(f"当前模型不支持图片输入，无法使用 {VIEW_IMAGE_NAME}")
+        reason = _external_images_blocked(ctx)
+        if reason:
+            raise InvalidError(f"外部识图已关闭（{reason}），无法使用 {VIEW_IMAGE_NAME}")
         if self.center is None:
             raise InvalidError("media center is not configured")
         if args.source == "":
@@ -365,12 +368,17 @@ def image_indexes(segments: list[Any]) -> list[int]:
 
 
 def view_image_segment(item: Any) -> MessageSegment:
-    """对应 Go ``viewImageSegment``。"""
+    """对应 Go ``viewImageSegment``。
+
+    图片段固定带 ``detail="original"``：这个工具存在的意义就是让模型看清原图，
+    默认被上游降采样成 ``low`` 等于把细节（文字、徽章、纹样）先丢掉。
+    """
     return MessageSegment(
         type=SegmentImage,
         media=getattr(item, "id", ""),
         name=getattr(item, "name", ""),
         mime_type=getattr(item, "mime_type", ""),
+        detail="original",
     )
 
 
@@ -380,6 +388,21 @@ def _text_segment(text: str) -> MessageSegment:
 
 def _is_image_mime(mime_type: str) -> bool:
     return (mime_type or "").strip().lower().startswith("image/")
+
+
+def _external_images_blocked(ctx: Any) -> str:
+    """隐私开关是否禁止把图片外发；禁止时返回可读原因。
+
+    ``view_image`` 不经过视觉服务，而是把图片段直接交给主模型，所以它必须自己
+    查一次开关，否则「关掉外部识图」在工具路径上会被绕过。
+    """
+    from atri_x.vision.privacy import blocked_reason, ctx_is_group_chat
+
+    try:
+        is_group = ctx_is_group_chat(ctx)
+    except Exception:  # noqa: BLE001 - 判定不了就按私聊处理
+        is_group = False
+    return str(blocked_reason(is_group=is_group) or "")
 
 
 def _raise_if_cancelled(exc: BaseException) -> None:

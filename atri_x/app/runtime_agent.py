@@ -22,6 +22,7 @@ Python 版补上的三条**生产接线**（此前只在测试里显式传参才
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from atri_x.app.asr import build_audio_transcriber
@@ -76,7 +77,7 @@ async def build_agent(
     image_profiles, image_aliases = _image_profiles(cfg, tool_runtime)
 
     vision_describer = build_vision_describer(
-        ctx, cfg, models, vision_metrics.counters_value()
+        ctx, cfg, models, vision_metrics.counters_value(), logger=foundation.logger
     )
     if isinstance(vision_describer, VisionChatDescriber):
         vision_metrics.set("fallback", vision_describer.service)
@@ -198,6 +199,8 @@ async def build_agent(
             dsh_config=getattr(getattr(cfg, "agent", None), "dsh", None),
         )
     )
+    # 1.0.3：内容安全 guard 与识图开关（不配置 = 完全保持旧行为）。
+    _wire_safety_and_vision(agent, cfg, foundation.logger)
     # 把三组同僚实现的服务真正装到 Agent 上（``atri_x/agent/bootstrap.py``）。
     # 不做这一步 ``atri_x/agent/seams.py`` 只会走**保守降级**：预算、限流、上下文
     # 压缩、工具预载全部静默失效 —— Agent 能构造、测试也全绿，只是能力悄悄没了。
@@ -244,6 +247,91 @@ async def build_agent(
     if callable(watch):
         watch(ctx)
     return agent
+
+
+def _wire_safety_and_vision(agent: Any, cfg: Any, logger: Any) -> None:
+    """把 1.0.3 的内容安全 guard 与识图开关挂到宿主上。
+
+    不配置 ``[safety] enabled`` / ``[vision] trigger`` 时属性保持默认值，集成点因此
+    走"什么都不做"的分支——**不配置就不改变 1.0.2 行为**。
+    """
+    _set_attribute(agent, "safety_guard", _build_safety_guard(cfg, logger))
+    section = getattr(cfg, "vision", None)
+    _configure_vision_privacy(section, logger)
+    trigger = "on_error"
+    method = getattr(section, "trigger_value", None)
+    if callable(method):
+        trigger = str(method())
+    elif section is not None:
+        trigger = str(getattr(section, "trigger", "") or "on_error").strip().lower()
+    if trigger not in ("on_error", "always"):
+        trigger = "on_error"
+    timeout = 4.0
+    timeout_method = getattr(section, "probe_timeout_value", None)
+    if callable(timeout_method):
+        timeout = float(timeout_method())
+    else:
+        try:
+            timeout = float(getattr(section, "probe_timeout_seconds", 4.0) or 4.0)
+        except (TypeError, ValueError):
+            timeout = 4.0
+    _set_attribute(agent, "vision_trigger", trigger)
+    _set_attribute(agent, "vision_probe_timeout_seconds", timeout)
+    _set_attribute(
+        agent,
+        "vision_allow_group_images",
+        bool(getattr(section, "allow_group_images", True)),
+    )
+    detail = str(getattr(section, "detail", "") or "original").strip().lower()
+    _set_attribute(
+        agent, "vision_detail", detail if detail in ("original", "high", "auto", "low") else "original"
+    )
+
+
+def _configure_vision_privacy(section: Any, logger: Any) -> None:
+    """把 ``[vision]`` 的图片外发开关装成**进程级**隐私设置。
+
+    工具路径（``view_image`` / ``image_to_prompt``）不经过 Agent，只认这份进程级
+    开关；聊天路径另外还有 ``agent.vision_allow_group_images`` 的前置判定。
+    未配置时保持"两个开关都开"（与改造前一致）。
+    """
+    try:
+        from atri_x.vision.privacy import configure_privacy
+
+        configure_privacy(
+            allow_external_images=bool(
+                getattr(section, "allow_external_images", True)
+            ),
+            allow_group_images=bool(getattr(section, "allow_group_images", True)),
+        )
+    except Exception as exc:  # noqa: BLE001 - 隐私层缺件时退回"不额外限制"
+        if logger is not None:
+            logger.warn(
+                "vision privacy switches unavailable; keeping defaults",
+                event="vision_privacy_unavailable",
+                error="%s: %s" % (type(exc).__name__, exc),
+            )
+
+
+def _build_safety_guard(cfg: Any, logger: Any) -> Any:
+    """构造内容安全 guard；未启用/依赖缺失时返回 ``None``（fail-open，不阻断启动）。"""
+    section = getattr(cfg, "safety", None)
+    if section is None or not bool(getattr(section, "enabled", False)):
+        return None
+    try:
+        from atri_x.safety import SafetyGuard, policy_from_section
+
+        policy = policy_from_section(section)
+        config_dir = os.path.dirname(str(getattr(cfg, "config_path", "") or ""))
+        return SafetyGuard(policy, logger=logger, config_dir=config_dir)
+    except Exception as exc:  # noqa: BLE001 - 安全层不可用不应让整个服务起不来
+        if logger is not None:
+            logger.warn(
+                "safety guard unavailable; content filtering is disabled",
+                event="safety_unavailable",
+                error="%s: %s" % (type(exc).__name__, exc),
+            )
+        return None
 
 
 def _agent_install_options(

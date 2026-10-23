@@ -593,7 +593,8 @@ class TestAppDefaults(ConfigCase):
         self.assertEqual(empty.resident_memory.normal_write_window_seconds_value(), 60)
         self.assertEqual(empty.resident_memory.normal_max_units_per_entry_value(), 80)
         self.assertTrue(empty.resident_memory.is_normal_block_instruction_patterns())
-        self.assertEqual(empty.resident_memory.core_max_units, 200)
+        self.assertEqual(empty.resident_memory.core_max_units, 500)
+        self.assertEqual(empty.resident_memory.normal_max_units, 500)
 
     def test_context_overflow_mode_normalization(self) -> None:
         self.assertEqual(

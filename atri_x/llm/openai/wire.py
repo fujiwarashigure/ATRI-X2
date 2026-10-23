@@ -43,6 +43,7 @@ __all__ = [
     "json_compact",
     "json_int",
     "merge_extra_fields",
+    "openai_image_url",
     "openai_tool_content",
     "reasoning_of",
     "resolve_segments",
@@ -250,8 +251,25 @@ def with_image_references(segments: Sequence[MessageSegment]) -> list[MessageSeg
     return out
 
 
+def openai_image_url(segment: MessageSegment) -> dict[str, Any]:
+    """把图片段组装成 ``image_url`` 对象（非空 ``detail`` 才带上）。
+
+    ``detail`` 是供应商侧的降采样档位。**不写**这个键时由上游按默认策略
+    （通常是 ``auto``/``low``）处理；``view_image`` 与视觉服务因此显式写
+    ``"original"``，避免原图被默认降采样成看不清文字与纹样的小图。
+    """
+    image_url: dict[str, Any] = {"url": segment.url}
+    detail = str(getattr(segment, "detail", "") or "").strip()
+    if detail:
+        image_url["detail"] = detail
+    return image_url
+
+
 def to_openai_content(segments: Sequence[MessageSegment]) -> Any:
-    """对应 Go ``toOpenAIContent``：纯文本发字符串，否则发 content parts。"""
+    """对应 Go ``toOpenAIContent``：纯文本发字符串，否则发 content parts。
+
+    图片段经 :func:`openai_image_url` 组装，因此 ``detail`` 会原样带到上游。
+    """
     if not segments:
         return ""
     if len(segments) == 1 and segments[0].type == SegmentType.TEXT:
@@ -263,7 +281,7 @@ def to_openai_content(segments: Sequence[MessageSegment]) -> Any:
                 parts.append({"type": "text", "text": segment.text})
         elif segment.type == SegmentType.IMAGE:
             if segment.url:
-                parts.append({"type": "image_url", "image_url": {"url": segment.url}})
+                parts.append({"type": "image_url", "image_url": openai_image_url(segment)})
         elif segment.type == SegmentType.FILE:
             # 与 Go 一致：厂商文件输入未实现，当前统一作为文本描述发送。
             text = segments_content_text([segment])

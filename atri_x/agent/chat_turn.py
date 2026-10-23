@@ -53,6 +53,10 @@ from atri_x.agent.chat_tools import (
 )
 from atri_x.agent.segments import materialize_media
 from atri_x.agent.status import runtime_done_status
+# 两段式识图的前置描述：``vision_trigger == "always"`` 时在第一次 call_llm 之前
+# 把图片换成「画面属性描述 + 可选以图搜图参考」。默认 ``"on_error"`` 下这个函数
+# 只返回消息副本，行为与改造前完全一致。
+from atri_x.agent.vision import describe_images_before_chat
 # 这五个模块在 ``atri_x/agent/core.py`` 里已经是模块级硬导入，原来包在这里的
 # ``except ImportError`` 兜底永远不可达，只会把"模块坏了"变成静默降级（研究报告 §5.1）。
 from atri_x.agent.context_runtime import ensure_context_runtime
@@ -203,6 +207,10 @@ async def _run_chat_body(
             llm_messages, pending = drain_pending_user_input(
                 agent, ctx, session.id, llm_messages
             )
+        if tool_rounds == 0 and not in_tool_phase:
+            # 两段式识图：只在本轮第一次调用前把图片换成属性描述（失败降级为文本）。
+            # 默认 vision_trigger="on_error" 时本函数原样返回，既有兜底不变。
+            llm_messages = await describe_images_before_chat(agent, req_ctx, llm_messages)
         stream = out.start_stream(req_ctx)
         llm_stage_started_at = now()
         await out.publish_runtime_status(

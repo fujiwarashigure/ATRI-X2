@@ -249,8 +249,8 @@ ATRIX_HEALTH_LIVE_STALE_SECONDS=90
 
 ```toml
 [resident_memory]
-core_max_units = 200
-normal_max_units = 300
+core_max_units = 500
+normal_max_units = 500
 
 # P1/P2 normal 写入保护；显式写 0 可关闭对应限制。
 normal_write_min_interval_seconds = 5
@@ -261,7 +261,7 @@ normal_max_units_per_entry = 80
 normal_block_instruction_patterns = true
 ```
 
-长度单位 `units` 可以近似理解为“中文按字数、英文按单词”：中日韩字符按单字计数，英文/数字连续片段按一个词计数。core 是高风险核心记忆，普通用户修改自己的 core 时也必须由本人确认。normal 是可直接整理的低风险普通记忆，不需要确认；注入 Prompt 时 core 与 normal 会分行展示，normal 的每条记忆渲染为一条 `-` 列表项，并包在 `<resident_memory>` 边界内，同时声明为用户数据而非系统指令。记忆内容中的尖括号会被转义，防止内容提前结束或伪造边界标签。
+长度单位 `units` 可以近似理解为“中文按字数、英文按单词”：中日韩字符按单字计数，英文/数字连续片段按一个词计数。`core_max_units` 与 `normal_max_units` 是**各自独立**的上限：1.0.3 起默认都是 500（旧版本默认 200 / 300，合计 500）。core 是高风险核心记忆，普通用户修改自己的 core 时也必须由本人确认。normal 是可直接整理的低风险普通记忆，不需要确认；注入 Prompt 时 core 与 normal 会分行展示，normal 的每条记忆渲染为一条 `-` 列表项，并包在 `<resident_memory>` 边界内，同时声明为用户数据而非系统指令。记忆内容中的尖括号会被转义，防止内容提前结束或伪造边界标签。
 
 normal 以“每条一行、一行一件事”的结构化方式保存：写入时会去掉 `-` / `*` / `1.` 等列表前缀、去掉空行、合并多余空白、按大小写不敏感去重，再用换行连接。`resident_memory_read` 返回的 normal 就是这种一行一条的形式。
 
@@ -276,6 +276,57 @@ normal 写入还有服务端保护：
 - 这些限制只作用于 normal；core 仍由 high risk + 确认流程控制。
 
 `memories.toml` 采用原子写入：先写同目录临时文件并 `fsync`，再 `rename` 覆盖目标文件，最后尽力 `fsync` 目录。崩溃或断电时只会留下完整的旧文件或完整的新文件，不会出现被截断的记忆文件。写入前还会比对文件状态；如果检测到外部（例如手工编辑或恢复脚本）在读取和写入之间修改了 `memories.toml`，会重新加载后再应用本次修改，避免覆盖外部改动。
+
+## 内容安全 safety（道德限制 + 敏感信息过滤）
+
+1.0.3 起内置一层**原生 Python 的内容安全过滤**（不再依赖外部 Node 插件）：词表类“道德/合规”拦截、敏感信息（凭据/PII）脱敏、审计日志，以及图片/文件出口策略。它和 `[security]`（工具风险与权限）是两件事：`[safety]` 管**内容**，`[security]` 管**能力**。
+
+**默认关闭**：`enabled` 不写即 false；关闭时接入点完全无行为变化。
+
+```toml
+[safety]
+enabled = true
+mode = "audit"                 # off / audit（只记审计）/ enforce（真正拦截与脱敏）
+
+# 启用的词表类别；留空 = 全部内置类别
+categories = []                # hate_speech / illegal_method / minor_sexual /
+                               # privacy_violation / self_harm / sexual_explicit /
+                               # terror_extremism / violence_gore
+# 启用/关闭的敏感信息类别；留空 = 全部内置类别
+sensitive = []                 # private_key / api_key / jwt / password / id_card /
+                               # bank_card / phone / email / internal_ip / local_path
+
+# 覆盖单个敏感类别的动作：flag（只记审计）或 redact（替换）。
+# 用**内联表**写，避免后续键被 TOML 解析成 [safety.sensitive_actions.*]。
+sensitive_actions = { phone = "redact" }   # 默认 phone / email / id_card / bank_card /
+                                           # internal_ip / local_path 是 flag；密钥类默认 redact
+
+allowlist = ["127.0.0.1", "example.com"]   # 命中豁免（子串匹配），用来压误杀
+block_reply = ""               # 入站被拦截时回给用户的话；留空 = 内置文案
+audit_path = ""                # 留空 = <配置目录>/safety-audit.jsonl
+audit_preview_chars = 120      # 审计里脱敏预览保留的字符数
+max_scan_chars = 8000          # 单次扫描上限，超出截断扫描
+strip_tool_images = false      # true：工具结果里的图片段剥离成文字（模型看不到图）
+block_image_output = false     # true：出站图片丢弃并替换成文本说明
+block_file_output = false      # true：出站文件丢弃并替换成文本说明
+```
+
+处理链路：
+
+| 阶段 | 行为 |
+|---|---|
+| 入站用户消息 | 命中词表类违规：`enforce` 下用 `block_reply` 回复并结束本轮（不进入模型），`audit` 下只记审计 |
+| 模型输出文本 | 命中词表类替换为安全文案；敏感信息按动作脱敏 |
+| 工具结果 | 同上；`strip_tool_images = true` 时图片段变文字占位 |
+| 发送边界 | 发给平台前最后一道：文本再检查（幂等）；图片/文件按 `block_*_output` 丢弃并补一条文本说明 |
+| 生图请求 | 拼接后的 prompt 在发往 provider 前审核，命中则直接失败、不发请求 |
+
+语义要点：
+
+- `mode = "audit"` 建议先跑一两天，观察 `safety-audit.jsonl` 里的误杀（`labels` 字段），把误杀项加进 `allowlist` 或从 `categories` 移除，再切 `enforce`。
+- 审计日志**不存原文**：只记录内容的 SHA-256、脱敏后的短预览、命中标签、阶段、平台/scope/actor 与时间，避免敏感内容二次落盘。
+- 图片**内容**不做识别（那需要额外的本地分类器或云审核服务，与“运行时零第三方依赖”冲突）；`block_image_output` 是发送边界的**策略性**拦截：命中即丢弃该图片输出并替换成文本说明 + 审计。
+- 词表、敏感信息正则、逐类动作与豁免名单的完整说明见 [`safety.md`](safety.md)。
 
 ## Provider 配置
 
@@ -1369,6 +1420,8 @@ temperature = 0.2
 max_edge = 1536         # 上传前把长边缩到该值；0 表示不做长边缩放
 max_image_bytes = 12582912
 timeout_seconds = 90
+detail = "original"     # 图片精度：original（默认）/ high / auto / low
+allow_external_images = true   # 隐私总开关：false 时工具拒绝把图发给外部 API
 ```
 
 配置语义：
@@ -1378,6 +1431,8 @@ timeout_seconds = 90
 - 显式 `enabled = true` 但 provider/model 不完整，或 provider 不存在于 `[providers.*]`：启动时报配置错误，而不是静默消失。
 - `temperature` 只在 > 0 时发送；显式写 `0` 表示“不覆盖”，由上游使用自己的默认温度。也就是说，配置解析能区分“未配置”和“显式 0”，但受当前适配器语义限制，暂时无法请求真正的 0 温度。
 - `model` 必须是该 provider 下支持图片输入的模型；如果它在 `[providers.*].vision` 或 `[providers.*.model_configs."<model>"]` 里被显式声明为 `vision = false`，启动阶段就会报错（model 级声明优先），不会等到第一次调用才失败。
+- `detail` 是发给上游图片段的精度参数：默认 `original`（原始分辨率）。**不要用 `low`**——它会把图缩到约 512×512，滚边纹样、肩章符号、小字号文字这类“用来认人/认字”的细节会在上传前就糊掉；`high` / `auto` 保留兼容。
+- `allow_external_images = false` 是隐私总开关：工具直接返回“外部识图已关闭”，不会把图片字节发出去（工具仍在列表里，模型能拿到明确原因）。
 
 工具参数：
 
@@ -1431,6 +1486,19 @@ timeout_seconds = 90
 language = "zh"           # 描述语言：zh / en
 cache_ttl_seconds = 1800
 negative_cache_ttl_seconds = 30
+
+# -- 1.0.3：两段式识图、隐私与以图搜图兜底 ---------------------------------
+detail = "original"       # 图片精度：original / high / auto / low（别用 low）
+trigger = "on_error"      # on_error（默认，仅模型拒图时兜底）/ always（每轮带图先描述）
+probe_timeout_seconds = 4 # trigger = always 的短超时；3~5 秒拿不到就降级说“图没取到”
+allow_external_images = true   # 隐私总开关：false 时不把任何图片发给外部视觉 API
+allow_group_images = true      # 群聊隐私开关：false 时群图不送外部视觉 API
+identity_enabled = false       # 用户明确问“这是谁/出自哪”且置信度低时，用 SauceNAO 搜一次
+identity_api_key_env = "SAUCENAO_API_KEY"
+identity_daily_limit = 100     # 每日上限（UTC 日切）；0 = 不限
+identity_timeout_seconds = 8
+identity_min_similarity = 0.7
+# identity_state_path = ""     # 每日计数持久化文件；留空 = 进程内计数
 ```
 
 配置语义：
@@ -1439,6 +1507,22 @@ negative_cache_ttl_seconds = 30
 - `enabled = true` 但 provider/model 缺失或 provider 不存在：启动时报配置错误。
 - provider/model 留空时自动继承 `[image_to_prompt]`，已有该配置的安装只需加一行 `enabled = true`。
 - 如果目标 provider 或 model 在 `[providers.*].vision` / `[providers.*.model_configs."<model>"]` 里被显式声明为 `vision = false`，启动时会直接报错（model 级声明优先，可以覆盖 provider 级默认），避免配好之后每次调用才失败。
+- `detail`：传给上游的图片精度，默认 `original`。`low` 会先把图缩到约 512×512，认人/认字细节在模型看到之前就没了，**不建议使用**。
+- `trigger`：`on_error`（默认）保持旧行为——只在主模型明确拒绝图片时兜底；`always` 打开**两段式识图**：每轮带图的消息先把图片描述成结构化属性，主模型只拿描述+文字回答，不再直接看图。
+- `allow_external_images` / `allow_group_images`：图片外发的隐私开关。前者是总开关（false 时连私聊也不发）；后者只管群聊（false 时群里的图不送外部视觉 API，私聊照常）。被开关挡下的图片不会上传，只会降级为文本说明，并在失败计数里记为 `privacy_blocked`。
+
+两段式识图（`trigger = "always"`）：
+
+- 视觉模型只负责**描述画面**，不负责下结论。默认模板要求输出结构化属性（发色、瞳色、发型、服装配色、滚边纹样、徽章、配件、可见文字、画风倾向、是否疑似 AI 生成、构图与人物数量、`identity_confidence`），主模型拿这些描述结合人设回答。
+- 描述是可缓存、可审计、可换模型复用的资产；结论不是。同一张图（内容寻址的 SHA-256）重复出现只花一次视觉调用。
+- `probe_timeout_seconds` 是这一路的短超时（默认 4 秒，范围 1~30）：超时或失败时图片段被替换成“图没取到（原因：超时/下载失败/格式不支持/超限）”，**绝不编造画面内容**。
+- 视觉模型只描述“可观察特征”，明确禁止猜作品/角色身份、禁止补充画面不存在的细节；描述文本以“不可信的图片内容”标注后交给主模型。
+
+以图搜图兜底（SauceNAO，默认关闭）：
+
+- 只有同时满足以下条件才发一次请求：`identity_enabled = true`、有 API key（`identity_api_key_env` 指的环境变量，或配置目录 `.env`）、当日未超 `identity_daily_limit`、用户本轮文本**明确问身份**（“这是谁 / 什么角色 / 出自哪 / who is this / which character”等）、且第一段描述给出的 `identity_confidence` 为 `low`。
+- 结果以 `[以图搜图参考] 标题 / 作者 / 相似度 / 链接（外部服务，仅供参考）` 追加到描述里；低于 `identity_min_similarity` 视为没找到，不写入。失败只记录原因（`identity_quota` / `identity_error` 等），不编造。
+- key 只在内存中传给请求，不写日志、审计或异常文本；每日计数默认进程内（重启清零），需要跨重启持久化时设 `identity_state_path`。
 
 触发与降级：
 
@@ -1463,6 +1547,7 @@ negative_cache_ttl_seconds = 30
 
 - 缓存与负缓存只保存结构化字段和安全摘要，不保存原始响应体、请求 body、Base64 或凭据；API Key 从不出现在缓存键里。
 - 指标只使用低基数标签（cache 结果、错误类别、耗时），不使用 MediaID、session ID 或缓存键作为标签。
+- **失败原因可观测**（1.0.3）：`vision` 服务的统计里按原因累计失败次数，至少区分 `download_failed`（媒体下载失败）、`unsupported_format`（格式不支持）、`too_large`（超限）、`timeout`（超时）、`cancelled`（取消）、`provider_error`（上游错误）、`privacy_blocked`（被隐私开关拦下）、`empty_result`（空结果）、`parse_failed`（结构化解析失败）、`identity_disabled` / `identity_quota` / `identity_error`（以图搜图）。失败不会被编造成“看起来正常”的描述。
 
 ## 查看图片 view_image
 
@@ -1481,6 +1566,7 @@ negative_cache_ttl_seconds = 30
 - 本地路径仅超级管理员可用，读取可能包含凭据的敏感文件会进入高风险确认；HTTP(S) URL 与本地文件都按媒体导入规则入库（受媒体大小与下载超时限制）。
 - 单次调用最多 5 次未入库媒体的下载尝试，失败只返回文本提示，不回显上游错误、凭据或本地路径。
 - 可用条件：当前 Session（work / chat 都可以，本仓两种模式都使用工具）使用的模型声明 `vision = false` 时（`[providers.<name>].vision` 或 `[providers.<name>.model_configs."<model>"].vision`），该工具不会被发现、预载或执行；未声明时按原有行为可用。
+- 1.0.3 起 `view_image` 交给模型的图片段带 `detail = "original"`：不主动降采样，保留滚边、徽章、小字号文字这类细节；是否真正按原图计费仍由上游决定。
 
 ## 语音转写 asr
 

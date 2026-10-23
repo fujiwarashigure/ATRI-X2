@@ -52,8 +52,8 @@ __all__ = [
     "GroupAnalysisConfig", "GroupKnowledgeConfig", "GroupServicesConfig",
     "LLMRequestConfig", "MaintenanceCleanupConfig", "MaintenanceConfig", "MediaConfig",
     "ModelPriceConfig", "ModelSelection", "OpsConfig", "PlatformFilesConfig",
-    "ResidentMemoryConfig", "RuntimeConfig", "SandboxConfig", "SecurityConfig",
-    "SelfLearningConfig", "SessionConfig", "SessionIdleExpirationConfig",
+    "ResidentMemoryConfig", "RuntimeConfig", "SafetyConfig", "SandboxConfig",
+    "SecurityConfig", "SelfLearningConfig", "SessionConfig", "SessionIdleExpirationConfig",
     "SessionNamingConfig", "SoulConfig", "StorageConfig", "ToolsConfig",
     "TurnDirectivesConfig", "ViewConfig", "off_peak", "offpeak_price", "shanghai_tz",
 ]
@@ -269,8 +269,8 @@ class LLMRequestConfig(StrictConfig):
 class ResidentMemoryConfig(StrictConfig):
     """常驻记忆长度与 normal 写入保护；指针字段区分「未设置」与显式 0。"""
 
-    core_max_units: int = 200
-    normal_max_units: int = 300
+    core_max_units: int = 500
+    normal_max_units: int = 500
     normal_write_min_interval_seconds: int | None = None
     normal_write_window_seconds: int | None = None
     normal_write_max_per_window: int | None = None
@@ -483,6 +483,75 @@ class SecurityConfig(StrictConfig):
     #: 显式恢复旧行为（后台 shell 只拦 critical，其余自动放行）。默认 false。
     #: 打开等于把无人值守的 shell 交给模型自行决定，风险自负。
     background_shell_allow_all: bool = False
+
+
+@dataclass
+class SafetyConfig(StrictConfig):
+    """``[safety]``：内置“道德限制 + 敏感信息过滤”。
+
+    与 ``[security]``（工具权限/风险等级）是两件事：本段管**内容**，``[security]``
+    管**能力**。默认 ``enabled = false``：不配置就完全不改变任何既有行为。
+
+    处理链路（原生 Python，不依赖外部插件）：
+
+    * 入站用户消息 → 命中词表类违规时按 ``mode`` 拦截或只记审计；
+    * 模型输出文本 / 工具结果 / 发送边界 → 词表类替换 + 敏感信息脱敏；
+    * 图片/文件出口 → 按 ``block_image_output`` / ``block_file_output`` 丢弃并替换文本。
+
+    ``mode``：``off`` 关闭；``audit`` 只写审计日志不改输出；``enforce`` 真正拦截/替换。
+    """
+
+    enabled: bool = False
+    #: off | audit | enforce
+    mode: str = "audit"
+    #: 启用的词表类别（空 = 全部内置类别）：hate_speech / illegal_method /
+    #: minor_sexual / privacy_violation / self_harm / sexual_explicit /
+    #: terror_extremism / violence_gore。
+    categories: list[str] = field(default_factory=list)
+    #: 启用的敏感信息类别（空 = 全部内置类别）：private_key / api_key / jwt /
+    #: password / id_card / bank_card / phone / email / internal_ip / local_path。
+    sensitive: list[str] = field(default_factory=list)
+    #: 覆盖单个敏感类别的动作：``flag``（只记审计）或 ``redact``（替换）。
+    sensitive_actions: dict[str, str] = field(default_factory=dict)
+    #: 命中豁免（子串匹配，命中处不处理），用来压误杀。
+    allowlist: list[str] = field(default_factory=list)
+    #: 入站消息被拦截时回复用户的文本；空 = 用内置文案。
+    block_reply: str = ""
+    #: 审计日志路径；空 = ``<配置目录>/safety-audit.jsonl``。
+    audit_path: str = ""
+    #: 审计预览保留的字符数（审计只存 sha256 + 脱敏预览，绝不存原文）。
+    audit_preview_chars: int = 120
+    #: true 时把工具结果里的图片段剥离成文字（模型看不到图）。
+    strip_tool_images: bool = False
+    #: true 时出站图片被丢弃并替换成文本说明（图片内容本身不做识别）。
+    block_image_output: bool = False
+    #: true 时出站文件被丢弃并替换成文本说明。
+    block_file_output: bool = False
+    #: 单次扫描的最大字符数，超出部分截断扫描（防超长文本拖慢链路）。
+    max_scan_chars: int = 8000
+
+    def normalized(self) -> SafetyConfig:
+        """补齐默认值并归一化枚举/列表，保证 ``to_dict`` 往返幂等。"""
+        out = self.copy()
+        mode = (out.mode or "").strip().lower()
+        out.mode = mode if mode in ("off", "audit", "enforce") else "audit"
+        out.categories = normalize_string_list(out.categories or [])
+        out.sensitive = normalize_string_list(out.sensitive or [])
+        out.allowlist = normalize_string_list(out.allowlist or [])
+        actions: dict[str, str] = {}
+        for key, value in (out.sensitive_actions or {}).items():
+            name = str(key or "").strip().lower()
+            action = str(value or "").strip().lower()
+            if name and action in ("flag", "redact"):
+                actions[name] = action
+        out.sensitive_actions = actions
+        out.block_reply = (out.block_reply or "").strip()
+        out.audit_path = (out.audit_path or "").strip()
+        if out.audit_preview_chars <= 0:
+            out.audit_preview_chars = 120
+        if out.max_scan_chars <= 0:
+            out.max_scan_chars = 8000
+        return out
 
 
 @dataclass
