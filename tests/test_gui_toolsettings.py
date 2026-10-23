@@ -3,7 +3,8 @@
 覆盖三件事：
 
 - **注册表自检**：面板 key 唯一、字段 key 唯一、引用的工具都在工具目录里、
-  全局面板排第一、分类顺序与工具目录一致；
+  全局面板排第一、分类顺序与工具目录一致；内容安全的 chat / work 覆盖面板同样是
+  「无工具」面板（各 7 个字段、只写 ``[safety.chat]`` / ``[safety.work]``）；
 - **读**：从发行资产（真实的 ``app.toml`` / ``services.toml``）读到正确的值，
   未配置的键读成 ``None``；
 - **写**：字符串 / 整数 / 浮点 / 布尔 / 三态 / 下拉 / 列表 / 路径字段的落盘语义，
@@ -65,10 +66,84 @@ class RegistryCase(unittest.TestCase):
         keys = [group.key for group in toolsettings.GROUPS]
         self.assertEqual(len(keys), len(set(keys)))
 
-    def test_only_one_global_group_and_it_is_first(self) -> None:
-        globals_ = [group for group in toolsettings.GROUPS if group.global_scope]
-        self.assertEqual(len(globals_), 1)
-        self.assertIs(toolsettings.GROUPS[0], globals_[0])
+    def test_first_group_is_global_and_other_scopeless_groups_allowed(self) -> None:
+        """全局面板必须排第一；其余「无工具」面板（内容安全覆盖）允许存在。"""
+        self.assertTrue(toolsettings.GROUPS[0].global_scope)
+        self.assertEqual(toolsettings.GROUPS[0].key, "global")
+        globals_ = toolsettings.global_groups()
+        self.assertGreaterEqual(len(globals_), 3)
+        self.assertIs(globals_[0], toolsettings.GROUPS[0])
+        self.assertEqual(
+            [group.key for group in globals_[:3]], ["global", "safety_chat", "safety_work"]
+        )
+
+    def test_safety_override_groups_are_scopeless_and_fully_in_their_section(self) -> None:
+        """两个覆盖面板：各 7 个字段、小节全在 safety.chat / safety.work。"""
+        for key, section in (
+            ("safety_chat", "safety.chat"),
+            ("safety_work", "safety.work"),
+        ):
+            group = toolsettings.group_by_key(key)
+            self.assertIsNotNone(group, f"缺少面板 {key}")
+            assert group is not None
+            self.assertEqual(group.tools, ())
+            self.assertTrue(group.global_scope)
+            self.assertEqual(
+                [field.key for field in group.fields],
+                [
+                    "enabled",
+                    "mode",
+                    "block_reply",
+                    "max_scan_chars",
+                    "strip_tool_images",
+                    "block_image_output",
+                    "block_file_output",
+                ],
+            )
+            self.assertEqual(len(group.fields), 7)
+            self.assertEqual({field.section for field in group.fields}, {section})
+            self.assertEqual({field.file for field in group.fields}, {"app"})
+            # 审计文件全局唯一，类别 / 白名单只认全局：覆盖面板里都不能出现。
+            keys = {field.key for field in group.fields}
+            self.assertNotIn("audit_path", keys)
+            for forbidden in (
+                "categories",
+                "sensitive",
+                "sensitive_actions",
+                "allowlist",
+            ):
+                self.assertNotIn(forbidden, keys)
+            kinds = {field.key: field.kind for field in group.fields}
+            self.assertEqual(kinds["enabled"], "tristate")
+            self.assertEqual(kinds["mode"], "choice")
+            self.assertEqual(kinds["block_reply"], "text")
+            self.assertEqual(kinds["max_scan_chars"], "int")
+            for name in (
+                "strip_tool_images",
+                "block_image_output",
+                "block_file_output",
+            ):
+                self.assertEqual(kinds[name], "tristate")
+            mode_field = next(field for field in group.fields if field.key == "mode")
+            self.assertEqual(mode_field.choices[0], ("", "（继承全局）"))
+            self.assertEqual(
+                [value for value, _label in mode_field.choices],
+                ["", "off", "audit", "enforce"],
+            )
+            self.assertIn("重启后台服务", group.note)
+            self.assertIn(f"[{section}]", group.note)
+            self.assertIn("app.toml", group.note)
+
+    def test_safety_override_panels_do_not_join_category_groups(self) -> None:
+        """无工具面板不进「按工具分类」的分组（由参数页单独排在全局面板之后）。"""
+        keys = [
+            group.key
+            for _category, groups in toolsettings.groups_by_category()
+            for group in groups
+        ]
+        self.assertNotIn("safety_chat", keys)
+        self.assertNotIn("safety_work", keys)
+        self.assertNotIn("global", keys)
 
     def test_group_tools_exist_in_catalog(self) -> None:
         names = set(toolcatalog.catalog_names())
@@ -130,6 +205,16 @@ class ReadWriteCase(unittest.TestCase):
         values = self.values(key)
         values.update(changes)
         return toolsettings.save_group(self.paths, group, values)
+
+    def save_changes(self, key: str, **changes) -> list[str]:
+        """只提交改动过的键——与界面（``SettingPanel.save``）的实际入参一致。
+
+        :meth:`save` 会把整组值（含 ``None``）一起交给 ``save_group``，对已经有完整小节
+        的面板等价；覆盖面板的小节一开始不存在，用它才测得出"只写改动键"。
+        """
+        group = toolsettings.group_by_key(key)
+        assert group is not None
+        return toolsettings.save_group(self.paths, group, changes)
 
     # -- 读 -----------------------------------------------------------------
     def test_load_all_reads_assets(self) -> None:
@@ -242,6 +327,50 @@ class ReadWriteCase(unittest.TestCase):
         # 已存在的小节（app.toml 的 [sandbox]）只改键、不重复建小节。
         self.save("file_exec", root="sandbox")
         self.assertEqual(self.read("app.toml")["sandbox"]["root"], "sandbox")
+
+    # -- 内容安全的按模式覆盖（[safety.chat] / [safety.work]）----------------
+    def test_safety_chat_override_writes_only_changed_keys(self) -> None:
+        changed = self.save_changes("safety_chat", enabled="on", mode="enforce")
+        self.assertEqual(changed, ["app.toml"])
+        safety = self.read("app.toml")["safety"]
+        # 只写改动过的两个键：覆盖段里没有别的键（尤其不带 audit_path / 类别 / 白名单）。
+        self.assertEqual(set(safety["chat"]), {"enabled", "mode"})
+        self.assertIs(safety["chat"]["enabled"], True)
+        self.assertEqual(safety["chat"]["mode"], "enforce")
+        # 全局 [safety] 一个键都没被这次写入改掉（只多了一个子表）。
+        self.assertIs(safety["enabled"], False)
+        self.assertEqual(safety["mode"], "audit")
+        self.assertEqual(safety["max_scan_chars"], 8000)
+        # 回读：覆盖面板读到的是覆盖段自己的值，另一个模式仍是"没配"（= 继承）。
+        self.assertEqual(self.values("safety_chat")["mode"], "enforce")
+        self.assertIs(self.values("safety_chat")["enabled"], True)
+        self.assertIsNone(self.values("safety_work")["mode"])
+        self.assertIsNone(self.values("safety_work")["enabled"])
+
+    def test_safety_work_override_ints_and_inherit_deletes_key(self) -> None:
+        changed = self.save_changes(
+            "safety_work", block_file_output="on", max_scan_chars="4000"
+        )
+        self.assertEqual(changed, ["app.toml"])
+        work = self.read("app.toml")["safety"]["work"]
+        self.assertIs(work["block_file_output"], True)
+        self.assertEqual(work["max_scan_chars"], 4000)
+        # 拨回「（默认）」/ 清空数字 = 删掉该键（= 继承全局）。
+        self.save_changes("safety_work", block_file_output="default", max_scan_chars="")
+        self.assertEqual(self.read("app.toml")["safety"]["work"], {})
+        self.assertIsNone(self.values("safety_work")["block_file_output"])
+
+    def test_safety_override_no_change_does_not_write(self) -> None:
+        before = Path(self.paths.config_path).read_bytes()
+        self.assertEqual(self.save_changes("safety_chat"), [])
+        self.assertEqual(self.save_changes("safety_work"), [])
+        self.assertEqual(Path(self.paths.config_path).read_bytes(), before)
+
+    def test_safety_override_invalid_int_does_not_write(self) -> None:
+        before = Path(self.paths.config_path).read_bytes()
+        with self.assertRaises(ConfigEditError):
+            self.save_changes("safety_chat", max_scan_chars="八千")
+        self.assertEqual(Path(self.paths.config_path).read_bytes(), before)
 
     def test_no_change_returns_empty_list(self) -> None:
         self.assertEqual(self.save("global"), [])

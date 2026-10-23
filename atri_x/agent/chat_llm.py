@@ -47,7 +47,7 @@ from atri_x.agent.segments import (
 )
 from atri_x.agent.tool_transcript import stored_message_segments
 # safety-guard: 内置安全闸门（未装配时 safety_guard 为 None，行为与 1.0.2 一致）
-from atri_x.safety import scope_from_host
+from atri_x.safety import mode_from_host, scope_from_host
 
 __all__ = [
     "LEVEL_ERROR",
@@ -447,7 +447,10 @@ async def _stream_chat(
         safety_guard = getattr(agent, "safety_guard", None)
         if safety_guard is not None:
             filtered, _decision = safety_guard.filter_text(
-                event.llm.text or "", stage="llm", scope=scope_from_host(agent, ctx)
+                event.llm.text or "",
+                stage="llm",
+                scope=scope_from_host(agent, ctx),
+                mode=mode_from_host(agent, ctx),
             )
             if filtered != (event.llm.text or ""):
                 event.llm.text = filtered

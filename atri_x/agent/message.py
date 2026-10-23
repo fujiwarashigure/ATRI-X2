@@ -19,7 +19,7 @@ from atri_x.hook import (
 )
 from atri_x.llm import RoleUser, SegmentType, segments_text_only, set_segment_text, text_segments
 from atri_x.logging import ResultFailed
-from atri_x.safety import scope_from_host
+from atri_x.safety import mode_from_host, scope_from_host
 from atri_x.security import with_actor, with_policy
 
 from atri_x.agent.errors import (
@@ -193,6 +193,7 @@ async def _safety_guard_inbound(agent: Any, ctx: Any, event: Any) -> bool:
     guard = getattr(agent, "safety_guard", None)
     if guard is None:
         return False
+    mode = mode_from_host(agent, ctx)
     segments = list(event.message.segments or [])
     text = "".join(
         segment.text for segment in segments if segment.type == SegmentType.TEXT
@@ -203,10 +204,11 @@ async def _safety_guard_inbound(agent: Any, ctx: Any, event: Any) -> bool:
         text,
         stage="inbound",
         scope=scope_from_host(agent, ctx),
-        block_text=guard.block_reply,
+        block_text=guard.block_reply_for(mode),
+        mode=mode,
     )
-    if decision.action == "block" and guard.enforcing:
-        await agent.send_chat(ctx, guard.block_reply)
+    if decision.action == "block" and guard.enforcing_for(mode):
+        await agent.send_chat(ctx, guard.block_reply_for(mode))
         return True
     if filtered != text:
         event.message.segments = set_segment_text(segments, filtered)

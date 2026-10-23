@@ -36,6 +36,9 @@ __all__ = [
     "SENSITIVE_DEFAULT_ACTIONS",
     "SafetyMode",
     "SafetyPolicy",
+    "OVERRIDE_FIELDS",
+    "merge_policy",
+    "policies_from_section",
     "policy_from_section",
 ]
 
@@ -265,6 +268,84 @@ class SafetyPolicy:
         known = {item.name for item in fields(type(self))}
         payload = {name: value for name, value in changes.items() if name in known}
         return dataclasses.replace(self, **payload)
+
+
+#: 按会话模式覆盖（``[safety.chat]`` / ``[safety.work]``）时允许覆盖的字段。
+#: 审计文件与预览长度**全局唯一**，所以不在覆盖范围内。
+OVERRIDE_FIELDS: tuple[str, ...] = (
+    "enabled",
+    "mode",
+    "categories",
+    "sensitive",
+    "sensitive_actions",
+    "allowlist",
+    "block_reply",
+    "strip_tool_images",
+    "block_image_output",
+    "block_file_output",
+    "max_scan_chars",
+)
+
+
+def merge_policy(base: SafetyPolicy, override: Any) -> SafetyPolicy:
+    """把 ``[safety.chat]`` / ``[safety.work]`` 里**显式写了**的字段盖到 ``base`` 上。
+
+    ``override`` 可以是 ``SafetyOverrideConfig``、``Mapping`` 或普通对象；``None``、
+    空段、以及值为 ``None`` 的字段都表示"继承 base"。这正是"不配置就完全无行为变化"
+    的保证：没有覆盖段时返回的就是 base 本身（值相等）。
+    """
+    if override is None:
+        return base
+    changes: dict[str, Any] = {}
+    raw = _field(override, "enabled", None)
+    if raw is not None:
+        changes["enabled"] = _as_bool(raw, base.enabled)
+    raw = _field(override, "mode", None)
+    if raw is not None:
+        mode = _as_text(raw, "").lower()
+        changes["mode"] = mode if mode in SafetyMode.ALL else SafetyMode.AUDIT
+    for name in ("categories", "sensitive"):
+        raw = _field(override, name, None)
+        if raw is not None:
+            changes[name] = _as_names(raw)
+    raw = _field(override, "sensitive_actions", None)
+    if raw is not None:
+        merged_actions = dict(base.sensitive_actions)
+        merged_actions.update(_as_actions(raw))
+        changes["sensitive_actions"] = merged_actions
+    raw = _field(override, "allowlist", None)
+    if raw is not None:
+        changes["allowlist"] = _as_strings(raw)
+    raw = _field(override, "block_reply", None)
+    if raw is not None:
+        # 空串 = 继承（GUI 的「留空 = 继承全局」）；要用内置文案就在全局段留空。
+        text = _as_text(raw, "")
+        if text:
+            changes["block_reply"] = text
+    for name in ("strip_tool_images", "block_image_output", "block_file_output"):
+        raw = _field(override, name, None)
+        if raw is not None:
+            changes[name] = _as_bool(raw, getattr(base, name))
+    raw = _field(override, "max_scan_chars", None)
+    if raw is not None:
+        parsed = _as_int(raw, base.max_scan_chars)
+        if parsed > 0:
+            changes["max_scan_chars"] = parsed
+    return base.replace(**changes) if changes else base
+
+
+def policies_from_section(section: Any) -> dict[str, SafetyPolicy]:
+    """``[safety]`` 段 → ``{"": 全局默认, "chat": chat 覆盖, "work": work 覆盖}``。
+
+    ``""`` 键的这份就是 :func:`policy_from_section` 的结果；没有覆盖段的模式直接
+    复用同一个对象（值相等），因此不配置时行为完全不变。
+    """
+    base = policy_from_section(section)
+    return {
+        "": base,
+        "chat": merge_policy(base, _field(section, "chat", None)),
+        "work": merge_policy(base, _field(section, "work", None)),
+    }
 
 
 def policy_from_section(section: Any) -> SafetyPolicy:

@@ -9,7 +9,9 @@
    :mod:`atri_x.gui.toolmode`），分别激活要放行的工具，保存到 ``state.toml`` 的
    ``[group_policy."<平台:scope>"]``：``tool_allowlist_chat`` / ``tool_allowlist_work``；
    某个模式没单独配置时回退到通用 ``tool_allowlist``（``/tools allow`` 写的就是它）。
-   后台服务 15 秒内热加载；
+   后台服务 15 秒内热加载；每个子选项卡**顶部**还嵌着该模式的「内容安全覆盖」面板
+   （``app.toml`` 的 ``[safety.chat]`` / ``[safety.work]``，留「（默认）」= 继承全局，
+   重启后台服务生效）；
 3. **工具内部参数**：第三个子选项卡「工具参数（全局）」（控件在
    :mod:`atri_x.gui.toolparams`，定义与读写规则在 :mod:`atri_x.gui.toolsettings`）——
    每个工具一组可展开 / 收起的参数面板（生图留档 ``metadata_store``、搜索通道顺序、
@@ -39,7 +41,7 @@ from typing import Any
 from atri_x.gui.configedit import ConfigEditError, patch_section, read_toml
 from atri_x.gui.tabs.base import ConfigTab, message
 from atri_x.gui.toolmode import MODE_SHORT, ModeEditor, editor_signature
-from atri_x.gui.toolparams import ToolParamsEditor
+from atri_x.gui.toolparams import SettingPanel, ToolParamsEditor
 from atri_x.gui.toolpolicy import (
     DISCOVER_TOOL,
     PRESET_COMMON,
@@ -52,10 +54,12 @@ from atri_x.gui.toolpolicy import (
     scope_is_canonical,
     scope_problem,
 )
+from atri_x.gui.toolsettings import group_by_key, load_all
 
 __all__ = [
     "DISCOVER_TOOL",
     "MODE_ORDER",
+    "MODE_SAFETY_GROUPS",
     "PARAMS_TAB_TITLE",
     "PRESET_COMMON",
     "PRESET_READONLY",
@@ -77,9 +81,31 @@ _MODE_TITLES = {
 #: 第三个子选项卡：工具内部参数（全局，写 ``app.toml`` / ``services.toml``）。
 PARAMS_TAB_TITLE = "工具参数（全局）"
 
+#: 每个会话模式子选项卡顶部嵌的内容安全覆盖面板（面板 id 见
+#: :mod:`atri_x.gui.toolsettings_general`）：``app.toml`` 的 ``[safety.chat]`` /
+#: ``[safety.work]``，留空 / 「（默认）」= 继承全局 ``[safety]``。
+MODE_SAFETY_GROUPS: dict[str, str] = {"chat": "safety_chat", "work": "safety_work"}
+
+
+class _ModeSafetyPanel(SettingPanel):
+    """嵌在 chat / work 子选项卡顶部的「内容安全覆盖」面板。
+
+    与「工具参数（全局）」子选项卡里的同名面板是同一套字段定义、同一套写盘逻辑
+    （:meth:`SettingPanel.save`）；这里只多做一件事：保存成功后把参数页里的同名面板
+    也回填成落盘值，避免两处显示对不上（用户刚在 chat 页改完，切到参数页还是旧值）。
+    """
+
+    def save(self, *, notify: bool = True) -> bool:
+        saved = super().save(notify=notify)
+        if saved:
+            sync = getattr(self.page, "refresh_params_group", None)
+            if callable(sync):
+                sync(self.group.key)
+        return saved
+
 
 class ToolPermTab(ConfigTab):
-    """群工具授权（chat / work 分模式）+ 工具内部参数 + 群聊工具进度开关。"""
+    """群工具授权（chat / work 分模式）+ 内容安全按模式覆盖 + 工具内部参数 + 群聊工具进度开关。"""
 
     hint = ""
 
@@ -96,6 +122,8 @@ class ToolPermTab(ConfigTab):
         self.editors: dict[str, ModeEditor] = {}
         #: 第三个子选项卡：工具内部参数面板（全局，与群无关）。
         self.params_editor: ToolParamsEditor | None = None
+        #: chat / work 子选项卡顶部的「内容安全覆盖」面板（与参数页的同名面板同一套字段）。
+        self.mode_safety_panels: dict[str, SettingPanel] = {}
         self._current_scope = ""
         self._saved_signature: dict[str, tuple[str, frozenset[str], str]] = {}
         self._build()
@@ -187,11 +215,48 @@ class ToolPermTab(ConfigTab):
         for mode_key in MODE_ORDER:
             editor = ModeEditor(self, self.notebook, mode_key, self.tool_choices)
             self.editors[mode_key] = editor
+            self._embed_safety_panel(mode_key, editor)
             self.notebook.add(editor.frame, text=_MODE_TITLES[mode_key])
         # 第三个子选项卡：工具内部参数（全局）。工具行右侧的「参数」按钮会跳到这里。
         self.params_editor = ToolParamsEditor(self, self.notebook)
         self.notebook.add(self.params_editor.frame, text=PARAMS_TAB_TITLE)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+    def _embed_safety_panel(self, mode_key: str, editor: ModeEditor) -> None:
+        """把「内容安全：<模式> 模式覆盖」面板钉在该子选项卡内容区最上面。
+
+        复用工具参数页的同一个 :class:`~atri_x.gui.toolparams.SettingPanel`（字段定义、
+        写盘、文案都在那一层），这里只换父容器、用 ``pack(before=…)`` 调整顺序：
+        覆盖面板在该模式子选项卡里排第一，下面才是工具授权菜单。默认收起，避免一进来
+        就把工具菜单挤出可视区（标题行上的 ▸ 展开）。
+        """
+        group = group_by_key(MODE_SAFETY_GROUPS.get(mode_key, ""))
+        if group is None:  # pragma: no cover - 注册表缺面板时安静跳过，不影响授权编辑
+            return
+        panel = _ModeSafetyPanel(self, editor.frame, group)
+        siblings = editor.frame.pack_slaves()
+        anchor = siblings[0] if siblings else None
+        if anchor is not None and anchor is not panel.frame:
+            panel.frame.pack_configure(before=anchor)
+        self.mode_safety_panels[mode_key] = panel
+
+    def refresh_params_group(self, group_key: str) -> None:
+        """把参数页里同名面板回填成落盘值（子选项卡里的覆盖面板保存成功后调用）。
+
+        参数页那一份有未保存改动时跳过：用户在那边的输入不该被这边的一次保存冲掉。
+        """
+        if self.params_editor is None:
+            return
+        panel = self.params_editor.panels.get(group_key)
+        if panel is None or panel.dirty():
+            return
+        try:
+            values = load_all(self.require_paths())
+        except ConfigEditError as exc:
+            self.fail(exc)
+            return
+        panel.load(values.get(group_key, {}))
+        self.params_editor.refresh_summary()
 
     def _on_tab_changed(self, _event: Any = None) -> None:
         """切页时：参数页隐藏左侧群列表（参数是全局的，跟群无关，右侧要更宽）；
@@ -219,8 +284,9 @@ class ToolPermTab(ConfigTab):
     def show_global_params(self) -> None:
         """跳到「工具参数（全局）」子选项卡并展开「全局参数（所有工具）」面板。
 
-        内容安全（道德限制 + 敏感信息过滤）的开关就在那个面板里；「功能」页双击
-        「内容安全」一行会走到这里。
+        内容安全（道德限制 + 敏感信息过滤）的全局开关就在那个面板里；同一子选项卡里
+        还跟着「chat / work 模式覆盖」两个面板（也在两个模式子选项卡的顶部）。
+        「功能」页双击「内容安全」一行会走到这里。
         """
         if self.params_editor is None:
             return
@@ -288,9 +354,22 @@ class ToolPermTab(ConfigTab):
         self.preview_var.set(_read_preview_switch(paths.config_path))
         if self.params_editor is not None:
             self.params_editor.reload()
+        self._reload_safety_panels(paths)
         self.notify(
             "已载入群工具授权与工具参数（授权约 15 秒热加载；工具参数需重启后台服务）"
         )
+
+    def _reload_safety_panels(self, paths: Any) -> None:
+        """按落盘值回填 chat / work 子选项卡顶部的「内容安全覆盖」面板。"""
+        if not self.mode_safety_panels:
+            return
+        try:
+            data = load_all(paths)
+        except ConfigEditError as exc:
+            self.fail(exc)
+            return
+        for panel in self.mode_safety_panels.values():
+            panel.load(data.get(panel.group.key, {}))
 
     def _refresh_scopes(self, *, reload_editor: bool = True) -> None:
         if not self.is_ready():

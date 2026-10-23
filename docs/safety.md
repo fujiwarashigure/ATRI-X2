@@ -35,15 +35,47 @@ mode = "audit"       # off | audit | enforce
 内容安全**不在「进阶」页**，而在「工具权限」页里：
 
 1. 主窗口「工具权限」选项卡 → 第三个子选项卡「**工具参数（全局）**」；
-2. 第一个面板「**全局参数（所有工具）**」默认展开，往下翻到「内容安全」这一段；
-3. 可改 8 项：`启用内容安全`、`内容安全执行模式`、`安全审计日志路径`、`入站拦截回复文本`、
-   `安全扫描字符上限`、`工具结果剥离图片`、`禁止出站图片`、`禁止出站文件`；
-4. 点面板里的「保存本组」或页面顶部的「保存全部改动」，再点右下角「重启后台服务」生效。
+2. 「**全局参数（所有工具）**」面板默认展开，往下翻到「内容安全」这一段（全局默认的 8 项）；
+3. 同一个子选项卡里还有两个覆盖面板：「**内容安全：chat 模式覆盖**」「**内容安全：work 模式覆盖**」；
+4. **chat / work 两个子选项卡里也各有一份同样的覆盖面板**——切到该模式就能直接改，不用再绕到工具参数页；
+5. 改完点面板里的「保存本组」或页面顶部的「保存全部改动」，再点右下角「重启后台服务」生效。
 
-「功能」页里的「内容安全（道德限制 + 敏感信息过滤）」一行是只读状态（显示 `enabled` / `mode`），
-双击它会跳到上面那个参数页面。词表类别 `categories`、敏感信息类别 `sensitive`、
-`sensitive_actions`、`allowlist`、`audit_preview_chars` 这些**逐类细调项仍只在 `app.toml` 里配**，
-GUI 没有为它们做控件。
+覆盖面板里的「（默认）」= **继承全局**；「启用内容安全」是三态，因此可以在全局关闭时只给某个模式单独打开。
+审计路径只保留在全局默认面板（审计文件全局唯一，记录里的 `mode` 字段写该模式实际生效的模式）。
+
+「功能」页里的「内容安全（道德限制 + 敏感信息过滤）」一行是只读状态（显示全局 `enabled` / `mode`
+与 chat/work 覆盖摘要），双击它会跳到工具参数页并展开全局面板。词表类别 `categories`、
+敏感信息类别 `sensitive`、`sensitive_actions`、`allowlist`、`audit_preview_chars` 这些
+**逐类细调项仍只在 `app.toml` 里配**，GUI 没有为它们做控件。
+
+## 按会话模式覆盖（chat / work）
+
+1.0.3 热修起，同一份内容安全策略可以按**会话模式**各覆盖一份：`[safety.chat]` 管 chat 模式
+（闲聊 / 低成本模型槽位），`[safety.work]` 管 work 模式（工作 / 工具模型槽位）。
+
+```toml
+[safety]
+enabled = true
+mode = "audit"            # 全局默认
+
+[safety.chat]
+mode = "off"              # chat 模式不跑过滤（其余字段继续继承全局）
+
+[safety.work]
+mode = "enforce"          # work 模式真正拦截 / 脱敏
+block_image_output = true
+```
+
+- **没写的键继承全局默认**：不写 `[safety.chat]` / `[safety.work]` 时行为与 1.0.3 之前完全一致。
+- 可覆盖：`enabled` / `mode` / `categories` / `sensitive` / `sensitive_actions` / `allowlist` /
+  `block_reply` / `strip_tool_images` / `block_image_output` / `block_file_output` / `max_scan_chars`。
+  字符串/列表类的**空值也算继承**（例如覆盖段里 `block_reply = ""` 仍然用全局的拦截文案）。
+- **不可覆盖**：`audit_path` / `audit_preview_chars`（审计文件全局唯一）。
+- 全局 `enabled = false` 时，覆盖段里写 `enabled = true` 可以让**只有该模式**跑过滤；
+  两个覆盖段都没打开时 guard 根本不会装配，行为与不配置一致。
+- 运行时按当前会话的 `session.mode` 选策略。入站消息在会话创建前按「群默认模式 → 服务默认模式
+  （默认 `work`）」逐级推断，因此首条消息与后续轮次用的是同一套覆盖。
+- 工具链路（`image_generate` 提示词、`send_file`、工具结果剥离/脱敏）也按当前会话模式生效。
 
 ## 模式语义
 
@@ -76,6 +108,7 @@ GUI 没有为它们做控件。
 | `block_image_output` | `false` | 出站图片丢弃并补文本说明 |
 | `block_file_output` | `false` | 出站文件丢弃并补文本说明 |
 | `max_scan_chars` | `8000` | 单次扫描上限；超出部分不扫描、原样保留 |
+| `chat` / `work` | 空 | 按会话模式覆盖的**子段**（`[safety.chat]` / `[safety.work]`），见下节 |
 
 ### 词表类别（`categories`）
 

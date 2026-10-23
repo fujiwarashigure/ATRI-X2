@@ -5,6 +5,14 @@
 和 :mod:`atri_x.gui.toolparams`；图片 / 画师 / 视觉类的定义在
 :mod:`atri_x.gui.toolsettings_media`。
 
+除了第一个「全局参数」面板，这里还有两个**无工具**面板 ``safety_chat`` /
+``safety_work``：内容安全（道德限制 + 敏感信息过滤）的「按会话模式覆盖」
+（``app.toml`` 的 ``[safety.chat]`` / ``[safety.work]``，``None`` = 继承全局
+``[safety]``）。它们不挂任何工具，但同样是整机生效的全局作用域面板，所以由
+:mod:`atri_x.gui.toolparams` 排在「全局参数」之后、各工具分类之前渲染，并且同一套
+:class:`~atri_x.gui.toolparams.SettingPanel` 还会嵌进「chat 模式」/「work 模式」
+两个子选项卡的顶部。
+
 维护约定：
 
 - ``tools`` 里的工具名必须真的在 :mod:`atri_x.gui.toolcatalog` 的目录里（导入时会校验），
@@ -29,6 +37,89 @@ _RISK_CHOICES = (
     ("low", "low 低风险"),
     ("medium", "medium 中风险"),
     ("high", "high 高风险"),
+)
+
+
+def _safety_override_fields(section: str) -> tuple[SettingField, ...]:
+    """内容安全「按会话模式覆盖」的 7 个字段（chat / work 各一套，只有小节名不同）。
+
+    这里只放**能按模式覆盖**的键：``audit_path`` 是全局唯一的审计文件、词表类别 /
+    敏感信息类别 / 逐类动作 / 白名单要手改 ``app.toml``（``categories`` /
+    ``sensitive`` / ``sensitive_actions`` / ``allowlist``），所以都不进覆盖面板。
+    """
+    return (
+        _F(
+            "enabled",
+            "启用内容安全",
+            "tristate",
+            section,
+            "app",
+            help="（默认）= 继承全局；开 / 关 = 本模式单独生效（另一个模式不受影响）。",
+        ),
+        _F(
+            "mode",
+            "内容安全执行模式",
+            "choice",
+            section,
+            "app",
+            None,
+            (
+                ("", "（继承全局）"),
+                ("off", "off（关闭）"),
+                ("audit", "audit（只记审计，不改输出）"),
+                ("enforce", "enforce（真正拦截/脱敏）"),
+            ),
+            help="（继承全局）= 跟随 [safety].mode；建议先在全局用 audit 观察误杀再切 enforce。",
+        ),
+        _F(
+            "block_reply",
+            "入站拦截回复文本",
+            "text",
+            section,
+            "app",
+            help="留空 = 继承全局；全局也没配就用内置文案。",
+        ),
+        _F(
+            "max_scan_chars",
+            "安全扫描字符上限",
+            "int",
+            section,
+            "app",
+            help="留空 = 继承全局；全局也没配就用内置默认 8000。",
+        ),
+        _F(
+            "strip_tool_images",
+            "工具结果剥离图片",
+            "tristate",
+            section,
+            "app",
+            help="（默认）= 继承全局；开启后本模式的工具结果里图片段变成文字占位。",
+        ),
+        _F(
+            "block_image_output",
+            "禁止出站图片",
+            "tristate",
+            section,
+            "app",
+            help="（默认）= 继承全局；开启后本模式不再把图片发到平台并记审计。",
+        ),
+        _F(
+            "block_file_output",
+            "禁止出站文件",
+            "tristate",
+            section,
+            "app",
+            help="（默认）= 继承全局；开启后本模式不再把文件发到平台并记审计。",
+        ),
+    )
+
+
+#: 覆盖面板底部说明的共同部分（两个模式只差名字）。
+_SAFETY_OVERRIDE_NOTE = (
+    "这几项是「按会话模式覆盖全局默认」：留「（默认）」/ 留空 = 继承全局 [safety]，"
+    "保存时只写你改过的键（写进 app.toml 的 [{section}]）；保存后重启后台服务才生效。"
+    "细调项（词表类别 categories / 敏感信息类别 sensitive / 逐类动作 / 白名单 allowlist）"
+    "与审计日志路径 audit_path 仍只认全局，需要手改 app.toml。"
 )
 
 GENERAL_GROUPS: tuple[SettingGroup, ...] = (
@@ -163,6 +254,29 @@ GENERAL_GROUPS: tuple[SettingGroup, ...] = (
             "工具授权（谁能调用）在 chat / work 两个子选项卡里按群配置；这里改的是"
             "所有工具共用的执行参数。内容安全的词表类别、敏感信息类别与逐类动作在"
             "app.toml 的 [safety] 段手工配置。"
+        ),
+    ),
+    # -- 内容安全：按会话模式覆盖（1.0.3）----------------------------------
+    SettingGroup(
+        "safety_chat",
+        "内容安全：chat 模式覆盖",
+        (),
+        _safety_override_fields("safety.chat"),
+        note=_SAFETY_OVERRIDE_NOTE.format(section="safety.chat"),
+        where=(
+            "同一套字段还嵌在「工具权限 → chat 模式」子选项卡的顶部（两处保存同一份配置："
+            "在那边保存后这里会自动更新，反过来保存后需要重新载入本页）。"
+        ),
+    ),
+    SettingGroup(
+        "safety_work",
+        "内容安全：work 模式覆盖",
+        (),
+        _safety_override_fields("safety.work"),
+        note=_SAFETY_OVERRIDE_NOTE.format(section="safety.work"),
+        where=(
+            "同一套字段还嵌在「工具权限 → work 模式」子选项卡的顶部（两处保存同一份配置："
+            "在那边保存后这里会自动更新，反过来保存后需要重新载入本页）。"
         ),
     ),
     # -- 联网 ---------------------------------------------------------------

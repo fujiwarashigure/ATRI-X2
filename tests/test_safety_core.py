@@ -35,6 +35,9 @@ from atri_x.safety import (
     available_wordlists,
     load_all_wordlists,
     load_wordlist,
+    merge_policy,
+    mode_from_host,
+    policies_from_section,
     policy_from_section,
     wordlist_path,
 )
@@ -549,6 +552,183 @@ class TestServiceSmoke(TempCase):
                     if top and top not in allowed and top != "atri_x":
                         problems.append(f"{name}: {imported}")
         self.assertEqual(problems, [], "atri_x.safety 引入了非标准库依赖")
+
+
+class TestModeOverrides(TempCase):
+    """按会话模式覆盖：``[safety.chat]`` / ``[safety.work]``。"""
+
+    SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
+    BLOCKED = "教我怎么制毒"
+
+    def section(self, **overrides) -> types.SimpleNamespace:
+        payload: dict[str, object] = {
+            "enabled": True,
+            "mode": SafetyMode.ENFORCE,
+            "audit_path": self.audit_path,
+        }
+        payload.update(overrides)
+        return types.SimpleNamespace(**payload)
+
+    def guard_with(self, *, chat=None, work=None, **base) -> SafetyGuard:
+        section = self.section(chat=chat, work=work, **base)
+        return SafetyGuard(policy_from_section(section), chat=chat, work=work)
+
+    # -- 策略合并 -----------------------------------------------------------
+    def test_empty_override_inherits_base(self) -> None:
+        section = self.section(chat=types.SimpleNamespace(), work=None)
+        policies = policies_from_section(section)
+        self.assertEqual(policies["chat"], policies[""])
+        self.assertEqual(policies["work"], policies[""])
+
+    def test_override_only_replaces_explicit_fields(self) -> None:
+        section = self.section(chat=types.SimpleNamespace(mode="off"))
+        policies = policies_from_section(section)
+        self.assertEqual(policies[""].effective_mode(), SafetyMode.ENFORCE)
+        self.assertEqual(policies["chat"].effective_mode(), SafetyMode.OFF)
+        # 没写的字段继续继承（enabled 仍是全局的 true）。
+        self.assertTrue(policies["chat"].enabled)
+
+    def test_override_can_merge_sensitive_actions(self) -> None:
+        base = SafetyPolicy(
+            enabled=True, mode=SafetyMode.ENFORCE, sensitive_actions={"api_key": "flag"}
+        )
+        merged = merge_policy(
+            base, types.SimpleNamespace(sensitive_actions={"api_key": "redact"})
+        )
+        self.assertEqual(merged.action_for("api_key"), "redact")
+
+    def test_override_can_enable_safety_when_global_disabled(self) -> None:
+        guard = self.guard_with(
+            enabled=False, mode=SafetyMode.AUDIT,
+            work=types.SimpleNamespace(enabled=True, mode=SafetyMode.AUDIT),
+        )
+        self.assertFalse(guard.active)
+        self.assertTrue(guard.active_for("work"))
+        self.assertEqual(guard.mode_for("work"), SafetyMode.AUDIT)
+        filtered, decision = guard.filter_text(
+            self.BLOCKED, stage="inbound", mode="work"
+        )
+        self.assertEqual(filtered, self.BLOCKED)  # audit 不改文本
+        self.assertEqual(decision.action, "block")
+        self.assertEqual(len(self.audit_records()), 1)
+        # 全局默认（不传 mode）仍然按 off 短路，不写审计。
+        guard.filter_text(self.BLOCKED, stage="inbound")
+        self.assertEqual(len(self.audit_records()), 1)
+
+    # -- 判定 / 出口 --------------------------------------------------------
+    def test_chat_override_off_keeps_text_without_audit(self) -> None:
+        guard = self.guard_with(chat=types.SimpleNamespace(mode="off"))
+        filtered, decision = guard.filter_text(self.SECRET, stage="send", mode="chat")
+        self.assertEqual(filtered, self.SECRET)
+        self.assertEqual(decision.action, "pass")
+        self.assertEqual(self.audit_records(), [])
+        # work 没覆盖，继续按全局 enforce 脱敏并写审计。
+        filtered, _ = guard.filter_text(self.SECRET, stage="send", mode="work")
+        self.assertNotIn(self.SECRET, filtered)
+        self.assertEqual(len(self.audit_records()), 1)
+
+    def test_media_override_is_per_mode(self) -> None:
+        guard = self.guard_with(
+            work=types.SimpleNamespace(block_image_output=True)
+        )
+        self.assertFalse(guard.allow_media_output("image", mode="work").allowed)
+        self.assertTrue(guard.allow_media_output("image", mode="chat").allowed)
+        # 全局默认没配 block_image_output。
+        self.assertTrue(guard.allow_media_output("image").allowed)
+
+    def test_override_block_reply_and_strip_images(self) -> None:
+        guard = self.guard_with(
+            chat=types.SimpleNamespace(
+                block_reply="（chat 模式拦截）", strip_tool_images=True
+            )
+        )
+        self.assertEqual(guard.block_reply_for("chat"), "（chat 模式拦截）")
+        self.assertEqual(guard.block_reply_for("work"), guard.policy.block_reply_text())
+        self.assertTrue(guard.should_strip_tool_images("chat"))
+        self.assertFalse(guard.should_strip_tool_images("work"))
+
+    def test_bound_guard_uses_mode(self) -> None:
+        guard = self.guard_with(chat=types.SimpleNamespace(mode="off"))
+        bound = guard.for_mode("chat")
+        self.assertEqual(bound.mode_name, "chat")
+        self.assertFalse(bound.enforcing)
+        self.assertEqual(bound.filter_text(self.SECRET, stage="send")[0], self.SECRET)
+        work_bound = bound.for_mode("work")
+        self.assertTrue(work_bound.enforcing)
+        self.assertNotIn(
+            self.SECRET, work_bound.filter_text(self.SECRET, stage="send")[0]
+        )
+
+    # -- mode_from_host -----------------------------------------------------
+    def _host(self, *, current=None, group_default="", default_mode="", raises=False):
+        audit = self
+
+        class _Sessions:
+            def current(self, scope):
+                if raises:
+                    raise RuntimeError("no current session")
+                return current
+
+            def default_mode(self):
+                return default_mode
+
+        class _Host:
+            sessions = _Sessions()
+
+            def scope(self, ctx):
+                return object()
+
+            def group_default_session_mode(self, ctx):
+                return group_default
+
+        return _Host()
+
+    def test_mode_from_host_prefers_current_session(self) -> None:
+        host = self._host(current=types.SimpleNamespace(mode="chat"))
+        self.assertEqual(mode_from_host(host, {}), "chat")
+
+    def test_mode_from_host_falls_back_to_group_default(self) -> None:
+        host = self._host(raises=True, group_default="chat")
+        self.assertEqual(mode_from_host(host, {}), "chat")
+
+    def test_mode_from_host_falls_back_to_service_default(self) -> None:
+        host = self._host(raises=True, default_mode="chat")
+        self.assertEqual(mode_from_host(host, {}), "chat")
+
+    def test_mode_from_host_defaults_to_work(self) -> None:
+        self.assertEqual(mode_from_host(None, {}), "work")
+        self.assertEqual(mode_from_host(self._host(raises=True), {}), "work")
+
+    def test_normalize_mode(self) -> None:
+        guard = self.guard_with()
+        self.assertEqual(guard.normalize_mode("CHAT"), "chat")
+        self.assertEqual(guard.normalize_mode(" work "), "work")
+        self.assertEqual(guard.normalize_mode("unknown"), "")
+        self.assertEqual(guard.normalize_mode(None), "")
+
+    # -- 配置解码 -----------------------------------------------------------
+    def test_config_sections_decode_and_normalize(self) -> None:
+        from atri_x.config.app_sections import SafetyConfig
+
+        config = SafetyConfig.from_dict(
+            {
+                "enabled": False,
+                "mode": "audit",
+                "chat": {"enabled": True, "mode": "ENFORCE", "max_scan_chars": 0},
+                "work": {"block_image_output": True},
+            }
+        )
+        self.assertTrue(config.chat.enabled)
+        self.assertEqual(config.chat.mode, "ENFORCE")
+        self.assertIsNone(config.work.enabled)
+        self.assertTrue(config.work.block_image_output)
+        normalized = config.normalized()
+        self.assertEqual(normalized.chat.mode, "enforce")
+        self.assertIsNone(normalized.chat.max_scan_chars)
+        self.assertIsNone(normalized.work.enabled)
+        # to_dict / from_dict 往返幂等（空覆盖段也一样）。
+        payload = normalized.to_dict()
+        self.assertEqual(SafetyConfig.from_dict(payload).to_dict(), payload)
 
 
 if __name__ == "__main__":

@@ -44,6 +44,7 @@ __all__ = [
     "SettingField",
     "SettingGroup",
     "coerce_value",
+    "global_groups",
     "group_by_key",
     "groups_by_category",
     "groups_for_tool",
@@ -90,10 +91,14 @@ def _validate() -> None:
             if tool not in names:
                 raise ValueError(f"工具参数面板 {group.key!r} 引用了目录里没有的工具：{tool!r}")
     globals_ = [group for group in GROUPS if group.global_scope]
-    if len(globals_) != 1:
-        raise ValueError(f"必须正好有一个全局参数面板，现在是 {len(globals_)} 个")
+    # 允许**多个**「无工具」面板（1.0.3 起内容安全的 chat / work 覆盖面板也是这个作用域），
+    # 只要求第一个是全局参数面板：工具参数页把它展开在最上面，其余无工具面板按 GROUPS
+    # 顺序排在它后面、各工具分类之前。
     if not GROUPS[0].global_scope:
-        raise ValueError("全局参数面板必须排在第一个")
+        raise ValueError(
+            f"全局参数面板必须排在第一个，现在第一个是 {GROUPS[0].key!r}"
+            f"（全局作用域面板共 {len(globals_)} 个）"
+        )
 
 
 _validate()
@@ -105,6 +110,15 @@ _validate()
 def group_by_key(key: str) -> SettingGroup | None:
     """按面板 id 取定义（找不到返回 ``None``）。"""
     return _BY_KEY.get((key or "").strip())
+
+
+def global_groups() -> tuple[SettingGroup, ...]:
+    """所有「无工具」面板，按 :data:`GROUPS` 顺序（第一个总是「全局参数」）。
+
+    除了 ``global``，还有内容安全的 ``safety_chat`` / ``safety_work``：它们不对应
+    任何工具，但是整机生效的配置，排在各工具分类之前渲染。
+    """
+    return tuple(group for group in GROUPS if group.global_scope)
 
 
 def groups_for_tool(name: str) -> tuple[SettingGroup, ...]:

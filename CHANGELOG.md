@@ -70,11 +70,42 @@
 - 全量 unittest：`Ran 6200 tests … OK (skipped=4)`（472.110 s），日志在
   `证据/1.0.3/unittest-1.0.3.log`。
 
-### 修复（1.0.3 发布后 · 源码已改，安装包未重打包）
+### 热修（同版本 1.0.3 · 重建安装包 / 便携版 / 源码归档）
 
-- **「功能」页的「内容安全」行原来跳到「进阶」页**，但内容安全的开关实际在「工具权限 → 工具参数（全局）」的「全局参数」面板里，用户按提示去「进阶」页会找不到设置项。现在该行（以及将来引用 `toolperm_params` 的入口）会先切到「工具权限」，再直接打开「工具参数（全局）」子选项卡并展开「全局参数」面板；`GuiApp._TAB_KEYS` 新增 `toolperm_params`，`ToolPermTab` 新增 `show_global_params()`。
-- `docs/safety.md` 新增「桌面端（GUI）设置」一节（8 个可调项、保存与重启步骤、GUI 未覆盖的逐类细调项仍写 `app.toml`）；`README.md`「安全与可观测」补内容安全条目与 GUI 入口。
-- 这两处只改仓库源码与文档：已发布的 1.0.3 安装包 / 便携版未重打包，界面行为以该版本实际为准（设置仍然可用，只是「功能」页双击会跳错页）。
+1.0.3 首发后反馈：内容安全**只能在全局面板改**，chat / work 模式页没有入口，`[safety]` 也不能
+按会话模式分别配置。本次按"热修"处理，**版本号保持 `1.0.3`**，四件产物全部重打并替换
+GitHub Release `v1.0.3` 资产：
+
+- **配置**：`[safety]` 新增两个覆盖子段 `[safety.chat]` / `[safety.work]`
+  （`atri_x/config/app_sections.py` 的 `SafetyOverrideConfig`，字段 `None` = 继承全局）。
+  可覆盖 `enabled` / `mode` / `categories` / `sensitive` / `sensitive_actions` / `allowlist` /
+  `block_reply` / `strip_tool_images` / `block_image_output` / `block_file_output` /
+  `max_scan_chars`；`audit_path` / `audit_preview_chars` 不覆盖（审计文件全局唯一）。
+  `SafetyConfig.normalized()` 一并归一化覆盖段；`app.toml` 模板补注释示例。
+- **运行时**：`atri_x/safety/policy.py` 新增 `merge_policy()` / `policies_from_section()`；
+  `SafetyGuard` 内部按会话模式维护 `_variants`，所有判定方法新增 `mode` 参数与
+  `mode_for()` / `active_for()` / `enforcing_for()` / `block_reply_for()` /
+  `should_strip_tool_images(mode)` / `for_mode()`（返回 `ModeBoundGuard`）；
+  新增 `mode_from_host(agent, ctx)`（当前 `session.mode` → 群默认模式 → 服务默认模式 → `work`）。
+  集成点（入站、模型输出、工具结果、发送边界、生图提示词、文件出口）全部按会话模式判定；
+  工具 ctx 里挂 `guard.for_mode(mode)`，所以 `image_generate` / `send_file` 不用自己推导模式。
+  全局 `enabled = false` 时，覆盖段单独打开也会装配 guard（`_safety_guard_needed()`）。
+- **GUI**：`chat` / `work` 两个子选项卡里各内置一份「内容安全：本模式覆盖」面板；
+  「工具权限 → 工具参数（全局）」新增「内容安全：chat 模式覆盖」「内容安全：work 模式覆盖」两个面板
+  （`toolsettings_general.py` / `toolsettings.py` / `toolparams.py` / `tabs/toolperm.py`）；
+  「功能」页「内容安全」行的说明补 chat/work 覆盖摘要，双击直达「工具参数（全局）」并展开全局面板
+  （`_TAB_KEYS["toolperm_params"]` + `ToolPermTab.show_global_params()`）。
+- **文档**：`docs/safety.md` 新增「桌面端（GUI）设置」「按会话模式覆盖（chat / work）」两节；
+  `docs/configuration.md` 补覆盖段说明；`README.md`「安全与可观测」与 1.0.3 说明同步；
+  `devdocs/code-map.md` safety 小节补按模式覆盖的代码位置。
+- **用例**：`tests/test_safety_core.py` 新增 `TestModeOverrides`（策略合并 / 覆盖开启 /
+  分模式出口 / `ModeBoundGuard` / `mode_from_host` 回落链 / 配置解码与往返幂等）；
+  `tests/test_safety_integration.py` 新增 `TestModeOverridesIntegration`（按会话模式的
+  入站拦截、模型输出脱敏、工具结果、工具 ctx 绑定、只在覆盖段开启时装配 guard）并更新
+  工具 ctx 断言（挂的是按模式绑定的视图）。
+- **发行**：重打 onedir → 便携版 zip → Inno 安装包 + 全仓库源码归档；四件产物 SHA-256 全部变化，
+  `SHA256SUMS.txt` / 发行说明 / 自检报告 / 证据同步重建；GitHub Release `v1.0.3` 的 10 个资产
+  按 digest 比对后删除旧文件并重传。
 
 ### 发行
 
@@ -82,7 +113,7 @@
 - 从工作树重建 Windows x64 三件套（onedir + 便携版 zip + Inno 安装包），每个产物都跑产物级自检：`--version` = `atri-x 1.0.3`、`config check`、`-m` 转发、sidecar 状态、GUI selftest、便携版解压自检、安装包静默安装/卸载自检。
 - 全仓库源码归档 `ATRI-X-1.0.3-repo.zip` / `.tar.gz` 与四件产物的尺寸 / SHA-256 见发行库的 `SHA256SUMS.txt` / `发行说明.md` / `自检报告.md` / `证据/1.0.3/`。
 - 源码与产物脱敏复查（源码树 / 内置 DSH 内核 / 内置协议端 / 三份产物）0 命中。
-- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：`main` 分支、tag `v1.0.3`（= `a48d459`）；GitHub Release `v1.0.3` 附带安装包 / 便携版 / 源码归档 / `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md` / `THIRD-PARTY-NOTICES.md` / `SHA256SUMS.txt` / `build-info.zip` / `EVIDENCE.zip`。1.0.2 补丁版同批推送（tag `v1.0.2` = `00a6653`，该版本无独立 Release）。
+- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：`main` 分支、tag `v1.0.3`（热修后指向最终提交，`git push --force` 更新该 tag）；GitHub Release `v1.0.3` 附带安装包 / 便携版 / 源码归档 / `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md` / `THIRD-PARTY-NOTICES.md` / `SHA256SUMS.txt` / `build-info.zip` / `EVIDENCE.zip`（热修后按 digest 比对删除旧资产再重传）。1.0.2 补丁版同批推送（tag `v1.0.2` = `00a6653`，该版本无独立 Release）。
 
 ---
 

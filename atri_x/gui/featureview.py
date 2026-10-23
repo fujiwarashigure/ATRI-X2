@@ -299,7 +299,7 @@ def _status_of(enabled: bool, *, explicit: bool) -> str:
     return "已停用" if explicit else "默认停用"
 
 
-def _kv_detail(section: Any, keys: tuple[str, ...]) -> str:
+def _kv_detail(section: Any, keys: tuple[str, ...], *, sep: str = "；") -> str:
     if not isinstance(section, Mapping):
         return ""
     parts: list[str] = []
@@ -312,20 +312,38 @@ def _kv_detail(section: Any, keys: tuple[str, ...]) -> str:
         elif isinstance(value, (list, tuple)):
             value = ",".join(str(item) for item in value)
         parts.append(f"{key}={value}")
-    return "；".join(parts)
+    return sep.join(parts)
 
 
 #: 内容安全的编辑入口提示：这一项**不在「进阶」页**，而在「工具权限」页的参数子选项卡里。
 _SAFETY_LOCATION = "在「工具权限 → 工具参数（全局）」的「全局参数」面板里改"
 
+#: 内容安全「按会话模式覆盖」的两个模式键：``app.toml`` 的 ``[safety.chat]`` / ``[safety.work]``。
+_SAFETY_MODES = ("chat", "work")
+
+
+def _safety_override_summary(section: Any, mode: str) -> str:
+    """一个模式的覆盖摘要：``chat: mode=enforce`` / ``chat: 继承``。
+
+    覆盖段（``[safety.<mode>]``）没配、或者里面没有 enabled / mode 时算「继承」——
+    界面上写的就是"继承全局"；其它覆盖键（block_reply、max_scan_chars、出站开关）
+    只影响细节，不进这一行摘要。
+    """
+    entry = _section(section, mode) if isinstance(section, Mapping) else {}
+    detail = _kv_detail(entry, ("enabled", "mode"), sep="、")
+    return f"{mode}: {detail}" if detail else f"{mode}: 继承"
+
 
 def _safety_detail(section: Any) -> str:
-    """内容安全行的说明：当前开关 / 模式 + 编辑入口（否则用户会去「进阶」页找）。"""
-    return "；".join(
-        part
-        for part in (_kv_detail(section, ("enabled", "mode")), _SAFETY_LOCATION)
-        if part
-    )
+    """内容安全行的说明：当前开关 / 模式 + chat / work 覆盖摘要 + 编辑入口。
+
+    入口提示不能省，否则用户会去「进阶」页找；覆盖摘要给的是"两个模式各自有没有单独
+    配过"（形如 ``chat: mode=enforce；work: 继承``）。
+    """
+    parts = [_kv_detail(section, ("enabled", "mode"))]
+    parts.extend(_safety_override_summary(section, mode) for mode in _SAFETY_MODES)
+    parts.append(_SAFETY_LOCATION)
+    return "；".join(part for part in parts if part)
 
 
 def _image_detail(services: Mapping[str, Any]) -> str:

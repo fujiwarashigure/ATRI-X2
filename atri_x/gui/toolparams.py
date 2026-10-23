@@ -7,7 +7,8 @@
 - :class:`SettingPanel` —— 一组参数 = 一个面板：标题行（▸/▾ 开关 + 标题 + 影响哪些工具 +
   配置状态 + 「保存本组」按钮）+ 折叠起来的字段区；
 - :class:`ToolParamsEditor` —— 整页：顶部按钮条（保存全部 / 全部展开 / 全部收起 / 重新载入）、
-  全局面板、按工具分类排列的各组面板、底部"其余工具没有可调参数"说明。
+  全局面板、其余「无工具」面板（内容安全的 chat / work 覆盖）、按工具分类排列的各组面板、
+  底部"其余工具没有可调参数"说明。
 
 一个字段的界面控件由 ``SettingField.kind`` 决定（对应关系见
 :mod:`atri_x.gui.toolsettings_base` 的模块说明）；每个字段下面还有一行灰色说明，包含
@@ -28,6 +29,7 @@ from atri_x.gui.toolsettings import (
     GROUPS,
     SettingField,
     SettingGroup,
+    global_groups,
     groups_by_category,
     groups_for_tool,
     load_all,
@@ -405,6 +407,10 @@ class ToolParamsEditor:
 
         first = GROUPS[0]
         self.panels[first.key] = SettingPanel(self.page, body, first)
+        # 其余「无工具」面板（内容安全的 chat / work 覆盖）紧跟全局面板、排在各工具分类
+        # 之前：它们同样是整机生效的配置，不能混进「按工具分类」的分组里。
+        for group in global_groups()[1:]:
+            self.panels[group.key] = SettingPanel(self.page, body, group)
         for category, groups in groups_by_category():
             ttk.Label(
                 body, text=f"— {category} —", font=_SECTION_FONT, foreground="#39424e"

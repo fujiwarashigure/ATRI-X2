@@ -371,7 +371,21 @@ class FeatureViewTestCase(ConfigCase):
         # 内容安全不在「进阶」页：功能行要跳到「工具权限 → 工具参数（全局）」。
         self.assertEqual(rows["safety"].tab, "toolperm_params")
         self.assertIn("工具参数（全局）", rows["safety"].detail)
+        # 没配 [safety.chat] / [safety.work] 时两个模式都算"继承全局"。
+        self.assertIn("chat: 继承", rows["safety"].detail)
+        self.assertIn("work: 继承", rows["safety"].detail)
         self.assertEqual(rows["llm"].status, "缺密钥")
+
+    def test_safety_row_summarizes_mode_overrides(self) -> None:
+        """功能页的「内容安全」行要显示 chat / work 各自覆盖了什么。"""
+        configedit.patch_section(self.paths.config_path, "safety.chat", {"mode": "enforce"})
+        configedit.patch_section(self.paths.config_path, "safety.work", {"enabled": False})
+        rows = {row.key: row for row in featureview.collect_features(self.paths)}
+        detail = rows["safety"].detail
+        self.assertIn("chat: mode=enforce", detail)
+        self.assertIn("work: enabled=false", detail)
+        # 入口提示还在（用户仍然找得到编辑位置）。
+        self.assertIn("工具参数（全局）", detail)
 
     def test_status_follows_config(self) -> None:
         configedit.set_env_value(self.paths.env_path, "DEEPSEEK_API_KEY", "sk-1234567890")

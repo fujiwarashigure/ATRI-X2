@@ -313,17 +313,40 @@ def _configure_vision_privacy(section: Any, logger: Any) -> None:
             )
 
 
+def _safety_guard_needed(section: Any) -> bool:
+    """是否需要装配 guard：全局开了，或任一会话模式的覆盖段把 enabled 打开了。
+
+    默认（``[safety] enabled = false`` 且没有覆盖段）返回 ``False``，即"不配置就
+    完全不改变既有行为"——集成点连 guard 都拿不到。
+    """
+    if section is None:
+        return False
+    if bool(getattr(section, "enabled", False)):
+        return True
+    for name in ("chat", "work"):
+        override = getattr(section, name, None)
+        if override is not None and bool(getattr(override, "enabled", False)):
+            return True
+    return False
+
+
 def _build_safety_guard(cfg: Any, logger: Any) -> Any:
     """构造内容安全 guard；未启用/依赖缺失时返回 ``None``（fail-open，不阻断启动）。"""
     section = getattr(cfg, "safety", None)
-    if section is None or not bool(getattr(section, "enabled", False)):
+    if not _safety_guard_needed(section):
         return None
     try:
         from atri_x.safety import SafetyGuard, policy_from_section
 
         policy = policy_from_section(section)
         config_dir = os.path.dirname(str(getattr(cfg, "config_path", "") or ""))
-        return SafetyGuard(policy, logger=logger, config_dir=config_dir)
+        return SafetyGuard(
+            policy,
+            logger=logger,
+            config_dir=config_dir,
+            chat=getattr(section, "chat", None),
+            work=getattr(section, "work", None),
+        )
     except Exception as exc:  # noqa: BLE001 - 安全层不可用不应让整个服务起不来
         if logger is not None:
             logger.warn(

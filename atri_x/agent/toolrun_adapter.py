@@ -41,6 +41,7 @@ from atri_x.tool import RiskAssessment
 # safety-guard: 工具结果审核 + 把 guard 挂到工具 ctx（image_generate / send_file 用）
 from atri_x.safety import (
     TOOL_IMAGE_STRIPPED_TEXT,
+    mode_from_host,
     scope_from_host,
     with_safety_guard,
     with_safety_scope,
@@ -244,8 +245,12 @@ class AgentToolRunDeps:
 
     async def prepare_tool_context(self, ctx: Any, session: Any, call: Any) -> Any:
         """对应 Go ``PrepareToolContext``。"""
-        # safety-guard: 把 guard 与审计归属挂到工具 ctx 上（工具拿不到 agent，只能从 ctx 取）
-        ctx = with_safety_guard(ctx, getattr(self.agent, "safety_guard", None))
+        # safety-guard: 把 guard 与审计归属挂到工具 ctx 上（工具拿不到 agent，只能从 ctx 取）。
+        # guard 绑定当前会话模式：chat / work 的「按模式覆盖」策略在工具内部也生效。
+        guard = getattr(self.agent, "safety_guard", None)
+        if guard is not None:
+            guard = guard.for_mode(mode_from_host(self.agent, ctx))
+        ctx = with_safety_guard(ctx, guard)
         ctx = with_safety_scope(ctx, scope_from_host(self.agent, ctx))
         if session is None:
             return ctx
@@ -606,13 +611,18 @@ def _safety_guard_segments(
     if guard is None:
         return segments
     scope = scope_from_host(agent, ctx)
-    strip_images = guard.should_strip_tool_images()
+    mode = mode_from_host(agent, ctx)
+    strip_images = guard.should_strip_tool_images(mode)
     tool_name = str(getattr(call, "name", "") or "")
     out: list[MessageSegment] = []
     for segment in segments:
         if segment.type == SegmentType.TEXT:
             filtered, _decision = guard.filter_text(
-                segment.text, stage="tool", scope=scope, meta={"tool": tool_name}
+                segment.text,
+                stage="tool",
+                scope=scope,
+                meta={"tool": tool_name},
+                mode=mode,
             )
             if filtered != segment.text:
                 clone = segment.clone()

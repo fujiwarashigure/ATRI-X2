@@ -63,6 +63,7 @@ from atri_x.gui.tabs.toolperm import (
 )
 from atri_x.gui.toolsettings import GROUPS, groups_for_tool
 from atri_x.gui.toolsettings_base import TRILABELS
+from atri_x.gui.toolparams import SettingPanel
 from atri_x.media.imagecodec import Image, encode_png
 from atri_x.storage.sqlite.chat_history_repository import new_chat_history
 
@@ -1234,6 +1235,77 @@ class ToolParamsTabCase(TkCase):
                 str(panel.toggle_button.cget("text")),
                 "▾" if panel.expanded else "▸",
             )
+
+    def test_safety_override_panels_render_after_global_before_categories(self) -> None:
+        """内容安全的 chat / work 覆盖面板：紧跟全局面板、各 7 个控件、默认收起。"""
+        self.assertEqual(
+            list(self.tab.params_editor.panels)[:3],
+            ["global", "safety_chat", "safety_work"],
+        )
+        for key, section in (
+            ("safety_chat", "safety.chat"),
+            ("safety_work", "safety.work"),
+        ):
+            panel = self.panel(key)
+            self.assertEqual({field.section for field in panel.group.fields}, {section})
+            self.assertEqual(len(panel.group.fields), 7)
+            rendered = set(panel._vars) | set(panel._texts)
+            self.assertEqual(rendered, {field.key for field in panel.group.fields})
+            self.assertEqual(len(rendered), 7)
+            self.assertFalse(panel.expanded)
+            self.assertIn("未单独配置（默认值）", panel.status_label.cget("text"))
+
+    def test_mode_sub_tabs_embed_safety_override_panels(self) -> None:
+        """chat / work 子选项卡内容区的最上面各有一个同字段的覆盖面板。"""
+        self.assertEqual(set(self.tab.mode_safety_panels), {"chat", "work"})
+        for mode_key, key in (("chat", "safety_chat"), ("work", "safety_work")):
+            panel = self.tab.mode_safety_panels[mode_key]
+            editor = self.tab.editors[mode_key]
+            self.assertIsInstance(panel, SettingPanel)
+            self.assertEqual(panel.group.key, key)
+            # 父容器是该模式的编辑器，且排在内容区最上面（pack 顺序第一）。
+            self.assertIs(panel.frame.master, editor.frame)
+            self.assertIs(editor.frame.pack_slaves()[0], panel.frame)
+            # 控件数与参数页那一份完全相同（7 个字段：6 下拉/输入框 + 1 多行文本）。
+            rendered = set(panel._vars) | set(panel._texts)
+            self.assertEqual(rendered, {field.key for field in panel.group.fields})
+            self.assertEqual(len(rendered), 7)
+            # 默认收起：一进来不该把工具菜单挤出可视区。
+            self.assertFalse(panel.expanded)
+
+    def test_mode_safety_panel_saves_and_syncs_params_panel(self) -> None:
+        panel = self.tab.mode_safety_panels["chat"]
+        self.set_choice(panel, "mode", "enforce")
+        self.assertTrue(panel.save())
+        # 只写改动过的键：覆盖段里只有 mode。
+        self.assertEqual(self.read_toml("app.toml")["safety"]["chat"], {"mode": "enforce"})
+        self.assertIn("已保存", self.tab._status.get())
+        self.assertIn("重启后台服务后生效", self.tab._status.get())
+        self.assertFalse(panel.dirty())
+        # 参数页里的同名面板同步成落盘值，不用手动「重新载入」。
+        params_panel = self.panel("safety_chat")
+        self.assertEqual(params_panel._vars["mode"].get(), "enforce（真正拦截/脱敏）")
+        self.assertIn("已配置 1 / 7 项", params_panel.status_label.cget("text"))
+
+    def test_mode_safety_panel_reload_picks_up_external_change(self) -> None:
+        configedit.patch_section(
+            self.paths.config_path, "safety.work", {"mode": "audit"}
+        )
+        self.tab.reload()
+        panel = self.tab.mode_safety_panels["work"]
+        self.assertEqual(panel._vars["mode"].get(), "audit（只记审计，不改输出）")
+        # 参数页里的同一组也跟着重新载入。
+        params_panel = self.panel("safety_work")
+        self.assertEqual(
+            params_panel._vars["mode"].get(), "audit（只记审计，不改输出）"
+        )
+
+    def test_mode_safety_panel_without_changes_does_not_write(self) -> None:
+        path = Path(self.paths.config_path)
+        before = path.read_bytes()
+        self.assertTrue(self.tab.mode_safety_panels["work"].save())
+        self.assertIn("没有改动", self.tab._status.get())
+        self.assertEqual(path.read_bytes(), before)
 
     def test_expand_collapse_all(self) -> None:
         editor = self.tab.params_editor

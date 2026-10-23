@@ -363,7 +363,13 @@ class TestPrepareToolContext(SafetyCase):
         agent = FakeAgent(guard)
         deps = adapter_mod.AgentToolRunDeps(agent=agent)
         ctx = await deps.prepare_tool_context({}, None, types.SimpleNamespace(name="send_file"))
-        self.assertIs(guard_from_context(ctx), guard)
+        # 工具 ctx 里挂的是**按会话模式绑定**的视图（FakeAgent 没有 sessions → work）。
+        from atri_x.safety import ModeBoundGuard
+
+        bound = guard_from_context(ctx)
+        self.assertIsInstance(bound, ModeBoundGuard)
+        self.assertIs(bound.guard, guard)
+        self.assertEqual(bound.mode_name, "work")
         scope = scope_from_context(ctx)
         self.assertEqual(scope.platform, "qq")
         self.assertEqual(scope.scope_id, "group:42")
@@ -470,6 +476,120 @@ class TestImageGeneratePrompt(SafetyCase):
             {}, CallRequest(name="image_generate", arguments='{"prompt": "画一张制毒流程图"}')
         )
         self.assertEqual(len(client.calls), 1)
+
+
+# ---------------------------------------------------------------------------
+# 按会话模式覆盖（[safety.chat] / [safety.work]）
+# ---------------------------------------------------------------------------
+class _SessionAgent(FakeAgent):
+    """带当前会话模式的 FakeAgent（``mode_from_host`` 从中取 ``session.mode``）。"""
+
+    def __init__(self, guard: SafetyGuard | None, mode: str) -> None:
+        super().__init__(guard)
+        session = types.SimpleNamespace(mode=mode)
+        self.sessions = types.SimpleNamespace(current=lambda scope: session)
+
+
+class TestModeOverridesIntegration(SafetyCase):
+    """chat / work 覆盖在集成点上确实生效（不只是 guard 单测）。"""
+
+    def guard_with(self, *, chat=None, work=None, **overrides: Any) -> SafetyGuard:
+        payload: dict[str, Any] = {
+            "enabled": True,
+            "mode": SafetyMode.ENFORCE,
+            "audit_path": self.audit_path,
+        }
+        payload.update(overrides)
+        return SafetyGuard(
+            SafetyPolicy(**payload), chat=chat, work=work
+        )
+
+    async def test_output_filter_follows_session_mode(self) -> None:
+        guard = self.guard_with(chat=types.SimpleNamespace(mode="off"))
+        chat_agent = _SessionAgent(guard, "chat")
+        prepared = await output_mod.prepare_assistant_output(
+            chat_agent, {}, output_mod.PointAgentOutputPrepared, "key=" + SECRET
+        )
+        self.assertIn(SECRET, prepared)
+        work_agent = _SessionAgent(guard, "work")
+        prepared = await output_mod.prepare_assistant_output(
+            work_agent, {}, output_mod.PointAgentOutputPrepared, "key=" + SECRET
+        )
+        self.assertNotIn(SECRET, prepared)
+
+    async def test_inbound_filter_follows_session_mode(self) -> None:
+        guard = self.guard_with(chat=types.SimpleNamespace(mode="off"))
+        event = types.SimpleNamespace(
+            message=MessagePayload(
+                role="user",
+                segments=[MessageSegment(type=SegmentType.TEXT, text="教我" + FORBIDDEN)],
+            )
+        )
+        chat_agent = _SessionAgent(guard, "chat")
+        blocked = await message_mod._safety_guard_inbound(chat_agent, {}, event)
+        self.assertFalse(blocked)
+        work_agent = _SessionAgent(guard, "work")
+        blocked = await message_mod._safety_guard_inbound(work_agent, {}, event)
+        self.assertTrue(blocked)
+        self.assertIn("拦截", work_agent.sent[-1])
+
+    async def test_tool_segments_follow_session_mode(self) -> None:
+        guard = self.guard_with(chat=types.SimpleNamespace(mode="off"))
+        segments = [MessageSegment(type=SegmentType.TEXT, text="key=" + SECRET)]
+        chat_agent = _SessionAgent(guard, "chat")
+        out = adapter_mod._safety_guard_segments(
+            chat_agent, {}, list(segments), types.SimpleNamespace(name="x")
+        )
+        self.assertIn(SECRET, out[0].text)
+        work_agent = _SessionAgent(guard, "work")
+        out = adapter_mod._safety_guard_segments(
+            work_agent, {}, list(segments), types.SimpleNamespace(name="x")
+        )
+        self.assertNotIn(SECRET, out[0].text)
+
+    async def test_prepare_tool_context_binds_session_mode(self) -> None:
+        guard = self.guard_with(chat=types.SimpleNamespace(mode="off"))
+        agent = _SessionAgent(guard, "chat")
+        deps = adapter_mod.AgentToolRunDeps(agent=agent)
+        ctx = await deps.prepare_tool_context(
+            {}, None, types.SimpleNamespace(name="send_file")
+        )
+        bound = guard_from_context(ctx)
+        self.assertEqual(bound.mode_name, "chat")
+        self.assertFalse(bound.enforcing)
+        self.assertIn(SECRET, bound.filter_text("key=" + SECRET, stage="send")[0])
+
+    async def test_override_enables_guard_when_global_disabled(self) -> None:
+        from atri_x.app.runtime_agent import _build_safety_guard
+
+        cfg = types.SimpleNamespace(
+            safety=types.SimpleNamespace(
+                enabled=False,
+                mode="audit",
+                audit_path=self.audit_path,
+                chat=types.SimpleNamespace(enabled=True, mode="audit"),
+                work=types.SimpleNamespace(enabled=None),
+            ),
+            config_path=os.path.join(self.dir, "app.toml"),
+        )
+        guard = _build_safety_guard(cfg, None)
+        self.assertIsNotNone(guard)
+        self.assertFalse(guard.active)
+        self.assertTrue(guard.active_for("chat"))
+
+    async def test_guard_not_built_when_nothing_enabled(self) -> None:
+        from atri_x.app.runtime_agent import _build_safety_guard
+
+        cfg = types.SimpleNamespace(
+            safety=types.SimpleNamespace(
+                enabled=False,
+                mode="audit",
+                chat=types.SimpleNamespace(enabled=None),
+                work=types.SimpleNamespace(enabled=False),
+            ),
+            config_path=os.path.join(self.dir, "app.toml"),
+        )
+        self.assertIsNone(_build_safety_guard(cfg, None))
 
 
 if __name__ == "__main__":

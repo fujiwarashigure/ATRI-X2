@@ -52,7 +52,8 @@ __all__ = [
     "GroupAnalysisConfig", "GroupKnowledgeConfig", "GroupServicesConfig",
     "LLMRequestConfig", "MaintenanceCleanupConfig", "MaintenanceConfig", "MediaConfig",
     "ModelPriceConfig", "ModelSelection", "OpsConfig", "PlatformFilesConfig",
-    "ResidentMemoryConfig", "RuntimeConfig", "SafetyConfig", "SandboxConfig",
+    "ResidentMemoryConfig", "RuntimeConfig", "SafetyConfig", "SafetyOverrideConfig",
+    "SandboxConfig",
     "SecurityConfig", "SelfLearningConfig", "SessionConfig", "SessionIdleExpirationConfig",
     "SessionNamingConfig", "SoulConfig", "StorageConfig", "ToolsConfig",
     "TurnDirectivesConfig", "ViewConfig", "off_peak", "offpeak_price", "shanghai_tz",
@@ -486,6 +487,64 @@ class SecurityConfig(StrictConfig):
 
 
 @dataclass
+class SafetyOverrideConfig(StrictConfig):
+    """``[safety.chat]`` / ``[safety.work]``：按会话模式覆盖 ``[safety]``。
+
+    字段为 ``None`` 表示**继承**全局默认（这是默认状态）；只有显式写了的键才覆盖。
+    审计文件全局唯一（``[safety].audit_path``），所以覆盖段没有 ``audit_path`` /
+    ``audit_preview_chars``；词表类别 / 敏感信息类别 / 白名单也可以在覆盖段里改，
+    但 GUI 只暴露常用的 7 项。
+    """
+
+    #: None = 继承 ``[safety].enabled``。
+    enabled: bool | None = None
+    #: None = 继承 ``[safety].mode``；否则 off / audit / enforce。
+    mode: str | None = None
+    #: None = 继承；显式 [] 表示"该模式用全部内置类别"（与 ``[safety]`` 语义一致）。
+    categories: list[str] | None = None
+    #: None = 继承。
+    sensitive: list[str] | None = None
+    #: None = 继承；显式表只覆盖写了的类别动作。
+    sensitive_actions: dict[str, str] | None = None
+    #: None = 继承。
+    allowlist: list[str] | None = None
+    #: None = 继承。
+    block_reply: str | None = None
+    #: None = 继承。
+    strip_tool_images: bool | None = None
+    #: None = 继承。
+    block_image_output: bool | None = None
+    #: None = 继承。
+    block_file_output: bool | None = None
+    #: None = 继承。
+    max_scan_chars: int | None = None
+
+    def normalized(self) -> "SafetyOverrideConfig":
+        """归一化显式写了的字段；``None`` 继续表示"继承"，不填默认值。"""
+        out = self.copy()
+        if out.mode is not None:
+            mode = (out.mode or "").strip().lower()
+            out.mode = mode if mode in ("off", "audit", "enforce") else "audit"
+        for name in ("categories", "sensitive", "allowlist"):
+            value = getattr(out, name)
+            if value is not None:
+                setattr(out, name, normalize_string_list(value))
+        if out.sensitive_actions is not None:
+            actions: dict[str, str] = {}
+            for key, value in out.sensitive_actions.items():
+                name = str(key or "").strip().lower()
+                action = str(value or "").strip().lower()
+                if name and action in ("flag", "redact"):
+                    actions[name] = action
+            out.sensitive_actions = actions
+        if out.block_reply is not None:
+            out.block_reply = (out.block_reply or "").strip()
+        if out.max_scan_chars is not None and out.max_scan_chars <= 0:
+            out.max_scan_chars = None
+        return out
+
+
+@dataclass
 class SafetyConfig(StrictConfig):
     """``[safety]``：内置“道德限制 + 敏感信息过滤”。
 
@@ -529,6 +588,10 @@ class SafetyConfig(StrictConfig):
     block_file_output: bool = False
     #: 单次扫描的最大字符数，超出部分截断扫描（防超长文本拖慢链路）。
     max_scan_chars: int = 8000
+    #: ``[safety.chat]``：chat 模式（闲聊 / 低成本模型槽位）的按模式覆盖。
+    chat: SafetyOverrideConfig = field(default_factory=SafetyOverrideConfig)
+    #: ``[safety.work]``：work 模式（工作 / 工具模型槽位）的按模式覆盖。
+    work: SafetyOverrideConfig = field(default_factory=SafetyOverrideConfig)
 
     def normalized(self) -> SafetyConfig:
         """补齐默认值并归一化枚举/列表，保证 ``to_dict`` 往返幂等。"""
@@ -551,6 +614,8 @@ class SafetyConfig(StrictConfig):
             out.audit_preview_chars = 120
         if out.max_scan_chars <= 0:
             out.max_scan_chars = 8000
+        out.chat = out.chat.normalized()
+        out.work = out.work.normalized()
         return out
 
 

@@ -97,7 +97,7 @@
 ### 安全与可观测
 
 - **工具安全**：风险分级、角色权限、高风险确认；Shell 执行受 clean-room 自研的 AST 级解析约束（`atri_x/shellparse/`）。
-- **内容安全**：内置「道德限制 + 敏感信息过滤」（8 类词表拦截、凭据/PII 脱敏、只存 sha256 的审计日志、图片/文件出口策略），默认关闭；GUI 入口在**「工具权限」→「工具参数（全局）」→「全局参数」**面板，或直接改 `app.toml` 的 `[safety]` 段，详见 [docs/safety.md](docs/safety.md)。
+- **内容安全**：内置「道德限制 + 敏感信息过滤」（8 类词表拦截、凭据/PII 脱敏、只存 sha256 的审计日志、图片/文件出口策略），默认关闭；支持 **chat / work 两种会话模式各自覆盖**（`[safety.chat]` / `[safety.work]`，没写的键继承全局）。GUI 入口：**「工具权限」→「工具参数（全局）」→「全局参数」/「内容安全：chat/work 模式覆盖」面板**，chat / work 两个子选项卡里也各有一份覆盖面板；也可直接改 `app.toml` 的 `[safety]` 段，详见 [docs/safety.md](docs/safety.md)。
 - **密钥保护**：Shell / Skill 子进程会移除名字含 `KEY`、`TOKEN`、`SECRET` 等词段的凭据变量。
 - **审计与日志**：运行日志、Atriwisp 日志与审计日志分离，支持结构化字段与查询。
 - **健康接口**：`/live`、`/ready`、`/healthz`、`/tasks`、`/metrics`、`/diagnostics`，语义边界明确（见「部署与运维」）。
@@ -175,10 +175,10 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.0.3`**（2026-10-23）。本版三块变化：①**内置内容安全**——「道德限制 + 敏感信息过滤」原生 Python 实现（词表拦截、凭据/PII 脱敏、只存 hash 的审计日志、图片/文件出口策略），不再依赖外部插件；②**常驻记忆配额** core / normal 各提到 500 units；③**识图改造**——两段式描述（视觉模型只描述、主模型下结论）、`detail = original` 不再先把图缩糊、可选的 SauceNAO 以图搜图兜底（默认关）、3~5 秒超时降级、群图外发隐私开关与失败原因可观测。1.0.2 的「推理思考强度」与 GUI 落盘修复在其之前；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+当前最新版本：**`1.0.3`**（2026-10-24 热修重建，版本号不变）。本版三块变化：①**内置内容安全**——「道德限制 + 敏感信息过滤」原生 Python 实现（词表拦截、凭据/PII 脱敏、只存 hash 的审计日志、图片/文件出口策略），不再依赖外部插件；支持 `[safety.chat]` / `[safety.work]` **按会话模式覆盖**，chat / work 子选项卡里也能直接改；②**常驻记忆配额** core / normal 各提到 500 units；③**识图改造**——两段式描述（视觉模型只描述、主模型下结论）、`detail = original` 不再先把图缩糊、可选的 SauceNAO 以图搜图兜底（默认关）、3~5 秒超时降级、群图外发隐私开关与失败原因可观测。1.0.2 的「推理思考强度」与 GUI 落盘修复在其之前；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
 交付物尺寸与校验和见发行库里的 `发行说明.md` / `自检报告.md` / `SHA256SUMS.txt`。
 
-已发布：[**GitHub Release v1.0.3**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.3)（`v1.0.3` tag = `a48d459`）。交付物尺寸与 SHA-256 见该 Release 的 `SHA256SUMS.txt` / `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md`；1.0.2 补丁版也已推送（tag `v1.0.2` = `00a6653`）。
+已发布：[**GitHub Release v1.0.3**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.3)（热修后 `v1.0.3` tag 指向最终提交，资产为重建版）。交付物尺寸与 SHA-256 见该 Release 的 `SHA256SUMS.txt` / `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md`；1.0.2 补丁版也已推送（tag `v1.0.2` = `00a6653`）。
 
 | 产物 | 位置 |
 | --- | --- |

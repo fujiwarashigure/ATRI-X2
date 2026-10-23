@@ -437,6 +437,19 @@ strip_tool_images = false
 block_image_output = false
 block_file_output = false
 
+# --- 按会话模式覆盖（可选，1.0.3 热修）-------------------------------------
+# chat / work 两种会话模式可以各自覆盖上面的全局默认；没写的键 = 继承全局。
+# 可覆盖：enabled / mode / categories / sensitive / sensitive_actions / allowlist /
+# block_reply / strip_tool_images / block_image_output / block_file_output /
+# max_scan_chars。审计文件与预览长度全局唯一（仍看上面 [safety]）。
+# [safety.chat]
+# enabled = true
+# mode = "audit"
+# block_image_output = true
+# [safety.work]
+# enabled = true
+# mode = "enforce"
+
 [session]
 
 [session.idle_expiration]

@@ -311,6 +311,26 @@ block_image_output = false     # true：出站图片丢弃并替换成文本说�
 block_file_output = false      # true：出站文件丢弃并替换成文本说明
 ```
 
+### 按会话模式覆盖（chat / work）
+
+1.0.3 热修起，`[safety]` 的判定与出口策略可以按**会话模式**各覆盖一份：`[safety.chat]`（闲聊 / 低成本模型槽位）与 `[safety.work]`（工作 / 工具模型槽位）。**没写的键继承上面的全局默认**，所以不写这两段时行为与之前完全一致。
+
+```toml
+[safety.chat]
+enabled = true                 # 可选：全局关着时也可以只给 chat 开
+mode = "audit"                 # 覆盖全局 mode
+block_image_output = true
+
+[safety.work]
+mode = "enforce"
+block_reply = "（工作模式里这条内容被拦截）"
+```
+
+- 可覆盖：`enabled` / `mode` / `categories` / `sensitive` / `sensitive_actions` / `allowlist` / `block_reply` / `strip_tool_images` / `block_image_output` / `block_file_output` / `max_scan_chars`。
+- **不可覆盖**：`audit_path` / `audit_preview_chars` —— 审计始终是同一份文件（记录里的 `mode` 字段写该模式实际生效的模式）。
+- 运行时按当前会话的 `session.mode` 选策略；入站消息在会话尚未创建时按群默认模式、服务默认模式（默认 `work`）逐级推断。工具链路（`image_generate` 提示词、`send_file`、工具结果）同样按会话模式生效。
+- 桌面端入口：「工具权限 → 工具参数（全局）」有「内容安全：chat 模式覆盖 / work 模式覆盖」两个面板；chat / work 两个子选项卡里也各有一份相同的覆盖面板（保存后重启后台服务生效）。
+
 处理链路：
 
 | 阶段 | 行为 |

@@ -32,7 +32,7 @@ from atri_x.llm import segments_text_only as llm_segments_text_only
 from atri_x.logging import ResultFailed
 from atri_x.platform import message_context_from
 # safety-guard: 发送边界的安全闸门（未装配时 safety_guard 为 None，行为与 1.0.2 一致）
-from atri_x.safety import scope_from_host
+from atri_x.safety import mode_from_host, scope_from_host
 from atri_x.storage import PlatformMessageMap
 
 from atri_x.agent.logging import audit
@@ -252,7 +252,10 @@ async def prepare_assistant_output(agent: Any, ctx: Any, point: str, text: str) 
     if guard is None:
         return prepared
     filtered, _decision = guard.filter_text(
-        prepared, stage="output", scope=scope_from_host(agent, ctx)
+        prepared,
+        stage="output",
+        scope=scope_from_host(agent, ctx),
+        mode=mode_from_host(agent, ctx),
     )
     return filtered
 
@@ -378,13 +381,14 @@ def _safety_guard_outputs(agent: Any, ctx: Any, outputs: list[Output]) -> list[O
     if guard is None or not outputs:
         return outputs
     scope = scope_from_host(agent, ctx)
+    mode = mode_from_host(agent, ctx)
     kept: list[Output] = []
     notes: list[str] = []
     for out in outputs:
         kind = (out.kind or "").strip().lower()
         if kind in (KindImage, KindFile):
             decision = guard.allow_media_output(
-                kind, stage="send", scope=scope, meta={"name": out.name}
+                kind, stage="send", scope=scope, meta={"name": out.name}, mode=mode
             )
             if not decision.allowed:
                 if decision.text:
@@ -393,7 +397,9 @@ def _safety_guard_outputs(agent: Any, ctx: Any, outputs: list[Output]) -> list[O
             kept.append(out)
             continue
         if kind in (KindText, KindReply) and (out.text or "").strip():
-            filtered, _decision = guard.filter_text(out.text, stage="send", scope=scope)
+            filtered, _decision = guard.filter_text(
+                out.text, stage="send", scope=scope, mode=mode
+            )
             if filtered != out.text:
                 out = dataclasses.replace(out, text=filtered)
         kept.append(out)

@@ -36,6 +36,7 @@ from atri_x.safety.policy import (
     ACTION_REDACT,
     SafetyMode,
     SafetyPolicy,
+    merge_policy,
     policy_from_section,
 )
 from atri_x.safety.rules import RuleHit, RuleSet
@@ -43,11 +44,13 @@ from atri_x.safety.rules import RuleHit, RuleSet
 __all__ = [
     "DEFAULT_BLOCK_REPLACEMENT",
     "MEDIA_BLOCK_TEXT",
+    "ModeBoundGuard",
     "SafetyDecision",
     "SafetyGuard",
     "SafetyScope",
     "TOOL_IMAGE_STRIPPED_TEXT",
     "guard_from_context",
+    "mode_from_host",
     "scope_from_context",
     "scope_from_host",
     "with_safety_guard",
@@ -127,6 +130,49 @@ def scope_from_host(host: Any, ctx: Any = None) -> SafetyScope:
     return SafetyScope(platform=platform, scope_id=scope_id, actor=actor)
 
 
+#: 会话模式（与 ``atri_x.storage.models.SessionMode`` 一致；这里不 import 存储层，
+#: 免得 ``atri_x.safety`` 反向依赖运行时）。
+SESSION_MODES: tuple[str, ...] = ("chat", "work")
+
+
+def mode_from_host(host: Any, ctx: Any = None) -> str:
+    """尽力推断当前会话模式（``chat`` / ``work``），拿不到时回落 ``work``。
+
+    推断顺序（每一层都容忍缺失 / 抛错）：
+
+    1. ``host.sessions.current(host.scope(ctx)).mode`` —— 当前会话的真实模式；
+    2. ``host.group_default_session_mode(ctx)`` —— 新建会话时会用的群级默认模式；
+    3. ``host.sessions.default_mode()`` —— 服务默认模式；
+    4. ``work`` —— 与 ``SessionRepository.create`` 的默认值一致。
+    """
+    scope = None
+    if host is not None:
+        with contextlib.suppress(Exception):
+            helper = getattr(host, "scope", None)
+            scope = helper(ctx) if callable(helper) else None
+        with contextlib.suppress(Exception):
+            sessions = getattr(host, "sessions", None)
+            if sessions is not None and scope is not None:
+                current = sessions.current(scope)
+                mode = str(getattr(current, "mode", "") or "").strip().lower()
+                if mode in SESSION_MODES:
+                    return mode
+        with contextlib.suppress(Exception):
+            helper = getattr(host, "group_default_session_mode", None)
+            if callable(helper):
+                mode = str(helper(ctx) or "").strip().lower()
+                if mode in SESSION_MODES:
+                    return mode
+        with contextlib.suppress(Exception):
+            sessions = getattr(host, "sessions", None)
+            default = getattr(sessions, "default_mode", None)
+            if callable(default):
+                mode = str(default() or "").strip().lower()
+                if mode in SESSION_MODES:
+                    return mode
+    return SESSION_MODES[-1]
+
+
 def with_safety_guard(ctx: Any, guard: "SafetyGuard | None") -> Any:
     """把 guard 挂到 ctx 上（工具执行路径用）。``guard`` 为 None 时原样返回。"""
     if guard is None:
@@ -198,7 +244,13 @@ def _coerce_scope(scope: Any) -> SafetyScope:
 
 
 class SafetyGuard:
-    """把一份 :class:`SafetyPolicy` 变成可调用的判定器（宿主挂在 ``agent.safety_guard``）。"""
+    """把一份 :class:`SafetyPolicy` 变成可调用的判定器（宿主挂在 ``agent.safety_guard``）。
+
+    支持**按会话模式覆盖**：``chat`` / ``work`` 传进来的是 ``[safety.chat]`` /
+    ``[safety.work]`` 覆盖段（鸭子类型对象或 ``Mapping``），内部用
+    :func:`atri_x.safety.policy.merge_policy` 合并成每个模式一份策略。所有判定方法
+    都接受 ``mode`` 参数；不传时用全局默认策略（行为与 1.0.3 完全一致）。
+    """
 
     def __init__(
         self,
@@ -206,6 +258,9 @@ class SafetyGuard:
         logger: Any = None,
         now: Callable[[], datetime] | None = None,
         config_dir: str = "",
+        *,
+        chat: Any = None,
+        work: Any = None,
     ) -> None:
         self.policy: SafetyPolicy = (
             policy if isinstance(policy, SafetyPolicy) else policy_from_section(policy)
@@ -222,10 +277,54 @@ class SafetyGuard:
             logger=logger,
             now=self._now,
         )
+        # 每个会话模式一份策略："" = 全局默认；没有覆盖段的模式复用全局那份。
+        self._variants: dict[str, tuple[SafetyPolicy, RuleSet]] = {
+            "": (self.policy, self.rules)
+        }
+        for name, section in (("chat", chat), ("work", work)):
+            if section is None:
+                continue
+            merged = (
+                section
+                if isinstance(section, SafetyPolicy)
+                else merge_policy(self.policy, section)
+            )
+            if merged == self.policy:
+                self._variants[name] = (self.policy, self.rules)
+            else:
+                self._variants[name] = (merged, RuleSet(merged))
         for warning in self.rules.warnings:
             self._warn(warning)
+        for name, (_variant_policy, rules) in self._variants.items():
+            if rules is self.rules:
+                continue
+            for warning in rules.warnings:
+                self._warn(f"[{name}] {warning}")
 
-    # -- 派生属性 -----------------------------------------------------------
+    # -- 模式 ---------------------------------------------------------------
+    @staticmethod
+    def normalize_mode(mode: Any) -> str:
+        """把任意 ``mode`` 归一成 ``""`` / ``"chat"`` / ``"work"``。"""
+        text = str(mode or "").strip().lower()
+        return text if text in SESSION_MODES else ""
+
+    def _variant(self, mode: Any = None) -> tuple[SafetyPolicy, RuleSet]:
+        key = self.normalize_mode(mode)
+        return self._variants.get(key) or self._variants[""]
+
+    def policy_for(self, mode: Any = None) -> SafetyPolicy:
+        """某个会话模式生效的策略（``mode = None`` 时是全局默认）。"""
+        return self._variant(mode)[0]
+
+    def rules_for(self, mode: Any = None) -> RuleSet:
+        """某个会话模式生效的规则集（没有覆盖时就是全局那份）。"""
+        return self._variant(mode)[1]
+
+    def for_mode(self, mode: Any) -> "ModeBoundGuard":
+        """返回绑定到某个会话模式的视图（工具 ctx 里存的就是它）。"""
+        return ModeBoundGuard(self, mode)
+
+    # -- 派生属性（全局默认；按模式请用 ``*_for(mode)``） --------------------
     @property
     def mode(self) -> str:
         """生效模式（``enabled = false`` 时为 ``off``）。"""
@@ -244,23 +343,48 @@ class SafetyGuard:
         """入站拦截时回复用户的文本。"""
         return self.policy.block_reply_text()
 
-    def should_strip_tool_images(self) -> bool:
-        """是否剥离工具结果里的图片段（只有 ``enforce`` 才改行为）。"""
-        return bool(self.policy.strip_tool_images) and self.policy.enforcing
+    def mode_for(self, mode: Any = None) -> str:
+        """某个会话模式的生效模式。"""
+        return self.policy_for(mode).effective_mode()
+
+    def active_for(self, mode: Any = None) -> bool:
+        """某个会话模式下策略是否生效。"""
+        return self.policy_for(mode).active
+
+    def enforcing_for(self, mode: Any = None) -> bool:
+        """某个会话模式是否处于 ``enforce``。"""
+        return self.policy_for(mode).enforcing
+
+    def block_reply_for(self, mode: Any = None) -> str:
+        """某个会话模式的入站拦截文案。"""
+        return self.policy_for(mode).block_reply_text()
+
+    def should_strip_tool_images(self, mode: Any = None) -> bool:
+        """是否剥离工具结果里的图片段（只有该模式的 ``enforce`` 才改行为）。"""
+        policy = self.policy_for(mode)
+        return bool(policy.strip_tool_images) and policy.enforcing
 
     # -- 文本 ---------------------------------------------------------------
     def evaluate_text(
-        self, text: str, *, stage: str, scope: Any = None, block_text: str = ""
+        self,
+        text: str,
+        *,
+        stage: str,
+        scope: Any = None,
+        block_text: str = "",
+        mode: Any = None,
     ) -> SafetyDecision:
         """只判定、不改文本、**不写审计**。
 
         用于"想知道本会怎样"的场景（灰度前观察、测试）。审计由
         :meth:`filter_text` / :meth:`allow_media_output` 负责，避免同一条消息写两遍。
+        ``mode`` 为 ``chat`` / ``work`` 时用该模式的覆盖策略。
         """
         original = text or ""
-        if not self.active:
+        policy, rules = self._variant(mode)
+        if not policy.active:
             return SafetyDecision(allowed=True, text=original, action=ACTION_PASS)
-        inspected, hits = self.rules.inspect(original)
+        inspected, hits = rules.inspect(original)
         return self._decide(original, inspected, hits, block_text=block_text)
 
     def filter_text(
@@ -271,20 +395,23 @@ class SafetyGuard:
         scope: Any = None,
         block_text: str = "",
         meta: Mapping[str, Any] | None = None,
+        mode: Any = None,
     ) -> tuple[str, SafetyDecision]:
         """返回 ``(实际采用的文本, 判定)``。
 
         ``enforce`` 下 ``redact`` 采用脱敏文本、``block`` 采用 ``block_text``
         （缺省 :data:`DEFAULT_BLOCK_REPLACEMENT`）；``audit`` / ``off`` 下原样返回。
+        ``mode`` 为 ``chat`` / ``work`` 时用该模式的覆盖策略。
         """
         original = text or ""
-        if not self.active:
+        policy, rules = self._variant(mode)
+        if not policy.active:
             return original, SafetyDecision(allowed=True, text=original, action=ACTION_PASS)
-        inspected, hits = self.rules.inspect(original)
+        inspected, hits = rules.inspect(original)
         decision = self._decide(original, inspected, hits, block_text=block_text)
-        self._record(decision, original, stage=stage, scope=scope, meta=meta)
+        self._record(decision, original, stage=stage, scope=scope, meta=meta, policy=policy)
         self._tally(decision.action)
-        if self.policy.enforcing and decision.action in (ACTION_BLOCK, ACTION_REDACT):
+        if policy.enforcing and decision.action in (ACTION_BLOCK, ACTION_REDACT):
             return decision.text, decision
         return original, decision
 
@@ -296,29 +423,30 @@ class SafetyGuard:
         stage: str = "send",
         scope: Any = None,
         meta: Mapping[str, Any] | None = None,
+        mode: Any = None,
     ) -> SafetyDecision:
         """图片 / 文件出口判定。
 
         ``kind`` 为 ``"image"`` / ``"file"``。**不做内容识别**：只看
         ``block_image_output`` / ``block_file_output``，命中就在发送边界丢弃该输出。
         ``enforce`` 下返回 ``allowed = False``；``audit`` 下返回 ``allowed = True``
-        但 ``action = flag``（调用方据此知道"本会被拦"）。
+        但 ``action = flag``（调用方据此知道"本会被拦"）。``mode`` 为 ``chat`` /
+        ``work`` 时用该模式的覆盖策略。
         """
         name = (kind or "").strip().lower()
         if name not in ("image", "file"):
             return SafetyDecision(allowed=True, text="", action=ACTION_PASS)
-        if not self.active:
+        policy = self.policy_for(mode)
+        if not policy.active:
             return SafetyDecision(allowed=True, text="", action=ACTION_PASS)
         configured = (
-            self.policy.block_image_output
-            if name == "image"
-            else self.policy.block_file_output
+            policy.block_image_output if name == "image" else policy.block_file_output
         )
         if not configured:
             return SafetyDecision(allowed=True, text="", action=ACTION_PASS)
         labels = ("media." + name,)
         note = MEDIA_BLOCK_TEXT[name]
-        if self.policy.enforcing:
+        if policy.enforcing:
             decision = SafetyDecision(
                 allowed=False,
                 text=note,
@@ -338,7 +466,7 @@ class SafetyGuard:
         for key, value in (meta or {}).items():
             if value not in (None, ""):
                 payload[str(key)] = str(value)
-        self._record(decision, "", stage=stage, scope=scope, meta=payload)
+        self._record(decision, "", stage=stage, scope=scope, meta=payload, policy=policy)
         self._tally(decision.action, media=True)
         return decision
 
@@ -400,16 +528,18 @@ class SafetyGuard:
         stage: str,
         scope: Any,
         meta: Mapping[str, Any] | None = None,
+        policy: SafetyPolicy | None = None,
     ) -> None:
         """写一条审计（``pass`` 不记；**只写指纹与脱敏预览**）。"""
         if decision.action == ACTION_PASS:
             return
+        effective = policy or self.policy
         info = _coerce_scope(scope)
-        preview = self.rules.mask(decision.text or "")[: self.policy.audit_preview_chars]
+        preview = self.rules.mask(decision.text or "")[: effective.audit_preview_chars]
         record: dict[str, Any] = {
             "stage": stage or "",
             "action": decision.action,
-            "mode": self.policy.effective_mode(),
+            "mode": effective.effective_mode(),
             "labels": list(decision.labels),
             "reason": decision.reason,
             "chars": len(original),
@@ -443,3 +573,63 @@ class SafetyGuard:
             warn = getattr(logger, "warning", None) or getattr(logger, "warn", None)
             if callable(warn):
                 warn(message)
+
+
+class ModeBoundGuard:
+    """把 :class:`SafetyGuard` 绑定到一个具体会话模式后的只读视图。
+
+    工具执行路径（``image_generate`` / ``send_file`` / 工具结果）拿不到 ``agent``，
+    ctx 里只能放 guard；放这个视图后，``guard.enforcing`` / ``filter_text(...)`` /
+    ``allow_media_output(...)`` 自动使用该模式的覆盖策略，工具自己不用推导模式。
+    """
+
+    def __init__(self, guard: SafetyGuard, mode: Any) -> None:
+        self.guard = guard
+        self.mode_name = SafetyGuard.normalize_mode(mode)
+
+    def for_mode(self, mode: Any) -> "ModeBoundGuard":
+        """换一个模式重新绑定（已绑定视图上再推导模式时用）。"""
+        return self.guard.for_mode(mode)
+
+    @property
+    def policy(self) -> SafetyPolicy:
+        return self.guard.policy_for(self.mode_name)
+
+    @property
+    def rules(self) -> RuleSet:
+        return self.guard.rules_for(self.mode_name)
+
+    @property
+    def mode(self) -> str:
+        return self.guard.mode_for(self.mode_name)
+
+    @property
+    def active(self) -> bool:
+        return self.guard.active_for(self.mode_name)
+
+    @property
+    def enforcing(self) -> bool:
+        return self.guard.enforcing_for(self.mode_name)
+
+    @property
+    def block_reply(self) -> str:
+        return self.guard.block_reply_for(self.mode_name)
+
+    def should_strip_tool_images(self) -> bool:
+        return self.guard.should_strip_tool_images(self.mode_name)
+
+    def evaluate_text(self, text: str, **kwargs: Any) -> SafetyDecision:
+        return self.guard.evaluate_text(text, mode=self.mode_name, **kwargs)
+
+    def filter_text(self, text: str, **kwargs: Any) -> tuple[str, SafetyDecision]:
+        return self.guard.filter_text(text, mode=self.mode_name, **kwargs)
+
+    def allow_media_output(self, kind: str, **kwargs: Any) -> SafetyDecision:
+        return self.guard.allow_media_output(kind, mode=self.mode_name, **kwargs)
+
+    def stats(self) -> dict[str, int]:
+        return self.guard.stats()
+
+    def __getattr__(self, name: str) -> Any:
+        # 其余属性（logger / audit / config_dir …）直接透传给底层 guard。
+        return getattr(self.guard, name)
