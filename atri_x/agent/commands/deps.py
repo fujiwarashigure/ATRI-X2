@@ -358,6 +358,9 @@ class Deps:
     file_backups: Any = None
     # doctor 执行 /doctor 背后的只读配置检查。
     doctor: DoctorService | None = None
+    # grants 是授权登记表（``[security]`` 相关的高风险放行凭据）；``/grant`` 与
+    # ``/panic`` 命令直接读写它，``None`` 表示未接线（命令退回"未启用"）。
+    grants: Any = None
 
 
 def register_factories(
@@ -376,6 +379,7 @@ def register_modules(registrar: Registrar, deps: Deps, *modules: Module) -> None
 
 def default_modules() -> list[Module]:
     """默认命令模块清单，顺序与 Go ``DefaultModules`` 一致。"""
+    from atri_x.agent.commands.approval import ApprovalModule
     from atri_x.agent.commands.character import CharacterModule
     from atri_x.agent.commands.compact import CompactModule
     from atri_x.agent.commands.context_policy import ContextPolicyModule
@@ -397,6 +401,7 @@ def default_modules() -> list[Module]:
 
     return [
         HelpModule(),
+        ApprovalModule(),
         ModelModule(),
         SessionModule(),
         CompactModule(),

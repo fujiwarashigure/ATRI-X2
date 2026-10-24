@@ -208,8 +208,9 @@ class FullWiringTest(_TmpDirTest):
         self.assertEqual(sorted(expected - names), [], "missing tools")
         self.assertEqual(sorted(names - expected), [], "extra tools")
         self.assertEqual(names, expected)
-        # Go ``register.go`` 注册的全部工具数：11 无条件 + 32 条件 + 6 skill。
-        self.assertEqual(len(REGISTERED_TOOLS), 49)
+        # Go ``register.go`` 注册的全部工具数：12 无条件（含 Python 新增的
+        # ``fetch_message``）+ 32 条件 + 6 skill。
+        self.assertEqual(len(REGISTERED_TOOLS), 50)
         self.assertEqual(len(names), len(REGISTERED_TOOLS))
 
     def test_no_dependency_degraded_silently(self) -> None:
@@ -326,8 +327,9 @@ class MinimalWiringTest(_TmpDirTest):
             expected |= set(CONDITIONAL_TOOLS[option])
         self.assertEqual(sorted(names - expected), [], "extra tools")
         self.assertEqual(sorted(expected - names), [], "missing tools")
-        # 计数：13 无条件 + 4 resident + 3 long_memory + 1 send_file + 4 skill = 25。
-        self.assertEqual(len(names), 25)
+        # 计数：14 无条件（含 fetch_message）+ 4 resident + 3 long_memory + 1
+        # send_file + 4 skill = 26。
+        self.assertEqual(len(names), 26)
 
     def test_every_config_dependent_guard_stays_closed(self) -> None:
         runtime = self._build()
@@ -339,11 +341,11 @@ class MinimalWiringTest(_TmpDirTest):
                 self.assertNotIn(name, names, f"{name}（守卫 {option}）")
 
     def test_register_all_minimal_is_exactly_the_unconditional_set(self) -> None:
-        """``RegisterOptions()`` 一个依赖都不给：恰好是无条件那 13 个。"""
+        """``RegisterOptions()`` 一个依赖都不给：恰好是无条件那 14 个。"""
         registry = new_registry_with_builtin(RegisterOptions())
         names = {info.name for info in registry.list()}
         self.assertEqual(names, set(ALWAYS_REGISTERED_TOOLS))
-        self.assertEqual(len(ALWAYS_REGISTERED_TOOLS), 13)
+        self.assertEqual(len(ALWAYS_REGISTERED_TOOLS), 14)
 
 
 class SkillWiringTest(_TmpDirTest):

@@ -59,6 +59,7 @@ from atri_x.platform.platform import (
 from atri_x.platform.qq_onebot import attachment as qq_attachment
 from atri_x.platform.qq_onebot import capabilities as qq_capabilities
 from atri_x.platform.qq_onebot import preprocess as qq_preprocess
+from atri_x.platform.qq_onebot import slowfetch as qq_slowfetch
 from atri_x.platform.qq_onebot.config import Config, PLATFORM_NAME, apply_defaults
 from atri_x.platform.qq_onebot.forward import first_non_empty
 from atri_x.platform.qq_onebot.inbound import (
@@ -132,6 +133,17 @@ class Adapter:
         )
         self.notify: Any = None
         self.inbound = new_inbound_runtime(cfg)
+        # 引用 / 转发的慢取缓存（Python 新增）：预算内等不到就先放占位，后台继续取。
+        self.fetch_cache = qq_slowfetch.new_fetch_cache(
+            budget=(
+                float(cfg.slow_fetch_budget_ms or 0) / 1000.0
+                if cfg.slow_fetch_enabled
+                else 0.0
+            ),
+            success_ttl=float(cfg.slow_fetch_success_ttl_seconds or 0),
+            failure_ttl=float(cfg.slow_fetch_failure_ttl_seconds or 0),
+            max_entries=int(cfg.slow_fetch_max_entries or 0),
+        )
         self._tasks: set[asyncio.Task] = set()
 
     # -- 生命周期 -----------------------------------------------------------
@@ -353,6 +365,12 @@ class Adapter:
     ) -> tuple[refcontext.ReferencedMessage, bool]:
         """对应 Go ``(*Adapter).referenceFetcher``（返回已取到的引用）。"""
         return await qq_preprocess.fetch_referenced(self, ctx, event, reply_id)
+
+    async def fetch_message_text(
+        self, ctx: Any, message_id: str, kind: str = "auto"
+    ) -> str:
+        """按 id 取回消息 / 转发的正文（``fetch_message`` 工具用，Python 侧新增）。"""
+        return await qq_preprocess.fetch_message_text(self, ctx, message_id, kind)
 
     def record_chat_message(
         self, ctx: Any, event: Event, normalized: Any, reply: ReplyContext

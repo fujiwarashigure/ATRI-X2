@@ -73,6 +73,9 @@ class LongMemoryRecord:
     content: str = ""
     created_at: str = ""
     updated_at: str = ""
+    #: 来源会话作用域（``<platform>:<scope_id>``）与来源主体；空串 = 旧数据/全局。
+    source_scope: str = ""
+    source_actor: str = ""
     file_mtime_ns: int = 0
     file_size: int = 0
     invalid: bool = False
@@ -103,6 +106,9 @@ class LongMemoryFrontMatter:
     keywords: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+    #: 「按会话隔离」的来源字段；旧文件没有这两个键 → 空串（全局可见）。
+    source_scope: str = ""
+    source_actor: str = ""
 
 
 @dataclass
@@ -133,6 +139,8 @@ class LongMemorySearchArgs:
     match_mode: str = ""
     brief_only: bool | None = None
     limit: int = 0
+    #: 作用域过滤：空串 = 当前会话；``"all"`` / 具体作用域键 = 跨会话（仅超管）。
+    scope: str = ""
 
 
 @dataclass
@@ -146,6 +154,8 @@ class LongMemoryUpdateArgs:
     keywords: str | None = None
     content: str | None = None
     content_edits: EditItems = field(default_factory=list)
+    #: 跨会话更新的显式来源作用域（仅超级管理员可用）；空串 = 当前会话。
+    scope: str = ""
 
     def has_changes(self) -> bool:
         """对应 Go ``longMemoryUpdateArgs.hasChanges``。"""
@@ -169,6 +179,7 @@ class LongMemoryWriteArgs:
     title: str = ""
     summary: str = ""
     keywords: str = ""
+    scope: str = ""
     content: str = ""
     content_edits: EditItems = field(default_factory=list)
 
@@ -237,7 +248,9 @@ def _decode_edits(value: Any, name: str) -> EditItems:
 
 def update_args_from_write(args: LongMemoryWriteArgs) -> LongMemoryUpdateArgs:
     """对应 Go ``longMemoryUpdateArgsFromWrite``：空串表示该字段不改。"""
-    update = LongMemoryUpdateArgs(id=args.id, content_edits=list(args.content_edits))
+    update = LongMemoryUpdateArgs(
+        id=args.id, content_edits=list(args.content_edits), scope=args.scope
+    )
     if args.category != "":
         update.category = args.category
     if args.title != "":
@@ -296,6 +309,8 @@ def parse_long_memory_text(text: str) -> ParsedLongMemoryFile:
         keywords=[_as_str(item) for item in keywords],
         created_at=_as_str(raw.get("created_at")),
         updated_at=_as_str(raw.get("updated_at")),
+        source_scope=_as_str(raw.get("source_scope")),
+        source_actor=_as_str(raw.get("source_actor")),
     )
     return ParsedLongMemoryFile(meta=meta, content=after.strip())
 
@@ -321,6 +336,12 @@ def marshal_long_memory_file(record: LongMemoryRecord) -> bytes:
         "created_at": record.created_at,
         "updated_at": record.updated_at,
     }
+    # 只有带归属的记录才写来源字段：旧文件（无作用域）序列化结果保持不变，
+    # 避免升级后把所有记忆文件都重写成新形状。
+    if record.source_scope:
+        meta["source_scope"] = record.source_scope
+    if record.source_actor:
+        meta["source_actor"] = record.source_actor
     try:
         front = tomlw.dumps(meta, sort_keys=False)
     except Exception as exc:  # noqa: BLE001 - tomlw 只有一种写失败
@@ -343,6 +364,8 @@ def record_from_parsed_file(
         content=parsed.content.strip(),
         created_at=parsed.meta.created_at.strip(),
         updated_at=parsed.meta.updated_at.strip(),
+        source_scope=parsed.meta.source_scope.strip(),
+        source_actor=parsed.meta.source_actor.strip(),
         file_mtime_ns=mtime_ns,
         file_size=size,
     )

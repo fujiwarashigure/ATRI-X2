@@ -82,23 +82,44 @@ def message_wakeup(agent: Any, ctx: Any, text: str) -> bool:
     policy = agent.group_policy_for_scope(agent.scope(ctx))
     keywords = list(msg.trigger_keywords) + list(policy.wake_keywords_value())
     # 免打扰时段压掉普通群聊与 @，但不压 slash 命令（上面已放行）与超级管理员的
-    # 运维消息。
-    if agent.group_quiet_hours_active(ctx) and agent.actor(ctx).role != RoleSuperadmin:
-        return False
+    # 运维消息。静默来源有两个：群策略 ``quiet_hours`` 与全局 ``[quiet]``（任一生效
+    # 即静默，见 :mod:`atri_x.agent.admission`）。
+    from atri_x.agent.admission import quiet_window_active
+
+    if quiet_window_active(agent, ctx):
+        allow_superadmin = bool(
+            getattr(getattr(agent, "quiet_config", None), "allow_superadmin", True)
+        )
+        if not (allow_superadmin and agent.actor(ctx).role == RoleSuperadmin):
+            return False
     mode = policy.response_mode_value()
+    keyword_hit = strip_trigger_keyword(match_text, keywords)[1]
+    mention_hit = mentions_bot(msg)
+    reply_hit = is_reply_to_bot(agent, ctx, msg)
     if mode == "all":
-        return bool((text or "").strip()) or len(msg.segments) > 0
-    if mode == "keyword":
-        return strip_trigger_keyword(match_text, keywords)[1]
-    if mode == "reply":
-        return is_reply_to_bot(agent, ctx, msg)
-    if mode == "off":
+        woken = bool((text or "").strip()) or len(msg.segments) > 0
+        direct = keyword_hit or mention_hit or reply_hit
+    elif mode == "keyword":
+        woken = keyword_hit
+        direct = keyword_hit
+    elif mode == "reply":
+        woken = reply_hit
+        direct = reply_hit
+    elif mode == "off":
         return False
-    if strip_trigger_keyword(match_text, keywords)[1]:
-        return True
-    if mentions_bot(msg):
-        return True
-    return is_reply_to_bot(agent, ctx, msg)
+    else:
+        woken = keyword_hit or mention_hit or reply_hit
+        direct = woken
+    if not woken:
+        return False
+    # 参与状态机（评估 §D）：只在开启后生效，默认 no-op。只压普通闲聊，不压直接互动。
+    from atri_x.agent.participation import note_inbound, note_wakeup, suppress_ambient_wakeup
+
+    note_inbound(agent, ctx, direct=direct)
+    if suppress_ambient_wakeup(agent, ctx, direct=direct):
+        return False
+    note_wakeup(agent, ctx)
+    return True
 
 
 def strip_wakeup_prefix(agent: Any, ctx: Any, text: str) -> str:

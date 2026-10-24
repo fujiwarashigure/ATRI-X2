@@ -41,10 +41,15 @@ __all__ = [
     "TOOL_LOG_QUERY_LIMIT",
     "PendingUserMessage",
     "attach_speaker_marker",
+    "auto_confirm_allowed",
     "compact_arguments",
     "drain_pending_user_input",
     "execute_tool_calls",
     "filter_tool_schemas_by_allowlist",
+    "grant_registry",
+    "grant_scope_actor",
+    "grant_session_auto_confirm",
+    "grant_tool_auto_confirm",
     "input_speaker_metadata",
     "is_background_session",
     "is_session_auto_confirmed",
@@ -60,6 +65,10 @@ __all__ = [
     "preview_runes",
     "record_tool_call",
     "result_from_success",
+    "revoke_actor_grants",
+    "revoke_all_grants",
+    "revoke_scope_grants",
+    "revoke_session_grants",
     "risk_confirmation_result",
     "risk_reasons_text",
     "session_tools_enabled",
@@ -240,6 +249,7 @@ async def execute_tool_calls(
             actor=agent.actor(ctx),
             authorize_tool=authorize,
             before_execute=before,
+            preview_texts=getattr(agent, "tool_preview_texts", None),
         ),
     )
 
@@ -501,47 +511,181 @@ def risk_reasons_text(reasons: list[str] | None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 自动确认
+# 自动确认（授权登记表）
 # ---------------------------------------------------------------------------
+def grant_registry(agent: Any) -> Any:
+    """取（必要时创建）本 Agent 的授权登记表。"""
+    from atri_x.security import DEFAULT_GRANT_TTL_SECONDS, GrantRegistry
+
+    registry = getattr(agent, "grants", None)
+    if isinstance(registry, GrantRegistry):
+        return registry
+    ttl = getattr(agent, "confirm_grant_ttl_seconds", None)
+    registry = GrantRegistry(
+        DEFAULT_GRANT_TTL_SECONDS if ttl is None else float(ttl)
+    )
+    agent.grants = registry
+    return registry
 
 
-def _auto_confirm_lock(agent: Any) -> Any:
-    lock = getattr(agent, "auto_confirm_mu", None)
-    if lock is None:
-        import threading
+def grant_scope_actor(agent: Any, ctx: Any) -> tuple[str, str]:
+    """从 ctx 取 ``(scope_key, actor_id)``；取不到的部分留空（= 不绑定）。"""
+    scope_key = ""
+    actor_id = ""
+    scope_reader = getattr(agent, "scope", None)
+    if ctx is not None and callable(scope_reader):
+        try:
+            scope = scope_reader(ctx)
+        except Exception:  # noqa: BLE001 - 取不到作用域就不绑定
+            scope = None
+        platform = str(getattr(scope, "platform", "") or "").strip()
+        scope_id = str(getattr(scope, "platform_scope_id", "") or "").strip()
+        if scope_id:
+            scope_key = f"{platform}:{scope_id}" if platform else scope_id
+    if ctx is not None:
+        try:
+            from atri_x.security import actor_from_context
 
-        lock = threading.Lock()
-        agent.auto_confirm_mu = lock
-    return lock
+            actor, ok = actor_from_context(ctx)
+            if ok:
+                actor_id = str(getattr(actor, "id", "") or "")
+        except Exception:  # noqa: BLE001 - 同上
+            actor_id = ""
+    return scope_key, actor_id
+
+
+def _audit_grant(agent: Any, event: str, grant: Any, **extra: Any) -> None:
+    """记一条 ``grant_*`` 审计（没有 audit logger 时静默）。"""
+    from atri_x.agent.logging import audit
+
+    attrs: list[Any] = [
+        "grant_id",
+        grant.id,
+        "grant_kind",
+        grant.kind,
+        "session_id",
+        grant.session_id,
+        "scope",
+        grant.scope_key,
+        "actor",
+        grant.actor_id,
+        "uses",
+        grant.uses,
+    ]
+    for key, value in extra.items():
+        attrs.extend((key, value))
+    audit(agent, event, *attrs)
+
+
+def grant_session_auto_confirm(
+    agent: Any, ctx: Any, session_id: str, ttl_seconds: float | None = None
+) -> Any:
+    """``/confirmall``：登记"本会话后续全部放行"（默认 TTL 10 分钟）。"""
+    from atri_x.security import GRANT_KIND_SESSION
+
+    scope_key, actor_id = grant_scope_actor(agent, ctx)
+    grant = grant_registry(agent).grant(
+        GRANT_KIND_SESSION,
+        session_id=session_id,
+        scope_key=scope_key,
+        actor_id=actor_id,
+        ttl_seconds=ttl_seconds,
+    )
+    _audit_grant(agent, "grant_created", grant)
+    return grant
+
+
+def grant_tool_auto_confirm(
+    agent: Any, ctx: Any, session_id: str, tool_name: str, ttl_seconds: float | None = None
+) -> Any:
+    """``/confirmtool``：登记"本会话这个工具后续放行"。"""
+    from atri_x.security import GRANT_KIND_TOOL
+
+    scope_key, actor_id = grant_scope_actor(agent, ctx)
+    grant = grant_registry(agent).grant(
+        GRANT_KIND_TOOL,
+        tool=tool_name,
+        session_id=session_id,
+        scope_key=scope_key,
+        actor_id=actor_id,
+        ttl_seconds=ttl_seconds,
+    )
+    _audit_grant(agent, "grant_created", grant)
+    return grant
+
+
+def auto_confirm_allowed(agent: Any, ctx: Any, session_id: str, tool_name: str) -> bool:
+    """这次工具调用是否已被授权登记表放行（命中即记一次使用）。"""
+    from atri_x.security import GRANT_KIND_SESSION, GRANT_KIND_TOOL
+
+    scope_key, actor_id = grant_scope_actor(agent, ctx)
+    registry = grant_registry(agent)
+    grant = registry.consume(
+        GRANT_KIND_SESSION, session_id=session_id, scope_key=scope_key, actor_id=actor_id
+    )
+    if grant is not None:
+        _audit_grant(agent, "grant_used", grant, tool_name=tool_name)
+        return True
+    grant = registry.consume(
+        GRANT_KIND_TOOL,
+        tool=tool_name,
+        session_id=session_id,
+        scope_key=scope_key,
+        actor_id=actor_id,
+    )
+    if grant is not None:
+        _audit_grant(agent, "grant_used", grant, tool_name=tool_name)
+        return True
+    return False
+
+
+def revoke_session_grants(agent: Any, session_id: str) -> int:
+    """Session 删除 / 归档时撤销它的授权。"""
+    return grant_registry(agent).revoke_session(session_id)
+
+
+def revoke_scope_grants(agent: Any, scope_key: str) -> int:
+    """群策略 / 权限配置变更后撤销该作用域下的授权。"""
+    return grant_registry(agent).revoke_scope(scope_key)
+
+
+def revoke_actor_grants(agent: Any, actor_id: str) -> int:
+    """主体权限被收回后撤销其授权。"""
+    return grant_registry(agent).revoke_actor(actor_id)
+
+
+def revoke_all_grants(agent: Any) -> int:
+    """``/panic``：撤销全部授权。"""
+    return grant_registry(agent).clear()
 
 
 def is_session_auto_confirmed(agent: Any, session_id: str) -> bool:
-    """该会话是否已"全部放行"。对应 Go ``Agent.isSessionAutoConfirmed``。"""
-    with _auto_confirm_lock(agent):
-        return bool((getattr(agent, "auto_confirm_session", None) or {}).get(session_id))
+    """该会话是否有会话级放行（兼容旧两参调用，不消耗次数）。"""
+    from atri_x.security import GRANT_KIND_SESSION
+
+    return grant_registry(agent).find(GRANT_KIND_SESSION, session_id=session_id) is not None
 
 
 def set_session_auto_confirmed(agent: Any, session_id: str) -> None:
-    """对应 Go ``Agent.setSessionAutoConfirmed``。"""
-    with _auto_confirm_lock(agent):
-        if getattr(agent, "auto_confirm_session", None) is None:
-            agent.auto_confirm_session = {}
-        agent.auto_confirm_session[session_id] = True
+    """登记会话级放行（旧 API，无 ctx 时不绑定作用域与主体）。"""
+    grant_session_auto_confirm(agent, None, session_id)
 
 
 def is_tool_auto_confirmed(agent: Any, session_id: str, tool_name: str) -> bool:
-    """该工具在这个会话里是否已放行。对应 Go ``Agent.isToolAutoConfirmed``。"""
-    with _auto_confirm_lock(agent):
-        tools = (getattr(agent, "auto_confirm_tools", None) or {}).get(session_id)
-        return bool(tools and tools.get(tool_name))
+    """该工具是否有工具级放行（兼容旧三参调用，不消耗次数）。"""
+    from atri_x.security import GRANT_KIND_TOOL
+
+    return (
+        grant_registry(agent).find(
+            GRANT_KIND_TOOL, tool=tool_name, session_id=session_id
+        )
+        is not None
+    )
 
 
 def set_tool_auto_confirmed(agent: Any, session_id: str, tool_name: str) -> None:
-    """对应 Go ``Agent.setToolAutoConfirmed``。"""
-    with _auto_confirm_lock(agent):
-        if getattr(agent, "auto_confirm_tools", None) is None:
-            agent.auto_confirm_tools = {}
-        agent.auto_confirm_tools.setdefault(session_id, {})[tool_name] = True
+    """登记工具级放行（旧 API，无 ctx 时不绑定作用域与主体）。"""
+    grant_tool_auto_confirm(agent, None, session_id, tool_name)
 
 
 # ---------------------------------------------------------------------------

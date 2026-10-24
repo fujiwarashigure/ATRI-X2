@@ -1207,6 +1207,44 @@ report_days = 1
 - `learning-moderation-actions` 可细分为 `view`（查看候选/状态/历史）、`decide`（approve/reject/undo）、`mine`（触发挖掘）、`delete`、`export`、`policy`；默认只给 `view,decide`。权限每次命令执行时从当前群策略和当前群管理员身份重新计算，不缓存。
 - 实际执行的模型目标也会再次校验：群默认模型、turn hook、cron override、压缩模型与视觉 fallback 在真正调用 provider 前都会按本群 `allowed-models` / `default-model` 重新授权，避免通过 fallback 或动态配置绕过目录。
 
+## 静默时段 quiet
+
+`app.toml` 的 `[quiet]` 是**全局**静默时段（Python 版新增，评估 §E）。它管的是"静默期要不要花算力"，不是"要不要收消息"：
+
+```toml
+[quiet]
+enabled = false               # 默认关闭；关闭时行为与之前完全一致
+window = "23:00-07:00"        # HH:MM-HH:MM，跨零点照写；格式非法回落默认值
+timezone = ""                 # 空 = 进程本地时区；否则 IANA 名（如 Asia/Shanghai）
+allow_cron = false            # 静默期仍允许 cron 报告
+allow_external = false        # 静默期仍允许外部事件（Atrinis / Hook / HTTP）
+allow_direct = true           # 静默期仍允许用户直聊（私聊直呼）
+allow_superadmin = true       # 静默期仍允许超级管理员触发
+```
+
+- **只压计算，不压数据**：静默期消息照常入库、照常出现在历史与会话里，只是不叫醒模型。
+- **不补跑**：cron 报告、外部事件、记忆学习、主动参与在静默期直接跳过，并记审计 `cron_skipped_quiet` / `external_skipped_quiet`；静默结束后**不会**补跑（避免补跑风暴）。
+- **群级取或**：群策略里的 `quiet_hours`（见上一节）与全局 `[quiet]` 任一生效即静默；群级更严时按群级。唤醒判定在群聊里会同时看这两处。
+- **直聊与超管默认放行**：私聊直呼 `allow_direct = true`，超级管理员 `allow_superadmin = true`；把任一开关设成 false 后，静默期它们也会被跳过。
+- 这是 `app.toml` 配置，改动需要重启后台服务；桌面端暂未提供该面板（手改即可，键都有默认值，老配置不写这一段也能启动）。
+
+## 群聊参与状态机 participation
+
+`app.toml` 的 `[participation]` 是群聊参与状态机（Python 版新增，评估 §D）。默认**关闭**；开启后只做**抑制**，不主动找话题：
+
+```toml
+[participation]
+guard = false               # 默认关闭；关闭时所有函数都是 no-op
+cooldown_seconds = 120      # 主动参与冷却（秒）：冷却期内普通闲聊不唤醒
+no_reply_streak_max = 3     # 连续"被叫到没回应"达该次数后进入冷却（0 = 不限制）
+```
+
+- 状态按 **`platform:scope_id`** 隔离，只存在进程内存里（重启清空）；参与度是短周期信号，不做持久化。
+- 开启后：机器人在某个群接过话（`replied=true`）→ `cooldown_seconds` 内该群**普通闲聊不唤醒**；点名 / 回复机器人 / 唤醒词仍然唤醒（直接互动还会清零"未回应"连击）。
+- 连续 `no_reply_streak_max` 次"被叫到但没回复"同样进入冷却，避免自说自话。
+- **不做**：`readThroughSeq` / 未读浏览 / `set_wake_condition` 工具（需要新增群聊协议与工具面，属于更大的改动）；也不做"追问提示抑制"（需要提示词侧配合，本版未接）。
+- 这是 `app.toml` 配置，改动需要重启后台服务；桌面端暂未提供该面板。
+
 ## 群知识库
 
 `app.toml` 的 `[group_knowledge]` 控制本地确定性群知识库 / FAQ 的全局开关和写入上限：
@@ -1775,6 +1813,11 @@ preprocess_queue_size = 256 # 普通消息预处理队列；满时本地丢弃�
 high_priority_workers = 1 # 撤回/成员/管理事件专用 worker，不排在普通消息后面
 high_priority_queue_size = 128 # 高优先级事件队列；满时 readLoop 内联执行而不是丢弃
 show_tool_preview_in_group = false # 群聊里是否投递"正在调用某工具"的进度预览（默认关闭）
+slow_fetch_enabled = true # 引用/转发只等一个短预算，超时就先占位、后台继续取（关掉 = 恢复旧行为）
+slow_fetch_budget_ms = 1500 # 入站等 get_msg / get_forward_msg 的预算（毫秒）
+slow_fetch_success_ttl_seconds = 300 # 取到的引用/转发内容缓存多久
+slow_fetch_failure_ttl_seconds = 30 # 失败结果记多久（避免平台刚拒绝就重试）
+slow_fetch_max_entries = 512 # 慢取缓存条目上限（LRU）
 ```
 
 > **容器部署注意**：`ws_url` 是 **ATRI-X 容器内**要访问的地址。`ws://127.0.0.1:6700/` 在容器内指向 ATRI-X 自身。OneBot 在同一个 Compose 项目（或同一 Docker 网络）的服务中用服务名，例如 `ws://onebot:6700/`；OneBot 在宿主机时，需要配置容器可访问的宿主机地址（Linux 可加 `extra_hosts: ["host.docker.internal:host-gateway"]` 后写 `ws://host.docker.internal:6700/`）；OneBot 在另一台机器时写其 IP / 域名。
@@ -1796,6 +1839,8 @@ show_tool_preview_in_group = false # 群聊里是否投递"正在调用某工具
 OneBot 入站文本会保留原始换行、缩进和连续空白；唤醒判断使用单独规范化后的匹配视图，不会为了匹配关键词而重排模型输入，也不会让转发里的 `@`、唤醒词或命令进入匹配视图。合并转发消息会展开为带发送者、时间、消息 ID 的引用文本，并通过 `forward_max_nodes`、`forward_max_runes`、`forward_max_depth` 限制节点数、总字符数和嵌套深度；`forward_max_fetches`、`forward_max_result_bytes`、`forward_max_non_text`、`forward_fetch_timeout_seconds` 进一步限制拉取次数、单次返回体、非文本节点和拉取超时。同一条消息内所有转发 id 共享节点/字符预算；循环引用会被拒绝，重复引用会标记省略，拉取失败或节点缺字段会稳定降级为文本标记。转发内容始终作为不可信用户数据传入，不会构造成 system/developer 消息。
 
 OneBot 入站消息会先按 `平台 + 机器人 self_id + scope + message_id` 去重，状态分为 `processing` / `completed` / `failed`，在 TTL 内重连重放不会再次唤醒模型或计费；去重表有 `inbound_dedup_max_entries` 硬上限，且不依赖 `history` 开关。`@` 解析、引用拉取和合并转发展开都在 `preprocess_workers` / `preprocess_queue_size` 限定的预处理池里执行，队列满时该条普通消息在本地丢弃并记录告警，而不是无限创建 asyncio task。撤回、成员退群/被踢/禁言和管理类事件走独立的高优先级通道 `high_priority_workers` / `high_priority_queue_size`，不会排在普通聊天消息后面；高优先级队列也满时会在读循环中内联处理，保证撤回和取消不会因为流量洪峰丢失。
+
+引用与合并转发的**慢取**（`slow_fetch_*`）：预处理只等 `slow_fetch_budget_ms`，超时就把这次当作"没取到"——引用退化为没有引用上下文，转发位置留下「拉取超时，已稍后重试」占位——后台请求继续跑，结果按成功 / 失败分别缓存（`slow_fetch_success_ttl_seconds` / `slow_fetch_failure_ttl_seconds`）。同一个消息 id 的并发拉取会合并成一次请求；命中缓存直接复用。模型如果确实需要那段的完整内容，可以调用 `fetch_message` 工具按 id 再取一次（内容通常已经在缓存里）。`slow_fetch_enabled = false` 恢复"一直等到平台返回"的旧行为（缓存与单飞仍然生效）。
 
 `api_timeout_seconds` 分别作为 OneBot 帧写入和 API 响应等待的基础超时。大帧写入会按编码后大小每完整 1 MiB 增加 1 秒，最多增加到基础超时本身；写入失败或超时后 ATRI-X 会断开并重连 OneBot，避免一个慢发送长期占住后续消息。发送仍会同步等待平台回执。
 
@@ -1835,6 +1880,96 @@ stream_edit_interval_milliseconds = 250
 - 高风险工具确认消息会附带 Telegram inline keyboard，点击按钮会转换为 `/confirm`、`/reject` 等现有确认命令。
 - `security.superadmins.telegram` 填 Telegram 用户 ID 或可直接发送的私聊 chat ID，用于超级管理员权限与通知投递。
 
+
+## 工具调用进度提示 tool_preview
+
+程序兜底提示：模型这一轮**没有先说话**（只返回了工具调用）时，由程序补发一句
+「正在做什么」，让群里知道机器人在干活。模型自己发出的中间正文优先，不会重复发。
+
+```toml
+[tool_preview]
+enabled = true                    # 关掉后程序不再主动发进度（模型自己的中间正文不受影响）
+style = "persona"                 # persona = 角色化短句且不展示工具参数；system = 旧式「正在调用 工具名：参数」
+search_text = "检索中……请稍候。"   # web_search / search_chat_history 的文案
+extract_text = "正在读取页面内容。"  # web_extract 的文案
+default_text = "正在调用 {tool}……"  # 其它工具；{tool} 会替换成工具名
+system_template = "正在调用 {tool}：{args}"   # 仅 style = "system" 时使用
+failure_template = "{tool} 调用失败：{error}"  # 工具执行失败时的一行提示
+```
+
+- 文案走 `atri_x/toolrun/preview.py`；`persona` 风格**不展示参数**，避免把查询词/文件
+  路径无意泄露到群里。`system` 风格的参数先紧凑化再按 160 字符截断。
+- 同一批工具调用发一条合并预览，**相同文案按工具去重**（同一批两个 `web_search`
+  只显示一行）；失败预览也使用同一套模板。
+- 群聊里是否真的投递仍由平台段决定：`[platform.qqonebot].show_tool_preview_in_group`
+  （QQ 官方机器人为 `[platform.qqofficial]` 同名字段），默认关闭。
+- 桌面端：「工具权限 → 工具进度预览」子选项卡；改完**重启后台服务**生效。
+
+## 本地表情图库 reactions
+
+模型只在回复正文末尾写一个**情绪意图标记**（例如 `[[emo:无语]]`），程序负责把标记
+从正文里删掉，再按策略决定这次要不要补一张本地表情图、补哪张。模型只知道标签，
+永远不接触磁盘路径、URL 或 Base64。
+
+```toml
+[reactions]
+enabled = false                   # 新能力 opt-in；关闭时行为与旧版完全一致
+gallery_dir = "reactions"         # 相对 app.toml 所在目录；图库 = <dir>/catalog.json + <dir>/assets/
+show_in_group = true              # 群聊允许发表情
+show_in_private = true            # 私聊允许发表情
+cooldown_text_replies = 2         # 发图后至少再经过几条不带图的回复
+session_cooldown_seconds = 60     # 同一会话两次发图最短间隔
+group_cooldown_seconds = 120      # 同一群两次发图最短间隔（私聊忽略）
+dedupe_recent = 5                 # 最近多少张图不重复（全部被排除时退回最久未用）
+probability = 1.0                 # 通过全部策略后的发送概率（0~1）
+max_text_chars = 160              # 正文超过该字数不配图；0 = 不限制
+suppress_keywords = ["错误", "报错", "失败", "异常", "抱歉", "对不起", "无法", "不能"]
+emotions = ["开心", "期待", "得意", "害羞", "惊讶", "困惑", "难过",
+            "生气", "思考", "无奈", "无语", "嘲笑", "ok"]
+```
+
+决策顺序（概率只是最后一道调节）：
+
+```text
+启用范围（群/私聊） → 场景抑制（长文、严肃关键词）
+  → 会话文字回复冷却 → 会话/群时间冷却
+  → 情绪匹配 → 最近图片去重 → 权重随机 → 概率
+```
+
+图库清单位于 `<配置目录>/reactions/catalog.json`：
+
+```json
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "altina_deadpan_01",
+      "emotion": "无语",
+      "path": "assets/deadpan_01.webp",
+      "name": "亚尔缇娜·无语",
+      "description": "半眯眼，轻微无语",
+      "contexts": ["轻松吐槽", "熟人玩笑"],
+      "avoid": ["严肃安慰", "真实冲突"],
+      "weight": 3,
+      "enabled": true
+    }
+  ]
+}
+```
+
+- `path` 必须是图库目录内的相对路径（`..` / 绝对路径会被拒绝）；图片缺失的条目
+  自动跳过；`weight <= 0` 或 `enabled = false` 视为停用。
+- `contexts` / `avoid` 预留给"按场景过滤"，当前版本不传场景标签时不过滤。
+- 模型侧规则（可用标签、每轮最多一个、严肃场景不配图）在 `[reactions].enabled = true`
+  时由系统提示词自动注入；关闭时不注入，但正文里的标记仍会被删掉。
+- 图片作为 `timing = "after_assistant"` 的输出交付：**正文先发、表情后发**；
+  整轮最多一张，工具轮次的中间正文不配图，后台回合（cron / atrinis）不发表情。
+- 发送失败/图库损坏一律静默降级为"只发正文"；`[safety].block_image_output = true`
+  时表情图同样会被出口策略丢弃（这是预期行为）。
+- 生效方式：`[reactions]` 在 `app.toml` → **重启后台服务**；`catalog.json`
+  由后台按文件修改时间自动重载 → **保存即生效**。
+- 桌面端：「人设卡 → 表情图库」子选项卡管理策略与图库条目（可添加图片、改情绪/
+  名称/权重/启用、删除条目）。
 
 ## 插件和 Hook 配置
 

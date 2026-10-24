@@ -41,6 +41,7 @@ from atri_x.platform.platform import (
     ReplyContext,
     with_message_context,
 )
+from atri_x.platform.qq_onebot import slowfetch
 from atri_x.platform.qq_onebot.forward import (
     at_text,
     clean_text,
@@ -209,17 +210,38 @@ def _prefetched_fetcher(reply_id: str, referenced: Any) -> Callable[[Any, str], 
 async def fetch_referenced(
     adapter: Any, ctx: Any, event: Event, reply_id: str
 ) -> tuple[Any, bool]:
-    """按消息 ID 从平台取被引用消息并归一化。对应 Go ``(*Adapter).referenceFetcher``。"""
+    """按消息 ID 从平台取被引用消息并归一化。对应 Go ``(*Adapter).referenceFetcher``。
+
+    走 :mod:`atri_x.platform.qq_onebot.slowfetch`：预算内没等到就按"没有引用"处理，
+    后台任务继续跑（结果进缓存，之后可由 ``fetch_message`` 取回），入站不被平台
+    拖住；同一个消息 id 的并发只发一次请求。
+    """
     if adapter.transport is None:
         return refcontext.ReferencedMessage(), False
-    try:
-        data = await adapter.transport.get_message(ctx, reply_id)
-    except asyncio.CancelledError:
-        raise
-    except Exception:  # noqa: BLE001 - 与 Go 一致：取不到就当没有引用
+    message_id = (reply_id or "").strip()
+    if message_id == "":
         return refcontext.ReferencedMessage(), False
+    cache = slowfetch.cache_for(adapter)
+    outcome = await slowfetch.fetch_with_budget(
+        cache,
+        slowfetch.reference_key(message_id),
+        lambda: _load_referenced(adapter, ctx, event, message_id),
+    )
+    if not outcome.ok:
+        if outcome.deferred:
+            _log(adapter, "info", "qq reference fetch deferred", message_id=message_id)
+        return refcontext.ReferencedMessage(), False
+    return outcome.value, True
+
+
+async def _load_referenced(
+    adapter: Any, ctx: Any, event: Any, reply_id: str
+) -> Any:
+    """真正发 ``get_msg`` 并归一化（失败抛异常，由缓存记成短 TTL 的失败）。"""
+    data = await adapter.transport.get_message(ctx, reply_id)
+    self_id = getattr(event, "self_id", 0) if event is not None else 0
     ref = normalize_message_with_limits(
-        data.message, data.raw_message, event.self_id, adapter.forward_limits()
+        data.message, data.raw_message, self_id, adapter.forward_limits()
     )
     # 被引用的消息本身若是合并转发，也要展开 —— 只有这一层，避免敌意引用拉出无界转发树。
     if ref.forward_ids:
@@ -227,16 +249,86 @@ async def fetch_referenced(
     label = "引用"
     if data.user_id != 0:
         label = "引用：" + display_name(data.sender, data.user_id)
-    return (
-        refcontext.ReferencedMessage(
-            sender_id=str(data.user_id),
-            sender_name=display_name(data.sender, data.user_id),
-            label=label,
-            text=ref.text,
-            segments=list(ref.segments),
-        ),
-        True,
+    return refcontext.ReferencedMessage(
+        sender_id=str(data.user_id),
+        sender_name=display_name(data.sender, data.user_id),
+        label=label,
+        text=ref.text,
+        segments=list(ref.segments),
     )
+
+
+async def fetch_message_text(
+    adapter: Any, ctx: Any, message_id: str, kind: str = "auto"
+) -> str:
+    """按 id 取回消息 / 转发的可读正文（``fetch_message`` 工具用）。
+
+    与入站的差别是这里**允许等**（调用方是模型的一次工具调用，不是入站 worker），
+    但仍然先查慢取缓存：入站超时后继续跑的那次请求通常已经填好了缓存。
+    """
+    mid = (message_id or "").strip()
+    if mid == "":
+        return "message_id 不能为空。"
+    normalized_kind = (kind or "auto").strip().lower() or "auto"
+    if normalized_kind not in ("auto", "message", "forward"):
+        return "kind 只能是 auto、message 或 forward。"
+    if adapter.transport is None:
+        return "当前平台不支持按 id 取消息。"
+    cache = slowfetch.cache_for(adapter)
+    if normalized_kind in ("auto", "message"):
+        outcome = await slowfetch.fetch_now(
+            cache,
+            slowfetch.reference_key(mid),
+            lambda: _load_referenced(adapter, ctx, None, mid),
+        )
+        if outcome.ok:
+            text = _referenced_text(outcome.value)
+            return text or "该消息没有可展示的文本。"
+        if normalized_kind == "message":
+            return "没有取到该消息（可能已被撤回、删除或当前账号无权限）。"
+    limits = adapter.forward_limits()
+    outcome = await slowfetch.fetch_now(
+        cache,
+        slowfetch.forward_key(mid),
+        lambda: _load_forward_raw(adapter, ctx, mid, limits.fetch_timeout),
+    )
+    if not outcome.ok:
+        return "没有取到该消息或转发（可能已被撤回、删除或当前账号无权限）。"
+    body, _parsed_id, _resolved = render_forward_data(outcome.value, new_forward_state(limits))
+    body = body.strip()
+    return body or ("[转发消息 id:" + mid + " 无可展示文本]")
+
+
+def _referenced_text(referenced: Any) -> str:
+    """从 ``ReferencedMessage`` 里取纯文本（text 优先，其次文本段）。"""
+    text = (getattr(referenced, "text", "") or "").strip()
+    if text:
+        return text
+    parts: list[str] = []
+    for segment in getattr(referenced, "segments", None) or ():
+        if getattr(segment, "type", "") == MessageSegmentType.TEXT:
+            piece = (getattr(segment, "text", "") or "").strip()
+            if piece:
+                parts.append(piece)
+    return "\n".join(parts).strip()
+
+
+async def _load_forward_raw(
+    adapter: Any, ctx: Any, forward_id: str, timeout: float
+) -> Any:
+    """真正发 ``get_forward_msg``（``timeout`` 由转发配置决定，0 表示不限）。"""
+    if timeout > 0:
+        return await asyncio.wait_for(
+            adapter.transport.get_forward_msg(ctx, forward_id), timeout
+        )
+    return await adapter.transport.get_forward_msg(ctx, forward_id)
+
+
+def _log(adapter: Any, level: str, message: str, **attrs: Any) -> None:
+    """按需记日志（适配器没有对应 logger 方法时静默）。"""
+    helper = getattr(adapter, "log_" + level, None)
+    if callable(helper):
+        helper(message, **attrs)
 
 
 async def resolve_forward_segments(
@@ -264,22 +356,28 @@ async def resolve_forward_segments(
             )
             break
         state.fetches += 1
-        try:
-            if state.limits.fetch_timeout > 0:
-                raw = await asyncio.wait_for(
-                    adapter.transport.get_forward_msg(ctx, forward_id),
-                    state.limits.fetch_timeout,
+        outcome = await slowfetch.fetch_with_budget(
+            slowfetch.cache_for(adapter),
+            slowfetch.forward_key(forward_id),
+            lambda fid=forward_id: _load_forward_raw(
+                adapter, ctx, fid, state.limits.fetch_timeout
+            ),
+        )
+        if not outcome.ok:
+            if outcome.deferred:
+                _log(adapter, "info", "qq forward fetch deferred", message_id=forward_id)
+                length = _write_fallback(
+                    parts,
+                    length,
+                    "[转发消息 id:" + forward_id + " 拉取超时，已稍后重试]",
                 )
             else:
-                raw = await adapter.transport.get_forward_msg(ctx, forward_id)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - 拉取失败退化为标记文本
-            adapter.log_warn("get qq forward message failed", message_id=forward_id, error=exc)
-            length = _write_fallback(
-                parts, length, "[转发消息 id:" + forward_id + " 拉取失败]"
-            )
+                _log(adapter, "warn", "get qq forward message failed", message_id=forward_id)
+                length = _write_fallback(
+                    parts, length, "[转发消息 id:" + forward_id + " 拉取失败]"
+                )
             continue
+        raw = outcome.value
         if _raw_size(raw) > state.limits.max_result_bytes:
             state.truncated = True
             length = _write_fallback(

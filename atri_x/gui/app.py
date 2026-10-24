@@ -87,6 +87,9 @@ _TAB_KEYS = {
     "toolperm": "工具权限",
     # 「工具权限」页的第三个子选项卡「工具参数（全局）」：内容安全等全局参数在这里。
     "toolperm_params": "工具权限",
+    # Python 版新增的两个子选项卡：工具进度预览（工具权限页）/ 表情图库（人设卡页）。
+    "toolperm_preview": "工具权限",
+    "character_reactions": "人设卡",
 }
 
 
@@ -423,6 +426,16 @@ class GuiApp:
             show_params = getattr(toolperm, "show_global_params", None)
             if callable(show_params):
                 show_params()
+        elif key == "toolperm_preview":
+            toolperm = getattr(self, "toolperm_tab", None)
+            show_preview = getattr(toolperm, "show_preview_tab", None)
+            if callable(show_preview):
+                show_preview()
+        elif key == "character_reactions":
+            character = getattr(self, "character_tab", None)
+            show_reactions = getattr(character, "show_reactions_tab", None)
+            if callable(show_reactions):
+                show_reactions()
 
     def _on_tab_changed(self, _event: Any = None) -> None:
         try:

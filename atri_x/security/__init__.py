@@ -20,6 +20,14 @@ from atri_x.security.context import (
     with_actor,
     with_policy,
 )
+from atri_x.security.grants import (
+    DEFAULT_GRANT_TTL_SECONDS,
+    GRANT_KIND_SESSION,
+    GRANT_KIND_TOOL,
+    NO_EXPIRY,
+    Grant,
+    GrantRegistry,
+)
 from atri_x.security.security import (
     Actor,
     GroupRole,
@@ -63,6 +71,12 @@ RiskRank = risk_rank
 
 __all__ = [
     "ACTOR_CONTEXT_KEY",
+    "DEFAULT_GRANT_TTL_SECONDS",
+    "GRANT_KIND_SESSION",
+    "GRANT_KIND_TOOL",
+    "Grant",
+    "GrantRegistry",
+    "NO_EXPIRY",
     "POLICY_CONTEXT_KEY",
     "Actor",
     "ActorFromContext",

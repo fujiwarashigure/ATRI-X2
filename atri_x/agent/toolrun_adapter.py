@@ -292,7 +292,14 @@ class AgentToolRunDeps:
     async def should_send_preview(
         self, ctx: Any, session: Any, call: Any, assistant_text: str
     ) -> bool:
-        """对应 Go ``ShouldSendPreview``。"""
+        """对应 Go ``ShouldSendPreview``。
+
+        ``[tool_preview].enabled = false`` 时程序不主动发任何进度预览（模型自己
+        说的中间正文仍会照常发送）；其余判断与旧版一致。
+        """
+        texts = getattr(self.agent, "tool_preview_texts", None)
+        if texts is not None and not getattr(texts, "enabled", True):
+            return False
         is_cli = getattr(self.agent, "is_cli_context", None)
         if is_cli is not None and is_cli(ctx):
             return True
@@ -308,7 +315,7 @@ class AgentToolRunDeps:
     ) -> ConfirmResult:
         """对应 Go ``ConfirmToolCall``：等待用户确认高风险调用。"""
         agent = self.agent
-        if _auto_confirmed(agent, session_id, call.name):
+        if _auto_confirmed(agent, ctx, session_id, call.name):
             return ConfirmResult(allowed=True)
         # fail-closed：拿不到确认通道时不能"当作已确认"（旧实现返回 allowed=True，
         # 高危调用在 agent.turns 缺失时被静默放行）。
@@ -326,20 +333,37 @@ class AgentToolRunDeps:
         full_args = compact_arguments(call.arguments)
         preview_args = preview_arguments(full_args)
         timeout = _confirmation_timeout(agent, ctx)
+        # 群聊 / 频道里参数不展示（提示与 /detail 都藏），也禁用 /confirmall。
+        hide_arguments = _hides_arguments(agent, ctx)
+        allow_confirm_all = _allows_confirm_all(agent, ctx)
         _log_wait(agent, session_id, call, assessment, timeout)
         await _send_chat(
             agent,
             ctx,
-            "高风险工具调用等待确认\n工具：%s\n风险：%s\n参数：%s%s\n%s。"
+            "高风险工具调用等待确认\n工具：%s\n风险：%s\n%s%s\n%s。"
             % (
                 call.name,
                 assessment.level,
-                preview_args,
+                "参数：已隐藏（群聊中不展示）"
+                if hide_arguments
+                else "参数：%s" % preview_args,
                 risk_reasons_text(assessment.reasons),
-                _confirmation_prompt_text(agent, timeout),
+                _confirmation_prompt_text(agent, timeout, allow_confirm_all),
             ),
         )
-        response = await _await_confirmation(agent, ctx, session_id, call, assessment, full_args, preview_args, detail, timeout)
+        response = await _await_confirmation(
+            agent,
+            ctx,
+            session_id,
+            call,
+            assessment,
+            full_args,
+            preview_args,
+            detail,
+            timeout,
+            actor_id=str(getattr(_actor(agent, ctx), "id", "") or ""),
+            redacted=hide_arguments,
+        )
         if response is None:
             _log_result(
                 agent,
@@ -371,12 +395,12 @@ class AgentToolRunDeps:
                 stopped=True,
             )
         if getattr(response, "confirm_tool", False):
-            _set_auto_confirmed(agent, session_id, call.name)
+            _set_auto_confirmed(agent, ctx, session_id, call.name)
             await _send_chat(
                 agent, ctx, "已为当前 Session 自动确认后续 %s 工具调用。" % call.name
             )
         if getattr(response, "confirm_all", False):
-            _set_session_auto_confirmed(agent, session_id)
+            _set_session_auto_confirmed(agent, ctx, session_id)
             await _send_chat(agent, ctx, "已为当前 Session 自动确认后续高风险工具调用。")
         if getattr(response, "rejected", False):
             reason = str(getattr(response, "reason", "") or "").strip() or "user rejected"
@@ -642,6 +666,14 @@ def _safety_guard_segments(
 
 def risk_confirmation_detail_text(confirmation: Any) -> str:
     """高风险调用详情文案。对应 Go ``riskConfirmationDetailText``。"""
+    if getattr(confirmation, "redacted", False):
+        from atri_x.agent.risk_confirmation import REDACTED_ARGUMENTS_TEXT
+
+        return "高风险工具调用详情\n工具：%s\n风险：%s\n%s\n" % (
+            getattr(confirmation, "tool_name", ""),
+            getattr(confirmation, "risk", ""),
+            REDACTED_ARGUMENTS_TEXT,
+        )
     detail = str(getattr(confirmation, "detail", "") or "").strip()
     if not detail:
         from atri_x.agent.risk_confirmation import format_risk_confirmation_arguments
@@ -769,7 +801,14 @@ def _actor(agent: Any, ctx: Any) -> Any:
     return helper(ctx)
 
 
-def _auto_confirmed(agent: Any, session_id: str, tool_name: str) -> bool:
+def _auto_confirmed(agent: Any, ctx: Any, session_id: str, tool_name: str) -> bool:
+    """这次调用是否已被授权登记表放行（命中即消耗一次使用）。
+
+    没有 ``auto_confirm_allowed`` 的 Agent（老装配 / 测试替身）回退到旧的两参查询。
+    """
+    checker = getattr(agent, "auto_confirm_allowed", None)
+    if checker is not None:
+        return bool(checker(ctx, session_id, tool_name))
     if _call(agent, "is_session_auto_confirmed", session_id):
         return True
     return bool(_call(agent, "is_tool_auto_confirmed", session_id, tool_name))
@@ -782,11 +821,21 @@ def _call(agent: Any, name: str, *args: Any) -> Any:
     return helper(*args)
 
 
-def _set_auto_confirmed(agent: Any, session_id: str, tool_name: str) -> None:
+def _set_auto_confirmed(
+    agent: Any, ctx: Any, session_id: str, tool_name: str
+) -> None:
+    granter = getattr(agent, "grant_tool_auto_confirm", None)
+    if granter is not None:
+        granter(ctx, session_id, tool_name)
+        return
     _call(agent, "set_tool_auto_confirmed", session_id, tool_name)
 
 
-def _set_session_auto_confirmed(agent: Any, session_id: str) -> None:
+def _set_session_auto_confirmed(agent: Any, ctx: Any, session_id: str) -> None:
+    granter = getattr(agent, "grant_session_auto_confirm", None)
+    if granter is not None:
+        granter(ctx, session_id)
+        return
     _call(agent, "set_session_auto_confirmed", session_id)
 
 
@@ -800,14 +849,30 @@ def _confirmation_timeout(agent: Any, ctx: Any) -> float:
     return float(value or 0)
 
 
-def _confirmation_prompt_text(agent: Any, timeout: float) -> str:
+def _confirmation_prompt_text(
+    agent: Any, timeout: float, allow_confirm_all: bool = True
+) -> str:
     from atri_x.agent.risk_confirmation import risk_confirmation_prompt_text
 
     prefix = ""
     helper = getattr(agent, "command_prefix", None)
     if helper is not None:
         prefix = helper() or ""
-    return risk_confirmation_prompt_text(prefix, timeout)
+    return risk_confirmation_prompt_text(prefix, timeout, allow_confirm_all)
+
+
+def _hides_arguments(agent: Any, ctx: Any) -> bool:
+    """群聊 / 频道里确认提示与详情都不展示工具参数。"""
+    from atri_x.agent.risk_confirmation import confirmation_hides_arguments
+
+    return confirmation_hides_arguments(agent, ctx)
+
+
+def _allows_confirm_all(agent: Any, ctx: Any) -> bool:
+    """``/confirmall`` 只在单聊与 CLI 可用。"""
+    from atri_x.agent.risk_confirmation import confirmation_allows_confirm_all
+
+    return confirmation_allows_confirm_all(agent, ctx)
 
 
 def _log_wait(agent: Any, session_id: str, call: Any, assessment: Any, timeout: float) -> None:
@@ -875,6 +940,8 @@ async def _await_confirmation(
     preview_args: str,
     detail: str,
     timeout: float,
+    actor_id: str = "",
+    redacted: bool = False,
 ) -> Any:
     awai = _confirmation_channel(agent)
     if awai is None:
@@ -884,10 +951,12 @@ async def _await_confirmation(
     confirmation = RiskConfirmation(
         id=call.id,
         tool_name=call.name,
-        arguments=full_args,
+        arguments="" if redacted else full_args,
         risk=str(assessment.level),
-        summary="%s %s" % (call.name, preview_args),
-        detail=detail,
+        summary=call.name if redacted else "%s %s" % (call.name, preview_args),
+        detail="" if redacted else detail,
+        actor_id=actor_id,
+        redacted=redacted,
     )
     outcome = awai(ctx, session_id, confirmation, timeout)
     if hasattr(outcome, "__await__"):

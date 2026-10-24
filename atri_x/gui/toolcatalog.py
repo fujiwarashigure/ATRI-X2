@@ -237,6 +237,13 @@ TOOL_CATALOG: tuple[ToolMeta, ...] = (
         "low",
     ),
     ToolMeta(
+        "fetch_message",
+        "按 ID 取回消息",
+        "引用或转发当时没取到完整内容时，按消息 ID 再取一次（内容通常已在缓存里）。",
+        "群聊与角色",
+        "low",
+    ),
+    ToolMeta(
         "view_image",
         "查看图片",
         "把图片内容直接交给模型看，而不只是给一个地址。",

@@ -58,6 +58,7 @@ GO_TO_PYTHON: dict[str, str | None] = {
 
 #: 每个模块必须给出的公开名（``__all__`` 的非空断言之外的定点检查）。
 EXPECTED_EXPORTS: dict[str, tuple[str, ...]] = {
+    "approval": ("ApprovalModule", "new_grant", "new_panic"),
     "character": ("CharacterModule", "new_characters"),
     "compact": ("CompactModule", "new_compact"),
     "completion": ("complete_session_ids", "complete_tool_names"),
@@ -124,7 +125,8 @@ class ModuleInventoryTests(unittest.TestCase):
     def test_python_files_are_all_covered_by_the_mapping(self) -> None:
         """反向检查：不能有"没人认领"的 Python 文件。"""
         mapped = {module for module in GO_TO_PYTHON.values() if module}
-        mapped.update({"__init__", "log_args", "log_format", "model_types"})
+        # approval.py 是 Python 侧新增（借鉴 dsh-qq 的授权生命周期，无 Go 对应文件）。
+        mapped.update({"__init__", "log_args", "log_format", "model_types", "approval"})
         present = {info.name for info in pkgutil.iter_modules(commands_package.__path__)}
         self.assertEqual(present - mapped, set())
 

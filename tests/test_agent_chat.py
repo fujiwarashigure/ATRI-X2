@@ -755,5 +755,98 @@ class StreamAppendAwaitTest(unittest.TestCase):
         self.assertTrue(out.stream.replaced or out.sent)
 
 
+class ReactionTurnTest(unittest.TestCase):
+    """表情意图标记在真实回合路径上的行为。
+
+    重点不是选图算法（那在 ``test_reaction.py``），而是：
+
+    1. 标记**绝不能**出现在平台正文/落库内容里；
+    2. 表情图片作为 ``after_assistant`` 的 deferred output 交付；
+    3. 功能关闭时只剥标记、不发图。
+    """
+
+    def setUp(self) -> None:
+        import json
+        import os
+        import shutil
+
+        self.tmp = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "tmp_agent_chat_reaction_test",
+        )
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        os.makedirs(os.path.join(self.tmp, "assets"), exist_ok=True)
+        with open(os.path.join(self.tmp, "assets", "a.png"), "wb") as handle:
+            handle.write(b"\x89PNG\r\n\x1a\n")
+        with open(os.path.join(self.tmp, "catalog.json"), "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "version": 1,
+                    "items": [
+                        {"id": "a", "emotion": "无语", "path": "assets/a.png"}
+                    ],
+                },
+                handle,
+                ensure_ascii=False,
+            )
+
+    def tearDown(self) -> None:
+        import shutil
+
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _service(self):
+        from atri_x.agent.reactions import build_reaction_service
+        from atri_x.config import ReactionsConfig
+
+        return build_reaction_service(
+            ReactionsConfig(
+                enabled=True,
+                gallery_dir=self.tmp,
+                cooldown_text_replies=0,
+                session_cooldown_seconds=0,
+                group_cooldown_seconds=0,
+                dedupe_recent=0,
+                max_text_chars=0,
+                suppress_keywords=[],
+            )
+        )
+
+    def _run(self, text: str, *, enable_reaction: bool):
+        client = _ScriptedClient([[_chunk(text)]])
+        agent = _agent_with_client(client)
+        if enable_reaction:
+            agent.reaction_service = self._service()
+        ctx = make_ctx(platform="qqonebot", scope_id="group:123")
+        session = agent.sessions.get_or_create_current(agent.scope(ctx), "hi")
+        out = _Out()
+        asyncio.run(chat.start_chat_with_output(agent, ctx, session, "hi", out))
+        return agent, out
+
+    def test_marker_stripped_and_image_deferred(self) -> None:
+        agent, out = self._run(
+            "这个需求已经重写整个项目了吧！[[emo:无语]]", enable_reaction=True
+        )
+        self.assertEqual(out.sent, ["这个需求已经重写整个项目了吧！"])
+        images = [
+            output
+            for batch in out.outputs
+            for output in batch
+            if getattr(output, "kind", "") == "image"
+        ]
+        self.assertEqual(1, len(images))
+        from atri_x.delivery import delivery_timing
+
+        self.assertEqual("after_assistant", delivery_timing(images[0]))
+        rows = agent.store.messages().rows
+        self.assertEqual("这个需求已经重写整个项目了吧！", rows[-1].content)
+        self.assertNotIn("[[emo", rows[-1].content)
+
+    def test_marker_stripped_without_image_when_disabled(self) -> None:
+        _agent, out = self._run("好耶[[emo:得意]]", enable_reaction=False)
+        self.assertEqual(out.sent, ["好耶"])
+        self.assertEqual([], [item for batch in out.outputs for item in batch])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

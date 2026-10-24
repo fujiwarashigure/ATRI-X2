@@ -464,7 +464,15 @@ async def _stream_chat(
             len(tool_calls),
             elapsed_ms,
         )
-        audit_usage(agent, session_id, selection, usage, elapsed_ms)
+        audit_usage(
+            agent,
+            session_id,
+            selection,
+            usage,
+            elapsed_ms,
+            reason=classify_call_reason(ctx),
+            price_known=price_known_for(agent, selection.model),
+        )
         if reservation is None:
             agent.record_chat_usage(ctx, selection.model, usage, usage_call_id)
         return LLMCallResult(
@@ -568,9 +576,11 @@ from atri_x.agent.chat_request_options import (  # noqa: E402,F401
 from atri_x.agent.chat_observe import (  # noqa: E402,F401
     _audit_llm_error,
     audit_usage,
+    classify_call_reason,
     elapsed_millis,
     is_cli_context,
     log_llm_output,
+    price_known_for,
     send_cli_reasoning,
     should_show_cli_reasoning,
     user_message_segments,

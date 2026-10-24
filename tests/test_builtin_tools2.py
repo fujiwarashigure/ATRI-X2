@@ -543,12 +543,13 @@ class TestResidentMemory(unittest.TestCase):
             )
         )
         self.assertEqual(appended.content, "已追加普通常驻记忆。")
-        self.assertEqual(store.memory.normal, "a")
+        self.assertEqual([note.text for note in store.notes], ["a"])
 
         deleted = _run(
             normal.call(ctx, _call(RESIDENT_MEMORY_NORMAL_TOOL_NAME, {"action": "delete"}))
         )
-        self.assertEqual(deleted.content, "已清空普通常驻记忆。")
+        self.assertEqual(deleted.content, "已清空当前会话的普通常驻记忆。")
+        self.assertEqual(store.notes, [])
 
         written = _run(
             core.call(ctx, _call(RESIDENT_MEMORY_CORE_TOOL_NAME, {"content": "c"}))
@@ -913,6 +914,7 @@ class _FakeResidentStore:
         from atri_x.memory.resident import Limits, Memory, NormalWritePolicy
 
         self.memory = Memory(core="", normal="")
+        self.notes: list = []
         self.path = os.path.join(TMP_ROOT, "memories.toml")
         self.normal_policy = NormalWritePolicy()
 
@@ -922,6 +924,24 @@ class _FakeResidentStore:
         if not self.memory.core and not self.memory.normal:
             raise NotFoundError("no memory")
         return self.memory
+
+    def read_for_prompt(self, scope):
+        from atri_x.errors import NotFoundError
+        from atri_x.memory.notes import filter_visible_notes
+        from atri_x.memory.resident import Memory
+
+        try:
+            base = self.read(scope)
+        except NotFoundError:
+            base = Memory()
+        selection = filter_visible_notes(
+            self.notes, scope.platform, getattr(scope, "platform_scope_id", "")
+            if hasattr(scope, "platform_scope_id")
+            else "",
+        )
+        lines = [note.text for note in selection.notes]
+        normal = "\n".join([base.normal, *lines]).strip()
+        return Memory(core=base.core, normal=normal)
 
     def write_core(self, scope, content):
         self.memory.core = content
@@ -934,6 +954,41 @@ class _FakeResidentStore:
 
     def delete_normal(self, scope):
         self.memory.normal = ""
+
+    def read_notes(self, scope):
+        return list(self.notes)
+
+    def append_note(self, scope, content):
+        from atri_x.memory.notes import MemoryNote
+
+        scope_id = getattr(scope, "platform_scope_id", "") or ""
+        self.notes.append(
+            MemoryNote(
+                platform=scope.platform,
+                actor_id=scope.actor_id,
+                scope_id=scope_id,
+                text=content.strip(),
+            )
+        )
+
+    def write_notes(self, scope, content):
+        from atri_x.memory.notes import MemoryNote
+        from atri_x.memory.resident.entries import split_normal_entries
+
+        scope_id = getattr(scope, "platform_scope_id", "") or ""
+        self.notes = [note for note in self.notes if note.scope_id != scope_id]
+        for entry in split_normal_entries(content):
+            self.notes.append(
+                MemoryNote(
+                    platform=scope.platform,
+                    actor_id=scope.actor_id,
+                    scope_id=scope_id,
+                    text=entry,
+                )
+            )
+
+    def delete_notes(self, scope):
+        self.write_notes(scope, "")
 
     def limits_or_default(self):
         from atri_x.memory.resident import Limits

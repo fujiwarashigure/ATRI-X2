@@ -36,12 +36,23 @@ from atri_x.errors import (
     FileChangedError,
     InvalidError,
     LimitExceededError,
+    NotFoundError,
+)
+from atri_x.memory.notes import (
+    DEFAULT_VISIBILITY,
+    PROMPT_NOTE_LIMIT,
+    PROMPT_NOTE_MAX_UNITS,
+    MemoryNote,
+    NoteSelection,
+    filter_visible_notes,
+    normalize_visibility,
 )
 from atri_x.memory.resident.atomic import write_file_atomic
 from atri_x.memory.resident.entries import (
     Memory,
     count_units,
     normalize_normal_entries,
+    split_normal_entries,
     validate_normal_content,
 )
 from atri_x.net.tomlw import dumps as toml_dumps
@@ -65,8 +76,10 @@ __all__ = [
     "new_store_with_limits",
     "new_store_with_options",
     "normalize_limits",
+    "note_conversation_id",
     "validate_core",
     "validate_normal",
+    "validate_notes",
     "validate_scope",
 ]
 
@@ -139,9 +152,15 @@ class ResidentMemory:
 
 @dataclass
 class TomlFile:
-    """``memories.toml`` 的内容。对应 Go ``tomlFile``。"""
+    """``memories.toml`` 的内容。对应 Go ``tomlFile``。
+
+    本仓扩展：除 Go 的 ``resident_memories`` 外，还读写可选的
+    ``[[memory_notes]]`` 数组表（带来源会话与可见性的条目，见
+    :mod:`atri_x.memory.notes`）。
+    """
 
     resident_memories: list[ResidentMemory] = field(default_factory=list)
+    memory_notes: list[MemoryNote] = field(default_factory=list)
 
 
 @dataclass
@@ -236,6 +255,152 @@ class Store:
     def delete_normal(self, scope: Scope) -> None:
         """清空 normal（等价于 ``write_normal(scope, "")``）。对应 Go ``DeleteNormal``。"""
         return self.write_normal(scope, "")
+
+    # -- 记忆条目（本仓扩展）------------------------------------------------
+    #
+    # 老 ``core`` / ``normal`` 按 (platform, actor_id) 存整段，没有来源会话；
+    # 下面这组方法读写 ``[[memory_notes]]``：每条带 ``scope_id`` 与 visibility，
+    # 注入时由 :func:`atri_x.memory.notes.note_visible_in` 决定能不能出现在当前会话
+    # （私聊来源永不进群）。
+
+    def read_notes(self, scope: Scope) -> list[MemoryNote]:
+        """读该用户全部记忆条目（不按会话过滤）。"""
+        platform = (scope.platform or "").strip()
+        actor_id = (scope.actor_id or "").strip()
+        with self.mu:
+            file = self.load_locked()
+            return [
+                replace(note)
+                for note in file.memory_notes
+                if _same_note_owner(note, platform, actor_id)
+            ]
+
+    def read_visible_notes(self, scope: Scope, limit: int = 0) -> NoteSelection:
+        """本会话可见的记忆条目（唯一判定入口在 :mod:`atri_x.memory.notes`）。"""
+        return filter_visible_notes(
+            self.read_notes(scope), scope.platform, note_conversation_id(scope), limit
+        )
+
+    def read_for_prompt(self, scope: Scope, limit: int = PROMPT_NOTE_LIMIT) -> Memory:
+        """注入用的合并视图：老的 core/normal + 本会话可见条目。
+
+        老 ``normal`` 没有来源信息，按决策统一当 ``identity`` 档（认得这个人，
+        同平台可见）；新写入的条目按各自的 ``scope_id`` / visibility 过滤。
+        """
+        try:
+            memory = self.read(scope)
+        except NotFoundError:
+            memory = Memory()
+        selection = self.read_visible_notes(scope, limit)
+        if not selection.notes:
+            return memory
+        texts: list[str] = []
+        used = 0
+        for note in selection.notes:
+            units = count_units(note.text)
+            if texts and used + units > PROMPT_NOTE_MAX_UNITS:
+                break
+            texts.append(note.text)
+            used += units
+        return Memory(
+            core=memory.core,
+            normal=_join_normal_entries(memory.normal, texts),
+        )
+
+    def write_notes(self, scope: Scope, content: str) -> None:
+        """整体覆盖**本会话**的条目；其它会话写下的条目不动。"""
+        entries = split_normal_entries(normalize_normal_entries(content))
+        conversation = note_conversation_id(scope)
+
+        def mutate(notes: list[MemoryNote], stamp: str) -> None:
+            notes[:] = [
+                note
+                for note in notes
+                if (note.scope_id or "").strip() != conversation
+            ]
+            for entry in entries:
+                notes.append(self._new_note(scope, conversation, entry, stamp))
+
+        self.update_notes(scope, mutate)
+
+    def append_note(self, scope: Scope, content: str) -> None:
+        """追加一条本会话条目（同会话同内容去重）。"""
+        entries = split_normal_entries(normalize_normal_entries(content))
+        if not entries:
+            raise InvalidError("resident memory note content is required")
+        conversation = note_conversation_id(scope)
+
+        def mutate(notes: list[MemoryNote], stamp: str) -> None:
+            existing = {note.key() for note in notes}
+            for entry in entries:
+                note = self._new_note(scope, conversation, entry, stamp)
+                if note.key() in existing:
+                    continue
+                existing.add(note.key())
+                notes.append(note)
+
+        self.update_notes(scope, mutate)
+
+    def delete_notes(self, scope: Scope) -> None:
+        """清空本会话的条目。"""
+        self.write_notes(scope, "")
+
+    def update_notes(self, scope: Scope, mutate) -> None:
+        """读-改-写该用户的条目集合并原子落盘（复用文件级乐观并发重试）。"""
+        validate_scope(scope)
+        platform = (scope.platform or "").strip()
+        actor_id = (scope.actor_id or "").strip()
+        conversation = note_conversation_id(scope)
+        with self.mu:
+            for _ in range(MAX_UPDATE_ATTEMPTS):
+                file = self.load_locked()
+                loaded_state = self.cache.state
+                moment = now()
+                stamp = format_time(moment)
+                notes = [
+                    replace(note)
+                    for note in file.memory_notes
+                    if _same_note_owner(note, platform, actor_id)
+                ]
+                mutate(notes, stamp)
+                validate_notes(
+                    [
+                        note
+                        for note in notes
+                        if (note.scope_id or "").strip() == conversation
+                    ],
+                    self.limits_or_default(),
+                    self.normal_policy,
+                )
+                file.memory_notes = [
+                    note
+                    for note in file.memory_notes
+                    if not _same_note_owner(note, platform, actor_id)
+                ] + notes
+                self.check_normal_write_policy(scope, moment)
+                try:
+                    self.save_locked(file, loaded_state)
+                except FileChangedError:
+                    self.cache = StoreCache()
+                    continue
+                self.record_normal_write(scope, moment)
+                return
+        raise ConflictError(
+            "resident memory note update conflicted with concurrent file changes, please retry"
+        )
+
+    def _new_note(
+        self, scope: Scope, conversation: str, text: str, stamp: str
+    ) -> MemoryNote:
+        return MemoryNote(
+            platform=(scope.platform or "").strip(),
+            actor_id=(scope.actor_id or "").strip(),
+            scope_id=conversation,
+            text=text,
+            visibility=DEFAULT_VISIBILITY,
+            created_at=stamp,
+            updated_at=stamp,
+        )
 
     def limits_or_default(self) -> Limits:
         """归一化后的上限（未配置时 500/500）。对应 Go ``LimitsOrDefault``。"""
@@ -386,7 +551,8 @@ class Store:
                     "updated_at": memory.updated_at,
                 }
                 for memory in file.resident_memories
-            ]
+            ],
+            "memory_notes": [note.to_payload() for note in file.memory_notes],
         }
         try:
             data = toml_dumps(payload, sort_keys=False).encode("utf-8")
@@ -478,6 +644,53 @@ def scope_key(scope: Scope) -> str:
     return (scope.platform or "").strip() + "\x00" + (scope.actor_id or "").strip()
 
 
+def note_conversation_id(scope: Scope) -> str:
+    """记忆条目归属的会话 id（``platform_scope_id``）。
+
+    空串表示"来源未知 / 全局"（CLI、后台任务），这类条目按 ``identity`` 档处理：
+    同平台任意会话可见，但绝不会被当成私聊来源挡在群外。
+    """
+    return (scope.platform_scope_id or "").strip()
+
+
+def validate_notes(
+    notes: list[MemoryNote], limits: Limits, policy: NormalWritePolicy
+) -> None:
+    """校验一个会话内条目的总长度（复用 ``normal`` 口径）与内容规则。"""
+    content = "\n".join(
+        (note.text or "").strip() for note in notes if (note.text or "").strip()
+    )
+    units = count_units(content)
+    if units > limits.normal:
+        raise LimitExceededError(
+            f"resident memory notes are too long: {units}/{limits.normal} units"
+        )
+    validate_normal_content(content, policy)
+
+
+def _same_note_owner(note: MemoryNote, platform: str, actor_id: str) -> bool:
+    return (
+        (note.platform or "").strip() == platform
+        and (note.actor_id or "").strip() == actor_id
+    )
+
+
+def _join_normal_entries(existing: str, extra: list[str]) -> str:
+    """把老 normal 与本会话可见条目合成一个 ``normal`` 文本（换行分隔）。"""
+    lines = split_normal_entries(normalize_normal_entries(existing))
+    seen = {line.lower() for line in lines}
+    for entry in extra:
+        entry = " ".join((entry or "").split())
+        if not entry:
+            continue
+        if entry.lower() in seen:
+            continue
+        seen.add(entry.lower())
+        lines.append(entry)
+    return "\n".join(lines)
+
+
+
 def current_file_state(path: str) -> FileState:
     """当前文件指纹。对应 Go ``currentFileState``。"""
     try:
@@ -500,7 +713,10 @@ def same_file_state(left: FileState, right: FileState) -> bool:
 
 def clone_file(file: TomlFile) -> TomlFile:
     """复制文件内容，避免调用方改到缓存。对应 Go ``cloneFile``。"""
-    return TomlFile(resident_memories=[replace(memory) for memory in file.resident_memories])
+    return TomlFile(
+        resident_memories=[replace(memory) for memory in file.resident_memories],
+        memory_notes=[replace(note) for note in file.memory_notes],
+    )
 
 
 def parse_toml_file(data: bytes, path: str) -> TomlFile:
@@ -513,27 +729,58 @@ def parse_toml_file(data: bytes, path: str) -> TomlFile:
     except tomllib.TOMLDecodeError as exc:
         raise InvalidError(f"parse resident memory {path!r}: {exc}") from exc
     entries = parsed.get("resident_memories")
-    if entries is None:
-        return TomlFile()
-    if not isinstance(entries, list):
-        raise InvalidError(f"parse resident memory {path!r}: resident_memories must be a list")
     memories: list[ResidentMemory] = []
-    for item in entries:
+    if entries is not None:
+        if not isinstance(entries, list):
+            raise InvalidError(
+                f"parse resident memory {path!r}: resident_memories must be a list"
+            )
+        for item in entries:
+            if not isinstance(item, dict):
+                raise InvalidError(
+                    f"parse resident memory {path!r}: resident_memories entries must be tables"
+                )
+            memories.append(
+                ResidentMemory(
+                    platform=_string_field(item, "platform", path),
+                    actor_id=_string_field(item, "actor_id", path),
+                    core=_string_field(item, "core", path),
+                    normal=_string_field(item, "normal", path),
+                    created_at=_string_field(item, "created_at", path),
+                    updated_at=_string_field(item, "updated_at", path),
+                )
+            )
+    return TomlFile(
+        resident_memories=memories,
+        memory_notes=parse_memory_notes(parsed.get("memory_notes"), path),
+    )
+
+
+def parse_memory_notes(raw: Any, path: str) -> list[MemoryNote]:
+    """解析可选的 ``[[memory_notes]]`` 数组表（本仓扩展）。"""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise InvalidError(f"parse resident memory {path!r}: memory_notes must be a list")
+    notes: list[MemoryNote] = []
+    for item in raw:
         if not isinstance(item, dict):
             raise InvalidError(
-                f"parse resident memory {path!r}: resident_memories entries must be tables"
+                f"parse resident memory {path!r}: memory_notes entries must be tables"
             )
-        memories.append(
-            ResidentMemory(
+        notes.append(
+            MemoryNote(
                 platform=_string_field(item, "platform", path),
                 actor_id=_string_field(item, "actor_id", path),
-                core=_string_field(item, "core", path),
-                normal=_string_field(item, "normal", path),
+                scope_id=_string_field(item, "scope_id", path),
+                text=_string_field(item, "text", path),
+                visibility=normalize_visibility(_string_field(item, "visibility", path)),
+                share_status=_string_field(item, "share_status", path),
                 created_at=_string_field(item, "created_at", path),
                 updated_at=_string_field(item, "updated_at", path),
             )
         )
-    return TomlFile(resident_memories=memories)
+    return notes
 
 
 def _string_field(item: dict, key: str, path: str) -> str:

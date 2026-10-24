@@ -113,12 +113,15 @@ class LLMSummarizer(Summarizer):
         out: list[str] = []
         used = 0
         truncated = False
+        usage = None
         try:
             async with asyncio.timeout(timeout):
                 async for chunk in stream:
                     error = getattr(chunk, "error", None)
                     if error is not None:
                         raise _stream_error(error)
+                    if getattr(chunk, "usage", None) is not None:
+                        usage = chunk.usage
                     if truncated:
                         # 继续把流读完让生产者结束，但不再增长缓冲。
                         continue
@@ -134,6 +137,13 @@ class LLMSummarizer(Summarizer):
                     used += len(delta)
         except TimeoutError as exc:
             raise _deadline_error() from exc
+        # 旁路用量：群分析摘要也进 /usage。
+        from atri_x.agent.call_reason import side_reason
+        from atri_x.llm.usage_sink import record_side_usage
+
+        record_side_usage(
+            reason=side_reason("group_analysis"), model=self.model, usage=usage
+        )
         return "".join(out).strip()
 
 

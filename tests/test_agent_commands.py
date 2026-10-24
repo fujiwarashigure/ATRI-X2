@@ -33,9 +33,11 @@ from atri_x.errors import InvalidError
 from atri_x.security import Actor, RoleSuperadmin, RoleUser
 from tests.agent_commands_fakes import Harness
 
-# 45 条默认命令，顺序与 Go ``DefaultModules`` 的注册顺序一致。
+# 47 条默认命令，顺序与 Go ``DefaultModules`` 的注册顺序一致。
 EXPECTED_COMMANDS = [
     "help",
+    "grant",
+    "panic",
     "model",
     "checkmodel",
     "new",
@@ -131,6 +133,7 @@ class RegistryTests(unittest.TestCase):
             [type(module).__name__ for module in modules],
             [
                 "HelpModule",
+                "ApprovalModule",
                 "ModelModule",
                 "SessionModule",
                 "CompactModule",
@@ -292,7 +295,7 @@ class LookupAndAccessTests(unittest.TestCase):
     def test_superadmin_sees_everything(self) -> None:
         harness = Harness()
         actor = Actor(id="u1", platform="qq", platform_user_id="1", role=RoleSuperadmin)
-        self.assertEqual(len(harness.router.commands_for_actor(actor)), 45)
+        self.assertEqual(len(harness.router.commands_for_actor(actor)), 47)
 
     def test_plain_user_sees_only_user_commands(self) -> None:
         harness = Harness()

@@ -412,9 +412,12 @@ class Service:
             out: list[str] = []
             used = 0
             finish_reason = ""
+            usage = None
             async for chunk in stream:
                 if chunk.error is not None:
                     raise chunk.error
+                if getattr(chunk, "usage", None) is not None:
+                    usage = chunk.usage
                 if chunk.finish_reason:
                     # 终止事件可能只带 finish_reason，正文是空的。
                     finish_reason = chunk.finish_reason
@@ -445,6 +448,16 @@ class Service:
         value = clean_text("".join(out))
         if value == "":
             raise ValueError("vision: model returned an empty result")
+        # 旁路用量：识图调用也进 /usage。
+        from atri_x.agent.call_reason import side_reason
+        from atri_x.llm.usage_sink import record_side_usage
+
+        record_side_usage(
+            reason=side_reason("vision"),
+            provider=self.opts.provider,
+            model=self.opts.model,
+            usage=usage,
+        )
         return Result(text=value, provider=self.opts.provider, model=self.opts.model)
 
     # -- 运维视图 -----------------------------------------------------------

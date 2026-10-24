@@ -24,8 +24,9 @@ from atri_x.config import assets as A
 
 class TestAssetInventory(unittest.TestCase):
     def test_asset_count_matches_upstream(self) -> None:
-        # 上游 defaultConfigAssets 共 14 条
-        self.assertEqual(len(A.DEFAULT_CONFIG_ASSETS), 14)
+        # 上游 defaultConfigAssets 共 14 条；Python 版新增 1 条
+        # ``reactions/catalog.json``（本地表情图库清单模板），共 15 条。
+        self.assertEqual(len(A.DEFAULT_CONFIG_ASSETS), 15)
 
     def test_upstream_paths_present(self) -> None:
         paths = {a.path for a in A.DEFAULT_CONFIG_ASSETS}
@@ -44,13 +45,22 @@ class TestAssetInventory(unittest.TestCase):
             "skills/agent/write_atrix_hook/SKILL.md",
             "skills/agent/write_atrix_hook/ATRIX_SKILL.toml",
             ".env.example",
+            "reactions/catalog.json",
         ):
             self.assertIn(expected, paths, f"缺少默认资产 {expected}")
 
     def test_default_config_dirs_match_upstream(self) -> None:
         self.assertEqual(
             set(A.DEFAULT_CONFIG_DIRS),
-            {"skills", "skills/agent", "skills/go", "plugins", "long_memory"},
+            {
+                "skills",
+                "skills/agent",
+                "skills/go",
+                "plugins",
+                "long_memory",
+                "reactions",
+                "reactions/assets",
+            },
         )
 
     def test_every_asset_has_non_empty_content(self) -> None:

@@ -28,6 +28,7 @@ from atri_x.memory.resident import (
     Store,
     actor_scope,
 )
+from atri_x.platform import message_context_from
 from atri_x.security import actor_from_context
 from atri_x.tool.builder import Builder, required
 from atri_x.tool.tool import CallRequest, Info, Result, RiskHigh, RiskLow
@@ -156,14 +157,14 @@ class ResidentMemoryReadTool:
         )
 
     async def call(self, ctx: Any, req: CallRequest) -> Result:
-        scope = memory_scope(ctx, self.store)
+        scope = note_scope(ctx, self.store)
         args = decode_memory_args(req.arguments, MemoryReadArgs)
-        assert self.store is not None  # memory_scope 已校验
+        assert self.store is not None  # note_scope 已校验
         section = (args.section or "").strip().lower() or "all"
         if section not in ("all", "core", "normal"):
             raise InvalidError("section must be all, core or normal")
         try:
-            memory = self.store.read(scope)
+            memory = self.store.read_for_prompt(scope)
         except NotFoundError:
             memory = Memory()
         result = MemoryReadResult(
@@ -199,30 +200,30 @@ class ResidentMemoryNormalTool:
             .string(
                 "content",
                 "append/write 时使用。每条一行、一行一件事，重复条目会去重。"
-                "write 会覆盖完整 normal，使用前必须先调用 resident_memory_read "
-                "读取 normal 或 all。delete 不需要 content。",
+                "write 只覆盖当前会话的条目（其它会话的不动），使用前必须先调用 "
+                "resident_memory_read 读取 normal 或 all。delete 不需要 content。",
             )
             .build_schema()
         )
 
     async def call(self, ctx: Any, req: CallRequest) -> Result:
-        scope = memory_scope(ctx, self.store)
+        scope = note_scope(ctx, self.store)
         args = decode_memory_args(req.arguments, MemoryNormalArgs)
         assert self.store is not None
         action = (args.action or "").strip().lower()
         if action in ("append", "add"):
             if args.content is None or args.content.strip() == "":
                 raise InvalidError("normal content is required")
-            self.store.append_normal(scope, args.content)
+            self.store.append_note(scope, args.content)
             return Result(content="已追加普通常驻记忆。")
         if action in ("write", "set", "update"):
             if args.content is None:
                 raise InvalidError("normal content is required")
-            self.store.write_normal(scope, args.content)
-            return Result(content="已更新普通常驻记忆。")
+            self.store.write_notes(scope, args.content)
+            return Result(content="已更新普通常驻记忆（只覆盖当前会话的条目）。")
         if action in ("delete", "clear"):
-            self.store.delete_normal(scope)
-            return Result(content="已清空普通常驻记忆。")
+            self.store.delete_notes(scope)
+            return Result(content="已清空当前会话的普通常驻记忆。")
         raise InvalidError("action must be append, write or delete")
 
 
@@ -290,7 +291,9 @@ def normal_description(store: Store | None) -> str:
         constraints += f"，单条最多 {policy.max_units_per_entry} 字数或单词"
     return (
         "修改当前用户在当前平台的普通常驻记忆。支持 append、write、delete。"
-        "每条一行、一行一件事，重复条目会去重；write 会覆盖完整 normal，"
+        "每条一行、一行一件事，重复条目会去重；记忆按会话隔离："
+        "write 只覆盖**当前会话**的条目（不会动私聊或其它群写下的条目），"
+        "append 追加到当前会话，delete 清空当前会话的条目。"
         f"使用前必须先调用 resident_memory_read。{constraints}。"
         f"{RESIDENT_MEMORY_WRITING_RULE}"
     )
@@ -334,6 +337,19 @@ def memory_scope(ctx: Any, store: Store | None) -> Any:
     if not ok:
         raise InvalidError("resident memory actor is not available")
     return actor_scope(actor)
+
+
+def note_scope(ctx: Any, store: Store | None) -> Any:
+    """记忆条目的作用域：身份 + 来源会话（``resident_memory_normal`` 用）。
+
+    会话 id 取自平台消息上下文。拿不到时留空 —— 空来源按 ``identity`` 档处理
+    （同平台任意会话可见），不会被当成私聊来源挡在群外。
+    """
+    scope = memory_scope(ctx, store)
+    msg, ok = message_context_from(ctx)
+    if ok and (msg.scope_id or "").strip():
+        scope.platform_scope_id = msg.scope_id.strip()
+    return scope
 
 
 def _actor_from_context(ctx: Any) -> tuple[Any, bool]:

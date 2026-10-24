@@ -60,6 +60,7 @@ from atri_x.tool.builtin.file_manager import FileManager
 from atri_x.tool.builtin.file_rollback import new_rollback_file_tool
 from atri_x.tool.builtin.file_tools import EditFileTool, ReadFileTool
 from atri_x.tool.builtin.get_media import new_get_media_tool
+from atri_x.tool.builtin.fetch_message import new_fetch_message_tool
 from atri_x.tool.builtin.group_analysis import new_group_analysis_tool
 from atri_x.tool.builtin.image_generate import ImageGenerateTool, ImageProfile
 from atri_x.tool.builtin.image_to_prompt import new_image_to_prompt_tool
@@ -112,6 +113,9 @@ ALWAYS_REGISTERED_TOOLS: tuple[str, ...] = (
     # 所以这两条没有守卫。
     "agent_skill",
     "go_skill_run",
+    # Python 侧新增：按 id 回查消息 / 转发的完整内容（配合引用 / 转发的慢取占位）。
+    # 非 QQ 平台调用时返回"不支持"而不是报错，所以没有守卫。
+    "fetch_message",
 )
 
 #: 需要 ``RegisterOptions`` 里对应字段才注册的工具：键 = Go ``RegisterAll`` 的守卫字段，
@@ -289,6 +293,9 @@ def register_all(registry: Registry, opts: RegisterOptions) -> None:
         registry.register(
             new_reply_to_chat_history_message_tool(opts.chat_history, info)
         )
+
+    # Python 侧新增：按 id 回查消息 / 转发的完整内容（配合引用 / 转发的慢取占位）。
+    registry.register(new_fetch_message_tool())
 
     if opts.group_analysis_service is not None:
         registry.register(

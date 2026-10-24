@@ -97,6 +97,14 @@ class LLMMixin:
         )
         # Go 这里**忽略** runner 自带的 Parsed/ParseErr，一律重新解析 result.Text
         # （runner 的解析结果可能来自不同的口径），保持同一行为。
+        from atri_x.agent.admission import ADMISSION_SKIP_OUTCOME
+
+        if str(getattr(result, "outcome", "") or "") == ADMISSION_SKIP_OUTCOME:
+            # 静默期被准入层跳过：事件按完成收尾、不生成汇报（审计由 run_background 写）。
+            self.complete_event_with_session(
+                ctx, event_id, event.resolved_targets, StatusCompleted, "", "", ""
+            )
+            return
         try:
             parsed = ParseJSONResult(result.text)
             parse_error: BaseException | None = None

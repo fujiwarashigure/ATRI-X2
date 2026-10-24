@@ -107,6 +107,7 @@ class ImagePromptRewriter:
             ),
         )
         out: list[str] = []
+        usage = None
         iterator = stream.__aiter__()
         while True:
             try:
@@ -115,10 +116,19 @@ class ImagePromptRewriter:
                 break
             if getattr(chunk, "error", None) is not None:
                 raise chunk.error
+            if getattr(chunk, "usage", None) is not None:
+                usage = chunk.usage
             out.append(getattr(chunk, "delta_content", "") or "")
         value = "".join(out).strip()
         if not value:
             raise InvalidError("rewrite returned an empty result")
+        # 旁路用量：画师提示词改写也是一次真实调用。
+        from atri_x.agent.call_reason import side_reason
+        from atri_x.llm.usage_sink import record_side_usage
+
+        record_side_usage(
+            reason=side_reason("image_rewrite"), model=self.model, usage=usage
+        )
         return value
 
     # Go 命名别名。

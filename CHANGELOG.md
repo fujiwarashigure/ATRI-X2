@@ -6,6 +6,293 @@
 
 ---
 
+## [1.0.5] - 2026-10-26 — 确认安全边界 + 记忆可见性（借鉴 dsh-qq 第一批）
+
+> 本版落地《dsh-qq 借鉴落地评估》第一批的 P0 两项：**高风险确认的授权边界**与
+> **常驻记忆的会话可见性**。两项都是"旧行为是漏洞、新行为是默认安全"的改动，
+> 不需要新配置项；已有配置文件原样启动即可。
+
+旧状态（1.0.4）：
+- 高风险工具确认只看 Session，不看发言人：共享线程群（`thread_mode = "group"`）
+  里任何群成员都能回 `/confirm`、`/confirmall`、`/reject`；确认提示里的参数预览
+  直接发到群里，所有成员可见；`/confirmall` 一次放行本会话后续所有高风险工具。
+- 常驻记忆按 `(platform, actor_id)` 存整段 core/normal，读取时**不带会话**：
+  同一个人在私聊里说过的事，进群后仍会被注入；`resident_memory_normal` 的 `write`
+  覆盖整段 normal，写一次群记忆会连带覆盖私聊记忆。
+
+### 安全 — 高风险工具确认（对应评估 §B0）
+
+- `turn.RiskConfirmation` 新增 `actor_id` / `redacted` 两个字段（Python 版扩展）。
+  `agent.toolrun_adapter` 创建确认时写入发起人 `actor_id`，群聊 / 频道里把参数与
+  工具自定义详情标成 `redacted`。
+- 确认类命令（`/detail`、`/confirm`、`/confirmtool`、`/confirmall`、`/reject`、
+  `/stop`）**只接受发起人本人**：`agent.input.handle_risk_confirmation_input` 在解析
+  出指令后先比对发言人，不匹配就拒绝并记审计 `foreign_actor`；超级管理员是唯一
+  例外（运维解锁）。空 `actor_id`（历史来源）按旧行为放行，只记审计。
+- 群聊 / 频道里**不展示工具参数**：确认提示给「参数：已隐藏（群聊中不展示）」，
+  `/detail` 走 `REDACTED_ARGUMENTS_TEXT`，三处详情渲染器
+  （`agent.risk_confirmation`、`agent.input`、`agent.toolrun_adapter`）行为一致。
+- **群聊禁用 `/confirmall`**：`/ca` 同样拒绝，提示改用 `/confirmtool` 或 `/confirm`；
+  私聊与 CLI 行为不变。等待提示文案由 `confirmation_allows_confirm_all()` 决定是否
+  出现 `confirmall`。
+
+### 安全 — 授权生命周期与 `/panic`（对应评估 §B1 / §B2）
+
+- 新模块 `atri_x/security/grants.py`：`Grant`（id / kind(session|tool) / tool /
+  session_id / scope_key / actor_id / created_at / expires_at / max_uses / uses）
+  与线程安全的进程内 `GrantRegistry`。旧的两个 dict（`auto_confirm_session` /
+  `auto_confirm_tools`）退役，`chat_tools.is_session_auto_confirmed` 等旧函数保留为
+  薄包装（走登记表，两参 / 三参签名不变）。
+- `/confirmall` / `/confirmtool` 现在产生**带 TTL 的凭据**：默认 10 分钟
+  （`DEFAULT_GRANT_TTL_SECONDS`，`0` 表示不过期），绑定产生时的
+  `scope_key`（`<platform>:<scope_id>`）与 `actor_id`。共享线程群里另一名成员、
+  或换个会话都不能复用同一条放行；命中即消耗一次使用次数。
+- 失效钩子：群策略写回（`set_group_policy_for_scope`）撤销该作用域凭据；
+  `/delete` 删除 Session 时撤销该 Session 凭据；`/panic` 全清。
+- 新命令 `/grant list` / `/grant revoke <id>`（支持唯一前缀）与 `/panic`
+  （`atri_x/agent/commands/approval.py`，`Info.min_role` 留空 = 仅超管）。
+  `/panic` 不走模型：直接撤销全部凭据、`turns.stop_all()`、
+  `requests.cancel_all()`、清各 Session 的排队消息；群里执行要求
+  `/panic confirm` 二次确认（防误触）。
+- 审计新增 `grant_created` / `grant_used` / `grant_revoked` / `panic` 四类事件。
+
+### 记忆 — 会话可见性（对应评估 §A）
+
+- 新模块 `atri_x/memory/notes.py`：`MemoryNote`（带 `scope_id` / `visibility` /
+  `share_status`）+ 唯一判定入口 `note_visible_in()`。三档 visibility：
+  `none` / `identity`（默认）/ `shared`。两条硬规则：**私聊来源永不进群**
+  （`private:` / `c2c:` 来源只能出现在同一个私聊会话）、**合并取更严**
+  （`stricter()`）。单轮注入上限 `PROMPT_NOTE_LIMIT = 12` 条 /
+  `PROMPT_NOTE_MAX_UNITS = 500` 单位。
+- `memories.toml` 新增可选的 `[[memory_notes]]` 数组表（老文件没有这一段时按空表读）；
+  `Store` 新增 `read_notes` / `read_visible_notes` / `read_for_prompt` /
+  `write_notes` / `append_note` / `delete_notes` / `update_notes`。
+- **老数据按决策当 `identity` 档**：老 `core` / `normal` 没有来源信息，同平台任意
+  会话仍可见；新写入的条目按来源会话过滤。`core` 维持"认得这个人"的全局可见性。
+- `resident_memory_normal` 的 `append` / `write` / `delete` 改为**按会话隔离**：
+  `write` 只覆盖**当前会话**的条目（私聊与其它群写下的条目不动），`delete` 只清空
+  当前会话；`resident_memory_read` 返回"本会话可见"的记忆（core + 老 normal +
+  可见条目）。
+- `ResidentMemorySystemPromptSource` 改走 `read_for_prompt`（只提供 `read` 的存储
+  替身退回旧行为）；**人物视图注入默认关闭**（`PEOPLE_VIEW_ENABLED = False`），
+  先只注入本人条目把过滤跑通。
+- 天使记忆（按 `(platform, scope_id)` 存）本来就带 `source_actor_id`，本批不改。
+
+### 长期记忆 — 按会话隔离（对应评估 §A2 / 决策 4）
+
+- `long_memory_*` 从「超管全局知识库」改为**按会话隔离**：新模块
+  `atri_x/tool/builtin/long_memory_scope.py` 是唯一判定入口（作用域键、可见性、
+  跨会话授权都只在这里判）。
+- 记忆文件 front matter 新增可选 `source_scope` / `source_actor`（写成
+  `<platform>:<scope_id>` 与 `platform:user_id`）；索引库 `memory_files` 加两列，
+  老库在第一次打开时 `ALTER TABLE` 补列（已有行默认空串）。
+  **无来源字段的旧记忆按"全局旧数据"处理，仍然到处可见**，升级不失忆。
+- 检索 / 分类目录 / 更新 / 删除默认只看「当前会话 + 未归属旧数据」；
+  `long_memory_write` 的 `save` 自动给新记忆打上当前会话与写入者。
+- 超级管理员可跨会话：`long_memory_search` 传 `scope=all` 看全库、传具体作用域键
+  定向看某个会话，结果里多一行「来源会话」；`update` / `delete` 跨会话时必须显式
+  传目标记录的 `scope`。非超管即使能调到工具也会被拒绝（纵深防御）。
+- 旧文件序列化结果不变：没有来源字段的记录不会写入 `source_scope` / `source_actor`，
+  避免升级后整库重写。
+
+### 引用 / 转发 — 慢取（对应评估 §C）
+
+- 新模块 `atri_x/platform/qq_onebot/slowfetch.py`：`FetchCache`（成功 / 失败分开
+  TTL、LRU 上限、诊断计数）+ 单飞 + 预算等待。同一个消息 id 的并发拉取合并成一次
+  请求；预算内没等到就返回 `deferred`，**任务不取消**，结果由 done callback 写进
+  缓存，下一次调用或 `fetch_message` 直接命中。
+- `preprocess.fetch_referenced` / `resolve_forward_segments` 改走慢取：入站不再被
+  `get_msg`（默认 15s 传输超时）和 `get_forward_msg`（5s × 最多 8 次）串行拖住。
+  引用超时按"没有引用上下文"处理；转发超时留「拉取超时，已稍后重试」占位，
+  拉取失败仍是「拉取失败」（失败结果按短 TTL 缓存，避免重试风暴）。
+- 新增工具 `fetch_message`（`atri_x/tool/builtin/fetch_message.py`）：按消息 / 转发
+  id 取回完整正文；先查缓存，未命中再真正拉一次。非 QQ 平台返回"不支持"而不报错。
+- `[platform.qqonebot]` 新增 5 个键（全部有内置默认，老配置不写也能启动）：
+  `slow_fetch_enabled`（默认 true）、`slow_fetch_budget_ms`（1500）、
+  `slow_fetch_success_ttl_seconds`（300）、`slow_fetch_failure_ttl_seconds`（30）、
+  `slow_fetch_max_entries`（512）。关掉 `slow_fetch_enabled` 恢复"一直等到平台
+  返回"的旧行为（缓存与单飞仍生效）。桌面端暂未暴露这 5 个键（需要手改 app.toml，
+  重启生效）。
+
+### 费用归因（对应评估 §F）
+
+- 新模块 `atri_x/agent/call_reason.py`：主聊天六种原因（`direct_message` /
+  `ambient_participation` / `cron` / `external_event` / `memory_learning` / `retry`）
+  与旁路 `side:<name>` 标签；`classify_call_reason()` 按上下文区分"用户直聊"与
+  "后台任务"。
+- `llm_usage` 审计事件新增 `reason`（原因）与 `price_known`（价格表里是否有该模型
+  的价）；`/usage` 新增 `--by trigger` 按原因下钻。
+- 新模块 `atri_x/llm/usage_sink.py`：旁路调用的统一用量出口（进程级 sink，没有
+  订阅者时是 no-op）。`Agent.__init__` 订阅它并写成同一种 `llm_usage` 事件
+  （`usage_source=side`），**5 条旁路终于进 `/usage` 了**：压缩摘要
+  （`side:compaction`）、群分析报告摘要（`side:group_analysis`）、视觉理解
+  （`side:vision`）、会话自动命名（`side:title`）、图片提示词改写
+  （`side:image_rewrite`）。
+- 未知价格不再等于 0 费用：`/usage` 末尾会提示"N 次调用的模型价格未知（费用未计入）
+  / N 次旁路调用只统计 token"，两者都明确标注"不等于 0 费用"。
+
+### 计算静默（对应评估 §E）
+
+- `app.toml` 新增 `[quiet]` 段（默认关闭，老配置不写也能启动）：`enabled` /
+  `window`（`HH:MM-HH:MM`，跨零点照写）/ `timezone`（空 = 本地）/
+  `allow_cron` / `allow_external` / `allow_direct` / `allow_superadmin`。
+- 新模块 `atri_x/agent/admission.py`：`admit(agent, ctx, reason)` 是"这次模型调用
+  能不能发生"的唯一入口，原因标签沿用 `agent.call_reason`（与 `/usage --by trigger`
+  同一套）。静默期规则：cron / 外部事件 / 记忆学习 / 主动参与默认 `skip`，
+  用户直聊与超级管理员默认放行；**skip 不补跑**。
+- 接线：`agent.cron.run_background`（cron 与 Atrinis 的唯一后台入口）在静默期直接
+  返回 `RunResult(outcome="quiet_skipped")` 并写 `cron_skipped_quiet` /
+  `external_skipped_quiet` 审计；`cron/execution.py` 与 `atrinis/llm.py` 识别该
+  outcome，不当成"解析失败"去重试、不发空报告。
+- 群聊唤醒判定改为"全局 `[quiet]` ∨ 群策略 `quiet_hours`"（任一生效即静默），
+  超级管理员豁免仍可用 `allow_superadmin` 关掉；行为变化只发生在显式打开
+  `[quiet].enabled` 之后。
+- 「只压计算，不压数据」：静默期消息照常入库，只是不叫醒模型；群分析这类前台
+  turn 内的动作不单独准入（turn 已在唤醒层被压掉）。
+- 桌面端暂未提供 `[quiet]` 面板（手改 `app.toml`，重启生效）。
+
+### 群聊参与状态机（对应评估 §D）
+
+- `app.toml` 新增 `[participation]` 段（默认关闭）：`guard` / `cooldown_seconds`
+  （默认 120）/ `no_reply_streak_max`（默认 3）。
+- 新模块 `atri_x/agent/participation.py`：per-scope `ParticipationState`
+  （最近唤醒、最近直接互动、未回应连击、主动参与冷却截止）+ 状态机函数。
+  状态只在进程内存里，重启清空。
+- 开启后只做**抑制**：机器人刚在某个群接过话的冷却期内，普通闲聊不再唤醒它；
+  连续"被叫到没回应"达到上限同样进入冷却。点名 / 回复机器人 / 唤醒词仍然唤醒，
+  且直接互动会清零连击。唤醒接线在 `agent.wakeup.message_wakeup`（默认关闭时
+  no-op，行为与之前完全一致）。
+- **不做**：`readThroughSeq` / 未读浏览 / `set_wake_condition` 工具；也不做
+  "追问提示抑制"（需要提示词侧配合，本版未接）。
+
+### 测试与门禁
+
+- 新增 `tests/test_memory_notes.py`（29 个用例：可见性矩阵、存储会话隔离、注入过滤、
+  工具读写、老文件兼容）；`tests/test_agent_risk.py` 新增 19 个确认边界用例
+  （冒名确认、超管例外、群内藏参数、群内 `/confirmall` 拒绝、私聊 / CLI 放行）；
+  `tests/test_qq_slowfetch.py` 31 个用例（缓存 TTL / LRU / 单飞 / 预算延后 / 失败
+  短缓存 / 引用与转发复用 / `fetch_message` 工具与注册）；
+  `tests/test_usage_attribution.py` 15 个用例（原因归一、旁路 sink、审计字段、
+  `--by trigger` 分组、未知费用提示）；`tests/test_long_memory_scope.py` 31 个用例
+  （归属字段、跨会话隔离、定向 / 全库检索、跨会话改删授权、老索引迁移、
+  旧文件序列化不变）；`tests/test_security_grants.py` 20 个用例（TTL / 次数 /
+  scope+actor 绑定 / 各类撤销 / 发放与使用审计 / `/grant` 与 `/panic`）；
+  `tests/test_agent_admission.py` 18 个用例（`[quiet]` 配置、静默判定矩阵、
+  cron 后台直跳与审计、跳过结果不被当成解析失败）；`tests/test_agent_participation.py`
+  12 个用例（配置默认、冷却 / 连击 / 直接互动重置、快照与清空、唤醒接线）。
+- `docs/commands.md` 的「高风险工具确认」一节补三条边界与「授权凭据」小节；
+  `docs/concepts.md` 补「长期记忆按会话隔离」一段；`docs/configuration.md` 新增
+  「静默时段 quiet」与「群聊参与状态机 participation」两节。
+- 门禁：`check_syntax` / `check_imports` / `check_integration` / `check_coverage`
+  / `check_except` / `check_secrets` / `gen_stats` 全绿；全量 6475 个用例通过
+  （跳过 4，较 1.0.4 的 6300 新增 175 个）。
+
+### 尚未落地（下一批）
+
+- 桌面端还没有 `[quiet]` / `[participation]` 面板（手改 `app.toml`，重启生效）。
+- 评估 §D 的"追问提示抑制"（需要提示词侧配合）与 `readThroughSeq` / 未读浏览类
+  群聊协议扩展没有做。
+
+---
+
+## [1.0.4] - 2026-10-25 — 工具进度提示 + 本地表情图库
+
+> 本版新增两个"拟人感"功能，都做成**配置驱动 + 桌面端可调**，默认不改变旧行为：
+> ①**工具进度提示**——模型这一轮没先说话时，程序补一句进度（搜索 / 读取网页 / 其它工具
+> 各有文案，默认角色化短句且不展示工具参数）；`[tool_preview]` 段控制文案风格；
+> ②**本地表情图库**——模型只用 `[[emo:标签]]` 提出情绪意图，程序按策略决定"这次要不要
+> 补图、补哪张"，不会被模型直接指定磁盘路径。版本号 `1.0.3` → `1.0.4`，重建
+> Windows 便携版与安装包。
+
+旧状态（1.0.3）：
+- 工具进度预览文案硬编码在 `atri_x/toolrun/runner.py`：`正在调用 <工具>：<参数>`，
+  参数原样展示（最多 160 rune），群聊里只有一个平台级开关
+  （`[platform.qqonebot].show_tool_preview_in_group`），文案本身不可配置，
+  代码里也没有"角色口吻"选项。
+- 出站内容只有文本/工具产出的媒体，没有任何"按情绪补一张本地表情图"的能力；
+  `llm.response.received` 等 Hook 点虽然能追加图片输出，但冷却、去重、场景抑制
+  全靠插件作者自己写，产品内没有统一状态。
+
+### 新增 — 工具调用进度提示（`[tool_preview]`）
+
+- `atri_x/toolrun/preview.py`：`PreviewTexts`（纯数据）+ 默认文案。两种风格：
+  `persona`（默认，短句、不展示参数）/ `system`（旧的"正在调用 工具名：参数"）。
+  搜索类工具（`web_search` / `search_chat_history`）、读取网页（`web_extract`）与
+  其它工具分别有独立文案；批量预览按工具**去重**（同一批两个 `web_search` 只显示一行）。
+- `RunRequest` 新增 `preview_texts` 字段（默认 `None` = 旧文案），由
+  `atri_x/agent/chat_tools.py` 从 `agent.tool_preview_texts` 注入；`runner` 仍不
+  依赖 Agent/配置层。`should_send_preview` 增加 `enabled = false` 判断
+  （关掉后程序不再主动发进度，模型自己说的中间正文不受影响）。
+- `[tool_preview]` 段（严格解码，缺字段回落默认值）：`enabled` / `style` /
+  `search_text` / `extract_text` / `default_text` / `system_template` /
+  `failure_template`。默认值与 1.0.3 的可见行为对齐（除文案改为角色化短句）。
+- 桌面端：「工具权限」页新增**第 4 个子选项卡「工具进度预览」**：群聊投递开关
+  （QQ OneBot；`[platform.qqofficial]` 段存在时同写一份）+ 文案风格 + 各文案输入；
+  保存后调用 `atri_x.config.load()` 回读校验，避免写出后台服务拒绝的键。
+  「功能」页新增一行并支持双击跳转（键 `toolperm_preview`）。
+
+### 新增 — 本地表情图库（`[reactions]` + `reactions/catalog.json`）
+
+- 新包 `atri_x/reaction/`：
+  - `marker.py`：`[[emo:无语]]` / `[[表情:无语]]` / 中文冒号 / 大小写都接受；
+    标签上限 24 字且不跨行，避免误删正文里的普通方括号；解析结果 = 去标记正文 +
+    情绪标签（去重），正文与落库内容都不含标记。
+  - `catalog.py`：读取 `<配置目录>/reactions/catalog.json`，条目字段
+    `id / emotion / path / name / description / contexts / avoid / weight / enabled`；
+    路径必须落在图库目录内（拒绝 `..` / 绝对路径 / 软链逃逸），图片缺失的条目跳过；
+    坏 JSON / 缺文件 → 空图库 + warnings，绝不抛到对话链路。
+  - `policy.py`：`[reactions]` 的容错解析与夹紧（概率、冷却秒数、去重张数、
+    长文阈值、抑制词）。
+  - `service.py`：`ReactionService.decide()` 按「启用范围 → 场景抑制 → 文字回复冷却 →
+    会话/群时间冷却 → 情绪匹配 → 最近图片去重（全被排除时退回 LRU）→ 权重随机 →
+    概率」决策；状态（冷却、最近发过的图）在进程内保存，进程重启即重置。
+- 接线：`atri_x/agent/reactions.py` 负责把配置变成 `ReactionSettings`、
+  解析"平台 + 群/私聊 + 会话"作用域、把选中的图变成 `timing = after_assistant`
+  的输出；`chat_turn` 在**任何可见/落库路径之前**剥标记（工具轮中间正文、assistant
+  工具消息、最终回答、会话历史都干净），整轮最多追加一张图，放在空回复判定之后、
+  正文发送之前入队 → 正文先发、表情后发；后台回合不发表情。
+- 提示词：`[reactions].enabled = true` 时由 `ReactionSystemPromptSource` 把
+  "可用标签 + 每轮最多一个 + 严肃场景不配图"注入系统提示词；关闭时不注入，
+  但标记仍会被后端剥掉（正文永远干净）。
+- 桌面端：「人设卡」页新增**第 4 个子选项卡「表情图库」**：发送策略（开关 / 群聊 /
+  私聊 / 三种冷却 / 去重 / 概率 / 长文抑制 / 抑制词 / 可用情绪）+ 图库条目管理
+  （Treeview 列表、添加图片并自动拷进 `assets/`、改情绪/名称/权重/启用、删除条目、
+  保存 `catalog.json`）；保存策略同样回读校验。「功能」页新增一行并支持双击跳转
+  （键 `character_reactions`）。
+- 生效方式：`[reactions]` 在 `app.toml` → 重启后台服务；`catalog.json` 由服务按文件
+  修改时间自动重载 → 保存即生效。`[reactions].enabled` 默认 **false**（新能力 opt-in）。
+
+### 配置、资产与文档
+
+- `atri_x/config/app_sections.py` 新增 `ToolPreviewConfig` / `ReactionsConfig`；
+  `AppConfig` 新增 `tool_preview` / `reactions` 两个字段；`loader.load()` 把
+  `gallery_dir` 按 app.toml 所在目录解析成绝对路径（与 `[soul].path` 同口径）。
+- 默认资产：`app.toml` 增加 `[tool_preview]` / `[reactions]` 两段（带注释）；新增
+  `reactions/catalog.json` 模板与 `reactions/`、`reactions/assets/` 两个默认目录。
+  老配置没有这两段时按字段默认值生效（`[tool_preview]` 默认开、`[reactions]` 默认关）。
+- 文档：`docs/configuration.md` 新增 `[tool_preview]` 与 `[reactions]` 两节（含
+  `catalog.json` 结构）；`docs/windows-app.md` 补两个子选项卡的说明与生效时机；
+  `devdocs/code-map.md` 补新模块（`toolrun/preview`、`reaction/`、`agent/reactions`、
+  `gui/toolpreview`、`gui/reactionpage`）。
+
+### 用例
+
+- `tests/test_reaction.py`：标记解析（变体 / 重复 / 跨行 / 非标记方括号）、
+  图库（缺文件 / 坏 JSON / 路径逃逸 / 重复 ID / 权重启用归一 / 场景过滤）、
+  策略（默认值 / 夹紧 / 抑制词 / 配置往返）、决策（启用范围 / 三段冷却 /
+  去重与 LRU 回退 / 概率 / 未知情绪 / 快照与重置）。
+- `tests/test_agent_reactions.py`：配置→设置转换、作用域判定、回合收尾输出
+  （`after_assistant` 图片 / 私聊 / 群关闭 / 未知作用域 / 无情绪计数 /
+  抑制场景）、提示词注入只在启用时发生。
+- `tests/test_agent_chat.py` 新增 `ReactionTurnTest`：真实回合路径上
+  **标记不出现在正文/落库**、图片作为 deferred output 交付、功能关闭时只剥标记。
+- `tests/test_toolrun.py` 新增/调整：批量去重、两种文案风格、`preview_texts`
+  真正到达 runner。
+- `tests/test_gui_tabs.py` 新增：工具进度预览子选项卡读写（含 qqofficial 只在段存在时写）、
+  表情图库子选项卡策略往返与 `catalog.json` 增删改往返。
+
+---
+
 ## [1.0.3] - 2026-10-23 — 内置内容安全（道德限制 + 敏感信息过滤）、常驻记忆配额 500、识图六项改造
 
 > 本版把 1.0.2 时期的两套外挂能力收进产品内，并重做识图链路：

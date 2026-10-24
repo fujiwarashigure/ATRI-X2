@@ -176,6 +176,39 @@ async def run_background(agent: Any, ctx: Any, req: RunRequest) -> RunResult:
     ctx = _with_background_message_context(ctx, platform_name, actor, scope_id, req)
     ctx = _with_security(ctx, agent, actor)
 
+    # 计算静默（评估 §E）：静默期里 cron 报告 / 外部事件默认直接跳过，且不补跑。
+    from atri_x.agent.admission import (
+        ADMISSION_SKIP_OUTCOME,
+        admit,
+        background_reason,
+        skip_audit_event,
+    )
+
+    admission_reason = background_reason(req.kind)
+    if admission_reason:
+        decision = admit(agent, ctx, admission_reason)
+        if decision.skipped:
+            attrs = (
+                "reason",
+                decision.reason,
+                "kind",
+                str(req.kind or ""),
+                "name",
+                str(req.name or ""),
+                "window",
+                str(getattr(getattr(agent, "quiet_config", None), "window", "") or ""),
+            )
+            writer = getattr(agent, "audit", None)
+            if callable(writer):
+                writer(skip_audit_event(admission_reason), *attrs)
+            else:
+                from atri_x.agent.logging import audit
+
+                audit(agent, skip_audit_event(admission_reason), *attrs)
+            return RunResult(
+                session_id=req.session_id, outcome=ADMISSION_SKIP_OUTCOME
+            )
+
     sandbox_root = getattr(agent, "sandbox_root", "") or os.path.join("data", "sandbox")
     sandbox_subdir = str(req.sandbox_subdir or "").strip() or str(req.kind or "").strip()
     if not sandbox_subdir:

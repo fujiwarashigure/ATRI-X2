@@ -248,6 +248,16 @@ class Compressor:
             call_error="调用摘要模型",
             read_error="读取摘要结果",
         )
+        # 旁路用量：压缩摘要也是一次真实的模型调用，必须进 /usage。
+        from atri_x.agent.call_reason import side_reason
+        from atri_x.llm.usage_sink import record_side_usage
+
+        record_side_usage(
+            reason=side_reason("compaction"),
+            provider=req.provider,
+            model=req.model,
+            usage=result.usage,
+        )
         return result.text, result.usage
 
     # -- 流式收集 -----------------------------------------------------------

@@ -100,6 +100,17 @@ def collect_features(paths: ConfigPaths) -> list[FeatureRow]:
     ))
     rows.append(_hooks_row(paths))
     rows.append(_skills_row(paths))
+    rows.append(_section_row(
+        "tool_preview", "工具进度提示（程序兜底文案）", app, default_on=True,
+        tab="toolperm_preview",
+        extra=_kv_detail(app.get("tool_preview"), ("style", "enabled")),
+    ))
+    rows.append(_section_row(
+        "reactions", "本地表情图库（情绪标签 + 挑图）", app, default_on=False,
+        tab="character_reactions",
+        extra=_kv_detail(app.get("reactions"),
+                         ("show_in_group", "cooldown_text_replies", "probability")),
+    ))
     rows.append(_atrinis_row(atrinis))
     rows.append(_dsh_row(app))
     rows.append(_maintenance_row(app))

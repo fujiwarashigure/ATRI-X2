@@ -37,12 +37,17 @@ class DefaultAsset:
 
 
 #: 默认配置目录。对应 Go ``defaultConfigDirs``。
+#: ``reactions`` / ``reactions/assets`` 是 Python 版新增（本地表情图库），
+#: 无上游 Go 对应；本 checkout 没有上游 Go 仓库，人工维护这两项与
+#: :data:`DEFAULT_CONFIG_ASSETS` 里的 ``reactions/catalog.json``。
 DEFAULT_CONFIG_DIRS: tuple[str, ...] = (
     "skills",
     "skills/agent",
     "skills/go",
     "plugins",
     "long_memory",
+    "reactions",
+    "reactions/assets",
 )
 
 
@@ -57,6 +62,8 @@ DEFAULT_CONFIG_ASSETS: tuple[DefaultAsset, ...] = (
     DefaultAsset(path="tool_tags.toml", go_const="defaultToolTagsTOML"),
     DefaultAsset(path="plugins/hooks.toml", go_const="defaultHooksTOML"),
     DefaultAsset(path="plugins/.env", go_const="defaultHookEnv"),
+    # Python 版新增（无上游 Go 对应）：本地表情图库的清单模板（空图库）。
+    DefaultAsset(path="reactions/catalog.json", go_const="defaultReactionsCatalogJSON"),
     DefaultAsset(path="skills/agent/agent_skill_creator/SKILL.md", go_const="defaultAgentSkillCreatorSkillMD"),
     DefaultAsset(path="skills/agent/agent_skill_creator/ATRIX_SKILL.toml", go_const="defaultAgentSkillCreatorSkillTOML"),
     DefaultAsset(path="skills/agent/write_atrix_hook/SKILL.md", go_const="defaultWriteAtrixHookSkillMD"),

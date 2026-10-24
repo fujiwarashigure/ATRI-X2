@@ -37,6 +37,10 @@ from atri_x.request import (
     new_manager_with_limits_and_queue,
 )
 from atri_x.security import Policy, default_policy
+from atri_x.security import (
+    DEFAULT_GRANT_TTL_SECONDS,
+    GrantRegistry,
+)
 from atri_x.session import Config as SessionConfig
 from atri_x.session import Service as SessionService
 from atri_x.storage import Store, Session
@@ -298,9 +302,16 @@ class Agent(
         self.recent_recalls: dict[str, Any] = {}
         self.vision_fallback_mu = threading.Lock()
         self.vision_fallback_notified: dict[str, bool] = {}
-        self.auto_confirm_mu = threading.Lock()
-        self.auto_confirm_session: dict[str, bool] = {}
-        self.auto_confirm_tools: dict[str, dict[str, bool]] = {}
+        # 授权登记表（评估 §B1）：``/confirmall`` / ``/confirmtool`` 的放行凭据。
+        # 进程内、带 TTL（默认 10 分钟）、绑定 scope + actor；``/panic`` 清空。
+        self.confirm_grant_ttl_seconds = float(
+            getattr(opts, "confirm_grant_ttl_seconds", 0.0) or 0.0
+        )
+        self.grants = GrantRegistry(
+            self.confirm_grant_ttl_seconds
+            if self.confirm_grant_ttl_seconds > 0
+            else DEFAULT_GRANT_TTL_SECONDS
+        )
         self.discovered_tools: dict[str, dict[str, Any]] = {}
         self.group_policy: dict[str, Any] = dict(opts.group_policy or {})
         self.group_knowledge: dict[str, list[Any]] = {}
@@ -309,6 +320,20 @@ class Agent(
         # Python 版新增：``[agent.dsh]`` 深度路由配置。路由状态（熔断器、子进程）
         # 在首次真正需要路由时才创建，见 ``atri_x.agent.dsh.route_call``。
         self.dsh_config = opts.dsh_config
+        # Python 版新增：``[tool_preview]`` / ``[reactions]``。
+        # ``tool_preview_texts`` 是工具运行器认识的数据对象（见
+        # ``atri_x.toolrun.preview``）；``reaction_service`` 是表情图库的进程内单例，
+        # 配置关闭时仍会构造（方便 GUI/命令查看状态），但 ``decide`` 一律返回 disabled。
+        self.tool_preview_config = opts.tool_preview_config
+        self.tool_preview_texts = _tool_preview_texts(opts.tool_preview_config)
+        self.reactions_config = opts.reactions_config
+        self.reaction_service = _reaction_service(opts.reactions_config)
+        # Python 版新增：``[quiet]`` 全局静默时段（评估 §E）。``None`` = 关闭。
+        self.quiet_config = opts.quiet_config
+        # Python 版新增：``[participation]`` 群聊参与状态机（评估 §D）。``None`` = 关闭。
+        self.participation_config = opts.participation_config
+        self.participation_states: dict[str, Any] = {}
+        self.participation_mu = threading.Lock()
         self.tools_config = opts.tools_config or _default_tools_config()
         self.context_config = opts.context_config
         self.llm_request_config = opts.llm_request_config
@@ -336,6 +361,13 @@ class Agent(
         set_security_policy(self, opts.security_policy)
         _install_command_state(self, opts)
         _install_runtime_services(self, opts)
+        # 旁路 LLM 用量统一入口：压缩摘要 / 群分析 / 视觉 / 标题 / 图片提示词重写
+        # 都只调 ``record_side_usage``，由这里订阅成同一种 ``llm_usage`` 审计事件，
+        # ``/usage`` 才能把它们统计进来。
+        from atri_x.agent.chat_observe import audit_side_usage
+        from atri_x.llm.usage_sink import set_usage_sink
+
+        set_usage_sink(lambda payload: audit_side_usage(self, payload))
         self.command_executor = _build_command_executor(self)
         self.completion = _build_completion(self)
         self.prompt_builder = _lazy_prompt_builder(opts)
@@ -697,6 +729,20 @@ def _default_budget_limits() -> Any:
     return BudgetLimitsConfig()
 
 
+def _tool_preview_texts(config: Any) -> Any:
+    """``[tool_preview]`` 配置 → 工具运行器认识的 :class:`PreviewTexts`。"""
+    from atri_x.toolrun.preview import PreviewTexts
+
+    return PreviewTexts.from_config(config)
+
+
+def _reaction_service(config: Any) -> Any:
+    """``[reactions]`` 配置 → 进程内 :class:`ReactionService`（未配置返回 ``None``）。"""
+    from atri_x.agent.reactions import build_reaction_service
+
+    return build_reaction_service(config)
+
+
 def _positive_int(source: Any, name: str) -> int:
     """读一个"正整数开关"字段；缺失 / 非法 / ``<= 0`` 一律当 0（= 不限）。"""
     try:
@@ -871,6 +917,7 @@ def _build_deps(agent: Agent, opts: Options) -> Any:
         cancel_session_inbox=agent.cancel_inbox_session,
         file_backups=agent.file_backups,
         doctor=agent.doctor,
+        grants=agent.grants,
         tool_allowlist=lambda ctx: group_policy_module.group_tool_allowlist_text(
             agent, ctx
         ),

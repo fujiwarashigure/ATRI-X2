@@ -812,7 +812,52 @@ class TestRunner(unittest.TestCase):
         )
         run(runner_mod.run(self.manager, None, deps, req))
         self.assertEqual(1, len(deps.previews))
+        # 同一批里重复的工具只留一行文案（按批次去重）。
+        self.assertEqual(1, deps.previews[0].count("正在调用"))
+
+    def test_batch_preview_lists_distinct_tools(self) -> None:
+        manager = Manager(
+            registry=FakeRegistry([FakeToolDef(name="echo"), FakeToolDef(name="other")])
+        )
+        deps = FakeDeps(should_preview=True)
+        req = RunRequest(
+            session=make_session(),
+            calls=[
+                ToolCallRequest(id="1", name="echo", arguments="{}"),
+                ToolCallRequest(id="2", name="other", arguments="{}"),
+            ],
+            actor=Actor(role=RoleSuperadmin),
+            authorize_tool=_allow_authorize,
+        )
+        run(runner_mod.run(manager, None, deps, req))
+        self.assertEqual(1, len(deps.previews))
         self.assertEqual(2, deps.previews[0].count("正在调用"))
+
+    def test_preview_texts_from_config(self) -> None:
+        from atri_x.toolrun.preview import PreviewTexts
+
+        persona = PreviewTexts.from_config({"style": "persona"})
+        self.assertEqual("检索中……请稍候。", persona.render("web_search", '{"q":"x"}'))
+        self.assertEqual("正在读取页面内容。", persona.render("web_extract", "{}"))
+        self.assertEqual("正在调用 shell……", persona.render("shell", "{}"))
+        system = PreviewTexts.from_config({"style": "system"})
+        self.assertEqual(
+            '正在调用 web_search：{"q":"x"}',
+            system.render("web_search", '{"q":"x"}'),
+        )
+        self.assertEqual(
+            "shell 调用失败：boom", system.failure("shell", "boom")
+        )
+
+    def test_preview_texts_reach_runner(self) -> None:
+        from atri_x.toolrun.preview import PreviewTexts
+
+        deps = FakeDeps(should_preview=True)
+        req, _ = self._req(
+            deps, preview_texts=PreviewTexts.from_config({"style": "persona"})
+        )
+        run(runner_mod.run(self.manager, None, deps, req))
+        self.assertEqual(["正在调用 echo……"], deps.previews)
 
     def test_single_call_preview_uses_per_call_path(self) -> None:
         deps = FakeDeps(should_preview=True)

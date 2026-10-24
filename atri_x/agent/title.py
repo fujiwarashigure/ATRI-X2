@@ -95,17 +95,30 @@ class TitleGenerator:
             max_tokens=256,
         )
         chunks: list[str] = []
+        usage = None
         stream = client.chat_stream(ctx, req)
         if hasattr(stream, "__aiter__"):
             async for chunk in stream:
                 if chunk.error is not None:
                     raise chunk.error
+                if getattr(chunk, "usage", None) is not None:
+                    usage = chunk.usage
                 chunks.append(chunk.delta_content or "")
         else:  # pragma: no cover - 同步假实现（测试便利）
             for chunk in stream:
                 if chunk.error is not None:
                     raise chunk.error
                 chunks.append(chunk.delta_content or "")
+        # 旁路用量：自动命名也是一次真实调用。
+        from atri_x.agent.call_reason import side_reason
+        from atri_x.llm.usage_sink import record_side_usage
+
+        record_side_usage(
+            reason=side_reason("title"),
+            provider=str(getattr(self, "naming_source", "") or ""),
+            model=model,
+            usage=usage,
+        )
         return "".join(chunks)
 
     # -- 外部注入（对应 Go 的 setPrimary / setNaming / setLogger）-------------

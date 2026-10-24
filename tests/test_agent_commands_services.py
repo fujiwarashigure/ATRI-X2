@@ -549,7 +549,9 @@ class UsageCommandTests(unittest.TestCase):
         items = run(
             handler.complete(harness.ctx, _completion("/usage --by ", name="usage", args="--by "))
         )
-        self.assertEqual([item.text for item in items], ["model", "day", "session"])
+        self.assertEqual(
+            [item.text for item in items], ["model", "day", "session", "trigger"]
+        )
 
 
 class StateCommandTests(unittest.TestCase):

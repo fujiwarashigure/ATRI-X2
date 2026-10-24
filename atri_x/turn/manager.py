@@ -73,7 +73,15 @@ PhaseCompact = Phase.COMPACT
 
 @dataclass
 class RiskConfirmation:
-    """一次待确认的高风险工具调用。对应 Go ``turn.RiskConfirmation``。"""
+    """一次待确认的高风险工具调用。对应 Go ``turn.RiskConfirmation``。
+
+    本仓扩展（Go 侧没有）：
+
+    - ``actor_id``：触发这次调用的成员身份 ``platform:user_id``。确认只接受
+      本人（或超级管理员）回应；空串表示来源未知，此时不拦截，只记审计。
+    - ``redacted``：该调用的参数属于「群聊里不展示」的内容。为 True 时各详情
+      渲染器只输出工具名与风险等级，不再输出参数。
+    """
 
     id: str = ""
     tool_name: str = ""
@@ -81,6 +89,8 @@ class RiskConfirmation:
     risk: str = ""
     summary: str = ""
     detail: str = ""
+    actor_id: str = ""
+    redacted: bool = False
 
 
 @dataclass

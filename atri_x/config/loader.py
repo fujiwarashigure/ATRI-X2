@@ -253,6 +253,10 @@ def load(path: str | os.PathLike[str] | None = "", *, strict: bool = True) -> Ap
         config_path, config.storage.chat_history_sqlite_path
     )
     config.soul.path = resolve_relative(config_path, config.soul.path)
+    # 表情图库目录相对 app.toml 所在目录解析（与 SOUL 同一口径），否则会相对进程 cwd。
+    config.reactions.gallery_dir = resolve_relative(
+        config_path, config.reactions.gallery_dir
+    )
     config.character_library.root = resolve_relative(config_path, config.character_library.root)
     if config.image_generation.artist_library.root.strip():
         config.image_generation.artist_library.root = resolve_relative(

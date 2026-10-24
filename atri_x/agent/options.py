@@ -98,6 +98,14 @@ class Options:
     turn_directives: Any = None
     #: Python 版新增：``[agent.dsh]`` 段（DSH 深度路由）。``None`` 表示不路由。
     dsh_config: Any = None
+    #: Python 版新增：``[tool_preview]`` 段（工具进度预览文案）。``None`` = 内置默认。
+    tool_preview_config: Any = None
+    #: Python 版新增：``[reactions]`` 段（本地表情图库）。``None`` = 功能不启用。
+    reactions_config: Any = None
+    #: Python 版新增：``[quiet]`` 段（全局静默时段）。``None`` = 未配置，按关闭处理。
+    quiet_config: Any = None
+    #: Python 版新增：``[participation]`` 段（群聊参与状态机）。``None`` = 关闭。
+    participation_config: Any = None
 
 
 def validate_options(opts: Options) -> None:

@@ -63,6 +63,16 @@ from atri_x.tool.builtin.long_memory_model import (
     tokenize_long_memory,
     validate_long_memory_record,
 )
+from atri_x.tool.builtin.long_memory_scope import (
+    GLOBAL_SCOPE,
+    check_record_access,
+    current_actor_id,
+    current_scope_key,
+    resolve_scope_filter,
+    scope_allows,
+    scope_label,
+    scope_origin_line,
+)
 
 #: ``memory_files`` 的列顺序（对应 Go 的两条 SELECT 列表）。
 _RECORD_COLUMNS = (
@@ -74,9 +84,14 @@ _RECORD_COLUMNS = (
     "keywords",
     "created_at",
     "updated_at",
+    "source_scope",
+    "source_actor",
     "file_mtime_ns",
     "file_size",
 )
+
+#: 索引表里后加的「来源会话」列（老库用 ALTER TABLE 补上）。
+_SCOPE_COLUMNS = ("source_scope", "source_actor")
 
 _WARNING_HEADER = "长期记忆格式警告\n以下文件无法同步到索引，请手动修复：\n"
 _REPAIR_ADVICE = (
@@ -144,10 +159,13 @@ class LongMemoryStore:
                     keywords TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
+                    source_scope TEXT NOT NULL DEFAULT '',
+                    source_actor TEXT NOT NULL DEFAULT '',
                     file_mtime_ns INTEGER NOT NULL,
                     file_size INTEGER NOT NULL
                 )"""
             )
+            self._ensure_scope_columns(db)
             db.execute(
                 """CREATE TABLE IF NOT EXISTS memory_invalid_files (
                     file_path TEXT PRIMARY KEY,
@@ -171,6 +189,24 @@ class LongMemoryStore:
         self.db = db
         self.initialized = True
 
+    @staticmethod
+    def _ensure_scope_columns(db: sqlite3.Connection) -> None:
+        """给老索引库补「来源会话」列（幂等）。
+
+        1.0.5 之前建的 ``memory_files`` 没有 ``source_scope`` / ``source_actor``；
+        升级后第一次打开索引时补列，已有行默认空串 = 旧数据全局可见。只加列、
+        不改数据，因此老库可以直接原地升级。
+        """
+        rows = db.execute("PRAGMA table_info(memory_files)").fetchall()
+        existing = {row[1] for row in rows}
+        for name in _SCOPE_COLUMNS:
+            if name in existing:
+                continue
+            db.execute(
+                f"ALTER TABLE memory_files ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
+            )
+        db.commit()
+
     def _connection(self) -> sqlite3.Connection:
         db = self.db
         if db is None:  # pragma: no cover - 调用方都先 _ensure
@@ -190,7 +226,11 @@ class LongMemoryStore:
     # 写入
     # ------------------------------------------------------------------
     def save(self, ctx: Any, args: LongMemorySaveArgs) -> LongMemoryRecord:
-        """新建一条记忆。对应 Go ``longMemoryStore.save``。"""
+        """新建一条记忆。对应 Go ``longMemoryStore.save``。
+
+        「按会话隔离」：记录自动带上当前会话作用域与主体（拿不到会话上下文时为空，
+        等价于旧的全局记忆）。
+        """
         self._check_cancelled(ctx)
         record = LongMemoryRecord(
             category=clean_long_memory_text(args.category),
@@ -198,6 +238,8 @@ class LongMemoryStore:
             summary=clean_long_memory_text(args.summary),
             keywords=" ".join(split_long_memory_keywords(args.keywords)),
             content=(args.content or "").strip(),
+            source_scope=current_scope_key(ctx),
+            source_actor=current_actor_id(ctx),
         )
         with self._lock:
             self._ensure(ctx)
@@ -223,8 +265,12 @@ class LongMemoryStore:
             self._index_record(ctx, preview.after)
             return preview.after
 
-    def delete(self, ctx: Any, id: int) -> str:
-        """永久删除一条记忆及其索引。对应 Go ``longMemoryStore.delete``。"""
+    def delete(self, ctx: Any, id: int, scope: str = "") -> str:
+        """永久删除一条记忆及其索引。对应 Go ``longMemoryStore.delete``。
+
+        ``scope`` 是跨会话操作时的显式来源作用域（仅超级管理员可用），
+        与检索参数 ``scope`` 语义一致。
+        """
         self._check_cancelled(ctx)
         if id <= 0:
             raise InvalidError("id is required")
@@ -236,6 +282,7 @@ class LongMemoryStore:
                 record = self._record_by_id(id)
             if record is None:
                 raise InvalidError(f"未找到 ID 为 {id} 的长期记忆")
+            check_record_access(ctx, record.source_scope, scope)
             try:
                 os.remove(record.file_path)
             except FileNotFoundError:
@@ -277,6 +324,7 @@ class LongMemoryStore:
             record = self._record_by_id(args.id)
         if record is None:
             raise InvalidError(f"未找到 ID 为 {args.id} 的长期记忆")
+        check_record_access(ctx, record.source_scope, args.scope)
 
         file = read_file(record.file_path, "")
         try:
@@ -365,7 +413,11 @@ class LongMemoryStore:
     # 检索
     # ------------------------------------------------------------------
     def search(self, ctx: Any, args: LongMemorySearchArgs) -> str:
-        """检索并渲染结果。对应 Go ``longMemoryStore.search``。"""
+        """检索并渲染结果。对应 Go ``longMemoryStore.search``。
+
+        「按会话隔离」：默认只检索当前会话 + 未归属会话的旧数据；``args.scope``
+        传 ``"all"`` 或具体作用域键时跨会话（仅超级管理员）。
+        """
         self._check_cancelled(ctx)
         keywords = (args.keywords or "").strip()
         category = clean_long_memory_text(args.category)
@@ -374,24 +426,37 @@ class LongMemoryStore:
         brief_only = True if args.brief_only is None else bool(args.brief_only)
         limit = normalize_long_memory_limit(args.limit)
         match_mode = normalize_long_memory_match_mode(args.match_mode)
+        target_scope, cross_scope = resolve_scope_filter(ctx, args.scope)
         with self._lock:
             self._ensure(ctx)
             self._sync(ctx, False)
             invalids = self._invalid_files(5)
-            overview = self._category_overview()
-            records = self._search_fts(keywords, category, match_mode, limit)
+            overview = self._category_overview(target_scope, cross_scope)
+            records = self._search_fts(
+                keywords, category, match_mode, limit, target_scope, cross_scope
+            )
             if records is None or not self.fts_available:
-                records = self._search_like(ctx, keywords, category, match_mode, limit)
-            return self._format_search_result(invalids, overview, records, brief_only)
+                records = self._search_like(
+                    ctx, keywords, category, match_mode, limit, target_scope, cross_scope
+                )
+            return self._format_search_result(
+                invalids,
+                overview,
+                records,
+                brief_only,
+                cross_scope,
+                _overview_header(target_scope, cross_scope),
+            )
 
-    def categories(self, ctx: Any) -> str:
+    def categories(self, ctx: Any, scope: str = "") -> str:
         """返回分类目录。对应 Go ``longMemoryStore.categories``。"""
         self._check_cancelled(ctx)
+        target_scope, cross_scope = resolve_scope_filter(ctx, scope)
         with self._lock:
             self._ensure(ctx)
             self._sync(ctx, False)
             invalids = self._invalid_files(5)
-            overview = self._category_overview()
+            overview = self._category_overview(target_scope, cross_scope)
             parts: list[str] = []
             write_invalid_warning(parts, invalids)
             if overview.strip() == "":
@@ -512,13 +577,16 @@ class LongMemoryStore:
             db.execute(
                 """INSERT INTO memory_files
                    (id, file_path, category, title, summary, keywords,
-                    created_at, updated_at, file_mtime_ns, file_size)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, source_scope, source_actor,
+                    file_mtime_ns, file_size)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                      file_path=excluded.file_path, category=excluded.category,
                      title=excluded.title, summary=excluded.summary,
                      keywords=excluded.keywords, created_at=excluded.created_at,
                      updated_at=excluded.updated_at,
+                     source_scope=excluded.source_scope,
+                     source_actor=excluded.source_actor,
                      file_mtime_ns=excluded.file_mtime_ns, file_size=excluded.file_size""",
                 (
                     record.id,
@@ -529,6 +597,8 @@ class LongMemoryStore:
                     record.keywords,
                     record.created_at,
                     record.updated_at,
+                    record.source_scope,
+                    record.source_actor,
                     record.file_mtime_ns,
                     record.file_size,
                 ),
@@ -660,16 +730,27 @@ class LongMemoryStore:
             for row in rows
         ]
 
-    def _category_overview(self) -> str:
-        """对应 Go ``categoryOverviewLocked``。"""
-        rows = self._connection().execute(
-            "SELECT category, COUNT(*) AS n FROM memory_files "
-            "GROUP BY category ORDER BY n DESC, category ASC"
-        ).fetchall()
+    def _category_overview(
+        self, target_scope: str = "", cross_scope: bool = True
+    ) -> str:
+        """对应 Go ``categoryOverviewLocked``（按会话隔离时只统计可见记录）。"""
+        sql_text = "SELECT category, COUNT(*) AS n FROM memory_files"
+        params: list[Any] = []
+        if (target_scope or "").strip() != GLOBAL_SCOPE:
+            sql_text += " WHERE (source_scope = '' OR source_scope = ?)"
+            params.append(target_scope)
+        sql_text += " GROUP BY category ORDER BY n DESC, category ASC"
+        rows = self._connection().execute(sql_text, params).fetchall()
         return "\n".join(f"-{row['category']}（共{row['n']}条记录）" for row in rows)
 
     def _search_fts(
-        self, keywords: str, category: str, match_mode: str, limit: int
+        self,
+        keywords: str,
+        category: str,
+        match_mode: str,
+        limit: int,
+        target_scope: str = "",
+        cross_scope: bool = True,
     ) -> list[LongMemoryRecord] | None:
         """FTS5 检索。不可用时返回 ``None``。对应 Go ``searchFTSLocked``。"""
         if not self.fts_available:
@@ -677,7 +758,8 @@ class LongMemoryStore:
         tokens = long_memory_search_tokens(keywords)
         sql_text = (
             "SELECT f.id, f.file_path, f.category, f.title, f.summary, f.keywords, "
-            "f.created_at, f.updated_at, f.file_mtime_ns, f.file_size "
+            "f.created_at, f.updated_at, f.source_scope, f.source_actor, "
+            "f.file_mtime_ns, f.file_size "
             "FROM memory_files f JOIN memory_fts x ON x.content_id = f.id WHERE 1=1"
         )
         params: list[Any] = []
@@ -687,6 +769,9 @@ class LongMemoryStore:
         if category != "":
             sql_text += " AND f.category = ?"
             params.append(category)
+        if (target_scope or "").strip() != GLOBAL_SCOPE:
+            sql_text += " AND (f.source_scope = '' OR f.source_scope = ?)"
+            params.append(target_scope)
         if tokens:
             sql_text += " ORDER BY rank, f.updated_at DESC LIMIT ?"
         else:
@@ -700,14 +785,26 @@ class LongMemoryStore:
         return [_row_to_record(row) for row in rows]
 
     def _search_like(
-        self, ctx: Any, keywords: str, category: str, match_mode: str, limit: int
+        self,
+        ctx: Any,
+        keywords: str,
+        category: str,
+        match_mode: str,
+        limit: int,
+        target_scope: str = "",
+        cross_scope: bool = True,
     ) -> list[LongMemoryRecord]:
         """无 FTS 时的扫描回落。对应 Go ``searchLikeLocked``。"""
-        rows = self._connection().execute(
+        sql_text = (
             f"SELECT {', '.join(_RECORD_COLUMNS)} FROM memory_files "
-            "WHERE (? = '' OR category = ?) ORDER BY updated_at DESC",
-            (category, category),
-        ).fetchall()
+            "WHERE (? = '' OR category = ?)"
+        )
+        params: list[Any] = [category, category]
+        if (target_scope or "").strip() != GLOBAL_SCOPE:
+            sql_text += " AND (source_scope = '' OR source_scope = ?)"
+            params.append(target_scope)
+        sql_text += " ORDER BY updated_at DESC"
+        rows = self._connection().execute(sql_text, params).fetchall()
         candidates = [_row_to_record(row) for row in rows]
         tokens = long_memory_search_tokens(keywords)
         matched: list[LongMemoryRecord] = []
@@ -736,14 +833,16 @@ class LongMemoryStore:
         overview: str,
         records: list[LongMemoryRecord],
         brief_only: bool,
+        cross_scope: bool = False,
+        header: str = "全库分类概览",
     ) -> str:
-        """对应 Go ``formatSearchResult``。"""
+        """对应 Go ``formatSearchResult``（多一列「来源会话」，仅跨会话检索时显示）。"""
         parts: list[str] = []
         write_invalid_warning(parts, invalids)
         if overview == "":
-            parts.append("全库分类概览：当前长期记忆库为空，尚未建立任何分类。\n")
+            parts.append(f"{header}：当前长期记忆库为空，尚未建立任何分类。\n")
         else:
-            parts.append("全库分类概览\n")
+            parts.append(f"{header}\n")
             parts.append(overview)
             parts.append("\n")
         parts.append(_SEPARATOR)
@@ -762,6 +861,7 @@ class LongMemoryStore:
                 f"摘要：{record.summary}\n创建时间：{record.created_at}\n"
                 f"更新时间：{record.updated_at}\n文件：{record.file_path}\n"
             )
+            parts.append(scope_origin_line(record.source_scope, cross_scope))
             if record.file_path in invalid_set:
                 parts.append("注意：该文件当前格式损坏，以上元数据可能来自上次成功索引。\n")
             if not brief_only:
@@ -791,6 +891,15 @@ class LongMemoryStore:
 # ---------------------------------------------------------------------------
 # 渲染助手
 # ---------------------------------------------------------------------------
+def _overview_header(target_scope: str, cross_scope: bool) -> str:
+    """分类概览标题：区分「全库」与「当前会话可见」，避免隔离后仍写"全库"。"""
+    if (target_scope or "").strip() == GLOBAL_SCOPE:
+        return "全库分类概览"
+    if cross_scope:
+        return f"会话 {scope_label(target_scope)} 分类概览"
+    return "当前会话可见分类概览"
+
+
 def write_numbered_content(parts: list[str], content: str) -> None:
     """行号 + ``|`` 渲染正文。对应 Go ``writeNumberedLongMemoryContent``。"""
     lines = split_lines(content)
@@ -854,6 +963,8 @@ def _row_to_record(row: sqlite3.Row) -> LongMemoryRecord:
         content="",
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        source_scope=row["source_scope"],
+        source_actor=row["source_actor"],
         file_mtime_ns=row["file_mtime_ns"],
         file_size=row["file_size"],
     )

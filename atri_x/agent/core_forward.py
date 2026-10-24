@@ -221,6 +221,47 @@ class CoreForwardMixin:
 
         set_tool_auto_confirmed(self, session_id, tool_name)
 
+    def auto_confirm_allowed(
+        self, ctx: Any, session_id: str, tool_name: str
+    ) -> bool:
+        from atri_x.agent.chat_tools import auto_confirm_allowed
+
+        return auto_confirm_allowed(self, ctx, session_id, tool_name)
+
+    def grant_session_auto_confirm(
+        self, ctx: Any, session_id: str, ttl_seconds: float | None = None
+    ) -> Any:
+        from atri_x.agent.chat_tools import grant_session_auto_confirm
+
+        return grant_session_auto_confirm(self, ctx, session_id, ttl_seconds)
+
+    def grant_tool_auto_confirm(
+        self, ctx: Any, session_id: str, tool_name: str, ttl_seconds: float | None = None
+    ) -> Any:
+        from atri_x.agent.chat_tools import grant_tool_auto_confirm
+
+        return grant_tool_auto_confirm(self, ctx, session_id, tool_name, ttl_seconds)
+
+    def revoke_session_grants(self, session_id: str) -> int:
+        from atri_x.agent.chat_tools import revoke_session_grants
+
+        return revoke_session_grants(self, session_id)
+
+    def revoke_scope_grants(self, scope_key: str) -> int:
+        from atri_x.agent.chat_tools import revoke_scope_grants
+
+        return revoke_scope_grants(self, scope_key)
+
+    def revoke_actor_grants(self, actor_id: str) -> int:
+        from atri_x.agent.chat_tools import revoke_actor_grants
+
+        return revoke_actor_grants(self, actor_id)
+
+    def revoke_all_grants(self) -> int:
+        from atri_x.agent.chat_tools import revoke_all_grants
+
+        return revoke_all_grants(self)
+
     def with_tool_capabilities(self, ctx: Any, session: Session | None) -> Any:
         from atri_x.agent.chat_tools import with_tool_capabilities
 

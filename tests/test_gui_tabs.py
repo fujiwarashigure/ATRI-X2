@@ -45,6 +45,7 @@ from atri_x.gui import (
 )
 from atri_x.gui.dialogs import HooksDialog, MaintenanceDialog, SelfLearningDialog
 from atri_x.gui.tabs.advanced import AdvancedTab
+from atri_x.gui.tabs.character import CharacterTab
 from atri_x.gui.tabs.features import FeaturesTab
 from atri_x.gui.tabs.knowledge import KnowledgeTab
 from atri_x.gui.tabs.logs import LogsTab, channel_level_tag
@@ -1093,6 +1094,56 @@ class ToolPermTabCase(TkCase):
             app["platform"]["qqonebot"]["show_tool_preview_in_group"]
         )
 
+    # -- 工具进度预览子选项卡 ---------------------------------------------
+    def test_preview_sub_tab_present(self) -> None:
+        titles = [
+            self.tab.notebook.tab(index, "text")
+            for index in range(len(self.tab.notebook.tabs()))
+        ]
+        self.assertIn(" 工具进度预览 ", titles)
+        self.assertIsNotNone(self.tab.preview_panel)
+        self.tab.show_preview_tab()
+        self.assertEqual(
+            str(self.tab.notebook.select()), str(self.tab.preview_panel.frame)
+        )
+
+    def test_preview_panel_saves_texts_and_switch(self) -> None:
+        panel = self.tab.preview_panel
+        panel.style_var.set("system")
+        panel.field_vars["search_text"].set("检索中，请稍候。")
+        panel.field_vars["default_text"].set("正在调用 {tool}，稍等。")
+        panel.switch_vars["platform.qqonebot"].set(True)
+        panel.save()
+
+        app = self.read_toml("app.toml")
+        self.assertEqual("system", app["tool_preview"]["style"])
+        self.assertEqual("检索中，请稍候。", app["tool_preview"]["search_text"])
+        self.assertEqual("正在调用 {tool}，稍等。", app["tool_preview"]["default_text"])
+        self.assertTrue(app["platform"]["qqonebot"]["show_tool_preview_in_group"])
+        # qqofficial 段不存在时不得被 patch_section 创建出来。
+        self.assertNotIn("qqofficial", app["platform"])
+
+        # 回读：界面上看到的就是落盘值（双向联动）。
+        panel.style_var.set("persona")
+        panel.load()
+        self.assertEqual("system", panel.style_var.get())
+        self.assertEqual("检索中，请稍候。", panel.field_vars["search_text"].get())
+        self.assertTrue(panel.switch_vars["platform.qqonebot"].get())
+
+    def test_preview_panel_writes_qqofficial_only_when_section_exists(self) -> None:
+        configedit.patch_section(
+            self.paths.config_path, "platform.qqofficial", {"enabled": True}
+        )
+        panel = self.tab.preview_panel
+        panel.switch_vars["platform.qqonebot"].set(True)
+        panel.switch_vars["platform.qqofficial"].set(False)
+        panel.save()
+        app = self.read_toml("app.toml")
+        self.assertFalse(
+            app["platform"]["qqofficial"]["show_tool_preview_in_group"]
+        )
+        self.assertTrue(app["platform"]["qqonebot"]["show_tool_preview_in_group"])
+
     # -- 纵向滚动工具菜单（激活按钮 + 状态 + 功能解释）-----------------------
     def _open_whitelist(self, mode_key: str = "work"):
         self._open()
@@ -1216,10 +1267,11 @@ class ToolParamsTabCase(TkCase):
             self.tab.notebook.tab(index, "text")
             for index in range(len(self.tab.notebook.tabs()))
         ]
-        self.assertEqual(len(titles), 3)
+        self.assertEqual(len(titles), 4)
         self.assertIn("chat 模式", titles[0])
         self.assertIn("work 模式", titles[1])
         self.assertEqual(titles[2], PARAMS_TAB_TITLE)
+        self.assertEqual(titles[3], " 工具进度预览 ")
         self.assertEqual(set(self.tab.params_editor.panels), {group.key for group in GROUPS})
         # 全局面板默认展开，其余默认收起（页面不会一进来就长得离谱）。
         self.assertTrue(self.panel("global").expanded)
@@ -1472,6 +1524,98 @@ class ToolParamsTabCase(TkCase):
             self.tab.notebook.select(), str(self.tab.params_editor.frame)
         )
         self.assertTrue(self.panel("global").expanded)
+
+
+class CharacterReactionTabCase(TkCase):
+    """人设卡页的「表情图库」子选项卡：策略落盘 + 图库条目落盘。"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        (Path(self.paths.config_dir) / "characters").mkdir(parents=True, exist_ok=True)
+        self.tab = self.build(CharacterTab)
+
+    def _titles(self) -> list[str]:
+        return [
+            self.tab.notebook.tab(index, "text")
+            for index in range(len(self.tab.notebook.tabs()))
+        ]
+
+    def test_reaction_sub_tab_present(self) -> None:
+        self.assertIn(" 表情图库 ", self._titles())
+        self.assertIsNotNone(self.tab.reaction_panel)
+
+    def test_policy_saved_and_reloaded(self) -> None:
+        panel = self.tab.reaction_panel
+        panel.enabled_var.set(True)
+        panel.group_var.set(False)
+        panel.private_var.set(True)
+        panel.number_vars["cooldown_text_replies"].set("3")
+        panel.number_vars["probability"].set("0.5")
+        panel.emotions_var.set("无语、得意")
+        panel.keywords_var.set("报错，失败")
+        panel.save_policy()
+
+        raw = self.read_toml("app.toml")["reactions"]
+        self.assertTrue(raw["enabled"])
+        self.assertFalse(raw["show_in_group"])
+        self.assertEqual(3, raw["cooldown_text_replies"])
+        self.assertEqual(0.5, raw["probability"])
+        self.assertEqual(["无语", "得意"], raw["emotions"])
+        self.assertEqual(["报错", "失败"], raw["suppress_keywords"])
+        self.assertIn("reactions", raw["gallery_dir"])
+        self.assertTrue(os.path.isabs(raw["gallery_dir"]))
+
+        # 界面改回内存值后再 load：必须回显落盘值（双向联动）。
+        panel.enabled_var.set(False)
+        panel.number_vars["cooldown_text_replies"].set("0")
+        panel.load()
+        self.assertTrue(panel.enabled_var.get())
+        self.assertEqual("3", panel.number_vars["cooldown_text_replies"].get())
+
+    def test_gallery_add_and_save_catalog(self) -> None:
+        import json
+
+        panel = self.tab.reaction_panel
+        gallery = panel.gallery_label_var.get()
+        self.assertTrue(gallery)
+        source = os.path.join(str(TEMP_ROOT), "src.png")
+        with open(source, "wb") as handle:
+            handle.write(b"\x89PNG\r\n\x1a\n")
+        panel.item_emotion_var.set("无语")
+        panel.item_name_var.set("亚尔缇娜·无语")
+        panel.item_weight_var.set("2")
+        with mock.patch("tkinter.filedialog.askopenfilename", return_value=source):
+            panel._add_image()
+        self.assertEqual(1, len(panel.items))
+        panel.save_catalog()
+
+        with open(os.path.join(gallery, "catalog.json"), "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        self.assertEqual(1, len(raw["items"]))
+        self.assertTrue(raw["items"][0]["path"].startswith("assets/"))
+        self.assertEqual("无语", raw["items"][0]["emotion"])
+        self.assertEqual(2.0, raw["items"][0]["weight"])
+        self.assertTrue(os.path.isfile(os.path.join(gallery, raw["items"][0]["path"])))
+
+        # 重新载入：列表里能看到这条。
+        panel.load()
+        self.assertEqual(1, len(panel.tree.get_children("")))
+
+    def test_gallery_toggle_and_remove(self) -> None:
+        panel = self.tab.reaction_panel
+        source = os.path.join(str(TEMP_ROOT), "src.png")
+        with open(source, "wb") as handle:
+            handle.write(b"\x89PNG\r\n\x1a\n")
+        panel.item_emotion_var.set("开心")
+        with mock.patch("tkinter.filedialog.askopenfilename", return_value=source):
+            panel._add_image()
+        self.assertEqual(1, len(panel.items))
+        panel.tree.selection_set("0")
+        panel._toggle_item()
+        self.assertFalse(panel.items[0]["enabled"])
+        panel.tree.selection_set("0")
+        panel._remove_item()
+        self.assertEqual([], panel.items)
 
 
 class FeaturesTabCase(TkCase):

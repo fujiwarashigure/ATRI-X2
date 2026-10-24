@@ -193,8 +193,12 @@ def set_group_policy_for_scope(
     with state.lock:
         if value.is_zero():
             state.policies.pop(key, None)
-            return
-        state.policies[key] = value
+        else:
+            state.policies[key] = value
+    # 权限配置一变，该作用域的旧放行凭据立即失效（评估 §B1「权限变更失效」）。
+    from atri_x.agent.chat_tools import revoke_scope_grants
+
+    revoke_scope_grants(agent, key)
 
 
 def raw_group_policy(agent: Any, scope: Any) -> GroupPolicyConfig:

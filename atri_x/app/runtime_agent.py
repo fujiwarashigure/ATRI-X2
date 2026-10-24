@@ -197,6 +197,11 @@ async def build_agent(
             turn_directives=getattr(cfg, "turn_directives", None),
             # Python 版新增：``[agent.dsh]`` 深度路由配置（没有该段时为 None）。
             dsh_config=getattr(getattr(cfg, "agent", None), "dsh", None),
+            # Python 版新增：工具进度预览文案 / 本地表情图库（没有该段时用默认值）。
+            tool_preview_config=getattr(cfg, "tool_preview", None),
+            reactions_config=getattr(cfg, "reactions", None),
+            quiet_config=getattr(cfg, "quiet", None),
+            participation_config=getattr(cfg, "participation", None),
         )
     )
     # 1.0.3：内容安全 guard 与识图开关（不配置 = 完全保持旧行为）。

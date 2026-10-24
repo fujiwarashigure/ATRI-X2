@@ -58,7 +58,9 @@ __all__ = [
     "handle_session_input",
     "has_fork_from_message",
     "risk_confirmation_command_names",
+    "risk_confirmation_confirm_all_blocked_text",
     "risk_confirmation_detail_text",
+    "risk_confirmation_foreign_actor_text",
     "risk_confirmation_waiting_text",
     "session_for_input",
 ]
@@ -86,12 +88,36 @@ def risk_confirmation_command_names() -> list[str]:
     return list(_RISK_COMMAND_NAMES)
 
 
-def risk_confirmation_waiting_text(prefix: str) -> str:
-    """风险确认等待提示。对应 Go ``riskConfirmationWaitingText``。"""
-    return (
+def risk_confirmation_waiting_text(prefix: str, allow_confirm_all: bool = True) -> str:
+    """风险确认等待提示。对应 Go ``riskConfirmationWaitingText``。
+
+    ``allow_confirm_all=False``（群聊 / 频道）时不提 ``confirmall``：那条指令
+    会被 :func:`handle_risk_confirmation_input` 拒绝。
+    """
+    text = (
         "当前有高风险工具调用正在等待确认，只能发送确认类命令：\n"
         f"{prefix}detail 查看详情；{prefix}confirm 确认；{prefix}confirmtool 本次会话内始终允许该工具；"
-        f"{prefix}confirmall 本次会话内始终允许所有工具；{prefix}reject 拒绝；{prefix}stop 停止本轮。"
+    )
+    if allow_confirm_all:
+        text += f"{prefix}confirmall 本次会话内始终允许所有工具；"
+    text += f"{prefix}reject 拒绝；{prefix}stop 停止本轮。"
+    return text
+
+
+def risk_confirmation_foreign_actor_text() -> str:
+    """确认请求不属于当前发言者时的拒绝文案。"""
+    return (
+        "这条高风险确认属于其他成员，你不能代为确认。"
+        "请让发起人本人确认或拒绝；超级管理员除外。"
+    )
+
+
+def risk_confirmation_confirm_all_blocked_text(prefix: str) -> str:
+    """群聊里禁用 ``confirmall`` 的说明文案。"""
+    return (
+        "群聊里不能一次性放行本会话的全部高风险工具：请用 "
+        f"{prefix}confirmtool（只放行这一个工具）或 {prefix}confirm（只放行这一次），"
+        f"也可以 {prefix}reject 拒绝。"
     )
 
 
@@ -104,6 +130,13 @@ def risk_confirmation_detail_text(confirmation: RiskConfirmation | None) -> str:
         f"- 工具：{confirmation.tool_name}",
         f"- 风险：{confirmation.risk}",
     ]
+    if getattr(confirmation, "redacted", False):
+        from atri_x.agent.risk_confirmation import REDACTED_ARGUMENTS_TEXT
+
+        lines.append("- " + REDACTED_ARGUMENTS_TEXT)
+        if confirmation.summary:
+            lines.append(f"- 摘要：{confirmation.summary}")
+        return "\n".join(lines)
     if confirmation.summary:
         lines.append(f"- 摘要：{confirmation.summary}")
     if confirmation.arguments:
@@ -404,17 +437,38 @@ async def session_for_input(agent: Any, ctx: Any, text: str) -> Session:
 
 
 async def handle_risk_confirmation_input(agent: Any, ctx: Any, session_id: str, text: str) -> None:
-    """风险确认相位的输入分派。对应 Go ``Agent.handleRiskConfirmationInput``。"""
+    """风险确认相位的输入分派。对应 Go ``Agent.handleRiskConfirmationInput``。
+
+    本仓扩展的两道闸门（都在解析出指令名之后、执行动作之前）：
+
+    1. **确认人绑定**：只有发起该调用的成员本人（或超级管理员）能确认 / 拒绝 /
+       查看详情。共享线程群（``thread_mode = "group"``）里所有人共用同一个
+       Session，没有这道校验时任何群成员都能替发起人放行高风险调用。
+    2. **群聊禁用 confirmall**：一次放行本会话全部工具只在单聊 / CLI 提供。
+    """
+    from atri_x.agent.risk_confirmation import confirmation_allows_confirm_all
+
     confirmation, has_confirmation = agent.turns.pending_risk_confirmation(session_id)
+    allow_confirm_all = confirmation_allows_confirm_all(agent, ctx)
     # 风险确认等待期间只接受确认/拒绝/详情/停止类命令。普通文本不能混入当前 turn，
     # 免得被当作高风险工具的隐式确认或污染下一次 LLM 调用上下文。
     if not agent.commands.is_command(text):
         log_risk_confirmation_action(agent, session_id, "invalid_text", confirmation, "")
-        await agent.send_chat(ctx, risk_confirmation_waiting_text(agent.command_prefix()))
+        await agent.send_chat(
+            ctx, risk_confirmation_waiting_text(agent.command_prefix(), allow_confirm_all)
+        )
         return None
 
     parsed = agent.commands.parse(text)
     name = parsed.name
+    if has_confirmation and not _may_resolve_confirmation(
+        agent, ctx, confirmation
+    ):
+        log_risk_confirmation_action(
+            agent, session_id, "foreign_actor", confirmation, name
+        )
+        await agent.send_chat(ctx, risk_confirmation_foreign_actor_text())
+        return None
     if name in ("detail", "details"):
         if not agent.turns.refresh_risk_confirmation(session_id):
             return None
@@ -434,6 +488,15 @@ async def handle_risk_confirmation_input(agent: Any, ctx: Any, session_id: str, 
             RiskConfirmationResponse(confirmed=True, confirm_tool=True, extra=parsed.args),
         )
     elif name in ("confirmall", "ca"):
+        if not allow_confirm_all:
+            log_risk_confirmation_action(
+                agent, session_id, "confirmall_blocked", confirmation, parsed.args
+            )
+            await agent.send_chat(
+                ctx,
+                risk_confirmation_confirm_all_blocked_text(agent.command_prefix()),
+            )
+            return None
         log_risk_confirmation_action(
             agent, session_id, "confirmall", confirmation, parsed.args
         )
@@ -458,8 +521,27 @@ async def handle_risk_confirmation_input(agent: Any, ctx: Any, session_id: str, 
             log_risk_confirmation_action(
                 agent, session_id, "invalid_command", confirmation, name
             )
-        await agent.send_chat(ctx, risk_confirmation_waiting_text(agent.command_prefix()))
+        await agent.send_chat(
+            ctx, risk_confirmation_waiting_text(agent.command_prefix(), allow_confirm_all)
+        )
     return None
+
+
+def _may_resolve_confirmation(
+    agent: Any, ctx: Any, confirmation: RiskConfirmation | None
+) -> bool:
+    """当前发言者能否处理这条待确认调用。
+
+    空 ``actor_id`` 表示来源未知（历史数据 / 其它宿主），此时不拦截，只按旧行为继续；
+    超级管理员可以作为例外代为确认（运维解锁，审计里记 ``foreign_actor``）。
+    """
+    owner = str(getattr(confirmation, "actor_id", "") or "").strip()
+    if not owner:
+        return True
+    current = agent.actor(ctx)
+    if getattr(current, "id", "") == owner:
+        return True
+    return getattr(current, "role", "") == RoleSuperadmin
 
 
 def log_risk_confirmation_action(

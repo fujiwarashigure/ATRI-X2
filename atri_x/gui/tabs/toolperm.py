@@ -38,7 +38,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
-from atri_x.gui.configedit import ConfigEditError, patch_section, read_toml
+from atri_x.gui.configedit import ConfigEditError
 from atri_x.gui.tabs.base import ConfigTab, message
 from atri_x.gui.toolmode import MODE_SHORT, ModeEditor, editor_signature
 from atri_x.gui.toolparams import SettingPanel, ToolParamsEditor
@@ -53,6 +53,11 @@ from atri_x.gui.toolpolicy import (
     save_scope_mode_policy,
     scope_is_canonical,
     scope_problem,
+)
+from atri_x.gui.toolpreview import (
+    PREVIEW_TAB_TITLE,
+    ToolPreviewPanel,
+    read_platform_preview_switch,
 )
 from atri_x.gui.toolsettings import group_by_key, load_all
 
@@ -122,6 +127,8 @@ class ToolPermTab(ConfigTab):
         self.editors: dict[str, ModeEditor] = {}
         #: 第三个子选项卡：工具内部参数面板（全局，与群无关）。
         self.params_editor: ToolParamsEditor | None = None
+        #: 第四个子选项卡：工具进度预览（群聊开关 + [tool_preview] 文案）。
+        self.preview_panel: ToolPreviewPanel | None = None
         #: chat / work 子选项卡顶部的「内容安全覆盖」面板（与参数页的同名面板同一套字段）。
         self.mode_safety_panels: dict[str, SettingPanel] = {}
         self._current_scope = ""
@@ -138,11 +145,10 @@ class ToolPermTab(ConfigTab):
         self._left_frame = left
         self._build_scope_list(left)
         self._build_scope_box(left)
-        right = ttk.LabelFrame(body, text="工具授权（chat / work 分别配置）与工具参数（全局）", padding=8)
+        right = ttk.LabelFrame(body, text="工具授权（chat / work 分别配置）、工具参数与工具进度预览", padding=8)
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
         self._right_frame = right
         self._build_editor(right)
-        self._build_preview_switch()
 
         self.button("保存本群工具授权", self._save)
         self.button("重新载入", self.reload)
@@ -220,6 +226,9 @@ class ToolPermTab(ConfigTab):
         # 第三个子选项卡：工具内部参数（全局）。工具行右侧的「参数」按钮会跳到这里。
         self.params_editor = ToolParamsEditor(self, self.notebook)
         self.notebook.add(self.params_editor.frame, text=PARAMS_TAB_TITLE)
+        # 第四个子选项卡：工具进度预览（群聊开关 + 兜底文案）。
+        self.preview_panel = ToolPreviewPanel(self, self.notebook)
+        self.notebook.add(self.preview_panel.frame, text=PREVIEW_TAB_TITLE)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
     def _embed_safety_panel(self, mode_key: str, editor: ModeEditor) -> None:
@@ -259,15 +268,19 @@ class ToolPermTab(ConfigTab):
         self.params_editor.refresh_summary()
 
     def _on_tab_changed(self, _event: Any = None) -> None:
-        """切页时：参数页隐藏左侧群列表（参数是全局的，跟群无关，右侧要更宽）；
-        同时刷新一次"有未保存改动"的组数（不重载，避免冲掉输入）。
+        """切页时：参数页 / 进度预览页隐藏左侧群列表（这两页是全局设置，跟群无关，
+        右侧要更宽）；同时刷新一次"有未保存改动"的组数（不重载，避免冲掉输入）。
         """
         if self.params_editor is None:
             return
-        params_selected = self.notebook.select() == str(self.params_editor.frame)
-        if params_selected and self._left_frame.winfo_manager():
+        selected = str(self.notebook.select())
+        global_tabs = {str(self.params_editor.frame)}
+        if self.preview_panel is not None:
+            global_tabs.add(str(self.preview_panel.frame))
+        hide_left = selected in global_tabs
+        if hide_left and self._left_frame.winfo_manager():
             self._left_frame.pack_forget()
-        elif not params_selected and not self._left_frame.winfo_manager():
+        elif not hide_left and not self._left_frame.winfo_manager():
             self._left_frame.pack(
                 side=tk.LEFT, fill=tk.Y, before=self._right_frame
             )
@@ -295,30 +308,17 @@ class ToolPermTab(ConfigTab):
         if panel is not None:
             panel.expand()
 
-    def _build_preview_switch(self) -> None:
-        box = ttk.LabelFrame(self.body, text="群聊工具进度", padding=8)
-        box.pack(fill=tk.X, pady=(8, 0))
-        self.preview_var = tk.BooleanVar(value=False)
-        top = ttk.Frame(box)
-        top.pack(fill=tk.X)
-        ttk.Checkbutton(
-            top,
-            text="群聊里显示工具调用进度（正在调用哪个工具）",
-            variable=self.preview_var,
-        ).pack(side=tk.LEFT)
-        ttk.Button(top, text="保存该开关", command=self._save_preview_switch).pack(
-            side=tk.RIGHT
-        )
-        ttk.Label(
-            box,
-            text=(
-                "写入 app.toml 的 [platform.qqonebot].show_tool_preview_in_group；"
-                "QQ 官方机器人同名键写在 [platform.qqofficial]。默认关闭（群里的进度提示算噪声）。"
-            ),
-            foreground="#8a8a8a",
-            wraplength=900,
-            justify=tk.LEFT,
-        ).pack(anchor="w")
+    def show_preview_tab(self) -> None:
+        """跳到「工具进度预览」子选项卡（「功能」页双击跳转用）。"""
+        if self.preview_panel is None:
+            return
+        self.notebook.select(self.preview_panel.frame)
+
+    # -- 群聊工具进度（兼容旧属性；控件在「工具进度预览」子选项卡里） ----------
+    @property
+    def preview_var(self) -> tk.BooleanVar:
+        """群聊进度开关的 ``BooleanVar``（旧接口；现在属于 preview_panel）。"""
+        return self.preview_panel.switch_vars["platform.qqonebot"]
 
     # -- 兼容旧属性（自检/外部脚本曾直接读单个编辑器） ---------------------
     @property
@@ -351,7 +351,8 @@ class ToolPermTab(ConfigTab):
             return
         paths = self.require_paths()
         self._refresh_scopes(reload_editor=True)
-        self.preview_var.set(_read_preview_switch(paths.config_path))
+        if self.preview_panel is not None:
+            self.preview_panel.load()
         if self.params_editor is not None:
             self.params_editor.reload()
         self._reload_safety_panels(paths)
@@ -533,21 +534,10 @@ class ToolPermTab(ConfigTab):
         )
 
     def _save_preview_switch(self) -> None:
-        try:
-            paths = self.require_paths()
-            patch_section(
-                paths.config_path,
-                "platform.qqonebot",
-                {"show_tool_preview_in_group": bool(self.preview_var.get())},
-                header_comment="群聊工具进度（桌面端工具权限页）",
-            )
-        except ConfigEditError as exc:
-            self.fail(exc)
+        """兼容旧调用：保存页面上这个开关（等同于点「保存进度预览设置」）。"""
+        if self.preview_panel is None:
             return
-        self.journal(
-            f"保存群聊工具进度开关：show_tool_preview_in_group={bool(self.preview_var.get())}"
-        )
-        self.notify("已保存 [platform.qqonebot].show_tool_preview_in_group；重启后台服务后生效")
+        self.preview_panel.save()
 
     # -- 打开文件/目录 -------------------------------------------------------
     def _open_state_file(self) -> None:
@@ -590,16 +580,4 @@ def _scope_summary(policies: dict[str, tuple[str, list[str]]]) -> str:
 
 def _read_preview_switch(app_path: str) -> bool:
     """读 ``[platform.qqonebot].show_tool_preview_in_group``（缺省 False）。"""
-    if not app_path or not os.path.exists(app_path):
-        return False
-    try:
-        data = read_toml(app_path)
-    except ConfigEditError:
-        return False
-    platform = data.get("platform")
-    if not isinstance(platform, dict):
-        return False
-    section = platform.get("qqonebot")
-    if not isinstance(section, dict):
-        return False
-    return bool(section.get("show_tool_preview_in_group"))
+    return read_platform_preview_switch(app_path, "platform.qqonebot")

@@ -558,13 +558,16 @@ LLM 在 work / chat 模式下都可以通过 `discover_tool` 按需发现工具�
 /usage -m gpt-4o
 /usage -s sess-xxx
 /usage --by day -d 30
+/usage --by trigger
 /usage --since 2h
 ```
 
 说明：
 
-- `/usage` 从审计日志的 `llm_usage` 事件聚合 token 用量，按模型/天/会话分组统计 prompt、completion、total、cache 和耗时。
+- `/usage` 从审计日志的 `llm_usage` 事件聚合 token 用量，按模型/天/会话/原因分组统计 prompt、completion、total、cache 和耗时。
+- `--by trigger` 按调用原因分组：用户直聊（`direct_message`）、后台任务（`cron`）、记忆学习、重试，以及 5 条旁路调用（`side:compaction` 压缩摘要、`side:group_analysis` 群分析、`side:vision` 视觉理解、`side:title` 会话命名、`side:image_rewrite` 图片提示词改写）。旁路调用现在也计入用量。
 - 字段缺失、非法或溢出的值显示 `null`，并向上传递到受影响的分组与总计项；显式的 `0` 照常统计，其他完全已知的分组和字段不受影响。用量未知的调用仍计入 `calls`。这样"没有记录"不会被当成"用了 0 token"。
+- 费用未知不等于 0：模型价格表里查不到价格的调用、以及只统计 token 的旁路调用，报表末尾会单独提示"费用未计入 / 只统计 token"，不会把未知当成免费。
 - 仅超级管理员可用。
 
 ## 高风险工具确认
@@ -576,10 +579,33 @@ LLM 在 work / chat 模式下都可以通过 `discover_tool` 按需发现工具�
 | `/detail` | 查看待确认工具调用详情；支持工具自定义纯文本详情，未自定义时显示格式化后的参数。 |
 | `/confirm` | 确认当前待确认工具调用。 |
 | `/confirmtool` | 确认当前工具。 |
-| `/confirmall` | 确认当前批次全部待确认工具。 |
+| `/confirmall` | 确认当前批次全部待确认工具。**只在私聊与 CLI 可用**。 |
 | `/reject` | 拒绝当前待确认工具调用。 |
 | `/stop` | 停止当前请求。 |
 
+确认交互的三条边界：
+
+- **只能由发起人处理**：这条高风险调用属于谁，就只有谁能 `/confirm` / `/confirmtool` / `/detail` / `/reject` / `/stop`。共享线程群（`thread_mode = "group"`）里所有人共用一个 Session，没有这道校验时任何群成员都能替发起人放行；超级管理员是唯一例外（运维解锁，审计记 `foreign_actor`）。
+- **群聊里不展示参数**：群聊 / 频道的确认提示只给工具名与风险等级，参数显示为「已隐藏」；`/detail` 同样不展示，因为提示本身发在群里，所有成员都能看到。
+- **群聊里没有 `/confirmall`**：一次放行「本会话后续所有高风险工具」在群里风险太大，默认不提供（私聊 / CLI 保留）。群里需要减少重复确认时用 `/confirmtool`（只放行同一个工具）。
+
 普通用户的确认等待默认在 10 分钟无有效操作后过期；若当前群聊或私聊的 Session TTL 更短，则使用更短的时限。超级管理员不受额外的 10 分钟限制，但仍遵守大于 0 的 Session TTL。执行 `/detail` 会重新计时；过期后工具不会执行，当前处理会停止。
+
+### 授权凭据（`/grant` / `/panic`）
+
+`/confirmall` 与 `/confirmtool` 产生的是**有生命周期的放行凭据**，不是永久开关：
+
+- 默认有效期 10 分钟（会话级与工具级相同），过期后重新需要确认；
+- 绑定产生时的**会话作用域 + 主体**：换个人（共享线程群的其他成员）或换个会话都不能复用；
+- 群策略 / 权限配置改变、Session 被删除时，对应凭据立即失效；
+- 凭据只存在进程内存里，重启即清空。
+
+| 命令 | 作用 |
+| --- | --- |
+| `/grant` / `/grant list` | 列出当前生效的放行凭据（id、工具、会话、作用域、主体、已用次数、剩余时间）。 |
+| `/grant revoke <id>` | 按 id（或唯一前缀）立即撤销一条放行。 |
+| `/panic` | 紧急停止：撤销**全部**放行、停止所有进行中的 turn、取消排队请求、丢弃排队消息。群里执行需要写 `/panic confirm` 二次确认；私聊与 CLI 直接执行。 |
+
+两个命令都仅超级管理员可用；每次发放 / 使用 / 撤销 / panic 都会写审计（`grant_created`、`grant_used`、`grant_revoked`、`panic`）。
 
 具体提示以运行时输出为准。

@@ -68,6 +68,8 @@ class CharacterTab(ConfigTab):
         self._docs: dict[str, str] = {}
         self._doc_kind = ""
         self._doc_kinds: list[str] = []
+        #: 「表情图库」子选项卡（发送策略 + catalog.json 条目管理）。
+        self.reaction_panel: Any = None
         self._build()
         self.reload()
 
@@ -103,6 +105,7 @@ class CharacterTab(ConfigTab):
         self._build_character_page()
         self._build_image_page()
         self._build_soul_page()
+        self._build_reaction_page()
         self.button("保存人设卡", self._save_character)
         self.button("重新载入", self.reload)
 
@@ -208,6 +211,19 @@ class CharacterTab(ConfigTab):
         ttk.Button(actions, text="保存 SOUL.md", command=self._save_soul).pack(side=tk.LEFT)
         ttk.Button(actions, text="重新载入", command=self._load_soul).pack(side=tk.LEFT, padx=(6, 0))
 
+    def _build_reaction_page(self) -> None:
+        """第四个子选项卡：本地表情图库（发送策略 + catalog.json 条目管理）。"""
+        from atri_x.gui.reactionpage import REACTION_TAB_TITLE, ReactionPanel
+
+        page = ttk.Frame(self.notebook, padding=8)
+        self.notebook.add(page, text=REACTION_TAB_TITLE)
+        self.reaction_panel = ReactionPanel(self, page)
+
+    def show_reactions_tab(self) -> None:
+        """跳到「表情图库」子选项卡（「功能」页双击跳转用）。"""
+        if self.reaction_panel is not None:
+            self.notebook.select(self.reaction_panel.frame)
+
     def _form_row(self, parent: Any, row: int, label: str, variable: tk.StringVar) -> None:
         ttk.Label(parent, text=label, width=18).grid(row=row, column=0, sticky="w", pady=2)
         ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=2)
@@ -237,6 +253,8 @@ class CharacterTab(ConfigTab):
         for item in items:
             self.tree.insert("", tk.END, iid=item.id, values=(item.id, item.name, item.visibility))
         self._load_soul()
+        if self.reaction_panel is not None:
+            self.reaction_panel.load()
         if keep and keep in self._items:
             self._select(keep)
         elif self._items:

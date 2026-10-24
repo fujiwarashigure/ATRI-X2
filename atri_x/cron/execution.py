@@ -181,6 +181,9 @@ class ExecutionMixin:
             result = await _run_background(self.runner, ctx, request)
         except Exception as exc:  # noqa: BLE001
             return state, "", exc
+        if _quiet_skipped(result):
+            # 静默期被准入层跳过：不解析、不投递、不判失败（审计已由 run_background 写）。
+            return state, "", None
         try:
             parsed: JSONResult | None = parse_llm_result(result.text)
             err: BaseException | None = None
@@ -190,6 +193,8 @@ class ExecutionMixin:
             result, parsed, err = await self.retry_llm_result_format(
                 ctx, job, meta, actor, result.session_id
             )
+        if _quiet_skipped(result):
+            return state, "", None
         if result.taken_over:
             # 前台已经接管这个 Session：用户能在前台直接看到进度，本次后台运行不再
             # 解析 JSON、不发汇报、也不重复投递。
@@ -252,6 +257,8 @@ class ExecutionMixin:
             return RunResult(), JSONResult(), exc
         if not result.session_id:
             result.session_id = session_id
+        if _quiet_skipped(result):
+            return result, None, None  # type: ignore[return-value]
         try:
             parsed = parse_llm_result(result.text)
         except ValueError as exc:
@@ -337,6 +344,13 @@ def cron_format_retry_prompt() -> str:
 def parse_llm_result(text: str) -> JSONResult:
     """解析 LLM 的 JSON 报告。对应 Go ``parseLLMResult``（失败抛 ``ValueError``）。"""
     return ParseJSONResult(text)
+
+
+def _quiet_skipped(result: Any) -> bool:
+    """这次后台运行是否被「计算静默」准入层跳过。"""
+    from atri_x.agent.admission import ADMISSION_SKIP_OUTCOME
+
+    return str(getattr(result, "outcome", "") or "") == ADMISSION_SKIP_OUTCOME
 
 
 async def _run_background(runner: Any, ctx: Any, request: RunRequest) -> RunResult:

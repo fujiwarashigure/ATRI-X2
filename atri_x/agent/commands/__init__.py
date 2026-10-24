@@ -54,6 +54,11 @@ from __future__ import annotations
 from typing import Sequence
 
 from atri_x.command import Router, new_router
+from atri_x.agent.commands.approval import (
+    ApprovalModule,
+    new_grant,
+    new_panic,
+)
 from atri_x.agent.commands.character import CharacterModule, new_characters
 from atri_x.agent.commands.compact import CompactModule, new_compact
 from atri_x.agent.commands.completion import (
@@ -278,6 +283,7 @@ from atri_x.agent.commands.usage import (
 )
 
 __all__ = [
+    "ApprovalModule",
     "CharacterModule",
     "CommandGroup",
     "CompactModule",

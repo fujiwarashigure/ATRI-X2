@@ -51,8 +51,10 @@ from atri_x.agent.chat_tools import (
     tools_for_session,
     with_model_capabilities,
 )
+from atri_x.agent.reactions import finalize_turn_reaction
 from atri_x.agent.segments import materialize_media
 from atri_x.agent.status import runtime_done_status
+from atri_x.reaction import extract_marker as extract_reaction_marker
 # 两段式识图的前置描述：``vision_trigger == "always"`` 时在第一次 call_llm 之前
 # 把图片换成「画面属性描述 + 可选以图搜图参考」。默认 ``"on_error"`` 下这个函数
 # 只返回消息副本，行为与改造前完全一致。
@@ -196,6 +198,8 @@ async def _run_chat_body(
     final_stream = None
     final_receipt = Receipt()
     deferred_outputs: list[Any] = []
+    #: 本轮最终回答里提出的表情意图（只在"没有工具调用"的最后一轮收集；中间轮忽略）。
+    pending_reaction_emotions: tuple[str, ...] = ()
     usage = None
     tool_rounds = 0
     in_tool_phase = False
@@ -257,6 +261,17 @@ async def _run_chat_body(
             result,
             tools_enabled=session_tools_enabled(session),
         )
+        # 表情意图标记：**必须在任何可见/落库路径之前剥掉**（中间正文、工具轮
+        # assistant 消息、最终回答、会话历史都从这里取文本）。标记只表示"模型想
+        # 表达什么情绪"，真正发不发图由 atri_x.reaction.service 决定。
+        parsed_text = extract_reaction_marker(result.text)
+        parsed_raw = extract_reaction_marker(result.raw_text)
+        if parsed_text.changed:
+            result.text = parsed_text.text
+        if parsed_raw.changed:
+            result.raw_text = parsed_raw.text
+        if not result.tool_calls:
+            pending_reaction_emotions = parsed_text.emotions or parsed_raw.emotions
         if result.messages:
             llm_messages = result.messages
         streaming = result.stream is not None
@@ -419,6 +434,18 @@ async def _run_chat_body(
     )
     if empty_assistant_response and not is_background_output:
         platform_output_text = EMPTY_ASSISTANT_TEXT
+    # 表情图片：整轮只追加一次，作为 ``after_assistant`` 输出 —— 正文先发、表情后发。
+    # 放在空回复判定之后：一条本该显示「空回复」的回合不能因为一张图变成"只有图"。
+    if not is_background_output:
+        deferred_outputs.extend(
+            finalize_turn_reaction(
+                agent,
+                ctx,
+                session,
+                text=platform_output_text,
+                emotions=pending_reaction_emotions,
+            )
+        )
     await out.publish_runtime_status(
         ctx,
         Snapshot(

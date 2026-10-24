@@ -204,10 +204,16 @@ rg -n "Phase|Request|Cancel|pending|confirm|runtime status|sending" atri_x/reque
 - `atri_x/groupanalysis/`：群分析 clean-room 统计与可选 `Summarizer`；只依赖 `chat_history` / `outbound_messages`。
 - `atri_x/groupkb/`：确定性 FAQ 匹配引擎；归一化（全角/大小写/空白/标点）和 exact/contains/keywords 规则，纯本地、无模型依赖。
 - `atri_x/angelmemory/`：clean-room SQLite 长期记忆、召回和上下文构造；写入来源类型/用户/消息 ID/Session ID，提供 scope 限定的查询、前缀解析和按来源删除。
+- `atri_x/memory/notes.py`、`atri_x/memory/resident/`：常驻记忆的条目化与可见性（Python 侧新增）。`memories.toml` 的 `[[memory_notes]]` 存带来源会话的条目；`note_visible_in()` 是唯一判定入口（私聊来源永不进群、合并取更严），注入侧走 `Store.read_for_prompt`，`resident_memory_normal` 的 append/write/delete 只动当前会话条目。老 `core`/`normal` 没有来源信息，按 `identity` 档处理。
+- `atri_x/tool/builtin/long_memory*.py`：`long_memory` / `long_memory_search` / `long_memory_write` 三个超管工具——`long_memory_model` 放记录模型与 front matter、`long_memory_store` 放 SQLite 索引与检索、`long_memory_scope` 放作用域判定。记忆文件带可选 `source_scope` / `source_actor`（`<platform>:<scope_id>` 与 `platform:user_id`）；`long_memory_scope` 是「按会话隔离」的唯一判定入口：检索 / 分类目录 / 更新 / 删除默认只碰当前会话与未归属旧数据，超管传 `scope=all` 或具体作用域键才跨会话（结果多一行「来源会话」）。无来源字段的旧记忆按"全局旧数据"处理，仍然到处可见；索引库老表在第一次打开时自动补两列。
 - `atri_x/selflearning/`：clean-room 观察、候选挖掘、review-before-apply 和上下文构造。
 - `atri_x/agent/commands/memory_learning.py`：`/memory`、`/learning` 管理命令。
 - `atri_x/agent/commands/memory_forget.py`、`atri_x/agent/commands/memory_common.py`：普通成员 `/forget` 入口、可见性过滤、按来源删除和常驻记忆清空。
 - `atri_x/tool/builtin/file_tools_ast.py`：`read_file` 的 Python/Shell AST 名称搜索与结果渲染。
+- `atri_x/agent/chat_observe.py`、`atri_x/agent/call_reason.py`、`atri_x/llm/usage_sink.py`：模型调用的日志/审计出口；`call_reason` 给每次调用打原因标签，`usage_sink` 收旁路（压缩/群分析/视觉/命名/改写）用量，Agent 构造时订阅成同一种 `llm_usage` 事件，`/usage --by trigger` 与"未知价格不等于 0"都基于它。
+- `atri_x/security/grants.py`（**Python 版新增**）：高风险工具放行的授权登记表——`Grant`（TTL / 最大次数 / 绑定 `scope_key` + `actor_id`）+ 线程安全 `GrantRegistry`；`/confirmall` / `/confirmtool` 产生凭据，命中即消耗次数，过期或撤销即失效。`/grant` 与 `/panic` 命令在 `atri_x/agent/commands/approval.py`。
+- `atri_x/agent/admission.py`（**Python 版新增**）：计算静默准入——`admit(agent, ctx, reason)` 决定一次模型调用能否发生（`[quiet]` 全局时段 ∨ 群级 `quiet_hours`；cron / 外部事件默认 skip 且不补跑），`agent.cron.run_background` 是唯一后台闸口，`cron/execution.py` 与 `atrinis/llm.py` 识别 `outcome="quiet_skipped"` 不重试。
+- `atri_x/agent/participation.py`（**Python 版新增**）：群聊参与状态机（`[participation]`，默认关）——per-scope 冷却与未回应连击，开启后只压制普通闲聊的唤醒，点名 / 回复 / 唤醒词照常唤醒。
 - `atri_x/agent/tools.py`：Agent 工具运行态和命令依赖适配。
 - `atri_x/agent/toolrun_*.py`：Agent 到 ToolRun 的桥接。
 - `atri_x/agent/tool_cache.py`：Session 级工具 schema 缓存；工具发现与 `@tool:` / `@skill:` 预载的写入都经 `mutateSessionMetadata` 在事务内合并进最新 metadata。
@@ -230,8 +236,9 @@ rg -n "discover_tool|NewBuilder|Risk|Confirm|ToolRun|Result\{|Outputs|workspace|
 
 先看：
 
-- `atri_x/agent/chat_tools.py`：Agent 工具执行主入口；`recordToolCall` 写 `tool_call` 审计时按工具类别限长正文（读取／查询／说明类 128 字符，其余 256，参数统一 256，见 `toolLogResultLimit`），并写入 `run_source`（`toolRunSource` 从调用现场的 `SandboxContext.BackgroundKind` 取 foreground／cron／atrinis，供 `/audit --run_source` 筛选）。
+- `atri_x/agent/chat_tools.py`：Agent 工具执行主入口；`recordToolCall` 写 `tool_call` 审计时按工具类别限长正文（读取／查询／说明类 128 字符，其余 256，参数统一 256，见 `toolLogResultLimit`），并写入 `run_source`（`toolRunSource` 从调用现场的 `SandboxContext.BackgroundKind` 取 foreground／cron／atrinis，供 `/audit --run_source` 筛选）；构造 `RunRequest` 时注入 `preview_texts`（`agent.tool_preview_texts`）。
 - `atri_x/toolrun/`：执行前解析、过滤、确认、排队后授权复核、额度预占和预览。
+- `atri_x/toolrun/preview.py`（Python 侧新增）：`PreviewTexts` —— `[tool_preview]` 配置的运行时形态（persona / system 两种风格、搜索 / 读取网页 / 默认 / 失败文案）；`runner` 只认这个数据对象，不依赖 Agent/配置层。
 - `atri_x/tool/executor.py`：Tool Runtime 执行适配。
 - `atri_x/tool/tool.py`：Tool 核心类型。
 - `atri_x/agent/tool_transcript.py`：tool message/transcript 落库。
@@ -241,6 +248,29 @@ rg -n "discover_tool|NewBuilder|Risk|Confirm|ToolRun|Result\{|Outputs|workspace|
 
 ```bash
 rg -n "ToolCall|tool message|transcript|ToolCallRecord|confirm|preview" atri_x/agent atri_x/tool atri_x/toolrun atri_x/storage
+```
+
+<!-- locator:reaction -->
+## 本地表情图库（reactions，Python 侧新增）
+
+适用任务：模型情绪标记（`[[emo:标签]]`）解析、按情绪/冷却/去重选图、把表情作为
+`after_assistant` 输出交付、图库 `catalog.json` 读写、GUI 表情图库页。
+
+先看：
+
+- `atri_x/reaction/marker.py`：标记解析与清除（正文保持干净；标签去重、限长、不跨行）。
+- `atri_x/reaction/catalog.py`：`reactions/catalog.json` 读取与校验（路径越界/缺图/坏 JSON 都是软失败），`DEFAULT_EMOTIONS` 是情绪清单唯一出处。
+- `atri_x/reaction/policy.py`：`[reactions]` 容错解析、范围夹紧、场景抑制（长文 / 抑制词）。
+- `atri_x/reaction/service.py`：`ReactionService.decide()` 的决策顺序（启用范围 → 抑制 → 三段冷却 → 情绪匹配 → 去重 / LRU → 权重随机 → 概率）与进程内状态；`catalog.json` 按 mtime 自动重载。
+- `atri_x/agent/reactions.py`：配置 → `ReactionSettings`、作用域（平台 + 群/私聊 + 会话）解析、回合收尾把选中的图变成 `timing = after_assistant` 输出（`finalize_turn_reaction`）。
+- `atri_x/agent/chat_turn.py`：循环内剥标记（`extract_marker`，任何可见/落库路径之前）；循环外、空回复判定之后追加表情输出（整轮一张、后台回合不发）。
+- `atri_x/agent/system_prompt_sources.py` 的 `ReactionSystemPromptSource`：仅在 `[reactions].enabled = true` 时注入「可用标签 / 每轮最多一个 / 严肃场景不加」。
+- GUI：`atri_x/gui/reactionpage.py`（人设卡页「表情图库」子选项卡的数据层 + 界面）与 `atri_x/gui/toolpreview.py`（工具权限页「工具进度预览」子选项卡）。
+
+常用搜索：
+
+```bash
+rg -n "reaction|emo:|catalog.json|after_assistant|tool_preview" atri_x/agent atri_x/reaction atri_x/gui atri_x/toolrun
 ```
 
 <!-- locator:skill -->
@@ -341,6 +371,7 @@ rg -n "Output|SendChat|SendNotice|Stream|Reasoning|emoticon|receipt|ToolPreview"
 
 - `atri_x/platform/platform.py`：平台抽象，以及可选的群历史/群目录/头像/群素材能力接口；`PlatformEventHandler` 提供 notice/request/meta_event 的非消息事件入口。
 - `atri_x/platform/qq_onebot/capabilities.py`：OneBot 可选群历史、群信息、成员列表和头像 URL 能力。
+- `atri_x/platform/qq_onebot/slowfetch.py`（**Python 版新增**）：引用 / 转发的慢取——分级 TTL 缓存（成功 5 分钟 / 失败 30 秒）、LRU 上限、同 id 单飞、短预算等待（超时就先占位，后台继续取）。`preprocess.fetch_referenced` / `resolve_forward_segments` 都走它，`fetch_message`（`atri_x/tool/builtin/fetch_message.py`）按 id 回查完整正文。
 - `atri_x/platform/qq_onebot/message.py`：入站文本保留原始空白，并生成不含转发内容的唤醒匹配视图；按共享总预算展开 `forward`/`node` 合并转发。`atri_x/platform/qq_onebot/inbound.py` 提供 `platform+bot+scope+message_id` 入站去重和有界预处理 worker / 高优先级事件通道；`atri_x/platform/qq_onebot/adapter.py` 的读取循环不再逐条无界起 asyncio task，并限制 `get_forward_msg` 拉取次数、超时、返回体和拉取失败降级。
 - `atri_x/platform/qq_onebot/transport.py`、`atri_x/platform/qq_onebot/smoke.py`：OneBot v11 正向 WS 连接的读写闸、动作响应分发与发送接口；`smoke.py`（`python -m atri_x.platform.qq_onebot.smoke`）只做协议层冒烟——连上 → `get_login_info` → 可选发群/私聊 → 可选监听上报事件，不读 `app.toml`、不装配 Agent，故障定位不依赖模型。
 - `atri_x/platform/telegram/capabilities.py`：Telegram 可选群信息和管理员列表能力；历史与全量成员回退本地历史。

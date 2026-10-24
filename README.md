@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.0.3`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `1.0.4`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -18,12 +18,12 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行（含测试共 754 个文件 / 146,153 行） |
-| 本仓库 | 平铺布局的 `atri_x/`：715 个 `.py` 模块，约 20.9 万行（物理行，含空行/注释/docstring；`tests/` 另有约 10.0 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：734 个 `.py` 模块，约 21.5 万行（物理行，含空行/注释/docstring；`tests/` 另有约 10.3 万行） |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 平台适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 191 个 Python 文件（其中 182 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
-| 规模 | 1,043 个工作树文件（不含 `.git`；源码归档按同一清单打包，条目数相同） |
+| 测试 | `tests/` 208 个 Python 文件（其中 199 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
+| 规模 | 1,080 个受版本控制文件（不含 `.git`；源码归档按同一清单打包，条目数相同） |
 
 ## 功能特性
 
@@ -175,7 +175,7 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.0.3`**（2026-10-24 热修重建，版本号不变）。本版三块变化：①**内置内容安全**——「道德限制 + 敏感信息过滤」原生 Python 实现（词表拦截、凭据/PII 脱敏、只存 hash 的审计日志、图片/文件出口策略），不再依赖外部插件；支持 `[safety.chat]` / `[safety.work]` **按会话模式覆盖**，chat / work 子选项卡里也能直接改；②**常驻记忆配额** core / normal 各提到 500 units；③**识图改造**——两段式描述（视觉模型只描述、主模型下结论）、`detail = original` 不再先把图缩糊、可选的 SauceNAO 以图搜图兜底（默认关）、3~5 秒超时降级、群图外发隐私开关与失败原因可观测。1.0.2 的「推理思考强度」与 GUI 落盘修复在其之前；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+当前最新版本：**`1.0.4`**（两个新功能：①**工具进度提示**——模型没先说话时由程序补一句角色化进度（搜索/读取网页/其它工具分别可配，默认不展示工具参数），桌面端「工具权限 → 工具进度预览」子选项卡可调；②**本地表情图库**——模型只在正文末尾写 `[[emo:标签]]` 提出情绪意图，程序按「情绪匹配 → 场景抑制 → 回复/会话/群冷却 → 最近图片去重 → 权重随机 → 概率」决定补不补图，桌面端「人设卡 → 表情图库」子选项卡管理策略与 `reactions/catalog.json` 条目）。本版同时保留 1.0.3 的内置内容安全、常驻记忆配额与识图改造；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
 交付物尺寸与校验和见发行库里的 `发行说明.md` / `自检报告.md` / `SHA256SUMS.txt`。
 
 已发布：[**GitHub Release v1.0.3**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.3)（热修后 `v1.0.3` tag 指向最终提交，资产为重建版）。交付物尺寸与 SHA-256 见该 Release 的 `SHA256SUMS.txt` / `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md`；1.0.2 补丁版也已推送（tag `v1.0.2` = `00a6653`）。
@@ -332,8 +332,8 @@ python -m unittest discover -s tests -t .             # 全量测试
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 899 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=699 imported=699`，0 失败 |
+| `check_syntax` | 952 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=734 imported=734`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径：只验 [PORTING.md](PORTING.md) §4 映射表里的 Python 模块是否存在，不衡量行为正确性） |
 | 全量 `unittest` | 用例数不硬编码（见下）；现场跑 `python -m unittest discover -s tests -t .`，以本机输出或 CI 记录为准 |

@@ -49,6 +49,9 @@ from atri_x.config.app_sections import (
     PlatformFilesConfig,
     ResidentMemoryConfig,
     RuntimeConfig,
+    ReactionsConfig,
+    QuietConfig,
+    ParticipationConfig,
     SafetyConfig,
     SandboxConfig,
     SecurityConfig,
@@ -57,6 +60,7 @@ from atri_x.config.app_sections import (
     SoulConfig,
     StorageConfig,
     StrictConfig,
+    ToolPreviewConfig,
     ToolsConfig,
     TurnDirectivesConfig,
     ViewConfig,
@@ -148,6 +152,14 @@ class AppConfig(StrictConfig):
     context: ContextConfig = field(default_factory=ContextConfig)
     commands: CommandsConfig = field(default_factory=CommandsConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
+    #: Python 版新增段：``[tool_preview]``（工具调用进度预览的文案风格）。
+    tool_preview: ToolPreviewConfig = field(default_factory=ToolPreviewConfig)
+    #: Python 版新增段：``[reactions]``（本地表情图库 + 表情图片输出策略）。
+    reactions: ReactionsConfig = field(default_factory=ReactionsConfig)
+    #: Python 版新增段：``[quiet]``（全局静默时段，评估 §E）。
+    quiet: QuietConfig = field(default_factory=QuietConfig)
+    #: Python 版新增段：``[participation]``（群聊参与状态机，评估 §D）。
+    participation: ParticipationConfig = field(default_factory=ParticipationConfig)
     resident_memory: ResidentMemoryConfig = field(default_factory=ResidentMemoryConfig)
     view: ViewConfig = field(default_factory=ViewConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
@@ -335,6 +347,13 @@ class AppConfig(StrictConfig):
             self.commands.prefixes = ["/"]
         if self.tools.max_rounds_per_turn <= 0:
             self.tools.max_rounds_per_turn = 2
+        # [tool_preview] / [reactions]：补默认文案、夹紧范围（幂等）。
+        self.tool_preview = self.tool_preview.normalized()
+        self.reactions = self.reactions.normalized()
+        # [quiet]：静默窗口格式校验（幂等）。
+        self.quiet = self.quiet.normalized()
+        # [participation]：参与状态机参数夹紧（幂等）。
+        self.participation = self.participation.normalized()
         if self.resident_memory.core_max_units <= 0:
             self.resident_memory.core_max_units = 500
         if self.resident_memory.normal_max_units <= 0:

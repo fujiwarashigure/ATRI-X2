@@ -27,6 +27,7 @@ from atri_x.tool.builtin.long_memory_model import (
     decode_long_memory_args,
     update_args_from_write,
 )
+from atri_x.tool.builtin.long_memory_scope import scope_label
 from atri_x.tool.builtin.long_memory_store import LongMemoryStore
 from atri_x.tool.tool import CallRequest, Info, Result, RiskMedium, RiskHigh
 from atri_x.utils.fileops import edit_operation_properties
@@ -35,18 +36,24 @@ LONG_MEMORY_TOOL_NAME = "long_memory"
 LONG_MEMORY_SEARCH_TOOL_NAME = "long_memory_search"
 LONG_MEMORY_WRITE_TOOL_NAME = "long_memory_write"
 
-_ENTRY_DESCRIPTION = "Long Memory 长期记忆入口。用于检索、保存、更新、删除全局长期记忆"
+_ENTRY_DESCRIPTION = (
+    "Long Memory 长期记忆入口。用于检索、保存、更新、删除长期记忆"
+    "（默认按会话隔离，超级管理员可显式跨会话检索）"
+)
 _SEARCH_DESCRIPTION = (
-    "检索全局长期记忆；不传 keywords/category 时返回分类目录。"
+    "检索长期记忆；不传 keywords/category 时返回分类目录。"
+    "默认只检索当前会话与旧数据；传 scope=all（仅超管）可跨会话检索。"
     "默认只返回标题和摘要，需要详细内容时传 brief_only=false。"
 )
 _WRITE_DESCRIPTION = (
-    "保存、局部更新或永久删除全局长期记忆。operation 为 save、update 或 delete。"
+    "保存、局部更新或永久删除长期记忆。operation 为 save、update 或 delete。"
+    "新记忆自动归属当前会话；更新/删除默认只能操作当前会话的记录。"
     "保存前建议先用 long_memory_search 查看分类和避免重复。"
 )
 _ENTRY_REPLY = (
     "long_memory 是长期记忆入口。请按需调用 long_memory_search 或 long_memory_write。"
     "long_memory_search 不传 keywords/category 时会返回分类目录。"
+    "记忆默认按会话隔离，只有超级管理员能跨会话检索或操作其他会话的记忆。"
 )
 
 
@@ -87,6 +94,11 @@ def long_memory_search_builder() -> Builder:
             "true=仅返回标题和摘要；false=包含完整内容。默认 true。需要详细内容时再传 false。",
         )
         .integer("limit", "最大结果数，默认 3，上限 10。")
+        .string(
+            "scope",
+            "作用域：留空=当前会话；all=全部会话（仅超管）；"
+            "也可传某个具体来源作用域键（仅超管，用于定向查看别的会话）。",
+        )
     )
 
 
@@ -125,6 +137,11 @@ def long_memory_write_builder() -> Builder:
             "使用与 edit_file 相同的精确文本、anchor、行号插入/删除协议。",
             edit_operation_properties(),
             ["operation"],
+        )
+        .string(
+            "scope",
+            "跨会话 update/delete 时必填：目标记录在检索结果里显示的来源作用域键"
+            "（仅超管）。本会话操作留空。",
         )
     )
 
@@ -176,7 +193,7 @@ class LongMemorySearchTool:
         )
         store = self._store()
         if (args.keywords or "").strip() == "" and (args.category or "").strip() == "":
-            return Result(content=store.categories(ctx))
+            return Result(content=store.categories(ctx, args.scope))
         return Result(content=store.search(ctx, args))
 
     def _store(self) -> LongMemoryStore:
@@ -262,6 +279,7 @@ class LongMemoryWriteTool:
                 content=(
                     f"记忆写入成功！\nID：{record.id}\n分类：{record.category}\n"
                     f"标题：{record.title}\n文件：{record.file_path}\n"
+                    f"归属会话：{scope_label(record.source_scope)}\n"
                     "可通过 long_memory_search 检索，或用 long_memory_write 更新/删除。"
                 )
             )
@@ -274,7 +292,7 @@ class LongMemoryWriteTool:
                 )
             )
         if operation == "delete":
-            path = store.delete(ctx, args.id)
+            path = store.delete(ctx, args.id, args.scope)
             return Result(content=f"记忆ID：{args.id}已永久删除。\n文件：{path}")
         raise InvalidError("operation must be save, update, or delete")
 

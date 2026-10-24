@@ -372,6 +372,7 @@ def new_prompt_builder(opts: Any) -> PromptBuilder:
     from atri_x.agent.system_prompt import SystemPromptManager
     from atri_x.agent.system_prompt_sources import (
         ConversationMetaSystemPromptSource,
+        ReactionSystemPromptSource,
         ResidentMemorySystemPromptSource,
         SoulSystemPromptSource,
         ToolNamesSystemPromptSource,
@@ -391,6 +392,10 @@ def new_prompt_builder(opts: Any) -> PromptBuilder:
     tools = getattr(opts, "tool_provider", None)
     if tools is not None:
         sources.append(ToolNamesSystemPromptSource(tools))
+    # 表情图库启用时才告诉模型可以用 [[emo:标签]]；关闭时提示词保持原样。
+    reactions = getattr(opts, "reactions_config", None)
+    if reactions is not None and getattr(reactions, "enabled", False):
+        sources.append(ReactionSystemPromptSource(reactions))
 
     from atri_x.agent.tool_tag_config import ToolTagConfigSource, tool_tag_source_of
 

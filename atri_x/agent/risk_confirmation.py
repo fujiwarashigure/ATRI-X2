@@ -21,7 +21,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 __all__ = [
+    "REDACTED_ARGUMENTS_TEXT",
     "RiskConfirmationCommand",
+    "confirmation_allows_confirm_all",
+    "confirmation_conversation_kind",
+    "confirmation_hides_arguments",
     "format_risk_confirmation_arguments",
     "is_risk_confirmation_command",
     "is_risk_confirmation_command_name",
@@ -32,6 +36,9 @@ __all__ = [
     "risk_confirmation_prompt_text",
     "risk_confirmation_waiting_text",
 ]
+
+#: 群聊 / 频道里详情文案对参数的替代说法。
+REDACTED_ARGUMENTS_TEXT = "参数：已隐藏（群聊中不展示，请结合工具名与风险等级判断）"
 
 
 @dataclass
@@ -44,10 +51,16 @@ class RiskConfirmationCommand:
     description: str = ""
 
 
-def risk_confirmation_commands(prefix: str) -> list[RiskConfirmationCommand]:
-    """确认期可用指令表。对应 Go ``riskConfirmationCommands``。"""
+def risk_confirmation_commands(
+    prefix: str, include_confirm_all: bool = True
+) -> list[RiskConfirmationCommand]:
+    """确认期可用指令表。对应 Go ``riskConfirmationCommands``。
+
+    ``include_confirm_all=False`` 时去掉 ``confirmall`` / ``ca``：群聊与频道里
+    不提供「一次放行本会话全部工具」，避免一次误确认把后续所有高风险调用都放行。
+    """
     prefix = prefix or ""
-    return [
+    commands = [
         RiskConfirmationCommand(
             name="detail",
             aliases=["details"],
@@ -83,21 +96,27 @@ def risk_confirmation_commands(prefix: str) -> list[RiskConfirmationCommand]:
             description="停止当前请求",
         ),
     ]
+    if include_confirm_all:
+        return commands
+    return [cmd for cmd in commands if cmd.name != "confirmall"]
 
 
-def risk_confirmation_command_help(prefix: str) -> str:
+def risk_confirmation_command_help(prefix: str, include_confirm_all: bool = True) -> str:
     """指令帮助行。对应 Go ``riskConfirmationCommandHelp``。"""
     return "；".join(
-        f"{cmd.usage} {cmd.description}" for cmd in risk_confirmation_commands(prefix)
+        f"{cmd.usage} {cmd.description}"
+        for cmd in risk_confirmation_commands(prefix, include_confirm_all)
     )
 
 
-def risk_confirmation_prompt_text(prefix: str, timeout: float) -> str:
+def risk_confirmation_prompt_text(
+    prefix: str, timeout: float, include_confirm_all: bool = True
+) -> str:
     """等待确认时发给用户的提示。对应 Go ``riskConfirmationPromptText``。
 
     ``timeout`` 是秒数（Go 的 ``time.Duration``）；``<= 0`` 表示不设超时。
     """
-    text = "可用指令：" + risk_confirmation_command_help(prefix)
+    text = "可用指令：" + risk_confirmation_command_help(prefix, include_confirm_all)
     if timeout > 0:
         text += "；超过 %s 没有执行有效操作将自动停止，%sdetail 可重新计时" % (
             confirmation_wait_duration_text(timeout),
@@ -106,13 +125,33 @@ def risk_confirmation_prompt_text(prefix: str, timeout: float) -> str:
     return text
 
 
-def risk_confirmation_waiting_text(prefix: str) -> str:
+def risk_confirmation_waiting_text(
+    prefix: str, include_confirm_all: bool = True
+) -> str:
     """"正在等待确认、只接受这些指令"的前缀。对应 Go ``riskConfirmationWaitingText``。"""
-    return "正在等待高风险工具调用确认，只接受：" + risk_confirmation_command_help(prefix) + "。\n"
+    return (
+        "正在等待高风险工具调用确认，只接受："
+        + risk_confirmation_command_help(prefix, include_confirm_all)
+        + "。\n"
+    )
 
 
 def risk_confirmation_detail_text(confirmation: Any) -> str:
-    """详情文案。对应 Go ``riskConfirmationDetailText``。"""
+    """详情文案。对应 Go ``riskConfirmationDetailText``。
+
+    ``confirmation.redacted`` 为真时只给工具名 / 风险等级 / 摘要：群聊里参数
+    属于泄露面，宁可确认方看不到细节，也不把它发进群。
+    """
+    if getattr(confirmation, "redacted", False):
+        text = "高风险工具调用详情\n工具：%s\n风险：%s\n%s\n" % (
+            getattr(confirmation, "tool_name", ""),
+            getattr(confirmation, "risk", ""),
+            REDACTED_ARGUMENTS_TEXT,
+        )
+        summary = str(getattr(confirmation, "summary", "") or "").strip()
+        if summary:
+            text += "摘要：%s\n" % summary
+        return text
     detail = str(getattr(confirmation, "detail", "") or "").strip()
     if not detail:
         detail = format_risk_confirmation_arguments(
@@ -123,6 +162,44 @@ def risk_confirmation_detail_text(confirmation: Any) -> str:
         getattr(confirmation, "risk", ""),
         detail,
     )
+
+
+# ---------------------------------------------------------------------------
+# 确认交互的会话可见性（本仓扩展）
+# ---------------------------------------------------------------------------
+def confirmation_conversation_kind(agent: Any, ctx: Any) -> str:
+    """这次确认交互所在会话的种类：``group`` / ``private`` / ``channel`` / ``""``。
+
+    只看平台作用域 id 前缀，与 ``thread_mode`` 无关 —— 群里的确认提示始终发到
+    群里（所有群成员可见），所以参数是否展示不能看会话是否共享线程。
+    """
+    scope = _scope_of(agent, ctx)
+    scope_id = str(getattr(scope, "platform_scope_id", "") or "")
+    from atri_x.agent.identity import conversation_kind_from_scope
+
+    return conversation_kind_from_scope(scope_id)
+
+
+def confirmation_hides_arguments(agent: Any, ctx: Any) -> bool:
+    """群聊 / 频道里不展示高风险工具的参数（提示与 ``/detail`` 都不展示）。"""
+    return confirmation_conversation_kind(agent, ctx) in ("group", "channel")
+
+
+def confirmation_allows_confirm_all(agent: Any, ctx: Any) -> bool:
+    """``/confirmall`` 只在单聊与 CLI 可用。
+
+    「本会话后续所有高风险工具一次放行」在群里等价于一次误确认就把整个会话
+    交给模型，默认关闭；确实需要等价能力时用 ``/confirmtool``（只放行同工具）。
+    """
+    return confirmation_conversation_kind(agent, ctx) not in ("group", "channel")
+
+
+def _scope_of(agent: Any, ctx: Any) -> Any:
+    helper = getattr(agent, "scope", None) if agent is not None else None
+    if helper is None:
+        return None
+    return helper(ctx)
+
 
 
 def confirmation_wait_duration_text(timeout: float) -> str:

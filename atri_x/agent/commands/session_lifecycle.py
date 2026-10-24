@@ -467,6 +467,9 @@ def new_delete(deps: Deps) -> Any:
         session_id = resolve_session_target(ctx, deps, req.prefix, target)
         scope = deps.scope(ctx)
         deps.sessions.delete(scope, session_id)
+        if deps.grants is not None:
+            # Session 被删掉后，它的高风险放行凭据也不该再存在（评估 §B1）。
+            deps.grants.revoke_session(session_id)
         forget_session_memories(deps, ctx, scope, session_id)
         return Result(content=f"deleted session:\n  id: {session_id}")
 

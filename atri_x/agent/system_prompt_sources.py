@@ -31,12 +31,66 @@ from atri_x.tool import background_context
 
 __all__ = [
     "ConversationMetaSystemPromptSource",
+    "ReactionSystemPromptSource",
     "ResidentMemorySystemPromptSource",
     "SoulSystemPromptSource",
     "ToolNamesSystemPromptSource",
     "resident_memory_prompt_header",
     "wrap_resident_memory_prompt",
 ]
+
+#: 表情提示词里最多列出的情绪标签数（与 ``[reactions].emotions`` 上限无关，
+#: 只是别把一段几百个标签的配置原样塞进系统提示词）。
+MAX_PROMPT_EMOTIONS = 32
+
+
+class ReactionSystemPromptSource:
+    """注入"表情意图标记"的使用说明（Python 侧新增，无 Go 对应）。
+
+    只有 ``[reactions].enabled = true`` 时才注入：模型只需要知道**标签**，不需要
+    知道图库路径/文件名；标记由后端从正文里删掉，用户看不到。
+    """
+
+    def __init__(self, config: Any = None) -> None:
+        self.config = config
+
+    async def parts(
+        self, ctx: Any, req: SystemPromptRequest
+    ) -> list[SystemPromptPart]:
+        config = self.config
+        if config is None or not getattr(config, "enabled", False):
+            return []
+        emotions: list[str] = []
+        for value in getattr(config, "emotions", None) or []:
+            text = str(value or "").strip()
+            if text and text not in emotions:
+                emotions.append(text)
+            if len(emotions) >= MAX_PROMPT_EMOTIONS:
+                break
+        if not emotions:
+            return []
+        return [
+            SystemPromptPart(
+                name="reactions",
+                content=reaction_prompt_text(emotions),
+            )
+        ]
+
+
+def reaction_prompt_text(emotions: list[str]) -> str:
+    """生成表情意图标记的使用说明（系统提示词片段）。"""
+    tags = "、".join(emotions)
+    return (
+        "## 表情提示\n"
+        "你可以在合适的回复末尾追加一个表情意图标记，例如「……吧！[[emo:无语]]」。\n"
+        "可用标签：" + tags + "。\n"
+        "规则：\n"
+        "- 每轮最多一个标记，写在正文最后；没有合适的情绪就不要写。\n"
+        "- 不要为了发表情改变回答内容，也不要向用户解释这个标记。\n"
+        "- 专业说明、严肃安慰、错误通知、工具执行进度不要加。\n"
+        "- 轻松吐槽可以用无语/无奈；完成挑战可以用得意；对方分享好消息可以用开心。\n"
+        "- 「嘲笑」只用于明确友好的玩笑，不用于贬低用户。"
+    )
 
 #: 注入时的信任声明。唯一出处是 ``atri_x.memory.resident``（Go 常量同名）。
 resident_memory_prompt_header = RESIDENT_MEMORY_PROMPT_HEADER
@@ -119,8 +173,15 @@ class ResidentMemorySystemPromptSource:
     ) -> list[SystemPromptPart]:
         if self.store is None:
             return []
+        # 优先用 read_for_prompt：它在读 core/normal 之外，还会按「来源会话 + 可见性」
+        # 过滤 memory_notes（私聊来源永不进群）。只提供 read 的存储（Go 语义替身 /
+        # 测试桩）退回老行为。
+        reader = getattr(self.store, "read_for_prompt", None)
         try:
-            memory = self.store.read(req.scope)
+            if callable(reader):
+                memory = reader(req.scope)
+            else:
+                memory = self.store.read(req.scope)
             if _is_awaitable(memory):
                 memory = await memory
         except NotFoundError:

@@ -57,7 +57,7 @@ _USAGE_HELP = """Options:
   -d, --days <n>        Days to look back. Default: 1.
   -m, --model <name>    Filter by model name.
   -s, --session <id>    Filter by session ID.
-  --by <key>            Group by: model (default), day, session.
+  --by <key>            Group by: model (default), day, session, trigger.
   --since <time>        Show usage after a time, e.g. 2h, 30m, 2026-06-03.
   --until <time>        Show usage before a time.
 
@@ -67,15 +67,21 @@ Examples:
   /usage -m gpt-4o
   /usage -s sess-xxx
   /usage --by day -d 30
+  /usage --by trigger
   /usage --since 2h"""
 
 
 class UsageGroupKey:
-    """分组维度。对应 Go ``usageGroupKey`` 及其常量。"""
+    """分组维度。对应 Go ``usageGroupKey`` 及其常量。
+
+    本仓扩展 ``TRIGGER``：按 ``reason`` 归因（``direct_message`` / ``cron`` /
+    ``side:compaction`` 等，见 :mod:`atri_x.agent.call_reason`）。
+    """
 
     MODEL = "model"
     DAY = "day"
     SESSION = "session"
+    TRIGGER = "trigger"
 
 
 def usage_info() -> Info:
@@ -202,8 +208,9 @@ def parse_usage_query(args: str) -> tuple[LogQuery, str]:
                 UsageGroupKey.MODEL,
                 UsageGroupKey.DAY,
                 UsageGroupKey.SESSION,
+                UsageGroupKey.TRIGGER,
             ):
-                raise ValueError("--by must be model, day or session")
+                raise ValueError("--by must be model, day, session or trigger")
             group_by = normalized
         elif name == "--since":
             value, index = next_arg(parts, index, name)
@@ -240,6 +247,9 @@ def usage_group_key_for(entry: LogEntry, group_by: str) -> str:
     if group_by == UsageGroupKey.SESSION:
         value = entry.fields.get("session_id", "")
         return value if value != "" else "unknown-session"
+    if group_by == UsageGroupKey.TRIGGER:
+        value = (entry.fields.get("reason") or "").strip()
+        return value if value != "" else "unknown-trigger"
     provider = (entry.fields.get("provider") or "").strip()
     model = (entry.fields.get("model") or "").strip()
     if provider != "" and model != "":
@@ -334,7 +344,37 @@ def format_usage_summary(
         out.append("\n")
     out.append("─────────────────────────────\n")
     format_usage_bucket(out, "total", grand)
+    notice = unpriced_usage_notice(entries)
+    if notice:
+        out.append(notice)
     return "".join(out)
+
+
+def unpriced_usage_notice(entries: list[LogEntry]) -> str:
+    """费用未知的调用提示。
+
+    ``price_known=false``（价格表里没有这个模型）与 ``usage_source=side``（旁路
+    调用只统计 token、不算费用）都属于"费用未知"。未知**不是** 0，不能当成免费。
+    """
+    unknown = 0
+    side = 0
+    for entry in entries:
+        price_known = (entry.fields.get("price_known") or "").strip().lower()
+        if price_known in ("false", "0"):
+            unknown += 1
+        if (entry.fields.get("usage_source") or "").strip().lower() == "side":
+            side += 1
+    if unknown == 0 and side == 0:
+        return ""
+    parts = ["\n\n"]
+    if unknown:
+        parts.append(f"{unknown} 次调用的模型价格未知（费用未计入）")
+    if side:
+        if unknown:
+            parts.append("；")
+        parts.append(f"{side} 次旁路调用（压缩 / 群分析 / 视图 / 命名 / 改写）只统计 token")
+    parts.append("。以上都不等于 0 费用。\n")
+    return "".join(parts)
 
 
 def usage_completion_options() -> list[CompletionOption]:
@@ -346,7 +386,7 @@ def usage_completion_options() -> list[CompletionOption]:
         CompletionOption("--model", description="Filter by model"),
         CompletionOption("-s", description="Filter by session"),
         CompletionOption("--session", description="Filter by session"),
-        CompletionOption("--by", description="Group by model/day/session"),
+        CompletionOption("--by", description="Group by model/day/session/trigger"),
         CompletionOption("--since", description="Show after time"),
         CompletionOption("--until", description="Show before time"),
     ]
@@ -384,7 +424,12 @@ class _UsageCommand:
         previous = previous_log_token(req.raw, token.start)
         if previous == "--by":
             return complete_string_options(
-                [UsageGroupKey.MODEL, UsageGroupKey.DAY, UsageGroupKey.SESSION],
+                [
+                    UsageGroupKey.MODEL,
+                    UsageGroupKey.DAY,
+                    UsageGroupKey.SESSION,
+                    UsageGroupKey.TRIGGER,
+                ],
                 token.text,
                 token.start,
                 token.end,

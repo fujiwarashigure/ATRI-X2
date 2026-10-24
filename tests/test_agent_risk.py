@@ -573,6 +573,326 @@ class ToolsHelperTests(unittest.TestCase):
         self.assertTrue(explicit.normalize().tool_allowlist_restricted())
 
 
+class ConfirmationVisibilityTests(unittest.TestCase):
+    """确认交互的可见性判定：群聊藏参数、``confirmall`` 只留单聊 / CLI。"""
+
+    def _agent(self, scope_id: str):  # noqa: ANN202
+        agent = FakeAgent()
+        agent.scope = lambda ctx: Scope(  # noqa: ARG005
+            platform="qq", platform_scope_id=scope_id, actor_id="u1"
+        )
+        return agent
+
+    def test_conversation_kind(self) -> None:
+        self.assertEqual(
+            rc.confirmation_conversation_kind(self._agent("group:42"), None), "group"
+        )
+        self.assertEqual(
+            rc.confirmation_conversation_kind(self._agent("supergroup:42"), None),
+            "group",
+        )
+        self.assertEqual(
+            rc.confirmation_conversation_kind(self._agent("private:7"), None),
+            "private",
+        )
+        self.assertEqual(
+            rc.confirmation_conversation_kind(self._agent("channel:9"), None), "channel"
+        )
+        self.assertEqual(rc.confirmation_conversation_kind(self._agent("local"), None), "")
+
+    def test_scope_missing_degrades_to_unknown(self) -> None:
+        # 没有 scope 能力的宿主（纯 CLI 夹具）按"未知"处理：不隐藏、不禁用。
+        class NoScope:
+            pass
+
+        self.assertEqual(rc.confirmation_conversation_kind(None, None), "")
+        self.assertEqual(rc.confirmation_conversation_kind(NoScope(), None), "")
+        self.assertFalse(rc.confirmation_hides_arguments(None, None))
+        self.assertTrue(rc.confirmation_allows_confirm_all(None, None))
+
+    def test_group_hides_arguments_and_blocks_confirm_all(self) -> None:
+        agent = self._agent("group:42")
+        self.assertTrue(rc.confirmation_hides_arguments(agent, None))
+        self.assertFalse(rc.confirmation_allows_confirm_all(agent, None))
+
+    def test_private_keeps_arguments_and_confirm_all(self) -> None:
+        agent = self._agent("private:7")
+        self.assertFalse(rc.confirmation_hides_arguments(agent, None))
+        self.assertTrue(rc.confirmation_allows_confirm_all(agent, None))
+
+    def test_command_table_without_confirm_all(self) -> None:
+        names = [cmd.name for cmd in rc.risk_confirmation_commands("/", False)]
+        self.assertNotIn("confirmall", names)
+        self.assertIn("confirmtool", names)
+        help_text = rc.risk_confirmation_command_help("/", False)
+        self.assertNotIn("confirmall", help_text)
+        prompt = rc.risk_confirmation_prompt_text("/", 0, False)
+        self.assertNotIn("confirmall", prompt)
+        waiting = rc.risk_confirmation_waiting_text("/", False)
+        self.assertNotIn("confirmall", waiting)
+        # 默认（单聊 / CLI）仍然给出。
+        self.assertIn("confirmall", rc.risk_confirmation_command_help("/"))
+
+    def test_redacted_detail_text_hides_arguments(self) -> None:
+        confirmation = type(
+            "Confirmation",
+            (),
+            {
+                "tool_name": "shell",
+                "risk": "high",
+                "arguments": '{"cmd":"rm -rf /"}',
+                "detail": "rm -rf /",
+                "summary": "shell",
+                "redacted": True,
+            },
+        )()
+        text = rc.risk_confirmation_detail_text(confirmation)
+        self.assertIn("已隐藏", text)
+        self.assertNotIn("rm -rf /", text)
+        self.assertIn("摘要：shell", text)  # 摘要仍保留（不含参数）
+        # 没有 summary 时也不该出现参数段。
+        confirmation.summary = ""
+        self.assertNotIn("rm -rf /", rc.risk_confirmation_detail_text(confirmation))
+
+        from atri_x.agent import input as input_module
+
+        rendered = input_module.risk_confirmation_detail_text(confirmation)
+        self.assertIn("已隐藏", rendered)
+        self.assertNotIn("rm -rf /", rendered)
+        adapter_text = adapter.risk_confirmation_detail_text(confirmation)
+        self.assertIn("已隐藏", adapter_text)
+        self.assertNotIn("rm -rf /", adapter_text)
+        self.assertIn("当前没有等待确认", input_module.risk_confirmation_detail_text(None))
+
+
+class _GuardTurns:
+    """只记录 resolve / refresh 的 turn 管理器替身。"""
+
+    def __init__(self, confirmation) -> None:  # noqa: ANN001
+        self.confirmation = confirmation
+        self.resolved: list[object] = []
+        self.refreshed = 0
+
+    def pending_risk_confirmation(self, session_id: str):  # noqa: ANN201, ARG002
+        return self.confirmation, self.confirmation is not None
+
+    def refresh_risk_confirmation(self, session_id: str) -> bool:  # noqa: ARG002
+        self.refreshed += 1
+        return True
+
+    def resolve_risk_confirmation(self, session_id: str, resp: object) -> bool:  # noqa: ARG002
+        self.resolved.append(resp)
+        return True
+
+
+class _GuardCommands:
+    """只做 ``is_command`` / ``parse`` 的命令路由替身。"""
+
+    def __init__(self, name: str, args: str = "") -> None:
+        self.name = name
+        self.args = args
+
+    def is_command(self, text: str) -> bool:
+        return text.startswith("/")
+
+    def parse(self, text: str) -> object:  # noqa: ARG002
+        return type("Parsed", (), {"name": self.name, "args": self.args})()
+
+
+class _GuardAgent:
+    """``handle_risk_confirmation_input`` 的最小宿主。"""
+
+    def __init__(
+        self,
+        *,
+        confirmation=None,  # noqa: ANN001
+        name: str = "confirm",
+        scope_id: str = "group:42",
+        actor_id: str = "u1",
+        role: str = RoleUser,
+    ) -> None:
+        self.turns = _GuardTurns(confirmation)
+        self.commands = _GuardCommands(name)
+        self.sent: list[str] = []
+        self.scope_id = scope_id
+        self.actor_id = actor_id
+        self.role = role
+
+    def scope(self, ctx):  # noqa: ANN001, ARG002
+        return Scope(platform="qq", platform_scope_id=self.scope_id, actor_id=self.actor_id)
+
+    def actor(self, ctx):  # noqa: ANN001, ARG002
+        return Actor(id=self.actor_id, role=self.role)
+
+    def command_prefix(self) -> str:
+        return "/"
+
+    async def send_chat(self, ctx, text):  # noqa: ANN001, ARG002
+        self.sent.append(text)
+
+
+class ConfirmationGuardTests(unittest.IsolatedAsyncioTestCase):
+    """确认人绑定 + 群聊 ``confirmall`` 闸门（研究报告 B0 落地）。"""
+
+    def _confirmation(self, actor_id: str = "u1"):  # noqa: ANN202
+        from atri_x.turn import RiskConfirmation
+
+        return RiskConfirmation(
+            id="c1",
+            tool_name="shell",
+            arguments='{"cmd":"ls"}',
+            risk="high",
+            actor_id=actor_id,
+        )
+
+    async def _run(self, agent: _GuardAgent, text: str = "/confirm") -> None:
+        from atri_x.agent import input as input_module
+
+        await input_module.handle_risk_confirmation_input(agent, None, "s1", text)
+
+    async def test_foreign_actor_is_rejected(self) -> None:
+        agent = _GuardAgent(confirmation=self._confirmation("u2"))
+        await self._run(agent)
+        self.assertEqual(agent.turns.resolved, [])
+        self.assertEqual(len(agent.sent), 1)
+        self.assertIn("其他成员", agent.sent[0])
+
+    async def test_foreign_actor_cannot_open_detail(self) -> None:
+        agent = _GuardAgent(confirmation=self._confirmation("u2"), name="detail")
+        await self._run(agent, "/detail")
+        self.assertEqual(agent.turns.refreshed, 0)
+        self.assertIn("其他成员", agent.sent[0])
+
+    async def test_owner_can_confirm(self) -> None:
+        agent = _GuardAgent(confirmation=self._confirmation("u1"))
+        await self._run(agent)
+        self.assertEqual(len(agent.turns.resolved), 1)
+        self.assertTrue(agent.turns.resolved[0].confirmed)
+
+    async def test_superadmin_can_override(self) -> None:
+        agent = _GuardAgent(
+            confirmation=self._confirmation("u2"), actor_id="u9", role=RoleSuperadmin
+        )
+        await self._run(agent)
+        self.assertEqual(len(agent.turns.resolved), 1)
+
+    async def test_unknown_actor_keeps_legacy_behaviour(self) -> None:
+        agent = _GuardAgent(confirmation=self._confirmation(""))
+        await self._run(agent)
+        self.assertEqual(len(agent.turns.resolved), 1)
+
+    async def test_group_confirm_all_blocked(self) -> None:
+        agent = _GuardAgent(confirmation=self._confirmation("u1"), name="confirmall")
+        await self._run(agent, "/confirmall")
+        self.assertEqual(agent.turns.resolved, [])
+        self.assertIn("群聊里不能一次性放行", agent.sent[0])
+
+    async def test_group_confirm_all_alias_blocked(self) -> None:
+        agent = _GuardAgent(confirmation=self._confirmation("u1"), name="ca")
+        await self._run(agent, "/ca")
+        self.assertEqual(agent.turns.resolved, [])
+        self.assertIn("群聊里不能一次性放行", agent.sent[0])
+
+    async def test_private_confirm_all_allowed(self) -> None:
+        agent = _GuardAgent(
+            confirmation=self._confirmation("u1"),
+            name="confirmall",
+            scope_id="private:7",
+        )
+        await self._run(agent, "/confirmall")
+        self.assertEqual(len(agent.turns.resolved), 1)
+        self.assertTrue(agent.turns.resolved[0].confirm_all)
+
+    async def test_cli_confirm_all_allowed(self) -> None:
+        agent = _GuardAgent(
+            confirmation=self._confirmation("local"),
+            name="confirmall",
+            scope_id="local",
+            actor_id="local",
+        )
+        await self._run(agent, "/confirmall")
+        self.assertEqual(len(agent.turns.resolved), 1)
+
+    async def test_group_waiting_text_omits_confirm_all(self) -> None:
+        agent = _GuardAgent(confirmation=self._confirmation("u1"))
+        await self._run(agent, "随便说点什么")
+        self.assertEqual(agent.turns.resolved, [])
+        self.assertIn("当前有高风险工具调用正在等待确认", agent.sent[0])
+        self.assertNotIn("confirmall", agent.sent[0])
+
+    async def test_private_waiting_text_mentions_confirm_all(self) -> None:
+        agent = _GuardAgent(confirmation=self._confirmation("u1"), scope_id="private:7")
+        await self._run(agent, "随便说点什么")
+        self.assertIn("confirmall", agent.sent[0])
+
+
+class AdapterVisibilityTests(unittest.IsolatedAsyncioTestCase):
+    """``confirm_tool_call`` 在群聊里的提示与确认对象。"""
+
+    def _agent(self, scope_id: str, captured: list):  # noqa: ANN202
+        class Turns:
+            def await_risk_confirmation_context(_self, ctx, session_id, confirmation, timeout):  # noqa: ANN001, ARG002
+                captured.append(confirmation)
+                return type(
+                    "Response",
+                    (),
+                    {
+                        "expired": False,
+                        "stopped": False,
+                        "confirm_tool": False,
+                        "confirm_all": False,
+                        "rejected": True,
+                        "reason": "",
+                        "extra": "",
+                    },
+                )()
+
+        class Agent(FakeAgent):
+            def __init__(self) -> None:
+                super().__init__()
+                self.turns = Turns()
+                self.command_prefix = lambda: "/"
+
+            def scope(self, ctx):  # noqa: ANN001, ARG002
+                return Scope(platform="qq", platform_scope_id=scope_id, actor_id="u1")
+
+        return Agent()
+
+    async def _confirm(self, agent) -> object:  # noqa: ANN001
+        deps = adapter.AgentToolRunDeps(agent=agent, output=None)
+        call = ToolCallRequest(id="c1", name="shell", arguments=json.dumps({"cmd": "rm -rf /"}))
+        return await deps.confirm_tool_call(None, "s1", call, _assessment(), "rm -rf /")
+
+    async def test_group_hides_arguments_and_confirm_all(self) -> None:
+        captured: list = []
+        agent = self._agent("group:42", captured)
+        result = await self._confirm(agent)
+        self.assertFalse(result.allowed)
+        prompt = agent.sent[0]
+        self.assertIn("参数：已隐藏", prompt)
+        self.assertNotIn("rm -rf /", prompt)
+        self.assertNotIn("confirmall", prompt)
+        self.assertEqual(len(captured), 1)
+        self.assertTrue(captured[0].redacted)
+        self.assertEqual(captured[0].arguments, "")
+        self.assertEqual(captured[0].detail, "")
+        self.assertEqual(captured[0].summary, "shell")
+        self.assertEqual(captured[0].actor_id, "u1")
+
+    async def test_private_shows_arguments(self) -> None:
+        captured: list = []
+        agent = self._agent("private:7", captured)
+        result = await self._confirm(agent)
+        self.assertFalse(result.allowed)
+        prompt = agent.sent[0]
+        self.assertIn("参数：", prompt)
+        self.assertIn("/confirmall", prompt)
+        self.assertFalse(captured[0].redacted)
+        self.assertEqual(captured[0].arguments, '{"cmd":"rm -rf /"}')
+        self.assertEqual(captured[0].detail, "rm -rf /")
+        self.assertEqual(captured[0].actor_id, "u1")
+
+
 def _assessment() -> object:
     from atri_x.tool import RiskAssessment
 

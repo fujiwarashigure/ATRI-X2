@@ -36,6 +36,8 @@ from atri_x.config.inspect import (
     load_toml,
     normalize_string_list,
 )
+# 表情图库的推荐情绪清单只有一处定义（图库模块），配置/提示词/GUI 都从这里取。
+from atri_x.reaction.catalog import DEFAULT_EMOTIONS
 
 __all__ = [
     # 解码基座（定义在 atri_x.config.inspect，这里重新导出）
@@ -56,6 +58,11 @@ __all__ = [
     "SandboxConfig",
     "SecurityConfig", "SelfLearningConfig", "SessionConfig", "SessionIdleExpirationConfig",
     "SessionNamingConfig", "SoulConfig", "StorageConfig", "ToolsConfig",
+    "ToolPreviewConfig", "ReactionsConfig",
+    "REACTION_DEFAULT_SUPPRESS_KEYWORDS",
+    "TOOL_PREVIEW_DEFAULT_EXTRACT_TEXT", "TOOL_PREVIEW_DEFAULT_SEARCH_TEXT",
+    "TOOL_PREVIEW_DEFAULT_TEXT", "TOOL_PREVIEW_FAILURE_TEMPLATE",
+    "TOOL_PREVIEW_SYSTEM_TEMPLATE",
     "TurnDirectivesConfig", "ViewConfig", "off_peak", "offpeak_price", "shanghai_tz",
 ]
 
@@ -105,6 +112,149 @@ class CommandsConfig(StrictConfig):
 @dataclass
 class ToolsConfig(StrictConfig):
     max_rounds_per_turn: int = 2
+
+
+# --- 工具进度预览 / 本地表情图库（Python 侧新增段，无 Go 对应） -------------
+#: ``[reactions].suppress_keywords`` 的默认抑制词：报错、道歉、明确拒绝这类场景
+#: 不该配轻松的表情。
+REACTION_DEFAULT_SUPPRESS_KEYWORDS: tuple[str, ...] = (
+    "错误",
+    "报错",
+    "失败",
+    "异常",
+    "抱歉",
+    "对不起",
+    "无法",
+    "不能",
+)
+
+#: ``[tool_preview]`` 各文案字段的默认值（``normalized()`` 与 GUI 共用）。
+TOOL_PREVIEW_DEFAULT_SEARCH_TEXT = "检索中……请稍候。"
+TOOL_PREVIEW_DEFAULT_EXTRACT_TEXT = "正在读取页面内容。"
+TOOL_PREVIEW_DEFAULT_TEXT = "正在调用 {tool}……"
+TOOL_PREVIEW_SYSTEM_TEMPLATE = "正在调用 {tool}：{args}"
+TOOL_PREVIEW_FAILURE_TEMPLATE = "{tool} 调用失败：{error}"
+
+
+def _clamp_int(value: int, fallback: int, *, minimum: int, maximum: int) -> int:
+    """把整数配置夹到 `[minimum, maximum]`；非法/越界回落边界值。"""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return fallback
+    return max(minimum, min(maximum, value))
+
+
+@dataclass
+class ToolPreviewConfig(StrictConfig):
+    """``[tool_preview]``：工具调用进度预览的开关与文案（Python 侧新增段）。
+
+    默认值与 1.0.3 之前的行为对齐：``enabled = true``（不清空），群聊里是否投递
+    仍由各平台段自己的 ``show_tool_preview_in_group`` 决定。``style`` 只影响
+    **程序兜底文案**：
+
+    * ``"persona"``（默认）—— 角色化短句，且**不展示工具参数**，避免把查询词/
+      路径无意泄露到群里；
+    * ``"system"`` —— 旧行为「正在调用 工具名：参数」（参数按 160 字符截断）。
+    """
+
+    enabled: bool = True
+    style: str = "persona"
+    search_text: str = TOOL_PREVIEW_DEFAULT_SEARCH_TEXT
+    extract_text: str = TOOL_PREVIEW_DEFAULT_EXTRACT_TEXT
+    default_text: str = TOOL_PREVIEW_DEFAULT_TEXT
+    system_template: str = TOOL_PREVIEW_SYSTEM_TEMPLATE
+    failure_template: str = TOOL_PREVIEW_FAILURE_TEMPLATE
+
+    def normalized(self) -> "ToolPreviewConfig":
+        """补默认值并夹紧非法值（``apply_app_defaults`` 调用，幂等）。"""
+        style = (self.style or "").strip().lower()
+        if style not in ("persona", "system"):
+            style = "persona"
+        return ToolPreviewConfig(
+            enabled=bool(self.enabled),
+            style=style,
+            search_text=(self.search_text or "").strip()
+            or TOOL_PREVIEW_DEFAULT_SEARCH_TEXT,
+            extract_text=(self.extract_text or "").strip()
+            or TOOL_PREVIEW_DEFAULT_EXTRACT_TEXT,
+            default_text=(self.default_text or "").strip()
+            or TOOL_PREVIEW_DEFAULT_TEXT,
+            system_template=(self.system_template or "").strip()
+            or TOOL_PREVIEW_SYSTEM_TEMPLATE,
+            failure_template=(self.failure_template or "").strip()
+            or TOOL_PREVIEW_FAILURE_TEMPLATE,
+        )
+
+
+@dataclass
+class ReactionsConfig(StrictConfig):
+    """``[reactions]``：本地表情图库 + 表情图片输出策略（Python 侧新增段）。
+
+    默认 **关闭**：这是会改变出站内容的新能力，必须显式打开；不打开时行为与
+    1.0.3 完全一致（正文里即使出现表情标记也会被清掉，但不发图）。
+
+    图库位于 ``<配置目录>/<gallery_dir>/catalog.json`` + 图片文件；相对路径由
+    :func:`atri_x.config.loader.load` 按 app.toml 所在目录解析成绝对路径。
+    """
+
+    enabled: bool = False
+    gallery_dir: str = "reactions"
+    show_in_group: bool = True
+    show_in_private: bool = True
+    cooldown_text_replies: int = 2
+    session_cooldown_seconds: int = 60
+    group_cooldown_seconds: int = 120
+    dedupe_recent: int = 5
+    probability: float = 1.0
+    max_text_chars: int = 160
+    suppress_keywords: list[str] = field(
+        default_factory=lambda: list(REACTION_DEFAULT_SUPPRESS_KEYWORDS)
+    )
+    emotions: list[str] = field(default_factory=lambda: list(DEFAULT_EMOTIONS))
+
+    def normalized(self) -> "ReactionsConfig":
+        """补默认值并夹紧范围（``apply_app_defaults`` 调用，幂等）。"""
+        probability = float(self.probability)
+        if probability != probability or probability < 0:
+            probability = 0.0
+        elif probability > 1:
+            probability = 1.0
+        emotions = _reaction_text_list(self.emotions, list(DEFAULT_EMOTIONS))
+        keywords = _reaction_text_list(list(self.suppress_keywords), [])
+        return ReactionsConfig(
+            enabled=bool(self.enabled),
+            gallery_dir=(self.gallery_dir or "").strip() or "reactions",
+            show_in_group=bool(self.show_in_group),
+            show_in_private=bool(self.show_in_private),
+            cooldown_text_replies=_clamp_int(
+                self.cooldown_text_replies, 2, minimum=0, maximum=20
+            ),
+            session_cooldown_seconds=_clamp_int(
+                self.session_cooldown_seconds, 60, minimum=0, maximum=86400
+            ),
+            group_cooldown_seconds=_clamp_int(
+                self.group_cooldown_seconds, 120, minimum=0, maximum=86400
+            ),
+            dedupe_recent=_clamp_int(self.dedupe_recent, 5, minimum=0, maximum=50),
+            probability=probability,
+            max_text_chars=_clamp_int(
+                self.max_text_chars, 160, minimum=0, maximum=4000
+            ),
+            suppress_keywords=keywords,
+            emotions=emotions,
+        )
+
+
+def _reaction_text_list(values: Any, fallback: list[str]) -> list[str]:
+    """列表型配置的去空白/去重；显式空列表保持为空（表示"不启用"）。"""
+    if not isinstance(values, (list, tuple)):
+        return list(fallback)
+    out: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
 
 
 @dataclass
@@ -299,6 +449,81 @@ class ResidentMemoryConfig(StrictConfig):
 
     def normal_max_units_per_entry_value(self) -> int:
         return _value_or(self.normal_max_units_per_entry, 80)
+
+
+def _valid_clock(value: str) -> bool:
+    """``HH:MM`` 校验（静默时段用）。"""
+    parts = (value or "").strip().split(":")
+    if len(parts) != 2:
+        return False
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+    except ValueError:
+        return False
+    return 0 <= hour <= 23 and 0 <= minute <= 59
+
+
+def _valid_quiet_window(value: str) -> bool:
+    """``HH:MM-HH:MM`` 校验（与群策略 ``quiet_hours`` 同格式）。"""
+    left, separator, right = (value or "").strip().partition("-")
+    if not separator:
+        return False
+    return _valid_clock(left) and _valid_clock(right)
+
+
+@dataclass
+class QuietConfig(StrictConfig):
+    """``[quiet]``：全局静默时段（Python 侧新增段，对应评估 §E）。
+
+    静默期只压**计算**：消息照常入库与展示，只是不叫醒模型；cron / 外部事件
+    默认跳过且**不补跑**（避免补跑风暴）。默认关闭，打开后行为才变化。
+    群聊另有 ``[group_policy]`` 的 ``quiet_hours``（群级更严，唤醒判定里已生效）。
+    """
+
+    enabled: bool = False
+    #: ``HH:MM-HH:MM``；跨零点写成 ``23:00-07:00``。格式非法时回落默认值。
+    window: str = "23:00-07:00"
+    #: 空 = 进程本地时区；否则是 ``zoneinfo`` 认识的 IANA 时区名（如 ``Asia/Shanghai``）。
+    timezone: str = ""
+    #: 静默期是否仍允许 cron 报告 / 外部事件（默认都跳过）。
+    allow_cron: bool = False
+    allow_external: bool = False
+    #: 静默期是否仍允许用户直聊（私聊直呼）。
+    allow_direct: bool = True
+    #: 静默期是否仍允许超级管理员触发。
+    allow_superadmin: bool = True
+
+    def normalized(self) -> "QuietConfig":
+        """补默认值并校验窗口（``apply_app_defaults`` 调用，幂等）。"""
+        if not _valid_quiet_window(self.window):
+            self.window = "23:00-07:00"
+        self.window = self.window.strip()
+        self.timezone = (self.timezone or "").strip()
+        return self
+
+
+@dataclass
+class ParticipationConfig(StrictConfig):
+    """``[participation]``：群聊参与状态机（Python 侧新增段，评估 §D）。
+
+    默认 **关闭**：开启前行为与之前完全一致。开启后只做**抑制**，不主动找话题：
+
+    * 机器人最近在某个群里主动接过话，``cooldown_seconds`` 内普通闲聊不再唤醒它
+      （点名 / 回复 / 唤醒词仍然会唤醒）；
+    * 连续 ``no_reply_streak_max`` 次"被叫到但没人接"之后，暂停该群的主动参与。
+    """
+
+    guard: bool = False
+    #: 主动参与冷却（秒）：冷却期内普通闲聊不唤醒。
+    cooldown_seconds: int = 120
+    #: 连续无回应达到该次数后暂停主动参与（0 = 不限制）。
+    no_reply_streak_max: int = 3
+
+    def normalized(self) -> "ParticipationConfig":
+        """夹紧范围（``apply_app_defaults`` 调用，幂等）。"""
+        self.cooldown_seconds = max(0, int(self.cooldown_seconds or 0))
+        self.no_reply_streak_max = max(0, int(self.no_reply_streak_max or 0))
+        return self
 
 
 def _value_or(value: int | None, fallback: int) -> int:

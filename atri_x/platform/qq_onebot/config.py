@@ -50,6 +50,11 @@ DEFAULT_PREPROCESS_WORKERS = 4
 DEFAULT_PREPROCESS_QUEUE_SIZE = 256
 DEFAULT_HIGH_PRIORITY_WORKERS = 1
 DEFAULT_HIGH_PRIORITY_QUEUE_SIZE = 128
+#: Python 新增：引用 / 转发的慢取（见 :mod:`atri_x.platform.qq_onebot.slowfetch`）。
+DEFAULT_SLOW_FETCH_BUDGET_MS = 1500
+DEFAULT_SLOW_FETCH_SUCCESS_TTL_SECONDS = 300
+DEFAULT_SLOW_FETCH_FAILURE_TTL_SECONDS = 30
+DEFAULT_SLOW_FETCH_MAX_ENTRIES = 512
 
 
 @dataclass
@@ -82,6 +87,17 @@ class Config:
     preprocess_queue_size: int = 0
     high_priority_workers: int = 0
     high_priority_queue_size: int = 0
+    #: Python 侧新增：引用 / 转发慢取。``None`` = 默认开启（预算 1.5s）；
+    #: 关掉等于恢复"一直等到平台返回"的旧行为（缓存与单飞仍然生效）。
+    slow_fetch_enabled: bool | None = None
+    #: 入站预处理的等待预算（毫秒）；0 = 内置默认 1500。
+    slow_fetch_budget_ms: int = 0
+    #: 成功结果缓存时长（秒）；0 = 内置默认 300。
+    slow_fetch_success_ttl_seconds: int = 0
+    #: 失败结果缓存时长（秒）；0 = 内置默认 30。
+    slow_fetch_failure_ttl_seconds: int = 0
+    #: 缓存条目上限（LRU）；0 = 内置默认 512。
+    slow_fetch_max_entries: int = 0
     # 以下字段来自平台外层配置（Go 的 ``toml:"-"``）。
     attachment_dir: str = ""
     max_receive_file_bytes: int = 0
@@ -210,6 +226,16 @@ def apply_defaults(cfg: Config) -> None:
         cfg.high_priority_workers = DEFAULT_HIGH_PRIORITY_WORKERS
     if (cfg.high_priority_queue_size or 0) <= 0:
         cfg.high_priority_queue_size = DEFAULT_HIGH_PRIORITY_QUEUE_SIZE
+    if cfg.slow_fetch_enabled is None:
+        cfg.slow_fetch_enabled = True
+    if (cfg.slow_fetch_budget_ms or 0) <= 0:
+        cfg.slow_fetch_budget_ms = DEFAULT_SLOW_FETCH_BUDGET_MS
+    if (cfg.slow_fetch_success_ttl_seconds or 0) <= 0:
+        cfg.slow_fetch_success_ttl_seconds = DEFAULT_SLOW_FETCH_SUCCESS_TTL_SECONDS
+    if (cfg.slow_fetch_failure_ttl_seconds or 0) <= 0:
+        cfg.slow_fetch_failure_ttl_seconds = DEFAULT_SLOW_FETCH_FAILURE_TTL_SECONDS
+    if (cfg.slow_fetch_max_entries or 0) <= 0:
+        cfg.slow_fetch_max_entries = DEFAULT_SLOW_FETCH_MAX_ENTRIES
 
 
 def validate_send_file_mode(mode: str) -> None:

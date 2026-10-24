@@ -43,10 +43,14 @@ from atri_x.storage.models import Session, session_mode_supports_tools
 from atri_x.storage.times import now as storage_now
 from atri_x.tool.tool import DiscoveryResult, Result, RiskAssessment
 from atri_x.toolrun.cache import CachedTool
+from atri_x.toolrun.preview import (
+    MAX_PREVIEW_RUNES,
+    PreviewTexts,
+    default_failure_text,
+    default_preview_text,
+)
 from atri_x.toolrun.toolrun import Manager, ResolvedTool
 
-#: 预览参数的最大 rune 数。对应 Go ``maxPreviewRunes``。
-MAX_PREVIEW_RUNES = 160
 
 
 @dataclass
@@ -86,6 +90,8 @@ class RunRequest:
     authorize_tool: Callable[[Any, ToolCallRequest, ResolvedTool], Any] | None = None
     #: 在确认之后、队列槽位到手之后、执行之前运行；抛错即拒绝执行（日配额在此预占）。
     before_execute: Callable[[Any, ToolCallRequest, ResolvedTool], Any] | None = None
+    #: 预览文案渲染器（[tool_preview] 配置 → PreviewTexts）。None = 内置旧文案。
+    preview_texts: PreviewTexts | None = None
 
     async def authorize(
         self, ctx: Any, call: ToolCallRequest, resolved: ResolvedTool
@@ -316,9 +322,7 @@ async def run(manager: Manager, ctx: Any, deps: RunnerDeps, req: RunRequest) -> 
         if not batch_preview_sent and await deps.should_send_preview(
             ctx, req.session, call, req.assistant_text
         ):
-            await deps.send_preview(
-                ctx, f"正在调用 {call.name}：{_preview_arguments(call.arguments)}"
-            )
+            await deps.send_preview(ctx, _preview_text(req, call))
 
         error: BaseException | None = None
         try:
@@ -502,7 +506,7 @@ async def run(manager: Manager, ctx: Any, deps: RunnerDeps, req: RunRequest) -> 
                 deps.tool_result_message(session_id, deps.persisted_tool_message(result.message))
             )
             if result.err is not None:
-                await deps.send_preview(ctx, f"{call.name} 调用失败：{result.err}")
+                await deps.send_preview(ctx, _failure_text(req, call, result.err))
         finally:
             _release_request(done)
 
@@ -645,16 +649,18 @@ async def _assess_for_run(
 
 
 async def _send_batch_tool_preview(deps: RunnerDeps, ctx: Any, req: RunRequest) -> bool:
-    """对应 Go ``sendBatchToolPreview``：多条调用只发一条合并预览。"""
+    """对应 Go ``sendBatchToolPreview``：多条调用只发一条合并预览。
+
+    同一批里重复的工具（例如连续两次 ``web_search``）只留一行文案 —— 按工具批次
+    去重，不是整轮任务去重。
+    """
     from atri_x.llm.llm import ToolCallRequest as _TCR
 
     if len(req.calls) <= 1:
         return False
     if not await deps.should_send_preview(ctx, req.session, _TCR(), req.assistant_text):
         return False
-    lines = [
-        f"正在调用 {call.name}：{_preview_arguments(call.arguments)}" for call in req.calls
-    ]
+    lines = list(dict.fromkeys(_preview_text(req, call) for call in req.calls))
     await deps.send_preview(ctx, "\n".join(lines))
     return True
 
@@ -671,6 +677,36 @@ def _tool_allowed(allowlist: dict[str, bool] | None, name: str) -> bool:
     if allowlist is None:
         return True
     return bool(allowlist.get((name or "").strip().lower()))
+
+
+def _preview_text(req: RunRequest, call: ToolCallRequest) -> str:
+    """单条工具调用的预览文案：有配置用配置，没有配置用旧版内置文案。"""
+    args = _preview_arguments(call.arguments)
+    texts = req.preview_texts
+    if texts is not None:
+        try:
+            rendered = texts.render(call.name, args)
+        except Exception:  # noqa: BLE001 - 文案渲染失败不能影响工具执行
+            rendered = ""
+        if rendered:
+            return rendered
+    return default_preview_text(call.name, args)
+
+
+def _failure_text(
+    req: RunRequest, call: ToolCallRequest, error: BaseException | str | None
+) -> str:
+    """工具失败预览文案（同样支持配置模板）。"""
+    message = str(error or "").strip()
+    texts = req.preview_texts
+    if texts is not None:
+        try:
+            rendered = texts.failure(call.name, message)
+        except Exception:  # noqa: BLE001
+            rendered = ""
+        if rendered:
+            return rendered
+    return default_failure_text(call.name, message)
 
 
 def _preview_arguments(args: str) -> str:
