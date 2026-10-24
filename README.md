@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.0.4`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `1.0.5`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -23,7 +23,7 @@
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 平台适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
 | 测试 | `tests/` 208 个 Python 文件（其中 199 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
-| 规模 | 1,080 个受版本控制文件（不含 `.git`；源码归档按同一清单打包，条目数相同） |
+| 规模 | 1097 个受版本控制文件（不含 `.git`；源码归档用 `git archive` 按同一清单打包，条目数相同） |
 
 ## 功能特性
 
@@ -175,10 +175,10 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.0.4`**（两个新功能：①**工具进度提示**——模型没先说话时由程序补一句角色化进度（搜索/读取网页/其它工具分别可配，默认不展示工具参数），桌面端「工具权限 → 工具进度预览」子选项卡可调；②**本地表情图库**——模型只在正文末尾写 `[[emo:标签]]` 提出情绪意图，程序按「情绪匹配 → 场景抑制 → 回复/会话/群冷却 → 最近图片去重 → 权重随机 → 概率」决定补不补图，桌面端「人设卡 → 表情图库」子选项卡管理策略与 `reactions/catalog.json` 条目）。本版同时保留 1.0.3 的内置内容安全、常驻记忆配额与识图改造；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
-交付物尺寸与校验和见发行库里的 `发行说明.md` / `自检报告.md` / `SHA256SUMS.txt`。
+当前最新版本：**`1.0.5`**（两批《dsh-qq 借鉴落地评估》整体落地：①**高风险确认的授权边界**——确认类命令只接受发起人、群聊/频道不展示工具参数、群聊默认禁用 `/confirmall`；②**常驻记忆的会话可见性**——`note_visible_in()` 统一判定，私聊来源永不进群、老数据按 `identity` 档、`resident_memory_normal.write` 只覆盖本会话；③**授权生命周期**——`/confirmall`、`/confirmtool` 改为签发带 TTL、绑定作用域与发起人的凭据，新增 `/grant list|revoke` 与 `/panic`；④**长期记忆按会话隔离**——默认只检索本会话，超管可跨会话检索，旧记忆仍全局可见；⑤**引用/转发慢取**——入站不再被平台接口拖住，新增 `fetch_message` 工具与 5 个慢取配置键；⑥**费用归因**——模型调用按原因打标，`/usage --by trigger` 下钻，5 条旁路调用统一进账；⑦**计算静默** `[quiet]` 与**群聊参与状态机** `[participation]`（均默认关闭，只抑制后台计算与闲聊唤醒）。本版同时保留 1.0.4 的工具进度提示、本地表情图库与 1.0.3 的内置内容安全、常驻记忆配额、识图改造；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+交付物尺寸与校验和见发行库里的 `SHA256SUMS.txt` 与 `ATRI-X-1.0.5-compatibility-report.md`。
 
-已发布：[**GitHub Release v1.0.3**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.3)（热修后 `v1.0.3` tag 指向最终提交，资产为重建版）。交付物尺寸与 SHA-256 见该 Release 的 `SHA256SUMS.txt` / `RELEASE-NOTES.md` / `SELF-CHECK-REPORT.md`；1.0.2 补丁版也已推送（tag `v1.0.2` = `00a6653`）。
+已发布：[**GitHub Release v1.0.5**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.5)（当前版）；上一版 [v1.0.4](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.4)。交付物尺寸与 SHA-256 见各 Release 的 `SHA256SUMS.txt` 与 `ATRI-X-<版本>-compatibility-report.md`；更早的 1.0.3 热修版与 1.0.2 补丁版（tag `v1.0.2` = `00a6653`）仍在。
 
 | 产物 | 位置 |
 | --- | --- |
