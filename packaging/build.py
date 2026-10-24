@@ -503,6 +503,115 @@ def report(artifact: Path, onefile: bool) -> None:
         )
 
 
+def service_smoke(artifact: Path, timeout: float = 180.0) -> int:
+    """真实装配冒烟：用默认配置起一次 ``service run``，确认 Agent 能构造、CLI 端口能监听。
+
+    为什么必须多这一步：``--version`` / ``config check`` / ``-m`` / GUI ``--selftest``
+    **都不构造 Agent**。1.0.5 的 ``Agent.__init__`` 因工具预览配置无限递归，
+    进程只打一行 ``atri-x: maximum recursion depth exceeded`` 就退出、CLI 端口从未监听，
+    而上面四项全绿——于是带着「后台服务必崩」的包也能发出去。这里只验证
+    「进程还活着 + ``ws://127.0.0.1:<port>/cli/v1/ws`` 端口在监听」，不联网、不发消息。
+    """
+    import re as _re
+    import socket as _socket
+    import time as _time
+
+    appdata = DEFAULT_WORK.parent / "pyinstaller-verify" / "service-smoke"
+    if appdata.exists():
+        shutil.rmtree(appdata, ignore_errors=True)
+    appdata.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["APPDATA"] = str(appdata)
+    env["XDG_CONFIG_HOME"] = str(appdata)
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    seed = subprocess.run(
+        [str(artifact), "config", "check"],
+        cwd=str(artifact.parent),
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+    config = appdata / "ATRI-X" / "app.toml"
+    if seed.returncode != 0 or not config.is_file():
+        _err("verify: service smoke 前置 config check 失败 (exit %d)" % seed.returncode)
+        _err(_snippet({"stdout": seed.stdout, "stderr": seed.stderr}))
+        return 1
+
+    # 选一个空闲端口；只打开 CLI 服务端，其余平台在默认配置里本来就是关的。
+    with _socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = int(sock.getsockname()[1])
+    text = config.read_text(encoding="utf-8")
+    start = text.find("[platform.cli.server]")
+    if start < 0:
+        _err("verify: 默认配置缺少 [platform.cli.server]")
+        return 1
+    end = text.find("\n[", start + 1)
+    end = len(text) if end < 0 else end
+    block = text[start:end]
+    block, enabled_count = _re.subn(
+        r"(?m)^enabled\s*=.*$", "enabled = true", block, count=1
+    )
+    if enabled_count == 0:
+        block = block.replace(
+            "[platform.cli.server]", "[platform.cli.server]\nenabled = true", 1
+        )
+    block, listen_count = _re.subn(
+        r"(?m)^listen\s*=.*$", 'listen = "127.0.0.1:%d"' % port, block, count=1
+    )
+    if listen_count == 0:
+        block = block.replace(
+            "[platform.cli.server]",
+            '[platform.cli.server]\nlisten = "127.0.0.1:%d"' % port,
+            1,
+        )
+    config.write_text(text[:start] + block + text[end:], encoding="utf-8", newline="\n")
+
+    proc = subprocess.Popen(
+        [str(artifact), "service", "run", "--config", str(config)],
+        cwd=str(artifact.parent),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    listening = False
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        if proc.poll() is not None:
+            break
+        try:
+            with _socket.create_connection(("127.0.0.1", port), timeout=1.0):
+                listening = True
+                break
+        except OSError:
+            _time.sleep(0.25)
+    if proc.poll() is None:
+        proc.terminate()
+    try:
+        out, err = proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, err = proc.communicate()
+
+    if not listening:
+        _err(
+            "verify: 后台服务起不来（service run 退出码 %s，CLI 端口 %d 未监听）"
+            % (proc.returncode, port)
+        )
+        _err(_snippet({"stdout": out or "", "stderr": err or ""}))
+        _err("hint: 这条检查覆盖 Agent 构造；报错见上面 stderr（如 RecursionError）")
+        return 1
+    _out("  service   : ok (service run 可启动，CLI 端口 %d 监听)" % port)
+    return 0
+
+
 def verify(
     artifact: Path,
     name: str,
@@ -521,7 +630,9 @@ def verify(
     * ``-m <模块>``：证明 ``runpy`` 转发可用（诊断入口都靠它）；
     * ``-m atri_x.sidecar status``：内置运行时是否可解析（没内置时跳过）；
     * 窗口版 ``--selftest``：证明 tkinter 真的进包、Tk 能建窗口（只看退出码，
-      窗口版没有控制台）。
+      窗口版没有控制台）；
+    * :func:`service_smoke`：用默认配置真实起一次 ``service run``，证明
+      **Agent 能构造**、CLI WebSocket 端口能监听（1.0.5 就是漏了这条，见其注释）。
 
     图像后端**不做假的产物级断言**：这里只打印部署侧离线核验命令
     （``<产物> -m atri_x.media.imagecodec.backend_probe --json``），不在没跑过冻结
@@ -592,6 +703,9 @@ def verify(
             _err(_snippet(gui))
             return 1
         _out("  gui       : ok (Tk selftest, exit 0)")
+
+    if service_smoke(artifact, timeout=180.0) != 0:
+        return 1
 
     _out("verify      : passed")
     _out("")

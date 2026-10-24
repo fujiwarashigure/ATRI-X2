@@ -124,8 +124,25 @@ def default_failure_text(tool_name: str, error: str) -> str:
     return PreviewTexts().failure(tool_name, error)
 
 
-def _section_dict(config: Any) -> Mapping[str, Any]:
-    """把 dataclass / 映射 / ``None`` 统一成键值映射。"""
+#: ``normalized()`` 链式展开的最大层数。见 :func:`_section_dict`。
+_MAX_NORMALIZE_DEPTH = 3
+
+
+def _section_dict(config: Any, _depth: int = 0) -> Mapping[str, Any]:
+    """把 dataclass / 映射 / ``None`` 统一成键值映射。
+
+    **不能**按 ``normalized()`` 的返回值无条件递归：``ToolPreviewConfig`` /
+    ``PreviewTexts`` 这类 dataclass 的 ``normalized()`` 每次调用都返回**新实例**，
+    ``value is not config`` 恒为真，递归会一路打到 ``RecursionError``——这正是
+    1.0.5 后台服务启动即崩（``atri-x: maximum recursion depth exceeded``）、
+    ``ws://127.0.0.1:32172/cli/v1/ws`` 从未监听的根因。
+
+    因此只在两种情况下采用 ``normalized()`` 的结果：
+
+    * 返回的是映射——直接采用（包装对象的常见形态）；
+    * 返回的是**另一种类型**的对象——有界展开（最多 :data:`_MAX_NORMALIZE_DEPTH`
+      层），同类型对象不递归，因为所需字段已经从 ``config`` 上取到了。
+    """
     if config is None:
         return {}
     if isinstance(config, Mapping):
@@ -143,13 +160,17 @@ def _section_dict(config: Any) -> Mapping[str, Any]:
         if hasattr(config, name):
             out[name] = getattr(config, name)
     normalized = getattr(config, "normalized", None)
-    if callable(normalized):
+    if callable(normalized) and _depth < _MAX_NORMALIZE_DEPTH:
         try:
             value = normalized()
         except Exception:  # noqa: BLE001 - 配置对象实现有问题时退回原始字段
             value = None
-        if value is not None and value is not config:
-            return _section_dict(value)
+        if isinstance(value, Mapping):
+            return value
+        if value is not None and value is not config and type(value) is not type(config):
+            nested = _section_dict(value, _depth + 1)
+            if nested:
+                return nested
     return out
 
 

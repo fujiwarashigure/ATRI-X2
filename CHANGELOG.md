@@ -6,6 +6,35 @@
 
 ---
 
+## [1.0.6] - 2026-10-27 — 修复后台服务启动即崩（工具预览配置无限递归）
+
+旧状态（1.0.5）：
+- 后台服务（`atri-x service run`，GUI 首次启动也会自动拉起）在 Agent 初始化阶段就抛
+  `RecursionError` 退出，stderr 只有一行 `atri-x: maximum recursion depth exceeded`；
+  CLI 远程服务端 `ws://127.0.0.1:32172/cli/v1/ws` 因此**从未监听**，GUI 报
+  「后台服务未就绪：HandshakeError: 连接 … 失败」，QQ OneBot 平台自然连不上。
+- 根因在 `atri_x/toolrun/preview.py` 的 `_section_dict()`：为拿 `[tool_preview]` 的
+  配置，它按 `value is not config` 递归展开 `normalized()` 的返回值；而
+  `ToolPreviewConfig.normalized()` 每次调用都返回**新实例**，该条件恒为真，递归无上界。
+  配置校验（`config check`）、GUI 自检与单测都不走这条构造路径，所以发布前自检没覆盖到。
+
+### 修复
+
+- `_section_dict()` 只在两种情况下采用 `normalized()` 的结果：返回**映射**时直接采用；
+  返回**另一种类型**的对象时有界展开（最多 `_MAX_NORMALIZE_DEPTH` 层）；
+  同类型对象不再递归——需要的 7 个字段已经从配置对象本身取到了。
+- 回归测试（`tests/test_toolrun.py`）：
+  `test_preview_texts_from_dataclass_config_does_not_recurse`（真实
+  `ToolPreviewConfig` 不再递归）与 `test_preview_texts_from_wrapper_config`
+  （包装对象返回映射的旧意图仍然保留）。
+- 打包自检补漏（`packaging/build.py`）：新增 `service_smoke`，用默认配置真实起一次
+  `service run`，确认 `Agent` 能构造、CLI WebSocket 端口能监听。此前
+  `--version` / `config check` / `-m` / GUI `--selftest` **都不构造 Agent**，
+  正是这条漏检让 1.0.5 带着「后台服务必崩」的包发了出去。
+- 验证：用真实用户配置跑 `python -m atri_x service run`，32172 在 0.5 s 内监听，
+  GUI 同款探测（`atri_x.gui.service.probe_server`）WS 握手返回 ok；配置检查与原有
+  单测保持通过。
+
 ## [1.0.5] - 2026-10-26 — 确认安全边界 + 记忆可见性（借鉴 dsh-qq 第一批）
 
 > 本版落地《dsh-qq 借鉴落地评估》第一批的 P0 两项：**高风险确认的授权边界**与

@@ -389,9 +389,16 @@ class VerifyCapabilityLineTest(unittest.TestCase):
                 stdout = "config OK"
             return {"code": 0, "stdout": stdout, "stderr": ""}
 
+        # service_smoke 要真的起进程、监听端口，假 exe（b"MZ-fake"）跑不了；这里只测
+        # pillow 能力行的输出，所以把冒烟替掉（冒烟本身见下一个用例）。
+        def fake_service_smoke(artifact, timeout=180.0):  # noqa: ANN001 - 替身
+            del artifact, timeout
+            return 0
+
         out = io.StringIO()
         with (
             mock.patch.object(build, "run_exe", fake_run_exe),
+            mock.patch.object(build, "service_smoke", fake_service_smoke),
             contextlib.redirect_stdout(out),
         ):
             code = build.verify(self.artifact, "atri-x", with_pillow=with_pillow)
@@ -408,6 +415,27 @@ class VerifyCapabilityLineTest(unittest.TestCase):
         code, out = self._verify(with_pillow=False)
         self.assertEqual(code, 0)
         self.assertIn("pure-Python image codec only", out)
+
+    def test_service_smoke_failure_fails_verify(self) -> None:
+        """后台服务起不来时 verify 必须返回 1（1.0.5 就是漏了这条检查）。"""
+
+        def fake_run_exe(artifact, argv, timeout, scratch_home=False):  # noqa: ANN001
+            del artifact, timeout, scratch_home
+            stdout = "atri-x 9.9.9" if argv == ["--version"] else "config OK"
+            return {"code": 0, "stdout": stdout, "stderr": ""}
+
+        def failing_service_smoke(artifact, timeout=180.0):  # noqa: ANN001
+            del artifact, timeout
+            return 1
+
+        out = io.StringIO()
+        with (
+            mock.patch.object(build, "run_exe", fake_run_exe),
+            mock.patch.object(build, "service_smoke", failing_service_smoke),
+            contextlib.redirect_stdout(out),
+        ):
+            code = build.verify(self.artifact, "atri-x", with_pillow=False)
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":

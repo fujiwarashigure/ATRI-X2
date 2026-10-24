@@ -5,4 +5,4 @@ from __future__ import annotations
 __all__ = ["__version__", "NAME"]
 
 NAME = "atri-x"
-__version__ = "1.0.5"
+__version__ = "1.0.6"

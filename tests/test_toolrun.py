@@ -849,6 +849,35 @@ class TestRunner(unittest.TestCase):
             "shell 调用失败：boom", system.failure("shell", "boom")
         )
 
+    def test_preview_texts_from_dataclass_config_does_not_recurse(self) -> None:
+        """回归：真实配置对象不能触发无限递归。
+
+        1.0.5 后台服务启动即 ``atri-x: maximum recursion depth exceeded``
+        （CLI 端口 32172 从未监听，GUI 报「后台服务未就绪」），根因是
+        ``ToolPreviewConfig.normalized()`` 每次返回新实例，而 ``_section_dict``
+        曾按 ``value is not config`` 无条件递归。
+        """
+        from atri_x.config.app_sections import ToolPreviewConfig
+        from atri_x.toolrun.preview import PreviewTexts
+
+        system = PreviewTexts.from_config(ToolPreviewConfig(style="system"))
+        self.assertEqual("system", system.style)
+        self.assertEqual("正在调用 shell：{}", system.render("shell", "{}"))
+        default = PreviewTexts.from_config(ToolPreviewConfig())
+        self.assertEqual("persona", default.style)
+
+    def test_preview_texts_from_wrapper_config(self) -> None:
+        """包装对象的 ``normalized()`` 返回映射时，按映射取值（旧意图保留）。"""
+        from atri_x.toolrun.preview import PreviewTexts
+
+        class Wrapper:
+            def normalized(self):
+                return {"style": "persona", "default_text": "调用 {tool}……"}
+
+        texts = PreviewTexts.from_config(Wrapper())
+        self.assertEqual("persona", texts.style)
+        self.assertEqual("调用 shell……", texts.render("shell", "{}"))
+
     def test_preview_texts_reach_runner(self) -> None:
         from atri_x.toolrun.preview import PreviewTexts
 
