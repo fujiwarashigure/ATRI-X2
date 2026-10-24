@@ -232,6 +232,51 @@ class LazyTabBuildTest(TkCase):
         # 反复访问不重复构建
         self.assertIs(app.toolperm_tab, toolperm)
 
+    # -- 布局回归 -----------------------------------------------------------
+    def test_feature_jump_to_reaction_sub_tab(self) -> None:
+        """「功能」页 → 表情图库：跳转不报错，且真的选中那张子页。"""
+        app = self._build_app()
+        self.root.update()
+        app.show_tab_key("character_reactions")
+        self.root.update()
+        character = app.character_tab
+        self.assertEqual(str(character.reaction_page), character.notebook.select())
+        self.assertEqual("pack", character.reaction_panel.frame.winfo_manager())
+
+    def test_every_tab_and_sub_tab_page_is_laid_out(self) -> None:
+        """所有页（含子选项卡）都必须有已布局的子控件：防止再次出现“整页空白”。
+
+        只查 ``winfo_manager()``：TkCase 的根窗口是 withdraw 的，``winfo_ismapped()``
+        恒为 0，不能用来判断可见性；而“有没有被 pack/grid 过”与窗口是否显示无关。
+        """
+        app = self._build_app()
+        self.root.update()
+        for index, name in enumerate(gui_app._TABS):
+            app.select_tab(index)
+            self.root.update()
+            tab = app._tab_instances.get(index)
+            self.assertIsNotNone(tab, f"选项卡未构建：{name}")
+            self._check_page(tab.frame, name)
+
+    def _check_page(self, page, label: str) -> None:
+        arranged = [child for child in page.winfo_children() if child.winfo_manager()]
+        self.assertTrue(arranged, f"页面没有已布局的子控件（整页空白）：{label}")
+        for child in self._descendants(page):
+            if isinstance(child, ttk.Notebook):
+                for tab_id in child.tabs():
+                    child.select(tab_id)
+                    self.root.update()
+                    sub = child.nametowidget(tab_id)
+                    self._check_page(sub, f"{label} → {child.tab(tab_id, 'text').strip()}")
+
+    @staticmethod
+    def _descendants(widget):
+        out = []
+        for child in widget.winfo_children():
+            out.append(child)
+            out.extend(LazyTabBuildTest._descendants(child))
+        return out
+
 
 class LayoutCase(unittest.TestCase):
     """不建窗口：选项卡清单、「功能」页跳转键、关于文案。"""
@@ -1671,6 +1716,27 @@ class CharacterReactionTabCase(TkCase):
         panel.tree.selection_set("0")
         panel._remove_item()
         self.assertEqual([], panel.items)
+
+
+    # -- 布局回归 -----------------------------------------------------------
+    def test_reaction_sub_tab_is_laid_out(self) -> None:
+        """面板必须被 pack 进子选项卡页框，否则整页空白（1.0.4–1.0.7 的缺陷）。"""
+        panel = self.tab.reaction_panel
+        page = self.tab.reaction_page
+        self.assertIsNotNone(page)
+        self.assertEqual(str(page), self.tab.notebook.tabs()[3])
+        # 未布局时 manager 为空字符串，这正是“一片空白”的直接原因。
+        self.assertEqual("pack", panel.frame.winfo_manager())
+        self.assertEqual([panel.frame], page.winfo_children())
+        self.assertGreaterEqual(len(panel.frame.winfo_children()), 2)
+        self.assertEqual("pack", panel.tree.winfo_manager())
+
+    def test_show_reactions_tab_selects_its_page(self) -> None:
+        """「功能」页跳转要选中 notebook 页框，不能拿面板内部 frame 去 select（会 TclError）。"""
+        self.tab.notebook.select(0)
+        self.root.update()
+        self.tab.show_reactions_tab()
+        self.assertEqual(str(self.tab.reaction_page), self.tab.notebook.select())
 
 
 class FeaturesTabCase(TkCase):

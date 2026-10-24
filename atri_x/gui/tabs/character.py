@@ -70,6 +70,8 @@ class CharacterTab(ConfigTab):
         self._doc_kinds: list[str] = []
         #: 「表情图库」子选项卡（发送策略 + catalog.json 条目管理）。
         self.reaction_panel: Any = None
+        #: 「表情图库」子选项卡对应的 notebook 页框（跳转时要选它，不能选面板自己的 frame）。
+        self.reaction_page: Any = None
         self._build()
         self.reload()
 
@@ -215,14 +217,26 @@ class CharacterTab(ConfigTab):
         """第四个子选项卡：本地表情图库（发送策略 + catalog.json 条目管理）。"""
         from atri_x.gui.reactionpage import REACTION_TAB_TITLE, ReactionPanel
 
-        page = ttk.Frame(self.notebook, padding=8)
+        page = ttk.Frame(self.notebook)
         self.notebook.add(page, text=REACTION_TAB_TITLE)
+        self.reaction_page = page
         self.reaction_panel = ReactionPanel(self, page)
+        # 面板自带 padding（ReactionPanel.frame），必须显式 pack 到页面里。
+        # 1.0.4–1.0.7 漏了这一步：面板内部 60 个控件全都建在未布局的 frame 上，
+        # 于是「表情图库」子选项卡整页空白、什么也点不了（功能页跳转也会 TclError）。
+        self.reaction_panel.frame.pack(fill=tk.BOTH, expand=True)
 
     def show_reactions_tab(self) -> None:
         """跳到「表情图库」子选项卡（「功能」页双击跳转用）。"""
-        if self.reaction_panel is not None:
-            self.notebook.select(self.reaction_panel.frame)
+        page = self.reaction_page
+        if page is None and self.reaction_panel is not None:
+            page = self.reaction_panel.frame.master
+        if page is None:
+            return
+        try:
+            self.notebook.select(page)
+        except tk.TclError:  # pragma: no cover - 页面已销毁
+            return
 
     def _form_row(self, parent: Any, row: int, label: str, variable: tk.StringVar) -> None:
         ttk.Label(parent, text=label, width=18).grid(row=row, column=0, sticky="w", pady=2)

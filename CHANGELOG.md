@@ -6,6 +6,37 @@
 
 ---
 
+## [1.0.8] - 2026-10-29 — 修复「人设卡 → 表情图库」子选项卡整页空白
+
+旧状态（1.0.7）：
+- 桌面端打开「人设卡 → 表情图库」子选项卡，**整页空白**：看不到发送策略表单、图库列表
+  和全部按钮，因此也没法编辑。这个缺陷从 1.0.4 引入本地表情图库起就存在。
+- 根因：`atri_x/gui/reactionpage.py` 的 `ReactionPanel` 把 60 个控件全建在自己的
+  `self.frame` 上，而 `CharacterTab._build_reaction_page()` 只把外层 page 加进 notebook，
+  **从未 pack 过 `panel.frame`**。Tk 不显示未布局的容器，于是整个子选项卡只剩一个空页。
+  `tests/test_gui_tabs.py` 里原有用例只验证数据层（策略落盘、`catalog.json` 读写），
+  没有断言布局，所以 1.0.4–1.0.7 一直没被发现。
+- 同一处还有第二个缺陷：`CharacterTab.show_reactions_tab()` 用 `notebook.select()` 选的是
+  面板内部 frame，而它不是 notebook 的页框；从「功能」页双击「本地表情图库」跳转时会抛
+  `TclError: ... is not managed by ...`，跳转失败。
+
+### 修复
+
+- `atri_x/gui/tabs/character.py`：`_build_reaction_page()` 把 `reaction_panel.frame`
+  显式 `pack(fill=tk.BOTH, expand=True)` 进子选项卡页框；新增 `self.reaction_page` 指向
+  真正的 notebook 页框，`show_reactions_tab()` 改为选它（页面已销毁时静默返回）。
+- 验证（源码 GUI 实测）：修复上面板的 `winfo_manager()` 为 `''`、页面里 0 个可见控件；
+  修复后为 `pack`、60 个控件全部可见，`show_tab_key("character_reactions")` 不再抛错。
+- 回归测试（`tests/test_gui_tabs.py`，新增 4 条）：
+  - `CharacterReactionTabCase.test_reaction_sub_tab_is_laid_out`：面板必须被 pack、子选项卡
+    页里正好是面板 frame、图库 Treeview 已布局；
+  - `CharacterReactionTabCase.test_show_reactions_tab_selects_its_page`：跳转必须选中
+    notebook 页框（选面板内部 frame 会 TclError）；
+  - `LazyTabBuildTest.test_feature_jump_to_reaction_sub_tab`：「功能」页跳转端到端；
+  - `LazyTabBuildTest.test_every_tab_and_sub_tab_page_is_laid_out`：把 11 个顶层页和它们
+    的所有子选项卡全扫一遍，要求每页至少有一个已布局子控件——这类「忘了 pack → 整页空白」
+    的缺陷以后再出现会直接测试失败。
+
 ## [1.0.7] - 2026-10-28 — 桌面端按需构建选项卡（修复窗口拖动明显迟滞）
 
 旧状态（1.0.6）：
