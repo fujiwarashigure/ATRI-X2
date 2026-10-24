@@ -171,59 +171,138 @@ class GuiApp:
         notebook.pack(fill=tk.BOTH, expand=True)
         self.notebook = notebook
 
-        self.chat = ChatTab(
-            notebook,
-            on_open=self.open_session,
-            on_refresh=self.refresh_sessions,
-            on_new=self.new_session,
-            on_send=self.send_current_input,
-            on_tab=self.request_completion,
-            on_clear=self.clear_transcript,
-        )
-        self.model_tab = ModelTab(notebook, self.paths, on_restart=self._restart_backend)
-        self.character_tab = CharacterTab(
-            notebook, self.paths, on_restart=self._restart_backend
-        )
-        self.platform_tab = PlatformTab(notebook, self.paths, on_restart=self._restart_backend)
-        self.link_tab = LinkTab(
-            notebook,
-            self.paths,
-            settings=self.settings,
-            on_restart=self._restart_backend,
-            can_control_service=bool(self.service_owned and self.settings is not None),
-        )
-        self.members_tab = MembersTab(notebook, self.paths, on_restart=self._restart_backend)
-        self.knowledge_tab = KnowledgeTab(notebook, self.paths, on_restart=self._restart_backend)
-        self.advanced_tab = AdvancedTab(notebook, self.paths, on_restart=self._restart_backend)
-        self.logs_tab = LogsTab(notebook, self.paths, on_restart=self._restart_backend)
-        self.toolperm_tab = ToolPermTab(notebook, self.paths, on_restart=self._restart_backend)
-        self.features_tab = FeaturesTab(
-            notebook,
-            self.paths,
-            on_goto=self.show_tab_key,
-            on_restart=self._restart_backend,
-            on_reconnect=self.reconnect,
-            service_status=lambda: self._status_text,
-        )
-        for index, tab in enumerate(
-            (
-                self.chat,
-                self.model_tab,
-                self.character_tab,
-                self.platform_tab,
-                self.link_tab,
-                self.members_tab,
-                self.knowledge_tab,
-                self.advanced_tab,
-                self.logs_tab,
-                self.features_tab,
-                self.toolperm_tab,
-            )
-        ):
-            notebook.add(tab.frame, text=f" {_TABS[index]} ")
+        # 选项卡**按需构建**：启动只建「对话」与「功能」，其余先放占位 Frame，
+        # 首次切到该页时才真正建控件。
+        #
+        # 原因（实测）：Tk 的每个控件都是一个 Win32 子窗口，拖动/移动窗口的成本随
+        # 子窗口数线性上升——本窗口 11 个页全建时是 2434 个子窗口，每次移动约 6ms
+        # （裸 Tk 窗口约 1ms），拖起来明显发滞；其中「工具权限」一页就占 1811 个。
+        # 按需构建后启动时只剩两百级子窗口，拖动恢复顺滑；代价是首次点开某页多几十毫秒。
+        self._tab_placeholders: dict[int, ttk.Frame] = {}
+        self._tab_instances: dict[int, Any] = {}
+        self._tab_factories: dict[int, Callable[[Any], Any]] = {
+            0: lambda parent: ChatTab(
+                parent,
+                on_open=self.open_session,
+                on_refresh=self.refresh_sessions,
+                on_new=self.new_session,
+                on_send=self.send_current_input,
+                on_tab=self.request_completion,
+                on_clear=self.clear_transcript,
+            ),
+            1: lambda parent: ModelTab(parent, self.paths, on_restart=self._restart_backend),
+            2: lambda parent: CharacterTab(
+                parent, self.paths, on_restart=self._restart_backend
+            ),
+            3: lambda parent: PlatformTab(
+                parent, self.paths, on_restart=self._restart_backend
+            ),
+            4: lambda parent: LinkTab(
+                parent,
+                self.paths,
+                settings=self.settings,
+                on_restart=self._restart_backend,
+                can_control_service=bool(self.service_owned and self.settings is not None),
+            ),
+            5: lambda parent: MembersTab(
+                parent, self.paths, on_restart=self._restart_backend
+            ),
+            6: lambda parent: KnowledgeTab(
+                parent, self.paths, on_restart=self._restart_backend
+            ),
+            7: lambda parent: AdvancedTab(
+                parent, self.paths, on_restart=self._restart_backend
+            ),
+            8: lambda parent: LogsTab(parent, self.paths, on_restart=self._restart_backend),
+            9: lambda parent: FeaturesTab(
+                parent,
+                self.paths,
+                on_goto=self.show_tab_key,
+                on_restart=self._restart_backend,
+                on_reconnect=self.reconnect,
+                service_status=lambda: self._status_text,
+            ),
+            10: lambda parent: ToolPermTab(
+                parent, self.paths, on_restart=self._restart_backend
+            ),
+        }
+        #: 启动时就构建的页：对话（默认页）与功能（状态栏轮询要写它）。
+        eager = (0, 9)
+        for index, name in enumerate(_TABS):
+            text = f" {name} "
+            factory = self._tab_factories.get(index)
+            if factory is None or index not in eager:
+                placeholder = ttk.Frame(notebook)
+                notebook.add(placeholder, text=text)
+                self._tab_placeholders[index] = placeholder
+                continue
+            tab = factory(notebook)
+            notebook.add(tab.frame, text=text)
+            self._tab_instances[index] = tab
             self._tabs[index] = tab
         notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
         self.features_tab.set_status(self._status_text)
+
+    def _ensure_tab(self, index: int) -> Any:
+        """按索引返回选项卡；懒加载页首次访问时在占位 Frame 里真正构建它。"""
+        tab = self._tab_instances.get(index)
+        if tab is not None:
+            return tab
+        factory = self._tab_factories.get(index)
+        placeholder = self._tab_placeholders.get(index)
+        if factory is None or placeholder is None:
+            raise KeyError(index)
+        tab = factory(placeholder)
+        tab.frame.pack(fill=tk.BOTH, expand=True)
+        self._tab_placeholders.pop(index, None)
+        self._tab_instances[index] = tab
+        self._tabs[index] = tab
+        return tab
+
+    # 选项卡的对外属性（懒加载：第一次访问时才构建对应页）。
+    @property
+    def chat(self) -> Any:
+        return self._ensure_tab(0)
+
+    @property
+    def model_tab(self) -> Any:
+        return self._ensure_tab(1)
+
+    @property
+    def character_tab(self) -> Any:
+        return self._ensure_tab(2)
+
+    @property
+    def platform_tab(self) -> Any:
+        return self._ensure_tab(3)
+
+    @property
+    def link_tab(self) -> Any:
+        return self._ensure_tab(4)
+
+    @property
+    def members_tab(self) -> Any:
+        return self._ensure_tab(5)
+
+    @property
+    def knowledge_tab(self) -> Any:
+        return self._ensure_tab(6)
+
+    @property
+    def advanced_tab(self) -> Any:
+        return self._ensure_tab(7)
+
+    @property
+    def logs_tab(self) -> Any:
+        return self._ensure_tab(8)
+
+    @property
+    def features_tab(self) -> Any:
+        return self._ensure_tab(9)
+
+    @property
+    def toolperm_tab(self) -> Any:
+        return self._ensure_tab(10)
 
     def _build_menu(self) -> None:
         menubar = tk.Menu(self.root)
@@ -445,7 +524,16 @@ class GuiApp:
         previous, self._active_tab_index = self._active_tab_index, index
         if previous is not None and previous != index:
             self._notify_tab_hidden(self._tabs.get(previous))
-        tab = self._tabs.get(index)
+        try:
+            tab = self._ensure_tab(index)
+        except Exception as exc:  # noqa: BLE001 - 懒加载失败要能看见，但不能崩窗口
+            text = f"打开「{_TABS[index]}」失败：{exc}"
+            self._append_notice(text)
+            try:
+                journal.record(self._tray_config_dir(), text)
+            except Exception:  # noqa: BLE001 - 记日志失败不影响提示
+                pass
+            return
         handler = getattr(tab, "on_show", None)
         if handler is None:
             return

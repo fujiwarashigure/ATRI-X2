@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.0.6`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `1.0.7`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -175,10 +175,10 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.0.6`**（1.0.5 的补丁版：修复**后台服务启动即崩**——`[tool_preview]` 配置对象在 `Agent` 初始化时触发无限递归，`atri-x service run` 直接退出，`ws://127.0.0.1:32172/cli/v1/ws` 从未监听，GUI 因此报「后台服务未就绪」、QQ/OneBot 平台连不上；修复后后台服务正常监听并完成 WS 握手。其余功能与 1.0.5 相同：两批《dsh-qq 借鉴落地评估》整体落地：①**高风险确认的授权边界**——确认类命令只接受发起人、群聊/频道不展示工具参数、群聊默认禁用 `/confirmall`；②**常驻记忆的会话可见性**——`note_visible_in()` 统一判定，私聊来源永不进群、老数据按 `identity` 档、`resident_memory_normal.write` 只覆盖本会话；③**授权生命周期**——`/confirmall`、`/confirmtool` 改为签发带 TTL、绑定作用域与发起人的凭据，新增 `/grant list|revoke` 与 `/panic`；④**长期记忆按会话隔离**——默认只检索本会话，超管可跨会话检索，旧记忆仍全局可见；⑤**引用/转发慢取**——入站不再被平台接口拖住，新增 `fetch_message` 工具与 5 个慢取配置键；⑥**费用归因**——模型调用按原因打标，`/usage --by trigger` 下钻，5 条旁路调用统一进账；⑦**计算静默** `[quiet]` 与**群聊参与状态机** `[participation]`（均默认关闭，只抑制后台计算与闲聊唤醒）。本版同时保留 1.0.4 的工具进度提示、本地表情图库与 1.0.3 的内置内容安全、常驻记忆配额、识图改造；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
-交付物尺寸与校验和见发行库里的 `SHA256SUMS.txt` 与 `ATRI-X-1.0.6-compatibility-report.md`。
+当前最新版本：**`1.0.7`**（桌面端性能补丁：**选项卡改为按需构建**。1.0.6 启动时一次性构建全部 11 页，主窗口下 2434 个 Win32 子窗口，每次窗口移动约 6 ms，拖动明显迟滞；现在启动只建「对话」+「功能」两页（50 个子窗口、约 1 ms/次），其余页首次访问才构建，常见页面 1.3–2.1 ms/次。功能面与 1.0.6 相同：1.0.5 的「后台服务启动即崩」修复、两批《dsh-qq 借鉴落地评估》①**高风险确认的授权边界**②**常驻记忆的会话可见性**③**授权生命周期**④**长期记忆按会话隔离**⑤**引用/转发慢取**⑥**费用归因**⑦**计算静默 `[quiet]` 与群聊参与状态机 `[participation]`**，以及 1.0.4 的工具进度提示、本地表情图库与 1.0.3 的内置内容安全、常驻记忆配额、识图改造；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+交付物尺寸与校验和见发行库里的 `SHA256SUMS.txt` 与 `ATRI-X-1.0.7-compatibility-report.md`。
 
-已发布：[**GitHub Release v1.0.6**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.6)（当前版）；上一版 [v1.0.5](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.5)。交付物尺寸与 SHA-256 见各 Release 的 `SHA256SUMS.txt` 与 `ATRI-X-<版本>-compatibility-report.md`；更早的 1.0.4 与 1.0.3 热修版、1.0.2 补丁版（tag `v1.0.2` = `00a6653`）仍在。
+已发布：[**GitHub Release v1.0.7**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.7)（当前版）；上一版 [v1.0.6](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.6)。交付物尺寸与 SHA-256 见各 Release 的 `SHA256SUMS.txt` 与 `ATRI-X-<版本>-compatibility-report.md`；更早的 1.0.5 / 1.0.4 与 1.0.3 热修版、1.0.2 补丁版（tag `v1.0.2` = `00a6653`）仍在。
 
 | 产物 | 位置 |
 | --- | --- |

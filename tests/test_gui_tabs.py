@@ -178,6 +178,61 @@ class TkCase(unittest.TestCase):
             return tomllib.load(handle)
 
 
+class LazyTabBuildTest(TkCase):
+    """11 个选项卡**按需构建**：启动只建对话 + 功能，重页首次访问才建。
+
+    为什么值得立成测试：Tk 每个控件都是一个 Win32 子窗口，窗口移动成本随子窗口数
+    线性上升（实测 2434 个控件时每次移动约 6ms，拖窗口明显发滞；裸 Tk 约 1ms）。
+    全量预建 11 页是 2400+ 控件，按需构建后启动只剩 50 个左右。
+    """
+
+    def _build_app(self):
+        from atri_x.gui import app as gui_app_mod
+        from atri_x.gui.service import prepare_settings
+
+        settings = prepare_settings(str(self.paths.config_path))
+        return gui_app_mod.GuiApp(
+            self.root,
+            settings,
+            tray_enabled=False,
+            client=None,
+            service_owned=False,
+        )
+
+    @staticmethod
+    def _count_widgets(widget) -> int:
+        total = 1
+        for child in widget.winfo_children():
+            total += LazyTabBuildTest._count_widgets(child)
+        return total
+
+    def test_startup_builds_only_light_tabs(self) -> None:
+        app = self._build_app()
+        self.root.update()
+        # 启动只建「对话」(0) 与「功能」(9)；其余是占位 Frame。
+        self.assertEqual(len(app._tab_instances), 2)
+        self.assertEqual(len(app._tab_placeholders), len(gui_app._TABS) - 2)
+        # 性能属性：启动控件数应为百级，而不是全量预建的 2400+。
+        self.assertLess(self._count_widgets(self.root), 150)
+        # 选项卡顺序/标题与清单一致（懒加载不能打乱 notebook）。
+        titles = [app.notebook.tab(tab_id, "text").strip() for tab_id in app.notebook.tabs()]
+        self.assertEqual(titles, list(gui_app._TABS))
+
+    def test_heavy_tab_built_on_first_visit(self) -> None:
+        app = self._build_app()
+        self.root.update()
+        self.assertNotIn(10, app._tab_instances)  # 「工具权限」1811 个控件，不预建
+        app.select_tab(10)
+        self.root.update()
+        self.assertIn(10, app._tab_instances)
+        toolperm = app.toolperm_tab
+        # 懒加载页建在占位 Frame 里（占位页挂在 notebook 上），建完占位记录移除。
+        self.assertIs(toolperm.frame.master.master, app.notebook)
+        self.assertGreater(len(toolperm.frame.winfo_children()), 0)
+        # 反复访问不重复构建
+        self.assertIs(app.toolperm_tab, toolperm)
+
+
 class LayoutCase(unittest.TestCase):
     """不建窗口：选项卡清单、「功能」页跳转键、关于文案。"""
 
