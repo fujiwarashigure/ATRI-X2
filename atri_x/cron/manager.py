@@ -29,7 +29,10 @@ from atri_x.cron.model import (
     METADATA_KIND,
     ScheduleMode,
     decode_metadata,
+    format_run_at_utc,
     parse_run_at,
+    parse_run_at_utc,
+    resolve_once_run_at,
     system_location,
 )
 from atri_x.errors import InvalidError
@@ -89,6 +92,12 @@ class _Entry:
     task: asyncio.Task[None] | None = None
 
 
+#: 调度等待的单段上限（秒）：分段才能及时发现墙钟前跳/回拨。
+_WAIT_CHUNK_SECONDS = 30.0
+#: 墙钟回拨超过它就不再死等（重新计算下次触发），避免等到"天荒地老"。
+_BACKWARD_JUMP_RECOMPUTE_SECONDS = 3600.0
+
+
 class Manager:
     """cron manager。对应 Go ``Manager``。"""
 
@@ -125,6 +134,7 @@ class Manager:
     async def upsert_job(self, req: UpsertJobRequest) -> CronJob:
         """插入或更新 job。对应 Go ``UpsertJob``。"""
         validate_upsert_request(req)
+        req = self._stamp_once_run_at(req)
         next_run = compute_next_run_at(
             req.schedule, req.metadata, req.enabled, self.now(), self.location
         )
@@ -132,6 +142,36 @@ class Manager:
         if self.started:
             await self.schedule_job(job)
         return job
+
+    def _stamp_once_run_at(self, req: UpsertJobRequest) -> UpsertJobRequest:
+        """给一次性任务补 ``run_at_utc``（确定的 UTC 时刻 + 创建时区名）。
+
+        兼容与安全口径（1.0.10）：
+
+        * 只在 ``schedule.mode == "once"`` 且**尚未**带 ``run_at_utc`` 时补；
+        * 已有 ``run_at_utc`` 的任务（新数据）**不改写**——改时区不应改变已定死的时刻；
+        * DST 不存在的时刻在这里抛 ``InvalidError``（创建/更新当场失败，而不是静默偏移）；
+        * DST 重复时刻取第一次，并把 ``run_at_dst_ambiguous`` 落进 metadata。
+        """
+        if not req.metadata:
+            return req
+        try:
+            meta = decode_metadata(req.metadata)
+        except Exception:  # noqa: BLE001 - 非本仓 metadata：交给下游原样处理
+            return req
+        if meta.schedule.mode != ScheduleMode.ONCE:
+            return req
+        if (meta.schedule.run_at_utc or "").strip():
+            return req
+        run_at_text = (meta.schedule.run_at or "").strip()
+        if not run_at_text:
+            return req
+        moment, ambiguous = resolve_once_run_at(run_at_text, self.location)
+        location = self.location or system_location()
+        meta.schedule.run_at_utc = format_run_at_utc(moment)
+        meta.schedule.run_at_tz = str(getattr(location, "key", "") or location)
+        meta.schedule.run_at_dst_ambiguous = bool(ambiguous)
+        return replace(req, metadata=meta.encode())
 
     async def disable_job(self, name: str) -> None:
         """停用 job。对应 Go ``DisableJob``。"""
@@ -267,13 +307,12 @@ class Manager:
                 await self._update_next_run_at(job, None)
                 return
             delay = (next_run - self.now()).total_seconds()
-            if delay > 0:
-                try:
-                    await asyncio.wait_for(self._stopping.wait(), timeout=delay)
-                except asyncio.TimeoutError:
-                    pass
-                else:
-                    return
+            if delay > 0 and not await self._wait_until(next_run):
+                return
+            # 醒来后**复核目标时刻**（1.0.10）：墙钟回拨 / 系统校时都会让
+            # "睡了 delay 秒"不再等于"到点了"。没到点就重新算，绝不提前触发。
+            if self.now() < next_run:
+                continue
             # 触发前把 next_run 推进到再下一次，对齐 robfig 更新 e.Next 的时机。
             try:
                 entry.next_run = compute_next_run_at(
@@ -282,6 +321,34 @@ class Manager:
             except Exception:  # noqa: BLE001
                 entry.next_run = None
             await self.run_job(name)
+
+    async def _wait_until(self, target: datetime) -> bool:
+        """分段等待到 ``target``；返回 ``False`` = 收到停止信号。
+
+        1.0.10 的跳时规则（对应计划 §阶段 6）：
+
+        * 每段最多 30 秒，每段结束**重新用墙钟**算剩余——因此墙钟前进会立刻收敛到
+          目标，不会按旧 delay 一直睡下去；
+        * 墙钟被**回拨**超过 1 小时：不死等（可能等到天荒地老），返回 ``True`` 让
+          外层重新计算下次触发；
+        * 墙钟**前跳**越过目标：立即返回，外层复核后触发一次（不补发多次）；
+        * 不宣称 exactly-once，也不做秒级保证：分钟级 cron 就是分钟级。
+        """
+        first = self.now()
+        while not self._stopping.is_set():
+            current = self.now()
+            remaining = (target - current).total_seconds()
+            if remaining <= 0:
+                return True
+            if (first - current).total_seconds() > _BACKWARD_JUMP_RECOMPUTE_SECONDS:
+                return True
+            chunk = min(_WAIT_CHUNK_SECONDS, remaining)
+            try:
+                await asyncio.wait_for(self._stopping.wait(), timeout=chunk)
+            except asyncio.TimeoutError:
+                continue
+            return False
+        return False
 
     async def run_job(self, name: str) -> None:
         """执行一次 job 并写入运行状态。对应 Go ``runJob``。"""
@@ -451,6 +518,10 @@ def user_once_run_at(
     if meta.kind != METADATA_KIND or meta.schedule.mode != ScheduleMode.ONCE:
         return None, False, None
     try:
+        # 1.0.10：优先用确定时刻（新任务都有）。旧数据没有该字段时仍按本地墙钟解释，
+        # **不猜测**历史时区——这就是"legacy 语义"。
+        if (meta.schedule.run_at_utc or "").strip():
+            return parse_run_at_utc(meta.schedule.run_at_utc), True, None
         return parse_run_at(meta.schedule.run_at, location), True, None
     except Exception as exc:  # noqa: BLE001
         return None, True, exc

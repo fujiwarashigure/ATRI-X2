@@ -89,25 +89,42 @@ def quiet_window(agent: Any) -> str:
 
 
 def quiet_timezone(agent: Any) -> tzinfo:
-    """静默判定用的时区：配置里的 IANA 名，非法或为空时用进程本地时区。"""
-    name = str(getattr(quiet_config(agent), "timezone", "") or "").strip()
-    if name:
-        try:
-            from zoneinfo import ZoneInfo
+    """静默判定用的时区。
 
-            return ZoneInfo(name)
-        except Exception:  # noqa: BLE001 - 时区名非法就回落本地
-            pass
+    1.0.10 起**不静默回落**：
+
+    * ``[quiet].timezone`` 留空 → 沿用统一时间服务 ``[time].timezone``（单一事实来源）；
+    * 显式写了 IANA 名 → 严格解析，非法/缺 tzdata 直接抛
+      :class:`atri_x.errors.InvalidTimezoneError`（启动期已被 config 校验挡住）；
+    * 只有时间服务未装配（旧装配路径 / 单测）时才退回进程本地时区。
+    """
+    name = str(getattr(quiet_config(agent), "timezone", "") or "").strip()
+    service = getattr(agent, "time_service", None)
+    if not name:
+        if service is not None:
+            return service.timezone()
+        return _legacy_local_timezone()
+    from atri_x.timezones import resolve_timezone
+
+    return resolve_timezone(name, source="config").tz
+
+
+def _legacy_local_timezone() -> tzinfo:
+    """**仅**给未装配时间服务的宿主兜底（正式路径不走这里）。"""
     local = datetime.now().astimezone().tzinfo
     return local or timezone.utc
 
 
 def quiet_now(agent: Any, now: datetime | None = None) -> datetime:
-    """把 ``now`` 规范成带时区的时间（缺省取当前时刻）。"""
+    """把 ``now`` 规范成带时区的时间（缺省取统一时间服务的当前时刻）。"""
+    zone = quiet_timezone(agent)
     if now is None:
-        return datetime.now(quiet_timezone(agent))
+        service = getattr(agent, "time_service", None)
+        if service is not None:
+            return service.now_utc().astimezone(zone)
+        return datetime.now(zone)
     if now.tzinfo is None:
-        return now.replace(tzinfo=quiet_timezone(agent))
+        return now.replace(tzinfo=zone)
     return now
 
 

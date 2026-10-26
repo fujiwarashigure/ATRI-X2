@@ -233,7 +233,11 @@ class Runner:
                 runtime.vision_stats,
             )
         )
-        diagnostics_provider.set(lambda: collect_ops_diagnostics(health_state, agent))
+        diagnostics_provider.set(
+            lambda: collect_ops_diagnostics(
+                health_state, agent, foundation.time_service, foundation.time_verifier
+            )
+        )
         memory_admin_provider.set(_memory_admin_handler(agent))
         learning_admin_provider.set(_learning_admin_handler(agent))
         if health_state is not None:
@@ -246,12 +250,18 @@ class Runner:
             startup_duration=_format_seconds(startup_duration),
         )
 
-        after_start = None
-        if should_start_cron(mode) and foundation.start_cron is not None:
-            start_cron = foundation.start_cron
+        async def start_time_verifier(cctx: Any) -> None:
+            """启动网络时间校验（未启用时 ``start()`` 立即返回，不发起任何请求）。"""
+            verifier = getattr(foundation, "time_verifier", None)
+            if verifier is None:
+                return
+            await maybe_await(verifier.start())
 
-            async def after_start(cctx: Any, _start=start_cron, _svc=runtime.cron_service) -> None:
-                await maybe_await(_start(cctx, _svc))
+        async def after_start(cctx: Any) -> None:
+            if should_start_cron(mode) and foundation.start_cron is not None:
+                await maybe_await(foundation.start_cron(cctx, runtime.cron_service))
+            # 校验循环独立于 cron：cron 关闭时网络时间校验仍可工作。
+            await start_time_verifier(cctx)
 
         heartbeat = health_state.beat if health_state is not None else None
 

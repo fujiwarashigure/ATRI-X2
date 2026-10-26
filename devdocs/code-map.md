@@ -56,6 +56,50 @@ rg -n "func Run|service run|completion|--client|RunCron" cmd atri_x/app atri_x/l
 rg -n "ATRIX_CONFIG_FILE|services.toml|providers.toml|state.toml|tool_tags.toml|TextHandler|audit|LogModule|ResultRejected|ToolReason" atri_x/config atri_x/logging atri_x/tool docs/configuration.md
 ```
 
+<!-- locator:time -->
+## 时间服务与网络时间校验（Python 侧新增，1.0.10）
+
+适用任务：提示词里的"当前时间"、时区口径、cron/提醒/静默的时区判定、网络时间校验
+（SNTP/HTTPS）、时间诊断与 `/time` 命令、tzdata 交付。
+
+先看：
+
+- `atri_x/timezones.py`：**唯一**时区解析入口。IANA / `fixed:+08:00` / `system` 三种形态；
+  非法名（`InvalidTimezoneError`）与数据缺失（`TimezoneDataUnavailableError`）分开硬失败，
+  不回落；`tzdata_version()` / `available_timezones()` 是"数据在不在"的唯一探测点。
+- `atri_x/time_service.py`：`TimeService`（业务时间唯一读取点）+ `TimeSnapshot`（同一
+  instant 的一致快照）。`now_fn` / `monotonic_fn` 可注入假时钟；`clock_delta_mismatch`
+  用于检测校时/休眠；校验状态只读暴露给诊断与工具。**本模块不做 I/O。**
+- `atri_x/agent/time_context.py`：入站时间基准（ctx 键 `message_received_at` /
+  `platform_sent_at`）+ 提示词时间片段（标记 `[atx-time:v1]`，先剥旧段再追加，幂等）。
+  唯一注入点是 `atri_x/agent/chat_llm.py::call_llm` 的 `_inject_time_block`。
+- `atri_x/timesync/`：`policy`（出站/私网例外/脱敏）、`sntp`（受限 SNTP 客户端）、
+  `https_time`（JSON 时间 API + TLS 永不关闭）、`model`（观测/轮次判定纯函数）、
+  `verifier`（单飞、抖动、退避、挂起检测、可疑状态锁存）、`diagnostics`（只读聚合）。
+- `atri_x/config/time_sections.py`：`[time]` / `[time.verification]` / `[[time.sources]]`。
+- `atri_x/tool/builtin/time_tool.py`（`get_current_time`）、`atri_x/agent/commands/time.py`
+  （`/time`，超管）、`atri_x/app/time_check.py`（`python -m atri_x.app.time_check` 冻结产物探针）。
+- 装配：`atri_x/app/foundation.py` 建 `TimeService` + `Verifier`（并注入 cron 的
+  `location`/`now`）；`atri_x/app/runner.py` 的 `after_start` 启动校验循环；
+  `/diagnostics.time` 见 `atri_x/app/ops_health.py` + `atri_x/timesync/diagnostics.py`。
+- 交付：`packaging/atri-x.spec`（显式收集 tzdata + 构建期断言）、`packaging/build.py`
+  （`verify_tzdata_payload` + 冻结探针）、`deploy/Dockerfile`（显式安装 tzdata + 构建期探针）。
+
+契约要点（改动前务必读 `docs/configuration.md` 的时间服务一节）：
+
+- **业务时间 = 系统时钟**；网络来源只做观测（首版 `verify_only`），**不修改系统时钟**；
+- `consistent` ≠ "已校准"，代码与文案里都不得出现"准确/已同步"这类结论；
+- 校验状态**不进 `/ready`**（只进 `/diagnostics`、`doctor`、`/time`）；
+- 时区非法 / tzdata 缺失是**硬失败**，禁止回落到 UTC 或固定偏移；
+- SNTP `authenticated` 恒 False；HTTPS 的 `authenticated` 只表示端点身份经 TLS 认证。
+
+常用搜索：
+
+```bash
+rg -n "TimeService|TimeSnapshot|atx-time|verification_state|tzdata|resolve_timezone" atri_x docs devdocs packaging deploy
+rg -n "timezone=|inject_context|time.verification|time.sources" atri_x/config docs/configuration.md
+```
+
 <!-- locator:health-ops -->
 ## 健康状态、限速、熔断与运维接口
 

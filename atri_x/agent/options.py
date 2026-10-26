@@ -106,6 +106,12 @@ class Options:
     quiet_config: Any = None
     #: Python 版新增：``[participation]`` 段（群聊参与状态机）。``None`` = 关闭。
     participation_config: Any = None
+    #: Python 版新增：统一时间服务（``[time]``）。``None`` = 不注入时间片段。
+    time_service: Any = None
+    #: Python 版新增：``[time]`` 配置段（读 ``inject_context`` 开关）。
+    time_config: Any = None
+    #: Python 版新增：网络时间校验器（``/time verify`` 用）；``None`` = 未装配。
+    time_verifier: Any = None
 
 
 def validate_options(opts: Options) -> None:

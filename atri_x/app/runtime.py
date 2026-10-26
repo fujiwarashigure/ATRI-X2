@@ -114,6 +114,13 @@ class DefaultRuntimeFactory:
         cfg = foundation.config
         logger = foundation.logger
         config_dir = config_dir_of(cfg)
+        # 统一时间服务：Foundation 已按 ``[time]`` 建好；旧装配路径（测试桩 / 裁剪版）
+        # 没提供时在这里补一个，保证工具与提示词永远有同一个时间口径。
+        time_service = getattr(foundation, "time_service", None)
+        if time_service is None:
+            from atri_x.time_service import TimeService
+
+            time_service = TimeService.from_config(getattr(cfg, "time", None))
 
         dot_env = load_dot_env(config_dir)
         env_entries = [f"{key}={value}" for key, value in os.environ.items()]
@@ -211,6 +218,7 @@ class DefaultRuntimeFactory:
                 shell_process_env,
                 artist_metadata,
                 logger,
+                time_service,
             )
         )
         for warning in tool_runtime.warnings:
@@ -325,6 +333,7 @@ class DefaultRuntimeFactory:
                 hook_service,
                 vision_metrics,
                 file_backups,
+                time_service=time_service,
             )
         except BaseException:
             try:
@@ -461,6 +470,7 @@ def _tool_options(
     shell_process_env: Any,
     artist_metadata: Any,
     logger: Any,
+    time_service: Any = None,
 ) -> ToolRuntimeOptions:
     """把 Go ``builtin.RuntimeOptions{...}`` 的字面量逐字段搬过来。"""
     resident = getattr(cfg, "resident_memory", None)
@@ -477,7 +487,11 @@ def _tool_options(
             config_path=str(getattr(cfg, "config_path", "") or ""),
             sandbox_root=str(getattr(getattr(cfg, "sandbox", None), "root", "") or ""),
             file_delivery=getattr(cfg, "file_delivery", None),
+            # 工具侧的 ``Info.now`` 也走统一时间服务（绝不复用 ``datetime.now``）。
+            now=getattr(time_service, "now_local", None),
         ),
+        time_service=time_service,
+        time_verification=getattr(foundation, "time_verifier", None),
         cron_service=cron_service,
         chat_history=foundation.chat_history,
         outbound_messages=foundation.outbound_messages,

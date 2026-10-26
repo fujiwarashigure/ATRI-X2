@@ -1119,17 +1119,17 @@ _SHANGHAI_CACHE: list[Any] = []
 
 
 def shanghai_tz() -> Any:
-    """Asia/Shanghai 时区；标准库缺 tzdata 时退回固定 +08:00（同 Go 的 FixedZone 兜底）。"""
-    import datetime as _dt
+    """Asia/Shanghai 时区（峰谷计价口径）。
 
+    1.0.10 起**不再静默回退固定 +08:00**：时区数据缺失时抛
+    :class:`atri_x.errors.TimezoneDataUnavailableError`，与 ``[time].timezone`` 的
+    硬失败口径一致。冻结产物由打包期断言保证数据存在，Docker 显式安装 tzdata。
+    """
     if _SHANGHAI_CACHE:
         return _SHANGHAI_CACHE[0]
-    try:
-        from zoneinfo import ZoneInfo
+    from atri_x.timezones import resolve_timezone
 
-        zone: Any = ZoneInfo("Asia/Shanghai")
-    except Exception:  # noqa: BLE001 - 缺 tzdata 时按固定偏移处理
-        zone = _dt.timezone(_dt.timedelta(hours=8), "CST")
+    zone: Any = resolve_timezone("Asia/Shanghai").tz
     _SHANGHAI_CACHE.append(zone)
     return zone
 

@@ -326,6 +326,15 @@ class Adapter:
             return
         message_ctx.segments = telegram_message.final_message_segments(text, normalized.segments, None)
         msg_ctx = with_target(with_message_context(ctx, message_ctx), tg_target)
+        # Python 版新增（1.0.10）：平台侧发送时间随 ctx 进 Agent（相对时间基准）。
+        if msg.date > 0:
+            from datetime import datetime, timezone
+
+            from atri_x.agent.time_context import with_platform_sent_at
+
+            msg_ctx = with_platform_sent_at(
+                msg_ctx, datetime.fromtimestamp(msg.date, timezone.utc)
+            )
         try:
             await handler.handle_message(msg_ctx, text)
         except asyncio.CancelledError:

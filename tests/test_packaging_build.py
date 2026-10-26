@@ -128,11 +128,13 @@ class SpecContractTest(unittest.TestCase):
     def _spec_excludes(self, **env_overrides: str) -> list[str]:
         """真的执行 spec 里 ``excludes`` 那段（剥掉 PyInstaller 依赖），取它的取值。
 
-        只执行到 ``a = Analysis(`` 之前；``collect_submodules`` 用替身。这样断言的是
-        spec **实际算出来的** excludes，而不是"spec 里出现过某个变量名"。
+        只执行到 ``a = Analysis(`` 之前，并在 ``TZDATA-BLOCK`` 标记处截断（那里会真的
+        收集 tzdata、缺数据时 ``SystemExit``；那些行为由
+        ``tests/test_packaging_tzdata.py`` 与真实构建覆盖）。``collect_submodules`` 用替身。
+        这样断言的是 spec **实际算出来的** excludes，而不是"spec 里出现过某个变量名"。
         """
         text = build.SPEC_PATH.read_text(encoding="utf-8")
-        head = text.partition("a = Analysis(")[0]
+        head = text.partition("TZDATA-COLLECT-BEGIN")[0]
         # 只剥掉 PyInstaller 的 import 语句（不能按关键字过滤整行：模块 docstring 的
         # 首行里也有 "PyInstaller"，删掉它会把 docstring 变成代码）。
         source = "\n".join(
@@ -387,6 +389,8 @@ class VerifyCapabilityLineTest(unittest.TestCase):
                 stdout = "atri-x 9.9.9"
             elif argv == ["config", "check"]:
                 stdout = "config OK"
+            elif argv[:2] == ["-m", "atri_x.app.time_check"]:
+                stdout = '{"ok": true, "zones": 598}'
             return {"code": 0, "stdout": stdout, "stderr": ""}
 
         # service_smoke 要真的起进程、监听端口，假 exe（b"MZ-fake"）跑不了；这里只测
@@ -421,7 +425,12 @@ class VerifyCapabilityLineTest(unittest.TestCase):
 
         def fake_run_exe(artifact, argv, timeout, scratch_home=False):  # noqa: ANN001
             del artifact, timeout, scratch_home
-            stdout = "atri-x 9.9.9" if argv == ["--version"] else "config OK"
+            if argv == ["--version"]:
+                stdout = "atri-x 9.9.9"
+            elif argv[:2] == ["-m", "atri_x.app.time_check"]:
+                stdout = '{"ok": true, "zones": 598}'
+            else:
+                stdout = "config OK"
             return {"code": 0, "stdout": stdout, "stderr": ""}
 
         def failing_service_smoke(artifact, timeout=180.0):  # noqa: ANN001

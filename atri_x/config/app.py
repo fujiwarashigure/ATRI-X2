@@ -89,6 +89,7 @@ from atri_x.config.state import (
     GroupPolicyConfig,
     StateConfig,
 )
+from atri_x.config.time_sections import TimeConfig
 from atri_x.config.tool_tags import ToolTagsConfig
 
 __all__ = [
@@ -158,6 +159,8 @@ class AppConfig(StrictConfig):
     reactions: ReactionsConfig = field(default_factory=ReactionsConfig)
     #: Python 版新增段：``[quiet]``（全局静默时段，评估 §E）。
     quiet: QuietConfig = field(default_factory=QuietConfig)
+    #: Python 版新增段：``[time]``（统一时间服务：时区 / 提示词注入 / 网络校验）。
+    time: TimeConfig = field(default_factory=TimeConfig)
     #: Python 版新增段：``[participation]``（群聊参与状态机，评估 §D）。
     participation: ParticipationConfig = field(default_factory=ParticipationConfig)
     resident_memory: ResidentMemoryConfig = field(default_factory=ResidentMemoryConfig)
@@ -352,6 +355,16 @@ class AppConfig(StrictConfig):
         self.reactions = self.reactions.normalized()
         # [quiet]：静默窗口格式校验（幂等）。
         self.quiet = self.quiet.normalized()
+        # [quiet].timezone 留空时沿用 [time].timezone；显式写了就必须能解析（不静默回落）。
+        if (self.quiet.timezone or "").strip():
+            try:
+                from atri_x.timezones import resolve_timezone
+
+                resolve_timezone(self.quiet.timezone)
+            except Exception as exc:  # noqa: BLE001 - 统一转成配置错误
+                raise ConfigDecodeError(f"[quiet].timezone: {exc}") from exc
+        # [time]：时区解析、校验参数区间（幂等；非法时区在这里就失败）。
+        self.time = self.time.normalized()
         # [participation]：参与状态机参数夹紧（幂等）。
         self.participation = self.participation.normalized()
         if self.resident_memory.core_max_units <= 0:

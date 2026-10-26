@@ -6,6 +6,89 @@
 
 ---
 
+## [1.0.10] - 2026-10-27 — 内置时间服务 + 多来源校验（verify_only）、tzdata 硬依赖、调度跳时修复
+
+旧状态（1.0.9）：
+- **提示词里没有"当前时间"**：模型唯一能看到的时间事实是 `session_created_at=`，跨午夜的
+  对话会把会话创建时间当成"现在"；没有任何请求级时间基准。
+- **时区语义是隐式的机器本地时区**：`cron.model.system_location()` 直取
+  `datetime.now().astimezone()`；`[quiet].timezone` 非法时静默回落本地；`shanghai_tz()`
+  缺时区数据时静默退固定 `+08:00`。
+- **时区数据是构建机偶然产物**：`pyproject.toml` 的 `dependencies = []`，源码与打包脚本都
+  没声明 `tzdata`；Windows 便携包里之所以有 IANA 数据，是因为构建机 site-packages 恰好装了
+  它、被 `pyinstaller-hooks-contrib` 顺带收集。换干净构建机会**静默失去**时区数据。
+- **消息接收时间没有契约**：用户 `Message.created_at` 由落库时补，平台发送时间只进
+  ChatHistory，不进 Agent。
+- **没有网络时间校验**：本地时钟错 8 小时只能靠人发现；诊断里没有时间源/时区/校验状态。
+- **调度等待不复核目标时间**：cron 用墙钟算一次 `delay` 就 `asyncio.wait_for` 睡到底；
+  前跳/回拨/休眠后可能提前或迟到触发。一次性任务存本地墙钟字符串，每次按"当前系统时区"
+  重新解释，改时区后旧任务语义漂移。组内提醒用 `datetime.now()`，停机恢复后会集中补发。
+
+### 新增
+
+- `atri_x/timezones.py`：唯一时区解析入口（IANA / `fixed:+08:00` / `system`），非法名与
+  数据缺失**分成两个异常硬失败**，不回落。
+- `atri_x/time_service.py`：`TimeService` + `TimeSnapshot`（同一 instant 的一致快照）、
+  可注入假时钟、墙钟/单调时钟跳变检测、网络校验状态只读暴露。
+- `[time]` / `[time.verification]` / `[[time.sources]]` 配置段（`atri_x/config/time_sections.py`）：
+  默认 `timezone = "Asia/Shanghai"`、`inject_context = true`、联网校验**默认关闭**且
+  只允许 `verify_only`（`takeover` 直接拒绝）；不内置任何公共时间端点。
+- 请求级时间注入（`atri_x/agent/time_context.py` + `chat_llm.call_llm`）：在
+  `system_append` 之后、DSH 路由与预算之前注入带稳定标记 `[atx-time:v1]` 的一段，
+  **先剥旧段再追加**，工具续轮 / 视觉重试 / DSH / 后台任务都只有一份。
+- 入站时间基准：平台适配器在 `handle_message` 入口采一次 `message_received_at`
+  （QQ / Telegram 还带 `platform_sent_at`），写进 ctx 与 `Message.metadata` 的
+  `received_at` / `platform_sent_at`；**不改** `created_at` 语义。
+- 内置工具 `get_current_time`（只读、不联网；带来源与校验状态）与超级管理员命令
+  `/time`（状态 / `verify` / `zones`）。
+- `atri_x/timesync/`：受限 SNTP 客户端（单播、48 字节、逐字段校验、`authenticated` 恒
+  False）、HTTPS JSON 时间适配器（TLS 永不关闭、内容类型/新鲜度/大小/可疑偏差校验）、
+  出站策略（私网例外、URL 凭据拒绝、脱敏）、间歇校验器（单飞、抖动、退避、挂起检测、
+  可疑状态锁存）、只读诊断聚合。
+- `/diagnostics` 新增 `time` 段；`doctor` 新增时间能力检查（时区解析 / tzdata / 注入 /
+  校验配置），可在**干净机器**上直接验证冻结产物能不能真加载 IANA 数据。
+- `python -m atri_x.app.time_check --json`：无网络、无 Agent、无数据库的时区探针（含
+  DST 冬夏断言），供构建流水线与部署验收使用。
+
+### 变更
+
+- `tzdata` 成为**硬依赖**：`pyproject.toml` 的 `dependencies` 写入 `tzdata>=2024.1`；
+  `packaging/atri-x.spec` 显式收集并断言 `tzdata/zoneinfo/Asia/Shanghai` 存在（缺则构建
+  失败）；`packaging/build.py` 的产物级核验新增 payload 检查与冻结探针；
+  `deploy/Dockerfile` 显式 `apt-get install tzdata` 并在构建期跑探针；`deploy/README.md`
+  补验证命令。安装版 / 便携版因此**开箱即用**，不再依赖构建机碰巧装了什么。
+- 旧配置没有 `[time]` 段时按 `Asia/Shanghai` 解释（此前是进程本地时区）。要恢复旧语义请
+  显式写 `timezone = "system"`；`config check` / 启动日志 / `/diagnostics` 都会显示生效时区。
+- `[quiet].timezone` 留空改为沿用 `[time].timezone`；显式非法值在配置加载期失败，不再
+  静默回落机器时区。
+- `shanghai_tz()` 缺时区数据时改为抛 `TimezoneDataUnavailableError`（峰谷计价口径），不再
+  静默退固定 `+08:00`。
+- cron：一次性任务落库新增 `run_at_utc` / `run_at_tz` / `run_at_dst_ambiguous`，读取时
+  优先用确定的 UTC 时刻（旧数据仍按本地墙钟解释）；DST 不存在的时刻创建/更新当场拒绝，
+  重复时刻取第一次；调度等待改为分段 + 醒来复核目标时间（回拨不提前、前跳/恢复触发一次）；
+  组内提醒改用时间服务，停机超过 24h 的待发提醒标记 `skipped`（不集中补发）。
+- 时区仍完全可配置：任何 IANA 时区都可写进 `[time].timezone`（全量 tzdata 随包），
+  `/time zones` 可列出；`fixed:` 与 `system` 两种限制模式在文档与诊断里明确标注。
+
+### 修复
+
+- `get_current_time` 注册同步点：`tool/builtin/register.py`、`gui/toolcatalog.py`、
+  装配测试计数（`REGISTERED_TOOLS` 50→51、`ALWAYS_REGISTERED_TOOLS` 14→15）。
+- Windows / Docker 时区数据交付从"构建机偶然产物"改为**可断言、缺失即失败**。
+
+### 已知限制 / 未验证
+
+- 首版**不做**受控接管（`mode = "takeover"` 被拒绝）：网络时间只产生诊断，不修改系统
+  时钟、不改变业务时间。
+- NTS（加密 NTP）未实现；SNTP 永远是 `authenticated = false`，任何文案都不得声称"已认证"。
+- 多来源"独立性"只能由管理员在配置里声明（`group`），无法自动证明不同运营方/不同路径。
+- Docker 镜像与冻结产物的时区探针需要在**有 Docker daemon / 干净 Windows** 的机器上跑；
+  本机（无 Docker daemon）未验证容器侧，最终报告里按"未验证"记录。
+
+---
+
+---
+
 ## [1.0.9] - 2026-10-26 — 修复前台会话工具链路（workspace / shell / 全部路径类工具失败）
 
 旧状态（1.0.8）：

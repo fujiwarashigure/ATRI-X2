@@ -34,6 +34,8 @@ from atri_x.logging import Manager as LogManager
 from atri_x.maintenance import new_service_with_config
 from atri_x.storage.sqlite import new as _new_store
 from atri_x.storage.sqlite import new_chat_history as _new_chat_history
+from atri_x.time_service import TimeService
+from atri_x.timesync import Verifier, VerifierOptions
 
 __all__ = [
     "DefaultFoundationFactory",
@@ -83,6 +85,8 @@ class FoundationLifecycle:
         self.store: Any = None
         self.chat_history_store: Any = None
         self.cron_manager: Any = None
+        #: Python 版新增：网络时间校验器（``[time.verification]``）。关机时先停它。
+        self.time_verifier: Any = None
         self._cron_startup_done: asyncio.Event | None = None
         self._cron_scheduled = False
         self._cron_task: asyncio.Task | None = None
@@ -110,6 +114,14 @@ class FoundationLifecycle:
     async def close(self, ctx: Any = None) -> None:
         """对应 Go ``foundationLifecycle.Close``：逐个关停并聚合异常。"""
         errors: list[BaseException] = []
+        # 网络时间校验最先停：它是最外围的定时 I/O，不能在建库关停后还跑。
+        if self.time_verifier is not None:
+            try:
+                await asyncio.wait_for(self.time_verifier.stop(), _timeout(ctx))
+            except asyncio.TimeoutError:
+                errors.append(TimeoutError("stop time verifier: timed out"))
+            except Exception as exc:  # noqa: BLE001 - 继续关停其余组件
+                errors.append(exc)
         if self._cron_scheduled and self._cron_startup_done is not None:
             try:
                 await asyncio.wait_for(self._cron_startup_done.wait(), _timeout(ctx))
@@ -175,6 +187,28 @@ def _runtime_logger(logs: Any) -> Any:
     return method() if callable(method) else None
 
 
+def _audit_func(logs: Any) -> Any:
+    """基础组件的审计入口（与 :func:`atri_x.app.runtime_support.audit_func` 同语义）。
+
+    刻意在本模块写一份 12 行的实现：``runtime_support`` 依赖 app 层的请求结构体，
+    从这里 import 它会把 foundation 拉进更深的导入链。审计是"事件名 + 字段"的
+    简单契约，重复实现的代价远小于循环导入。
+    """
+    if logs is None:
+        return None
+
+    def audit(event: str, **attrs: Any) -> None:
+        sink = logs.audit()
+        emit = getattr(sink, "info", None)
+        if not callable(emit):
+            return
+        fields: dict[str, Any] = {"event": event, "module": "app"}
+        fields.update(attrs)
+        emit("audit event", **fields)
+
+    return audit
+
+
 class DefaultFoundationFactory:
     """对应 Go ``defaultFoundationFactory``。"""
 
@@ -187,6 +221,10 @@ class DefaultFoundationFactory:
             startup_profile_enabled(getattr(getattr(cfg, "runtime", None), "log_level", ""))
         )
         profiler.mark("config.Load")
+        # Python 版新增（1.0.10）：统一时间服务。时区非法 / tzdata 缺失在这里
+        # **直接失败**（不回落），并带上修复指引。
+        time_service = TimeService.from_config(getattr(cfg, "time", None))
+        profiler.mark("time service")
         # Go 在这里做 ``ctx = builtin.WithConfigEnvDir(ctx, dir)`` 并把它传给
         # sqlite.New。Python 侧的构造器不接收 ctx，内置工具改由
         # RegisterOptions.config_dir 获得配置目录，因此这一步没有消费者；
@@ -223,7 +261,31 @@ class DefaultFoundationFactory:
             maint = new_service_with_config(
                 logs, store, chat_history, outbound_messages, cfg, logger
             )
-            cron_manager = CronManager(_cron_jobs(store), logger)
+            # Python 版新增（1.0.10）：网络时间校验器。构造是纯内存操作；真正的
+            # 后台循环在 ``runner.after_start`` 才 ``start()``（需要事件循环）。
+            time_cfg = getattr(cfg, "time", None)
+            time_verifier = Verifier(
+                VerifierOptions(
+                    config=getattr(time_cfg, "verification", None),
+                    time_service=time_service,
+                    sources=list(getattr(time_cfg, "sources", None) or []),
+                    logger=logger,
+                    audit=_audit_func(logs),
+                    max_sample_age_seconds=int(
+                        getattr(time_cfg, "max_sample_age_seconds", 0) or 0
+                    ),
+                )
+            )
+            lifecycle.time_verifier = time_verifier
+            profiler.mark("time verifier prepared")
+            # cron 的时区与"现在"必须与业务时间同源（否则 DST / 跨时区部署下
+            # 预约与提醒的口径会分裂）。
+            cron_manager = CronManager(
+                _cron_jobs(store),
+                logger,
+                location=time_service.timezone(),
+                now=time_service.now_utc,
+            )
             lifecycle.cron_manager = cron_manager
             await maint.register_cron_handlers(cron_manager)
             profiler.mark("cron async prepared")
@@ -249,6 +311,8 @@ class DefaultFoundationFactory:
             cron_manager=cron_manager,
             start_cron=lifecycle.start_cron,
             lifecycle=lifecycle,
+            time_service=time_service,
+            time_verifier=time_verifier,
         )
 
     # Go 命名别名。
@@ -293,6 +357,7 @@ def log_startup_configuration(logger: Any, opts: Any, cfg: Any) -> None:
         soul_path=getattr(soul, "path", ""),
         sessions_sqlite_path=getattr(storage, "sessions_sqlite_path", ""),
         chat_history_sqlite_path=getattr(storage, "chat_history_sqlite_path", ""),
+        timezone=str(getattr(getattr(cfg, "time", None), "timezone", "") or ""),
     )
 
 

@@ -65,6 +65,8 @@ async def build_agent(
     hook_service: HookControlService,
     vision_metrics: VisionMetricsState,
     file_backups: Any,
+    *,
+    time_service: Any = None,
 ) -> Any:
     """对应 Go ``buildAgent``。"""
     from atri_x.agent import Options as AgentOptions
@@ -202,6 +204,10 @@ async def build_agent(
             reactions_config=getattr(cfg, "reactions", None),
             quiet_config=getattr(cfg, "quiet", None),
             participation_config=getattr(cfg, "participation", None),
+            # Python 版新增：统一时间服务 + ``[time]`` 段（提示词注入开关）。
+            time_service=time_service,
+            time_config=getattr(cfg, "time", None),
+            time_verifier=getattr(foundation, "time_verifier", None),
         )
     )
     # 1.0.3：内容安全 guard 与识图开关（不配置 = 完全保持旧行为）。

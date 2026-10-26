@@ -70,6 +70,29 @@ REMINDER_STATUS_PENDING = "pending"
 REMINDER_STATUS_SENT = "sent"
 REMINDER_STATUS_SKIPPED = "skipped"
 
+#: 提醒允许的最大迟到（秒）：进程停机/休眠很久后恢复时，超过它的待发提醒标
+#: ``skipped`` 而不是在几分钟内集中轰炸（1.0.10 的明确规则）。
+REMINDER_MAX_LATE_SECONDS = 24 * 3600
+
+
+def _time_service(agent: Any) -> Any:
+    """取统一时间服务（未装配时返回 ``None``，调用方走旧行为）。"""
+    return getattr(agent, "time_service", None)
+
+
+def _local_now(agent: Any) -> datetime:
+    service = _time_service(agent)
+    if service is not None:
+        return service.now_local()
+    return datetime.now().astimezone()
+
+
+def _local_zone(agent: Any) -> Any:
+    service = _time_service(agent)
+    if service is not None:
+        return service.timezone()
+    return datetime.now().astimezone().tzinfo
+
 
 def reminder_create(agent: Any, ctx: Any, when_text: str, text_value: str) -> str:
     """创建一条提醒。对应 Go ``ReminderCreate``。"""
@@ -78,7 +101,7 @@ def reminder_create(agent: Any, ctx: Any, when_text: str, text_value: str) -> st
     body = str(text_value or "").strip()
     if not body:
         raise InvalidError("提醒内容不能为空")
-    now = datetime.now().astimezone()
+    now = _local_now(agent)
     due_at = check_reminder_when(when_text, body, config, now)
     scope = _scope(agent, ctx)
     actor = _actor(agent, ctx)
@@ -121,7 +144,7 @@ def reminder_create(agent: Any, ctx: Any, when_text: str, text_value: str) -> st
     )
     return "提醒已创建：%s（%s）\n%s" % (
         entry.id,
-        due_at.astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+        due_at.astimezone(_local_zone(agent)).strftime("%Y-%m-%d %H:%M:%S"),
         entry.text,
     )
 
@@ -221,7 +244,7 @@ async def dispatch_due_reminders(
     host = service_host(agent)
     if host is None or not group_services_config(host).is_enabled():
         return
-    moment = now or datetime.now().astimezone()
+    moment = now or _local_now(host)
     state = _state(host)
     with state.write_lock:
         snapshot = group_services_snapshot(host)
@@ -237,6 +260,21 @@ async def dispatch_due_reminders(
                     continue
                 due_at, ok = parse_group_service_time(entry.due_at)
                 if not ok or due_at is None or due_at > moment:
+                    continue
+                # 停机/休眠太久后恢复：过期超过上限的提醒直接标 skipped，
+                # 避免"恢复瞬间集中轰炸"。规则明确且写进文档。
+                if (moment - due_at).total_seconds() > REMINDER_MAX_LATE_SECONDS:
+                    updated[index].status = REMINDER_STATUS_SKIPPED
+                    changed = True
+                    _audit(
+                        host,
+                        "group_reminder_skip",
+                        platform=platform,
+                        scope=scope_id,
+                        reminder_id=entry.id,
+                        reason="expired",
+                        result="skipped",
+                    )
                     continue
                 if group_runtime_blocked_scope(host, scope):
                     state_name = normalize_group_runtime_state(

@@ -332,6 +332,11 @@ class Agent(
         self.quiet_config = opts.quiet_config
         # Python 版新增：``[participation]`` 群聊参与状态机（评估 §D）。``None`` = 关闭。
         self.participation_config = opts.participation_config
+        # Python 版新增：统一时间服务（``[time]``）。``None`` = 不做提示词时间注入，
+        # 与 1.0.9 行为一致；``time_config.inject_context = false`` 时注入降级为"只写时区"。
+        self.time_service = opts.time_service
+        self.time_config = opts.time_config
+        self.time_verifier = opts.time_verifier
         self.participation_states: dict[str, Any] = {}
         self.participation_mu = threading.Lock()
         self.tools_config = opts.tools_config or _default_tools_config()
@@ -918,6 +923,9 @@ def _build_deps(agent: Agent, opts: Options) -> Any:
         file_backups=agent.file_backups,
         doctor=agent.doctor,
         grants=agent.grants,
+        # Python 版新增：``/time``（超管）用的时间服务与网络校验器。
+        time_service=agent.time_service,
+        time_verifier=getattr(agent, "time_verifier", None),
         tool_allowlist=lambda ctx: group_policy_module.group_tool_allowlist_text(
             agent, ctx
         ),

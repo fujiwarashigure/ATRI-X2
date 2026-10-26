@@ -322,6 +322,8 @@ class EventDispatcher:
     async def _run_turn(self, msg_ctx: Any, text: str, job: OutboundEventJob) -> None:
         """对应 Go ``prepareAndDispatch`` 里 ``go func()`` 包住的那段。"""
         adapter = self.adapter
+        # Python 版新增（1.0.10）：平台侧发送时间随 ctx 进 Agent（相对时间基准）。
+        msg_ctx = _with_platform_sent_at(msg_ctx, getattr(job.event, "time", 0))
         try:
             result = self.handler.handle_message(msg_ctx, text)
             if asyncio.iscoroutine(result):
@@ -375,6 +377,21 @@ def raise_context_error(ctx: Any) -> None:
     if err is not None:
         raise err
     raise asyncio.CancelledError("qq onebot adapter context cancelled")
+
+
+def _with_platform_sent_at(ctx: Any, unix_seconds: Any) -> Any:
+    """把 QQ 事件的平台发送时间（UNIX 秒）写进 ctx；0/非法值原样返回。"""
+    try:
+        value = int(unix_seconds)
+    except (TypeError, ValueError):
+        return ctx
+    if value <= 0:
+        return ctx
+    from datetime import datetime, timezone
+
+    from atri_x.agent.time_context import with_platform_sent_at
+
+    return with_platform_sent_at(ctx, datetime.fromtimestamp(value, timezone.utc))
 
 
 __all__ = [name for name in dir() if not name.startswith("_")]

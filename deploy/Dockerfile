@@ -29,12 +29,14 @@
 #   若某天该 tag 被撤下而拉取失败，把下面默认值改成 python:3.13-slim（同样存在）即可；
 #   本仓库代码只依赖标准库且 requires-python>=3.11，3.11~3.14 均可运行。
 #
-# ⚠️ slim 基础镜像里**没有** curl / git / tzdata，这是官方刻意的精简取舍：
+# ⚠️ slim 基础镜像里**没有** curl / git，这是官方刻意的精简取舍：
 #   - 健康探测改用标准库（python -m atri_x --health-probe + /live 兜底），不依赖 curl；
-#   - 时区靠 ENV TZ + 标准库 zoneinfo（Debian 自带 /usr/share/zoneinfo）；
+#   - **tzdata 由本文件显式安装**（1.0.10 起是硬依赖，不再依赖"基础镜像大概带了"）：
+#     ATRI-X 的业务时区来自 [time].timezone（IANA 名），进程 TZ 只影响进程本地时区，
+#     两者都不能靠"碰巧有 /usr/share/zoneinfo"来保证；
 #   - Agent 的 shell 工具想用更多系统命令时，用 --build-arg "EXTRA_TOOLS=xxx"
 #     追加（跟上游一样“只增不减”）；内置 DSH 的 node 二进制需要 libstdc++6，所以
-#     镜像固定装它和 ca-certificates，其余 apt 包仍然默认一个都不装。
+#     镜像固定装它、ca-certificates 与 tzdata，其余 apt 包仍然默认一个都不装。
 #
 # DSH 运行时来自 node:24-bookworm-slim（同样是 Debian 12 / glibc）：DSH 的
 # koffi、node-pty 等原生依赖只有 glibc 预编译，**不能换成 alpine**。
@@ -119,7 +121,7 @@ ENV DSH_HOME=/data/dsh \
 # apt 只装 node 二进制必需的两个包；EXTRA_TOOLS 仍按“只增不减”追加。
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends libstdc++6 ca-certificates; \
+    apt-get install -y --no-install-recommends libstdc++6 ca-certificates tzdata; \
     if [ -n "${EXTRA_TOOLS}" ]; then apt-get install -y --no-install-recommends ${EXTRA_TOOLS}; fi; \
     rm -rf /var/lib/apt/lists/*; \
     ln -s ../lib/node_modules/@deepseek-ai/dsh/lib/bin.js /usr/local/bin/dsh; \
@@ -131,7 +133,9 @@ RUN set -eux; \
     chmod 750 /data/run; \
     node --version; \
     dsh --version; \
-    python -c "import atri_x, sys; print('atri_x', atri_x.__version__, 'on', sys.version.split()[0])"
+    python -c "import atri_x, sys; print('atri_x', atri_x.__version__, 'on', sys.version.split()[0])"; \
+    python -m atri_x.app.time_check --json; \
+    dpkg-query -W -f='tzdata=${Version}\n' tzdata
 
 LABEL org.opencontainers.image.title="atri-x" \
       org.opencontainers.image.version="${VERSION}" \

@@ -130,6 +130,11 @@ class FoundationComponents:
     #: ``async def start_cron(ctx, service) -> None``（Go ``func(context.Context, *elcron.Service)``）。
     start_cron: Any = None
     lifecycle: Any = None
+    #: Python 版新增：统一时间服务（:class:`atri_x.time_service.TimeService`）。
+    #: 业务时间、cron 时区、提示词注入、``get_current_time`` 都从这里取同一个口径。
+    time_service: Any = None
+    #: Python 版新增：网络时间校验器（:class:`atri_x.timesync.verifier.Verifier`）。
+    time_verifier: Any = None
 
 
 @dataclass
@@ -190,6 +195,9 @@ class RuntimeComponents:
     #: ``() -> visionMetrics | None``，供 ``/metrics`` 用。
     vision_stats: Any = None
     lifecycle: Any = None
+    #: Python 版新增：网络时间校验器（:class:`atri_x.timesync.verifier.Verifier`）。
+    #: ``verification.enabled=false`` 时仍会构造，但 ``start()`` 立即返回 disabled。
+    time_verifier: Any = None
 
 
 @dataclass

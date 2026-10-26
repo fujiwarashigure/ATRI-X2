@@ -46,6 +46,7 @@ rg -n "locator:agent-chat" AGENTS.md devdocs/*.md
 | 任务 | 搜索 locator | 优先阅读 |
 |---|---|---|
 | 启动、装配、配置 | `locator:startup`, `locator:config` | `atri_x/app/app.py`、`atri_x/config/`、[`devdocs/code-map.md`](devdocs/code-map.md) |
+| 时间服务 / 时间校验 / 时区 | `locator:time` | `atri_x/time_service.py`、`atri_x/timezones.py`、`atri_x/timesync/`、[`devdocs/code-map.md`](devdocs/code-map.md) |
 | Agent 对话流程 | `locator:agent-chat` | `atri_x/agent/core.py`、`atri_x/agent/chat.py`、[`devdocs/architecture.md`](devdocs/architecture.md) |
 | Slash 命令 | `locator:commands` | `atri_x/agent/commands/`、`atri_x/command/` |
 | Request/Turn 状态 | `locator:request-turn` | `atri_x/request/manager.py`、`atri_x/turn/manager.py` |

@@ -361,6 +361,10 @@ class Deps:
     # grants 是授权登记表（``[security]`` 相关的高风险放行凭据）；``/grant`` 与
     # ``/panic`` 命令直接读写它，``None`` 表示未接线（命令退回"未启用"）。
     grants: Any = None
+    #: Python 版新增：统一时间服务（``/time`` 用）；``None`` = 未装配。
+    time_service: Any = None
+    #: Python 版新增：网络时间校验器（``/time verify`` 用）；``None`` = 未装配。
+    time_verifier: Any = None
 
 
 def register_factories(
@@ -397,6 +401,7 @@ def default_modules() -> list[Module]:
     from atri_x.agent.commands.rollback import FileModule
     from atri_x.agent.commands.session_module import SessionModule
     from atri_x.agent.commands.state import StateModule
+    from atri_x.agent.commands.time import TimeModule
     from atri_x.agent.commands.tool import ToolModule
 
     return [
@@ -419,6 +424,7 @@ def default_modules() -> list[Module]:
         HookModule(),
         StateModule(),
         MemoryLearningModule(),
+        TimeModule(),
     ]
 
 

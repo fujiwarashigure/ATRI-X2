@@ -373,6 +373,102 @@ def _run_capability_checks(
     _check_inbound_rate_limit(report, add, cfg, snapshot)
     _check_hook_service(report, add, snapshot)
     _check_image_backend(report, add)
+    _check_time_service(report, add, cfg)
+
+
+def _check_time_service(report: DoctorReport, add: Callable[..., None], cfg: Any) -> None:
+    """时间能力自检（Python 版新增，1.0.10）。
+
+    这是**冻结产物里"能不能真加载 IANA 时区"的唯一探针**：``doctor`` 不依赖
+    Agent / 网络 / 数据库，所以可以在干净的 Windows 安装包、便携包与容器里直接跑。
+    """
+    from atri_x.time_service import TimeService
+    from atri_x.timezones import iana_zone_count, tzdata_version, zoneinfo_available
+    from atri_x.timezones import resolve_timezone
+
+    section = getattr(cfg, "time", None)
+    configured = str(getattr(section, "timezone", "") or "")
+    zones = iana_zone_count()
+    version = tzdata_version()
+    if not zoneinfo_available():
+        add(
+            "time",
+            "tzdata",
+            "failed",
+            "no IANA timezone data: install the tzdata package or check that the frozen "
+            "build bundles _internal/tzdata",
+        )
+        report.config_ok = False
+        return
+    add(
+        "time",
+        "tzdata",
+        "passed",
+        "zones=%d tzdata=%s" % (zones, version or "unknown"),
+    )
+    try:
+        resolution = resolve_timezone(configured or "Asia/Shanghai")
+        service = TimeService.from_config(section)
+        snapshot = service.snapshot()
+        offset = snapshot.current_time.utcoffset()
+        add(
+            "time",
+            "timezone",
+            "passed",
+            "timezone=%s rules=%s utc_offset=%s tzdata=%s"
+            % (
+                snapshot.timezone,
+                resolution.rules,
+                _format_utc_offset(offset),
+                version or "unknown",
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - 时区不可用就是部署失败
+        add("time", "timezone", "failed", "%s: %s" % (type(exc).__name__, exc))
+        report.config_ok = False
+        return
+    verification = getattr(section, "verification", None)
+    enabled = bool(getattr(verification, "enabled", False))
+    sources = [s for s in (getattr(section, "sources", None) or []) if getattr(s, "enabled", False)]
+    inject = bool(getattr(section, "inject_context", True))
+    add(
+        "time",
+        "injection",
+        "passed" if inject else "skipped",
+        "prompt time injection is %s" % ("on" if inject else "off ([time].inject_context=false)"),
+    )
+    if enabled and not sources:
+        add(
+            "time",
+            "verification",
+            "skipped",
+            "network verification is enabled but no source is enabled; "
+            "add [[time.sources]] with enabled = true",
+        )
+    elif enabled:
+        add(
+            "time",
+            "verification",
+            "passed",
+            "verify_only, sources=%d (network state is not checked here)"
+            % len(sources),
+        )
+    else:
+        add(
+            "time",
+            "verification",
+            "skipped",
+            "network verification is disabled ([time.verification].enabled=false)",
+        )
+
+
+def _format_utc_offset(offset: Any) -> str:
+    if offset is None:
+        return "?"
+    total = int(offset.total_seconds())
+    sign = "+" if total >= 0 else "-"
+    total = abs(total)
+    return "%s%02d:%02d" % (sign, total // 3600, (total % 3600) // 60)
 
 
 def _check_image_backend(report: DoctorReport, add: Callable[..., None]) -> None:

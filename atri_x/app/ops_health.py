@@ -193,6 +193,9 @@ class OpsDiagnostics:
     #: 日志脱敏自检快照（见 :func:`atri_x.logging.logging.redact_status`）。
     redaction: dict[str, Any] | None = None
     image_backend: dict[str, Any] | None = None  # backend_probe 探测：pillow/stdlib + 版本号
+    #: Python 版新增（1.0.10）：时间段（时区 / tzdata / 网络校验状态）。
+    #: **只进 /diagnostics，绝不进 /ready**：网络抖动不得触发容器重启。
+    time: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -375,8 +378,13 @@ def _agent_services_payload(agent: Any) -> dict[str, Any] | None:
         return None
 
 
-def collect_ops_diagnostics(state: Any, agent: Any) -> OpsDiagnostics:
-    """对应 Go ``collectOpsDiagnostics``（Python 版多两段能力自检）。"""
+def collect_ops_diagnostics(
+    state: Any,
+    agent: Any,
+    time_service: Any = None,
+    time_verifier: Any = None,
+) -> OpsDiagnostics:
+    """对应 Go ``collectOpsDiagnostics``（Python 版多几段能力自检）。"""
     now = datetime.now(timezone.utc)
     health_snapshot = _safe_call(state, "snapshot", None)
     tasks: Any = {}
@@ -400,7 +408,18 @@ def collect_ops_diagnostics(state: Any, agent: Any) -> OpsDiagnostics:
         agent_services=_agent_services_payload(agent),
         redaction=_redaction_status(),
         image_backend=dict(_image_backend_info()),
+        time=_time_diagnostics(time_service, time_verifier),
     )
+
+
+def _time_diagnostics(time_service: Any, time_verifier: Any) -> dict[str, Any]:
+    """时间段（任何异常都降级成空段，诊断端点不得因此 500）。"""
+    try:
+        from atri_x.timesync.diagnostics import time_diagnostics
+
+        return time_diagnostics(time_service, time_verifier)
+    except Exception:  # noqa: BLE001 - 诊断自身失败不影响其余段
+        return {}
 
 
 def collect_ops_metrics(

@@ -97,6 +97,9 @@ __all__ = [
     "parse_run_at",
     "require_superadmin",
     "schedule_expr",
+    "format_run_at_utc",
+    "parse_run_at_utc",
+    "resolve_once_run_at",
     "system_location",
     "trim_strings",
     "unique_strings",
@@ -146,16 +149,26 @@ TriggerLLM = TriggerMode.LLM
 # 时间 helper
 # ---------------------------------------------------------------------------
 def system_location() -> tzinfo:
-    """系统本地时区（等价 Go 的 ``time.Local``）。"""
+    """**旧行为**的系统本地时区（等价 Go 的 ``time.Local``）。
+
+    1.0.10 起正式装配路径**不再**使用它：``CronManager`` / ``CronService`` 由
+    :class:`atri_x.time_service.TimeService` 注入 ``[time].timezone``。这个函数只作为
+    未装配场景的兜底，并让诊断能识别"当前仍依赖机器时区"。
+    """
     return datetime.now().astimezone().tzinfo or timezone.utc
 
 
-def parse_run_at(value: str, location: tzinfo | None = None) -> datetime:
-    """解析本地墙钟 ``run_at``，返回 UTC aware 时间。对应 Go ``parseRunAt``。
+def resolve_once_run_at(
+    value: str, location: tzinfo | None = None
+) -> tuple[datetime, bool]:
+    """解析一次性任务的本地墙钟，返回 ``(UTC 时间, 是否 DST 重复时刻)``。
 
-    非法值抛 :class:`~atri_x.errors.InvalidError`（Go 返回 error）。Go 的
-    ``time.ParseInLocation`` 错误文本无法逐字复刻，本仓保持前缀
-    ``run_at must use YYYY-MM-DD HH:MM:SS`` 并在其后接 Python 的解析错误。
+    DST 语义（1.0.10 明确规则，不再靠 ``replace(tzinfo=...)`` 的偶然行为）：
+
+    * **不存在**的时刻（春季前跳那一小时）：直接拒绝并提示换时间——静默顺延会让
+      用户以为"约在 02:30"实际却在 03:30 触发；
+    * **重复**的时刻（秋季回拨那一小时）：取**第一次**（``fold=0``），并把
+      ``ambiguous=True`` 返回给调用方落进 metadata，便于事后解释。
     """
     text = (value or "").strip()
     if not text:
@@ -164,7 +177,51 @@ def parse_run_at(value: str, location: tzinfo | None = None) -> datetime:
         naive = datetime.strptime(text, RUN_AT_LAYOUT)
     except ValueError as exc:
         raise InvalidError(f"run_at must use YYYY-MM-DD HH:MM:SS: {exc}") from exc
-    return naive.replace(tzinfo=location or system_location()).astimezone(timezone.utc)
+    zone = location or system_location()
+    first = naive.replace(tzinfo=zone, fold=0)
+    second = naive.replace(tzinfo=zone, fold=1)
+    roundtrip = first.astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None)
+    if roundtrip != naive:
+        name = str(getattr(zone, "key", "") or zone)
+        raise InvalidError(
+            f"run_at {text} does not exist in {name} (daylight-saving gap); "
+            "pick a time that exists"
+        )
+    ambiguous = first.utcoffset() != second.utcoffset()
+    return first.astimezone(timezone.utc), ambiguous
+
+
+def parse_run_at(value: str, location: tzinfo | None = None) -> datetime:
+    """解析本地墙钟 ``run_at``，返回 UTC aware 时间。对应 Go ``parseRunAt``。
+
+    非法值 / DST 不存在的时刻抛 :class:`~atri_x.errors.InvalidError`（Go 返回 error）。
+    """
+    moment, _ambiguous = resolve_once_run_at(value, location)
+    return moment
+
+
+def format_run_at_utc(value: datetime) -> str:
+    """把 UTC 时间写成 ``run_at_utc``（RFC3339，``Z`` 结尾，秒级）。"""
+    return (
+        value.astimezone(timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def parse_run_at_utc(value: str) -> datetime:
+    """解析 ``run_at_utc``（RFC3339）；非法/缺失抛 :class:`InvalidError`。"""
+    text = (value or "").strip()
+    if not text:
+        raise InvalidError("run_at_utc is empty")
+    candidate = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
+    try:
+        moment = datetime.fromisoformat(candidate)
+    except ValueError as exc:
+        raise InvalidError(f"run_at_utc must be RFC3339: {exc}") from exc
+    if moment.tzinfo is None:
+        raise InvalidError("run_at_utc must include a timezone offset")
+    return moment.astimezone(timezone.utc)
 
 
 def format_run_at(value: datetime, location: tzinfo | None = None) -> str:
@@ -230,6 +287,14 @@ class CronSchedule:
     mode: str = ""
     run_at: str = ""
     cron_expr: str = ""
+    #: 一次性任务的**确定时刻**（RFC3339 UTC）。1.0.10 起新任务创建时写入；
+    #: 读取时优先用它，避免"改时区/换部署机后旧任务语义漂移"。旧数据没有该字段
+    #: 时仍然按 ``run_at`` 本地墙钟解释（不猜时区），诊断里会标记 legacy。
+    run_at_utc: str = ""
+    #: 创建时的时区名（IANA / fixed / system），用于解释 ``run_at`` 与审计。
+    run_at_tz: str = ""
+    #: ``run_at`` 是否落在 DST 重复的一小时里（此时按"第一次"解释）。
+    run_at_dst_ambiguous: bool = False
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {"mode": self.mode}
@@ -237,6 +302,12 @@ class CronSchedule:
             out["run_at"] = self.run_at
         if self.cron_expr:
             out["cron_expr"] = self.cron_expr
+        if self.run_at_utc:
+            out["run_at_utc"] = self.run_at_utc
+        if self.run_at_tz:
+            out["run_at_tz"] = self.run_at_tz
+        if self.run_at_dst_ambiguous:
+            out["run_at_dst_ambiguous"] = True
         return out
 
     @classmethod
@@ -246,6 +317,9 @@ class CronSchedule:
             mode=_text(data.get("mode")),
             run_at=_text(data.get("run_at")),
             cron_expr=_text(data.get("cron_expr")),
+            run_at_utc=_text(data.get("run_at_utc")),
+            run_at_tz=_text(data.get("run_at_tz")),
+            run_at_dst_ambiguous=bool(data.get("run_at_dst_ambiguous", False)),
         )
 
 

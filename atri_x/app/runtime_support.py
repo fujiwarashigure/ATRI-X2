@@ -131,6 +131,7 @@ async def build_cron_service(
 def _cron_options(cfg: Any, foundation: Any, send: Any) -> Any:
     from atri_x.cron import Options as CronOptions
 
+    time_service = getattr(foundation, "time_service", None)
     return CronOptions(
         manager=foundation.cron_manager,
         store=foundation.store,
@@ -140,6 +141,9 @@ def _cron_options(cfg: Any, foundation: Any, send: Any) -> Any:
         command_prefix=primary_prefix(getattr(getattr(cfg, "commands", None), "prefixes", None)),
         audit=audit_func(foundation.logs),
         send_target=send,
+        # 与 Manager 同源：时区与"现在"都来自统一时间服务。
+        location=getattr(time_service, "timezone", lambda: None)(),
+        now=getattr(time_service, "now_utc", None),
     )
 
 

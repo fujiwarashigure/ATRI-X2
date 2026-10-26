@@ -52,6 +52,7 @@ def check_config(config_path: str = "") -> str:
         lines.append("image_generation: disabled")
     lines.append("model_profiles: %d" % len(getattr(cfg, "model_profiles", None) or {}))
     lines.append("tool_profiles: %d" % len(getattr(cfg, "tool_profiles", None) or {}))
+    lines.append(_time_summary(cfg))
 
     directives = _normalized(getattr(cfg, "turn_directives", None))
     lines.append(
@@ -128,7 +129,41 @@ def check_config_warnings(cfg: Any) -> list[str]:
             warnings.append(
                 "daily_report 没有配置 prices，报告只统计 token 不统计金额"
             )
+    warnings.extend(_time_warnings(cfg))
     return warnings
+
+
+def _time_warnings(cfg: Any) -> list[str]:
+    """``[time]`` 的可行动告警（Python 版新增，1.0.10）。"""
+    warnings: list[str] = []
+    section = getattr(cfg, "time", None)
+    verification = getattr(section, "verification", None)
+    if not bool(getattr(verification, "enabled", False)):
+        return warnings
+    sources = [
+        source
+        for source in (getattr(section, "sources", None) or [])
+        if bool(getattr(source, "enabled", False))
+    ]
+    if not sources:
+        warnings.append(
+            "[time.verification].enabled=true 但没有启用任何 [[time.sources]]，"
+            "校验只会得到 unavailable"
+        )
+        return warnings
+    groups = {str(getattr(source, "group", "") or source_id(source)) for source in sources}
+    required = int(getattr(verification, "min_groups", 0) or 0)
+    if len(groups) < required:
+        warnings.append(
+            "[time.verification] 需要至少 %d 个独立分组，当前只有 %d 个（%s）；"
+            "同一 group 的多个来源只算一份证据"
+            % (required, len(groups), ", ".join(sorted(groups)))
+        )
+    return warnings
+
+
+def source_id(source: Any) -> str:
+    return str(getattr(source, "id", "") or "?")
 
 
 def _enabled(section: Any) -> bool:
@@ -136,6 +171,47 @@ def _enabled(section: Any) -> bool:
     if callable(method):
         return bool(method())
     return bool(getattr(section, "enabled", False))
+
+
+def _time_summary(cfg: Any) -> str:
+    """``[time]`` 一行摘要（Python 版新增，1.0.10）。
+
+    时区非法时**不抛**在这里：配置加载阶段已经失败了；这里只负责把生效口径打印出来，
+    方便 ``atri-x config check`` 在现场核对（时区 / 规则 / tzdata 版本 / 注入开关）。
+    """
+    from atri_x.timezones import iana_zone_count, tzdata_version, zoneinfo_available
+
+    section = getattr(cfg, "time", None)
+    timezone = str(getattr(section, "timezone", "") or "")
+    rules = "?"
+    try:
+        from atri_x.timezones import resolve_timezone
+
+        resolution = resolve_timezone(timezone or "Asia/Shanghai")
+        rules = resolution.rules
+        canonical = resolution.name
+    except Exception:  # noqa: BLE001 - 只打印，不在这里报错
+        canonical = timezone
+    verification = getattr(section, "verification", None)
+    sources = [
+        source
+        for source in (getattr(section, "sources", None) or [])
+        if bool(getattr(source, "enabled", False))
+    ]
+    return (
+        "time: timezone=%s rules=%s tzdata=%s zones=%d inject_context=%s "
+        "verification=%s/%s sources=%d"
+        % (
+            canonical or "-",
+            rules,
+            tzdata_version() or "missing" if zoneinfo_available() else "missing",
+            iana_zone_count(),
+            _go_bool(bool(getattr(section, "inject_context", True))),
+            _go_bool(bool(getattr(verification, "enabled", False))),
+            str(getattr(verification, "mode", "") or "-"),
+            len(sources),
+        )
+    )
 
 
 def _normalized(section: Any) -> Any:

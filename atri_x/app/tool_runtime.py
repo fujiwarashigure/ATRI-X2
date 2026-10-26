@@ -90,6 +90,10 @@ class ToolRuntimeOptions:
     logger: Any = None
     #: 后台（cron / Atrinis）无人值守的 shell 放行策略；``None`` 用内置默认。
     background_shell_policy: Any = None
+    #: Python 侧新增：统一时间服务（``get_current_time`` 与提示词注入共用）。
+    time_service: Any = None
+    #: Python 侧新增：网络时间校验状态（只读快照提供者）。
+    time_verification: Any = None
 
 
 @dataclass
@@ -198,6 +202,8 @@ def build_tool_runtime(opts: ToolRuntimeOptions) -> ToolRuntime:
             process_env=process_env,
             child_process_env=child_process_env,
             background_shell_policy=opts.background_shell_policy,
+            time_service=opts.time_service,
+            time_verification=opts.time_verification,
         ),
     )
 

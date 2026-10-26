@@ -208,9 +208,9 @@ class FullWiringTest(_TmpDirTest):
         self.assertEqual(sorted(expected - names), [], "missing tools")
         self.assertEqual(sorted(names - expected), [], "extra tools")
         self.assertEqual(names, expected)
-        # Go ``register.go`` 注册的全部工具数：12 无条件（含 Python 新增的
-        # ``fetch_message``）+ 32 条件 + 6 skill。
-        self.assertEqual(len(REGISTERED_TOOLS), 50)
+        # Go ``register.go`` 注册的全部工具数 + Python 新增（``fetch_message`` /
+        # ``get_current_time``）。1.0.10：条件组不变，无条件组多一个时间查询工具。
+        self.assertEqual(len(REGISTERED_TOOLS), 51)
         self.assertEqual(len(names), len(REGISTERED_TOOLS))
 
     def test_no_dependency_degraded_silently(self) -> None:
@@ -329,7 +329,7 @@ class MinimalWiringTest(_TmpDirTest):
         self.assertEqual(sorted(expected - names), [], "missing tools")
         # 计数：14 无条件（含 fetch_message）+ 4 resident + 3 long_memory + 1
         # send_file + 4 skill = 26。
-        self.assertEqual(len(names), 26)
+        self.assertEqual(len(names), 27)
 
     def test_every_config_dependent_guard_stays_closed(self) -> None:
         runtime = self._build()
@@ -345,7 +345,7 @@ class MinimalWiringTest(_TmpDirTest):
         registry = new_registry_with_builtin(RegisterOptions())
         names = {info.name for info in registry.list()}
         self.assertEqual(names, set(ALWAYS_REGISTERED_TOOLS))
-        self.assertEqual(len(ALWAYS_REGISTERED_TOOLS), 14)
+        self.assertEqual(len(ALWAYS_REGISTERED_TOOLS), 15)
 
 
 class SkillWiringTest(_TmpDirTest):

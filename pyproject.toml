@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atri-x"
-version = "1.0.9"
+version = "1.0.10"
 description = "ATRI-X 的 Python 全量重写：多平台 LLM Agent 守护进程"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,8 +19,12 @@ classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
 ]
-# 运行时零第三方依赖。Pillow 是可选加速后端（图像编解码），缺失时走纯 Python 后备。
-dependencies = []
+# 运行时零第三方**代码**依赖。Pillow 是可选加速后端（图像编解码），缺失时走纯 Python 后备。
+#
+# 唯一的必需依赖是 tzdata（1.0.10 起）：它是**纯数据包**（IANA 时区库），不含可执行
+# 代码。Windows 没有系统 zoneinfo（zoneinfo.TZPATH 为空），[time].timezone 里的 IANA
+# 名只能靠它；冻结版由 packaging/atri-x.spec 显式收集并做构建期断言，缺数据时构建失败。
+dependencies = ["tzdata>=2024.1"]
 
 [project.optional-dependencies]
 imaging = ["Pillow>=10"]

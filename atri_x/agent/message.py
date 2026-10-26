@@ -36,6 +36,10 @@ from atri_x.agent.segments import (
     with_inbound_segments,
 )
 from atri_x.agent.wakeup import with_message_wakeup
+from atri_x.agent.time_context import (
+    received_at_from_context,
+    with_inbound_times,
+)
 
 __all__ = [
     "CommandInfos",
@@ -45,7 +49,24 @@ __all__ = [
     "should_notify_user_error",
     "text_segments",
     "user_notified_error",
+    "with_inbound_time",
 ]
+
+
+def with_inbound_time(agent: Any, ctx: Any) -> Any:
+    """给入站 ctx 补上 ``message_received_at``（已有则原样返回）。
+
+    时间来自装配好的 :class:`atri_x.time_service.TimeService`；未装配时回退进程级
+    默认实例 —— 绝不在这里直接调 ``datetime.now()``，否则时区口径会分裂。
+    """
+    if received_at_from_context(ctx) is not None:
+        return ctx
+    service = getattr(agent, "time_service", None)
+    if service is None:
+        from atri_x.time_service import default_time_service
+
+        service = default_time_service()
+    return with_inbound_times(ctx, received_at=service.now_utc())
 
 
 def command_infos(agent: Any) -> list[Info]:
@@ -68,6 +89,9 @@ async def handle_message(agent: Any, ctx: Any, text: str) -> None:
     """分派命令与聊天消息。对应 Go ``Agent.HandleMessage``。"""
     if agent is None:
         return
+    # Python 版新增（1.0.10）：入站时间基准**只采一次**，且尽量靠近平台入口。
+    # 平台适配器已经采过（例如 QQ 的 event.time）时保持原值，不覆盖。
+    ctx = with_inbound_time(agent, ctx)
     if agent.group_runtime_blocked(ctx):
         return
     current = agent.actor(ctx)

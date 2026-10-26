@@ -442,7 +442,7 @@ normal_block_instruction_patterns = true
 # 全局静默时段（Python 版新增，1.0.5）。静默期只压"计算"：消息照常入库与展示，
 # 只是不叫醒模型；cron 报告 / 外部事件默认跳过且不补跑。默认关闭。
 # window 与群策略 quiet_hours 同格式（HH:MM-HH:MM，跨零点写 23:00-07:00）。
-# timezone 留空 = 进程本地时区，否则写 IANA 名（如 Asia/Shanghai）。
+# timezone 留空 = 沿用 [time].timezone（统一时间服务），否则写 IANA 名（如 Asia/Shanghai）。
 [quiet]
 enabled = false
 window = "23:00-07:00"
@@ -462,6 +462,58 @@ allow_superadmin = true
 guard = false
 cooldown_seconds = 120
 no_reply_streak_max = 3
+
+# 统一时间服务（Python 版新增，1.0.10）。
+# 时间口径的唯一来源：提示词里的"现在"、cron / 提醒的时区判定、诊断里的时区信息
+# 都从这里取。业务时间始终来自系统时钟；网络校验只写诊断，不接管业务时间。
+[time]
+# IANA 时区名（Asia/Shanghai / Europe/London / America/New_York …；随包带全量 tzdata），
+# 也可以写 "fixed:+08:00"（固定偏移，不支持 DST）或 "system"（沿用进程本地时区，旧行为）。
+# 写错会在启动 / config check 阶段直接报错，不会静默回落。
+timezone = "Asia/Shanghai"
+# 是否把当前时间注入每轮系统提示（只进本次请求，不落库，不累积）。
+inject_context = true
+# 网络时间样本的有效期上限（秒）；超过即视为 stale。
+max_sample_age_seconds = 21600
+
+# 间歇性多来源时间校验。默认关闭：关闭时不会发起任何网络请求。
+[time.verification]
+enabled = false
+# 首版只支持 verify_only：网络观测只写 /diagnostics，绝不修改业务时间。
+mode = "verify_only"
+interval_seconds = 1800
+jitter_ratio = 0.2
+timeout_seconds = 2.0
+max_concurrency = 2
+max_retries = 1
+round_deadline_seconds = 8.0
+warn_offset_ms = 2000
+conflict_offset_ms = 30000
+# 构成"一致"证据所需的最少独立分组数（同一 group 只算一份证据）。
+min_groups = 2
+max_sources = 4
+manual_min_interval_seconds = 60
+
+# 时间来源必须由管理员显式配置，本文件不内置任何公共 NTP / 时间 API 端点。
+# 取消注释后按需修改；两个来源分属不同 group 才算两份独立证据。
+# [[time.sources]]
+# id = "corp-ntp"
+# protocol = "sntp"        # sntp | https
+# host = "ntp.example.com"
+# port = 123
+# group = "corp"
+# allow_private = false    # 内网授时需要改为 true
+# enabled = false
+#
+# [[time.sources]]
+# id = "corp-time-api"
+# protocol = "https"
+# url = "https://time.example.com/v1/now"
+# group = "corp"
+# allow_private = false
+# max_body_bytes = 4096
+# require_no_store = true
+# enabled = false
 
 [security]
 user_max_tool_risk = "low"

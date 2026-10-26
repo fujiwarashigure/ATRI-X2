@@ -71,6 +71,7 @@ from atri_x.tool.builtin.runtimeinfo import RuntimeInfo
 from atri_x.tool.builtin.self_learning import new_self_learning_review_tool
 from atri_x.tool.builtin.send_file import new_send_file_tool
 from atri_x.tool.builtin.shell import new_shell_tool_with_environment
+from atri_x.tool.builtin.time_tool import new_get_current_time_tool
 from atri_x.tool.builtin.view_image import new_view_image_tool
 from atri_x.tool.builtin.web_extract import new_web_extract_tool
 from atri_x.tool.builtin.web_extract_engines import (
@@ -116,6 +117,9 @@ ALWAYS_REGISTERED_TOOLS: tuple[str, ...] = (
     # Python 侧新增：按 id 回查消息 / 转发的完整内容（配合引用 / 转发的慢取占位）。
     # 非 QQ 平台调用时返回"不支持"而不是报错，所以没有守卫。
     "fetch_message",
+    # Python 侧新增（1.0.10）：只读的当前时间查询（``get_current_time``）。时间服务
+    # 未装配时工具回退到进程级默认实例，因此同样没有守卫。
+    "get_current_time",
 )
 
 #: 需要 ``RegisterOptions`` 里对应字段才注册的工具：键 = Go ``RegisterAll`` 的守卫字段，
@@ -223,6 +227,10 @@ class RegisterOptions:
     artists: ArtistTools = field(default_factory=ArtistTools)
     prompt_rewriter: Any = None
     image_prompt_service: Any = None
+    #: Python 侧新增：统一时间服务（``get_current_time`` 用）；``None`` = 回退默认实例。
+    time_service: Any = None
+    #: Python 侧新增：网络时间校验状态提供者（只读快照，绝不在工具里触网）。
+    time_verification: Any = None
 
 
 def register_all(registry: Registry, opts: RegisterOptions) -> None:
@@ -296,6 +304,9 @@ def register_all(registry: Registry, opts: RegisterOptions) -> None:
 
     # Python 侧新增：按 id 回查消息 / 转发的完整内容（配合引用 / 转发的慢取占位）。
     registry.register(new_fetch_message_tool())
+
+    # Python 侧新增（1.0.10）：只读当前时间（含来源与校验状态）。
+    registry.register(new_get_current_time_tool(opts.time_service, opts.time_verification))
 
     if opts.group_analysis_service is not None:
         registry.register(

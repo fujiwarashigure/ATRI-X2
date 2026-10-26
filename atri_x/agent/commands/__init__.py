@@ -105,6 +105,7 @@ from atri_x.agent.commands.deps import (
     register_modules,
 )
 from atri_x.agent.commands.doctor import DoctorModule, new_doctor
+from atri_x.agent.commands.time import TimeModule, new_time
 from atri_x.agent.commands.group_knowledge import (
     KnowledgeCommand,
     KnowledgeModule,
@@ -341,6 +342,7 @@ __all__ = [
     "SessionCommandState",
     "SessionModule",
     "StateModule",
+    "TimeModule",
     "ToolModule",
     "ToolService",
     "USAGE_QUERY_LIMIT",
@@ -431,6 +433,7 @@ __all__ = [
     "new_sessions",
     "new_signup",
     "new_state_command",
+    "new_time",
     "new_status",
     "new_stop",
     "new_stop_all",

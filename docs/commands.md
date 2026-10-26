@@ -171,6 +171,20 @@ Fork 会保留原会话，并从指定 assistant 消息位置创建新的上下�
 | --- | --- |
 | `/doctor` | 只读检查当前配置：加载错误/缺失项、主配置未知字段、内置 Skill 文件与默认版本不一致等，逐条列出；没有问题回复 `Everything is OK`。仅超级管理员可用，不会修改任何文件、不调用模型。 |
 
+## 时间服务
+
+| 命令 | 作用 |
+| --- | --- |
+| `/time` | 显示当前时间口径：时区、UTC 偏移、tzdata 版本、当前时间、提示词注入开关、网络校验状态与各来源最近观测。仅超级管理员可用，只读。 |
+| `/time verify` | 手动触发**一轮**网络时间校验。单飞（已有轮次在跑时直接回"进行中"）+ 最小间隔（`[time.verification].manual_min_interval_seconds`），与后台校验共用一把锁。结果只是**观测**：不修改系统时钟、不接管业务时间，也不会说"已校准"。 |
+| `/time zones [关键字]` | 列出已安装的 IANA 时区（`/time zones 上海` / `/time zones America`）。时区本身在 `app.toml` 的 `[time].timezone` 里配置，需要重启生效。 |
+
+说明：
+
+- 时间服务默认**不联网**（`[time.verification].enabled = false`），上面 `verify` / 状态里的网络部分都会是 `disabled`；启用与来源配置见 [configuration.md](configuration.md#时间服务-time10-新增)。
+- 时间口径为"业务时间 = 系统时钟；网络时间只做观测"；`verification=consistent` 表示多来源与本地在容差内一致，**不是**"已校准"。
+- 状态只在受 token 保护的 `/diagnostics`（`time` 段）、`doctor` 与 `/time` 里出现，**不进 `/ready`**。
+
 ## 文件回滚
 `edit_file` 每次成功写入前会在内存里保留该文件上一版内容（每个文件只保留最近一次），仅超级管理员可用 `/rollback` 与内置工具 `rollback_file` 撤销。
 

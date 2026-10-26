@@ -47,6 +47,7 @@ from atri_x.agent.segments import (
     with_inbound_turn_input,
 )
 from atri_x.agent.status import runtime_done_status
+from atri_x.agent.time_context import merge_message_metadata
 from atri_x.agent.turn_output import (
     BackgroundTurnOutput,
     ForegroundTurnOutput,
@@ -185,7 +186,7 @@ async def run_chat(
         role=StorageRoleUser,
         content=user_content,
         segments=_stored_segments(user_segments),
-        metadata=input_speaker_metadata(inbound),
+        metadata=merge_message_metadata(input_speaker_metadata(inbound), ctx),
         reply_to_platform_message_id=inbound_reply_message_id(ctx),
     )
     logger = getattr(agent, "logger", None)

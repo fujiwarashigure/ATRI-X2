@@ -87,6 +87,7 @@ EXPECTED_EXPORTS: dict[str, tuple[str, ...]] = {
     "session_module": ("SessionCommandState", "SessionModule"),
     "session_navigation": ("ResumeCommand", "new_fork", "new_resume"),
     "state": ("StateModule", "new_state_command"),
+    "time": ("TimeModule", "new_time"),
     "tool": ("ToolModule", "new_tools"),
     "usage": ("UsageBucket", "new_usage", "parse_usage_query"),
 }
@@ -126,7 +127,8 @@ class ModuleInventoryTests(unittest.TestCase):
         """反向检查：不能有"没人认领"的 Python 文件。"""
         mapped = {module for module in GO_TO_PYTHON.values() if module}
         # approval.py 是 Python 侧新增（借鉴 dsh-qq 的授权生命周期，无 Go 对应文件）。
-        mapped.update({"__init__", "log_args", "log_format", "model_types", "approval"})
+        # time.py 同理（1.0.10 的 ``/time``，Go 侧没有时间服务）。
+        mapped.update({"__init__", "log_args", "log_format", "model_types", "approval", "time"})
         present = {info.name for info in pkgutil.iter_modules(commands_package.__path__)}
         self.assertEqual(present - mapped, set())
 
@@ -443,6 +445,11 @@ class DepsSlotCoverageTests(unittest.TestCase):
                 "self_learning",
                 "file_backups",
                 "group_services",
+                # 1.0.10：时间服务/校验器由 Foundation 注入；booted_agent 不建
+                # Foundation，所以这两个槽位在纯命令层测试里就是 None
+                # （生产接线见 atri_x/app/foundation.py + runner.py）。
+                "time_service",
+                "time_verifier",
             ):
                 continue  # 这些由 app 层的业务存储提供
             with self.subTest(slot=field_name):

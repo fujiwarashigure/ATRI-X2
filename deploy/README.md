@@ -91,11 +91,28 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 万一该 tag 拉不动，`PY_BASE_IMAGE=python:3.13-slim` 即可（代码只依赖标准库，
 `requires-python>=3.11`）。
 
-slim 镜像里**没有 curl / git / tzdata**，这是官方刻意的精简取舍。本套件因此：
+slim 镜像里**没有 curl / git**，这是官方刻意的精简取舍。本套件因此：
 
 - 健康探测全部走标准库（见 3.1），不依赖 curl；
-- 时区靠 `ENV TZ` + 标准库 `zoneinfo`；
+- **tzdata 由 `deploy/Dockerfile` 显式安装**（1.0.10 起是硬依赖）：ATRI-X 的业务
+  时区来自 `[time].timezone`（IANA 名），不再依赖"基础镜像碰巧带了
+  `/usr/share/zoneinfo`"。`ENV TZ` 只决定进程本地时区（`timezone = "system"` 时才
+  被用到）；镜像构建的最后一步会跑 `python -m atri_x.app.time_check --json`，
+  时区数据不可用会让**构建失败**而不是出个坏镜像；
 - 需要给 Agent 的 shell 工具补系统命令时，用 `EXTRA_TOOLS` 追加（默认一个都不装）。
+
+=== 验证 Docker 时区数据（构建后执行，留证）===
+
+```bash
+# 1) 镜像构建期已经断言过；这里做产物级复核（非 root 用户下加载 IANA 时区）
+docker run --rm --entrypoint python atri-x:<version> -m atri_x.app.time_check --json
+# 2) 确认发行版包版本（写进部署记录）
+docker run --rm --entrypoint dpkg-query atri-x:<version> -W -f='${Version}\n' tzdata
+# 3) 显式区分"配置时区"与"进程 TZ"：TZ=UTC 时业务时区仍应是 Asia/Shanghai
+docker run --rm -e TZ=UTC --entrypoint python atri-x:<version> -c \
+  "from atri_x.config import default; from atri_x.time_service import TimeService as T; \
+print(T.from_config(default().time).snapshot().timezone)"
+```
 
 ### 2.2 镜像内置 DSH（ACP 编排，最小闭环）
 

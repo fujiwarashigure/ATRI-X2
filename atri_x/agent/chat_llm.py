@@ -93,6 +93,24 @@ class LLMCallResult:
     stream: MessageStream | None = None
 
 
+def _inject_time_block(agent: Any, ctx: Any, messages: list[LLMMessage]) -> list[LLMMessage]:
+    """把当前时间片段注入本次请求的系统消息（幂等、不修改入参对象）。
+
+    ``agent.time_service`` 未装配（旧装配路径 / 单测）时原样返回，保持 1.0.9 行为。
+    ``[time].inject_context = false`` 时降级为"只写时区、不写时刻"。
+    """
+    service = getattr(agent, "time_service", None)
+    if service is None:
+        return messages
+    from atri_x.agent.time_context import inject_time_block
+
+    config = getattr(agent, "time_config", None)
+    inject_instant = bool(getattr(config, "inject_context", True))
+    return inject_time_block(
+        messages, service, ctx, enabled=True, inject_instant=inject_instant
+    )
+
+
 async def _route_to_dsh(
     agent: Any,
     ctx: Any,
@@ -198,6 +216,11 @@ async def call_llm(
             )
         for part in request_options.system_append:
             request_messages = append_system_segment_text(request_messages, part)
+        # Python 版新增（1.0.10）：请求级时间片段。放在 ``system_append`` 之后、
+        # DSH 路由与预算之前（``_stream_chat`` 的 ``begin_chat_budget`` 读的就是
+        # ``request_messages``，因此片段天然进预算）。幂等：先剥旧标记再追加，
+        # 工具续轮 / 视觉重试 / DSH / 后台任务都不会累积出第二份。
+        request_messages = _inject_time_block(agent, ctx, request_messages)
         if allow_route:
             routed = await _route_to_dsh(
                 agent,

@@ -28,6 +28,7 @@ Desktop 一键运维时用 [`deploy/windows/`](../deploy/windows/README.md)。
 | 系统 | Windows 10/11 x64（PyInstaller 只能产**本机平台**的包） |
 | Python | ≥ 3.11，且**带 `tkinter`**（窗口版必须；`python -c "import tkinter"` 能过） |
 | PyInstaller | `python -m pip install pyinstaller`（6.22 已在 Python 3.14 上验证） |
+| **tzdata** | `python -m pip install tzdata`（**1.0.10 起是硬依赖**：Windows 没有系统时区库，`[time].timezone` 的 IANA 名只能靠它；构建时 `packaging/atri-x.spec` 会显式收集并断言 `tzdata/zoneinfo/Asia/Shanghai` 存在，**缺了直接让构建失败**，不再依赖 `pyinstaller-hooks-contrib` 的偶然收集） |
 | 内置内核（可选） | 一台装好 DSH 的机器（DSH 桌面端/CLI 的 `node_modules`）+ `node.exe` |
 
 > 探测 PyInstaller 一律用 `python -m PyInstaller --version`。它的 console script 装在
@@ -211,9 +212,13 @@ python packaging/make_assets.py --icon-variant full        # 小尺寸也用整�
 |---|---|
 | `atri-x.exe --version` | 冻结入口/打包结构成立 |
 | `atri-x.exe config check` | `assets_data` 真的进包、冻结路径能解出默认配置（漏 `--add-data` 时只有这一步会失败） |
+| `_internal/tzdata/zoneinfo/Asia/Shanghai` 存在 | 时区数据 payload 真的进包（onedir；onefile 由下一步判定） |
+| `atri-x.exe -m atri_x.app.time_check --json` | **冻结进程自己**能加载 IANA 数据并解析 DST 规则（只检查文件不算证据） |
 | `atri-x.exe -m atri_x.platform.qq_onebot.smoke --help` | `-m` 转发可用（诊断入口都靠它） |
 | `atri-x.exe -m atri_x.sidecar status --json` | 内置运行时是否可解析（打了内核时要求 `found: true`） |
 | `atri-x-gui.exe --selftest` | tkinter 进包了、Tk 能建窗口、中文能渲染（只看退出码——窗口版没有控制台） |
+
+说明：1.0.10 起 **tzdata 是硬依赖**，上面两项任一步失败都会让构建以非 0 退出（不会"先出个包再说"）。
 
 除 `--version` 外，其余步骤把 `APPDATA` / `XDG_CONFIG_HOME` 指到
 `build/pyinstaller-verify/`，不会往你真实的 `%APPDATA%\ATRI-X` 里写东西。

@@ -32,6 +32,7 @@ from atri_x.config import (
     loader as loader,
     services as services,
     state as state,
+    time_sections as time_sections,
     tool_tags as tool_tags,
 )
 from atri_x.config.app import *  # noqa: F403
@@ -49,6 +50,7 @@ from atri_x.config.inspect import *  # noqa: F403
 from atri_x.config.loader import *  # noqa: F403
 from atri_x.config.services import *  # noqa: F403
 from atri_x.config.state import *  # noqa: F403
+from atri_x.config.time_sections import *  # noqa: F403
 from atri_x.config.tool_tags import *  # noqa: F403
 
 __all__ = sorted(
@@ -67,6 +69,7 @@ __all__ = sorted(
         "loader",
         "services",
         "state",
+        "time_sections",
         "tool_tags",
     }
     | set(app.__all__)
@@ -75,5 +78,6 @@ __all__ = sorted(
     | set(loader.__all__)
     | set(services.__all__)
     | set(state.__all__)
+    | set(time_sections.__all__)
     | set(tool_tags.__all__)
 )

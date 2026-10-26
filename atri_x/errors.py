@@ -181,6 +181,30 @@ class WriteRateLimitedError(AtriXError):
     """
 
 
+class InvalidTimezoneError(InvalidError):
+    """时区名/固定偏移无法解析。
+
+    这是**硬失败**：不允许静默回落到进程本地时区或 UTC——回落会让
+    ``[quiet]`` / cron / 提醒的判定口径在用户不知情的情况下改变。
+    """
+
+
+class TimezoneDataUnavailableError(InvalidError):
+    """IANA 时区数据（``tzdata``）缺失或不可读。
+
+    与 :class:`InvalidTimezoneError` 分开，因为修复动作不同：前者是**写错了时区名**，
+    后者是**装漏了时区数据库**（Windows 缺 ``tzdata`` 包 / 冻结版没打进 ``_internal``）。
+    """
+
+
+class TimeVerificationError(AtriXError):
+    """网络时间校验的配置/使用错误（来源不允许、模式未实现等）。"""
+
+
+class TimeSourceRejectedError(TimeVerificationError):
+    """某个时间来源被出站策略拒绝（非公网地址未显式放行、URL 非法等）。"""
+
+
 class RangeUnsupportedError(AtriXError):
     """被包装的仓库不支持"按时间窗批量读取"这一可选能力。
 
@@ -246,6 +270,10 @@ ErrWriteRateLimited = WriteRateLimitedError("write rate limited")
 ErrRangeUnsupported = RangeUnsupportedError(
     "history range access is not supported by the wrapped repository"
 )
+ErrInvalidTimezone = InvalidTimezoneError("invalid timezone")
+ErrTimezoneDataUnavailable = TimezoneDataUnavailableError("timezone data unavailable")
+ErrTimeVerification = TimeVerificationError("time verification error")
+ErrTimeSourceRejected = TimeSourceRejectedError("time source rejected")
 
 
 __all__ = [name for name in dir() if not name.startswith("_")]

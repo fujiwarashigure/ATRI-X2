@@ -612,6 +612,34 @@ def service_smoke(artifact: Path, timeout: float = 180.0) -> int:
     return 0
 
 
+#: 时区数据核验用的样本时区（默认配置的时区，缺了就等于功能不可用）。
+_TZ_SAMPLE_ZONE = "Asia/Shanghai"
+
+
+def verify_tzdata_payload(artifact: Path, *, sample_zone: str = _TZ_SAMPLE_ZONE) -> int:
+    """onedir 产物必须带 ``_internal/tzdata/zoneinfo/<sample_zone>``。
+
+    onefile 没有可检查的目录（自解压到 TEMP），跳过文件级检查，由后续的冻结探针
+    （``-m atri_x.app.time_check``）判定。
+    """
+    internal = artifact.parent / "_internal"
+    if not internal.is_dir():
+        _out("  tzdata    : onefile (no payload dir; frozen probe decides)")
+        return 0
+    path = internal / "tzdata" / "zoneinfo" / sample_zone
+    if not path.is_file():
+        _err("verify: tzdata payload missing: %s" % path)
+        _err(
+            "hint: packaging/atri-x.spec 会显式收集 tzdata；构建机需要 "
+            "`python -m pip install tzdata`，缺失时构建应当失败而不是静默出包"
+        )
+        return 1
+    dist_info = sorted((internal / "tzdata").glob("tzdata-*.dist-info"))
+    version = dist_info[-1].name if dist_info else "<dist-info missing>"
+    _out("  tzdata    : payload ok (%s, %s)" % (sample_zone, version))
+    return 0
+
+
 def verify(
     artifact: Path,
     name: str,
@@ -673,6 +701,24 @@ def verify(
         _err(_snippet(check))
         return 1
     _out("  config    : ok (default assets unpacked)")
+
+    # IANA 时区数据（1.0.10 硬依赖）：先看 onedir 的 _internal 里有没有，再让冻结
+    # 进程自己解析一遍。只检查文件不算证据——zoneinfo 读不到数据时 IANA 名会失败。
+    if verify_tzdata_payload(artifact, sample_zone=_TZ_SAMPLE_ZONE) != 0:
+        return 1
+    time_probe = run_exe(
+        artifact, ["-m", "atri_x.app.time_check", "--json"], timeout=120, scratch_home=True
+    )
+    probe_text = (time_probe["stdout"] + "\n" + time_probe["stderr"]).strip()
+    if time_probe["code"] != 0 or '"ok": true' not in probe_text.replace("'", '"'):
+        _err("verify: frozen tzdata probe failed (exit %d)" % time_probe["code"])
+        _err(_snippet(time_probe))
+        _err(
+            "hint: 冻结产物没有可用的 IANA 时区数据；检查 packaging/atri-x.spec 的 "
+            "tzdata 收集与构建机是否装了 tzdata"
+        )
+        return 1
+    _out("  tzdata    : ok (frozen IANA data loads; DST rules verified)")
 
     module = run_exe(artifact, ["-m", "atri_x.platform.qq_onebot.smoke", "--help"], timeout=120)
     if module["code"] != 0:

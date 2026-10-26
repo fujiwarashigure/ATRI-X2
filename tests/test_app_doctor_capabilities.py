@@ -86,7 +86,7 @@ class TestCapabilityChecksWithSnapshot(unittest.TestCase):
         self.assertEqual(checks["inbound_rate_limit"].status, "passed")
         self.assertEqual(
             {check.category for check in checks.values()},
-            {"agent", "security", "ops", "media"},
+            {"agent", "security", "ops", "media", "time"},
         )
 
     def test_missing_core_assembler_fails(self):

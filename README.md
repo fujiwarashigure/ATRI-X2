@@ -31,7 +31,7 @@
 
 - **Chat / Work 双模式**：两种模式可分别配置模型，让低成本模型负责闲聊、强模型专注复杂任务；**两种模式都支持工具调用**（本仓相对上游 Go 版的有意差异）。
 - **按需工具发现**：不会每轮注入全部工具 schema，默认只暴露 `discover_tool` 与可用工具名；模型按需发现后再注入具体 schema，减少无效上下文开销。另可用 `@tool:` / `@skill:` 内联预载。
-- **内置工具 49 个**：文件、Shell、Web、Cron、Skill、媒体与记忆等；其中 13 个无条件注册，其余按依赖条件注册。
+- **内置工具 51 个**：文件、Shell、Web、Cron、Skill、媒体、记忆与时间等；其中 15 个无条件注册，其余按依赖条件注册。
 - **联网搜索与网页抓取**：`web_search` 支持 DeepSeek 官方搜索 / Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity / Grok 多种通道并按顺序自动降级（没配 key 的通道自动跳过）；`web_extract` 支持 DeepSeek 官方抓取 / Jina Reader / 直接抓取。两条链路都在桌面端「模型 → 搜索服务 / 抓取服务」里配置，DeepSeek 官方通道需要 `api.deepseek.com` 的官方 Key（按成功请求计费），承载聊天的中转 Key 不能用于搜索/抓取。见 [配置说明](docs/configuration.md)。
 - **风险与确认**：工具带风险等级，按角色/权限判断可用范围；高风险调用需要逐次确认。
 - **单轮声明与命令前缀**：`@model:` / `@image:` / `@use:`（也支持 `#模型:` / `#生图:` / `#工具:`）只对当前这一轮生效，仅超级管理员可用；slash 命令前缀可通过 `[commands].prefixes` 追加。
@@ -96,6 +96,7 @@
 
 ### 安全与可观测
 
+- **统一时间服务（1.0.10）**：业务时间只有一个来源（系统时钟）与一个时区口径（`[time].timezone`，默认 `Asia/Shanghai`，**全量 IANA 时区随包交付**）。每轮请求把"当前时间"注入系统提示（工具续轮只有一份），并区分「收到消息的时刻」与「处理时刻」——跨午夜、`23:59 收到 / 00:01 处理` 不再需要猜。可选的多来源网络校验（SNTP / HTTPS 时间 API，**默认关闭**）只做观测、只写诊断，**绝不修改系统时钟**，也不会把结果说成"已校准"；状态只进 `/diagnostics`，不进 `/ready`。超级管理员可用 `/time` / `/time verify` / `/time zones`。详见 [配置说明](docs/configuration.md#时间服务-time10-新增)。
 - **工具安全**：风险分级、角色权限、高风险确认；Shell 执行受 clean-room 自研的 AST 级解析约束（`atri_x/shellparse/`）。
 - **内容安全**：内置「道德限制 + 敏感信息过滤」（8 类词表拦截、凭据/PII 脱敏、只存 sha256 的审计日志、图片/文件出口策略），默认关闭；支持 **chat / work 两种会话模式各自覆盖**（`[safety.chat]` / `[safety.work]`，没写的键继承全局）。GUI 入口：**「工具权限」→「工具参数（全局）」→「全局参数」/「内容安全：chat/work 模式覆盖」面板**，chat / work 两个子选项卡里也各有一份覆盖面板；也可直接改 `app.toml` 的 `[safety]` 段，详见 [docs/safety.md](docs/safety.md)。
 - **密钥保护**：Shell / Skill 子进程会移除名字含 `KEY`、`TOKEN`、`SECRET` 等词段的凭据变量。
@@ -175,10 +176,10 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.0.9`**（修复前台会话的工具链路：**`workspace` 工具永远失败、`shell` 与所有路径类工具报 `load workspace`**。1.0.8 的工具运行适配层把移植残留桩 `_SessionWorkspaceStore`（只有 `load`/`save`，依赖的 `agent.session_workspace` / `persist_session_workspace` 全仓不存在）当成 workspace 存储注入工具上下文，而工具层要求 `get/set/clear_workspace_dir` 异步协议：`workspace` 的 set / query / reset 分别报 `no attribute 'set_workspace_dir' / 'get_workspace_dir' / 'clear_workspace_dir'`，`shell`（前台无沙盒）与 `read_file`/`edit_file`/`send_file`/`view_image`/`rollback_file`（**绝对路径也会**）报 `load workspace: ... has no attribute 'get_workspace_dir'`——用户可见症状是模型调工具连续失败后放弃、改成猜答案。1.0.9 改用真正的 `SessionWorkspaceStore`（workspace 目录与「AGENT 提示已发」标记恢复写进 session metadata）并删除残留桩，新增端到端回归测试。顺带修复两个小问题：通知发送失败日志把 dict 当位置参数传给 slog 风格 logger，渲染成 `msg="notice output failed %s" !BADKEY=!BADKEY`（platform / error 全丢）；`workspace {"path": "."}` 被误导性报 `workspace path is required`（现在相对路径按当前工作目录解析，空路径才报 required）。功能面与 1.0.8 相同：1.0.8 的「人设卡 → 表情图库」子选项卡空白页修复、1.0.7 的桌面端选项卡按需构建、1.0.6 的后台服务递归崩溃修复，以及 1.0.5 以来两批《dsh-qq 借鉴落地评估》①**高风险确认的授权边界**②**常驻记忆的会话可见性**③**授权生命周期**④**长期记忆按会话隔离**⑤**引用/转发慢取**⑥**费用归因**⑦**计算静默 `[quiet]` 与群聊参与状态机 `[participation]`**、1.0.4 的工具进度提示与本地表情图库、1.0.3 的内置内容安全 / 常驻记忆配额 / 识图改造；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
-交付物尺寸与校验和见发行库里的 `SHA256SUMS.txt` 与 `ATRI-X-1.0.9-compatibility-report.md`。
+当前最新版本：**`1.0.10`**（内置时间服务与多来源时间校验（verify_only）：提示词里现在有「当前时间」、时区口径统一可配置（默认 `Asia/Shanghai`，**全量 IANA 时区随包**）、消息接收时间有明确基准；可选 SNTP/HTTPS 多来源校验只做观测写诊断、**绝不改系统时钟**；cron 等待醒来复核目标时间、一次性任务新增 `run_at_utc`，组内提醒停机恢复不再集中补发。tzdata 改为硬依赖，安装版/便携版开箱即用。功能面与 1.0.9 相同：1.0.9 的前台会话工具链路修复、1.0.8 的表情图库子选项卡修复、1.0.7 的选项卡按需构建、1.0.6 的后台服务递归崩溃修复，以及 1.0.5 以来的 dsh-qq 借鉴、1.0.4 的工具进度提示与本地表情图库、1.0.3 的内置内容安全 / 常驻记忆配额 / 识图改造；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+交付物尺寸与校验和见发行库里的 `SHA256SUMS-1.0.10.txt` 与 `自检报告.md`。
 
-已发布：[**GitHub Release v1.0.9**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.9)（当前版，tag `v1.0.9` = `49d116e`）；上一版 [v1.0.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)。交付物尺寸与 SHA-256 见各 Release 的 `SHA256SUMS.txt` 与 `ATRI-X-<版本>-compatibility-report.md`；更早的 1.0.7 / 1.0.6 / 1.0.5 / 1.0.4 与 1.0.3 热修版、1.0.2 补丁版（tag `v1.0.2` = `00a6653`）仍在。
+已发布：[**GitHub Release v1.0.10**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.10)（当前版，tag `v1.0.10`）；上一版 [v1.0.9](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.9)（tag `v1.0.9` = `49d116e`）；更早的 [v1.0.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)。交付物尺寸与 SHA-256 见各 Release 的 `SHA256SUMS.txt` 与 `ATRI-X-<版本>-compatibility-report.md`；更早的 1.0.7 / 1.0.6 / 1.0.5 / 1.0.4 与 1.0.3 热修版、1.0.2 补丁版（tag `v1.0.2` = `00a6653`）仍在。
 
 | 产物 | 位置 |
 | --- | --- |

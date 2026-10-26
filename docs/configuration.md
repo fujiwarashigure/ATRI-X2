@@ -1215,7 +1215,7 @@ report_days = 1
 [quiet]
 enabled = false               # 默认关闭；关闭时行为与之前完全一致
 window = "23:00-07:00"        # HH:MM-HH:MM，跨零点照写；格式非法回落默认值
-timezone = ""                 # 空 = 进程本地时区；否则 IANA 名（如 Asia/Shanghai）
+timezone = ""                 # 空 = 沿用 [time].timezone；否则 IANA 名（如 Asia/Shanghai）
 allow_cron = false            # 静默期仍允许 cron 报告
 allow_external = false        # 静默期仍允许外部事件（Atrinis / Hook / HTTP）
 allow_direct = true           # 静默期仍允许用户直聊（私聊直呼）
@@ -1223,10 +1223,76 @@ allow_superadmin = true       # 静默期仍允许超级管理员触发
 ```
 
 - **只压计算，不压数据**：静默期消息照常入库、照常出现在历史与会话里，只是不叫醒模型。
+- **时区不静默回落**：`timezone` 留空时用 `[time].timezone`（1.0.10 起）；显式写了非法时区会在 `config check` / 启动直接失败，不再"悄悄按机器时区判定"。
 - **不补跑**：cron 报告、外部事件、记忆学习、主动参与在静默期直接跳过，并记审计 `cron_skipped_quiet` / `external_skipped_quiet`；静默结束后**不会**补跑（避免补跑风暴）。
 - **群级取或**：群策略里的 `quiet_hours`（见上一节）与全局 `[quiet]` 任一生效即静默；群级更严时按群级。唤醒判定在群聊里会同时看这两处。
 - **直聊与超管默认放行**：私聊直呼 `allow_direct = true`，超级管理员 `allow_superadmin = true`；把任一开关设成 false 后，静默期它们也会被跳过。
 - 这是 `app.toml` 配置，改动需要重启后台服务；桌面端暂未提供该面板（手改即可，键都有默认值，老配置不写这一段也能启动）。
+
+## 时间服务 time（1.0.10 新增）
+
+`app.toml` 的 `[time]` 是**时间口径的唯一来源**：提示词里的"现在"、cron / 提醒 / 静默时段的时区判定、`get_current_time` 工具、`/diagnostics` 的时间段都从这里取同一个口径。
+
+```toml
+[time]
+# IANA 名（全量 tzdata 随包交付），也可写 "fixed:+08:00"（固定偏移，不支持 DST）
+# 或 "system"（沿用进程本地时区，旧行为）。写错会在启动 / config check 直接失败。
+timezone = "Asia/Shanghai"
+# 是否把当前时间注入每轮系统提示（只进本次请求，不落库、不累积、工具续轮只保留一份）
+inject_context = true
+# 网络样本有效期上限（秒）；超过即 stale
+max_sample_age_seconds = 21600
+
+[time.verification]
+enabled = false            # 默认关闭：关闭时不发起任何网络请求
+mode = "verify_only"       # 首版唯一合法值；"takeover" 会被拒绝
+interval_seconds = 1800    # 两轮之间的基准间隔（带 ±jitter_ratio 抖动）
+jitter_ratio = 0.2
+timeout_seconds = 2.0
+max_concurrency = 2
+max_retries = 1
+round_deadline_seconds = 8.0
+warn_offset_ms = 2000
+conflict_offset_ms = 30000
+min_groups = 2             # 构成"一致"证据所需的最少独立分组
+max_sources = 4
+# 手动 /time verify 的最小间隔（秒）
+manual_min_interval_seconds = 60
+```
+
+**来源必须由管理员显式声明**，本文件不内置任何公共 NTP / 时间 API 端点：
+
+```toml
+[[time.sources]]
+id = "corp-ntp"            # 唯一标识（诊断/审计里出现）
+protocol = "sntp"          # sntp | https
+host = "ntp.example.com"
+port = 123
+group = "corp"             # 独立性分组：同组多个来源只算一份证据
+allow_private = false      # 内网授时改成 true
+enabled = false
+
+[[time.sources]]
+id = "corp-time-api"
+protocol = "https"
+url = "https://time.example.com/v1/now"   # 必须 https://；URL 内禁止凭据
+group = "corp"
+max_body_bytes = 4096
+require_no_store = true
+enabled = false
+```
+
+语义与边界：
+
+- **业务时间 = 系统时钟**。`source=system_clock` 只表示"读到了系统时钟"，不表示准确或已同步；`verification.consistent` 也只说明"多来源与本地在容差内一致"，**永远没有"已校准/准确"这个结论**。
+- **默认不联网**：`[time.verification].enabled = false` 时不会发起任何请求；健康检查 `/ready` **不含**时间校验状态（网络抖动不得触发容器重启），状态只进受 token 保护的 `/diagnostics`、`doctor` 与 `/time`。
+- **时区数据是硬依赖**：Windows 没有系统时区库，1.0.10 起 `tzdata` 是必需依赖；安装版 / 便携版由打包脚本显式收集并在缺数据时**让构建失败**，Docker 镜像显式安装 `tzdata`。数据缺失时启动会明确失败（`TimezoneDataUnavailableError`），不会静默回落 UTC / 固定 +08:00。
+- **行为变更（旧配置）**：没有 `[time]` 段的旧 `app.toml` 会按 `Asia/Shanghai` 解释时间（此前是"进程本地时区"）。要恢复旧语义请显式写 `timezone = "system"`。
+- **DST 规则**（时区选了有夏令时的地区时）：一次性任务落在**不存在**的时刻 → 创建/更新当场拒绝并提示换时间；落在**重复**的一小时 → 取第一次（`run_at_dst_ambiguous = true` 会写进任务 metadata）。周期任务：不存在的时段跳过，重复时段只执行第一次。
+- **一次性任务**落库时额外写 `run_at_utc`（确定的 UTC 时刻）与 `run_at_tz`。之后改时区 / 换部署机，已定死的任务**不再漂移**；旧任务没有这两个字段，仍按本地墙钟解释（不猜测历史时区，诊断里算 legacy）。
+- **跳时 / 休眠**：调度等待分段进行（每段 ≤30 秒），醒来后复核目标时刻——墙钟回拨不提前触发、前跳/休眠恢复按过期规则触发一次；提醒在停机超过 `24h` 后恢复时会被标记 `skipped`（避免集中轰炸），不会补发一大串。
+- **`/time`（超级管理员）**：`/time` 看状态、`/time verify` 手动跑一轮（单飞 + 最小间隔；与后台校验共用一把锁）、`/time zones 上海` 列出已安装的 IANA 时区（其他时区都可用，写进 `[time].timezone` 即可）。
+- **不做**：修改系统时钟、NTP 服务端/转发、NTS、把普通 SNTP 当"已认证"、用过期样本外推当前时间、让模型或普通群成员配置时间来源。
 
 ## 群聊参与状态机 participation
 

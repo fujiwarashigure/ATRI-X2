@@ -51,7 +51,9 @@ REPO_ROOT = os.path.dirname(SPECPATH)
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+from PyInstaller.utils.hooks import collect_data_files  # noqa: E402
 from PyInstaller.utils.hooks import collect_submodules  # noqa: E402
+from PyInstaller.utils.hooks import copy_metadata  # noqa: E402
 
 NAME = os.environ.get("ATRIX_PKG_NAME") or "atri-x"
 ONEFILE = os.environ.get("ATRIX_PKG_ONEFILE") == "1"
@@ -85,14 +87,55 @@ datas = [
 if RUNTIME_DIR and os.path.isdir(RUNTIME_DIR):
     datas.append((RUNTIME_DIR, "runtime"))
 
-#: 运行时零第三方依赖：这些包只有在本机装了、且被可选导入探测到时才会被拖进来。
+#: 运行时零第三方**代码**依赖：这些包只有在本机装了、且被可选导入探测到时才会被拖进来。
 #: ``tkinter`` 不能排除——窗口版要用。``PIL`` 与 numpy/PyYAML 分开判定：
 #: ``--with-pillow``（``ATRIX_PKG_KEEP_PILLOW=1``）只保留 Pillow。
+#:
+#: 注意：这一段必须留在下面的 tzdata 收集段**之前**——测试会执行到收集段标记处，用它
+#: 断言 excludes 的真实取值（见 ``tests/test_packaging_build.py``）。
 excludes = [
     name
     for name, keep in (("numpy", KEEP_EXTRAS), ("PIL", KEEP_PILLOW), ("yaml", KEEP_EXTRAS))
     if not keep
 ]
+
+# ===========================================================================
+# TZDATA-COLLECT-BEGIN（测试只执行到这一行之前；见 tests/test_packaging_build.py）
+#
+# IANA 时区数据（**硬依赖**，1.0.10 起）
+#
+# Windows 没有系统 zoneinfo（``zoneinfo.TZPATH`` 为空），``[time].timezone`` 的 IANA 名
+# 只能靠 PyPI 的 ``tzdata`` 包。历史上它是被 pyinstaller-hooks-contrib 的
+# ``hook-tzdata.py`` **偶然**收进来的（构建机装了就有、没装就静默丢），这里改成
+# 显式收集 + 构建期断言：收集不到 ``Asia/Shanghai`` 直接让构建失败。
+# ===========================================================================
+try:
+    TZDATA_VERSION = __import__("importlib.metadata", fromlist=["version"]).version("tzdata")
+except Exception as exc:  # noqa: BLE001 - 缺包就是构建错误
+    raise SystemExit(
+        "tzdata is required to build ATRI-X for Windows (IANA timezone data). "
+        "Install it with: %s -m pip install tzdata  (cause: %s: %s)"
+        % (sys.executable, type(exc).__name__, exc)
+    )
+
+#: ``tzdata.zoneinfo`` 下的全部数据文件 + 顶层 ``zones`` / ``zone.tab`` 等。
+tzdata_datas = collect_data_files("tzdata")
+tzdata_datas += copy_metadata("tzdata")
+datas.extend(tzdata_datas)
+
+#: ``zoneinfo`` 运行期用 ``importlib.resources.files("tzdata")`` 找数据，因此包本身
+#: 必须被冻结进 PYZ（数据文件之外还要能 import）。
+hiddenimports += collect_submodules("tzdata")
+
+#: 构建期断言：数据必须在 TOC 里。``Asia/Shanghai`` 是默认时区，缺了就等于功能不可用。
+_tz_sources = {str(src).replace("\\", "/") for src, _dest in tzdata_datas}
+if not any(path.endswith("tzdata/zoneinfo/Asia/Shanghai") for path in _tz_sources):
+    raise SystemExit(
+        "tzdata collection failed: tzdata/zoneinfo/Asia/Shanghai is not in the bundle "
+        "(collected %d tzdata file(s), version=%s)"
+        % (len(tzdata_datas), TZDATA_VERSION)
+    )
+print("[atri-x.spec] tzdata %s: %d data file(s) collected" % (TZDATA_VERSION, len(tzdata_datas)))
 
 a = Analysis(
     [os.path.join(SPECPATH, "entry.py")],
