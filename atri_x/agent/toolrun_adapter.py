@@ -284,9 +284,14 @@ class AgentToolRunDeps:
             ctx = _with_discover_filter(ctx, allowlist)
         if is_background_session(session):
             return ctx
+        # 注意：这里必须注入工具层协议要求的 SessionWorkspaceStore（异步
+        # get/set/clear 三方法 + AGENT 提示标记），不能用只有 load/save 的旧桩——
+        # 1.0.8 的 `_SessionWorkspaceStore` 就是那个桩，导致 workspace 工具与所有
+        # 路径类工具在前台会话里全部 AttributeError（详见 CHANGELOG 1.0.9）。
+        from atri_x.agent.workspace import SessionWorkspaceStore
         from atri_x.tool.workspace import with_workspace_store
 
-        return with_workspace_store(ctx, _SessionWorkspaceStore(agent=agent, session=session))
+        return with_workspace_store(ctx, SessionWorkspaceStore(agent, session))
 
     # -- 预览 / 确认 --------------------------------------------------------
     async def should_send_preview(
@@ -592,31 +597,6 @@ class AgentToolRunDeps:
         if hasattr(outcome, "__await__"):
             outcome = await outcome
         return list(outcome or segments)
-
-
-@dataclass
-class _SessionWorkspaceStore:
-    """``sessionWorkspaceStore``：把 Session 绑定成 workspace 存储。"""
-
-    agent: Any = None
-    session: Any = None
-
-    async def load(self, ctx: Any) -> Any:
-        load = getattr(self.agent, "session_workspace", None)
-        if load is None:
-            return None
-        outcome = load(ctx, self.session)
-        if hasattr(outcome, "__await__"):
-            outcome = await outcome
-        return outcome
-
-    async def save(self, ctx: Any, workspace: Any) -> None:
-        save = getattr(self.agent, "persist_session_workspace", None)
-        if save is None:
-            return
-        outcome = save(ctx, self.session, workspace)
-        if hasattr(outcome, "__await__"):
-            await outcome
 
 
 # ---------------------------------------------------------------------------

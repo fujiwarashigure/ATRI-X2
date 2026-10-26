@@ -6,6 +6,66 @@
 
 ---
 
+## [1.0.9] - 2026-10-26 — 修复前台会话工具链路（workspace / shell / 全部路径类工具失败）
+
+旧状态（1.0.8）：
+- **前台会话（桌面端、`python -m atri_x run`、CLI 服务端）里工具链路整体不可用**：
+  `workspace` 工具设置报 `set workspace: '_SessionWorkspaceStore' object has no attribute
+  'set_workspace_dir'`、只查询报 `load workspace: ... has no attribute 'get_workspace_dir'`、
+  `reset` 报 `... has no attribute 'clear_workspace_dir'`（用户抓到的原始通知：
+  `[tool] workspace 调用失败：set workspace: '_SessionWorkspaceStore' object has no attribute
+  'set_workspace_dir'`）。
+- 同一根因还打断两类工具：`shell`（前台没有沙盒目录时要用当前 workspace 当 cwd）报
+  `load workspace: ... has no attribute 'get_workspace_dir'`；所有路径类工具
+  （`read_file` / `edit_file` / `send_file` / `view_image` / `rollback_file`）同样失败——
+  连**绝对路径**也中招，因为 `resolve_workspace_path` 会先把 `current_workspace_dir()` 当
+  base_dir 取一次。
+- 用户可见症状：模型调工具连续失败后**放弃工具、改猜答案**（实测问「现在几点钟」时
+  shell 两次失败、workspace 两次失败，最后从会话元数据推算了一个时间并回答"环境工具坏了"）。
+- 根因：`atri_x/agent/toolrun_adapter.py` 的 `prepare_tool_context()` 注入的是 Python 移植
+  中途的残留桩 `_SessionWorkspaceStore`（只有 `load`/`save`，而它们按名字去调
+  `agent.session_workspace` / `agent.persist_session_workspace`——这两个方法**全仓不存在**，
+  所以即使被调用也是空操作）。工具层要的是 `atri_x/tool/workspace.py` 的
+  `WorkspaceStore` / `WorkspaceAgentNoticeStore` 异步协议（`get_workspace_dir` /
+  `set_workspace_dir` / `clear_workspace_dir` + 三个 notice 方法）。正确实现
+  `atri_x/agent/workspace.py::SessionWorkspaceStore` 一直存在，`tool_directive.py` 用的就是它，
+  **只有真正执行工具的 toolrun 适配层接错**。
+- 为什么测试没抓到：`workspace` 工具的所有单测都手写假 store（实现了协议），没有任何用例
+  断言 `prepare_tool_context` 注入对象的类型/能力——和 `toolrun/runner.py` 里记录过的
+  "假实现让单测全绿" 是同一类事故。
+
+### 修复
+
+- `atri_x/agent/toolrun_adapter.py`：`prepare_tool_context()` 改用
+  `atri_x.agent.workspace.SessionWorkspaceStore(agent, session)`，并删除残留桩
+  `_SessionWorkspaceStore`。workspace 目录与「AGENT 提示已发」标记恢复写进 session metadata
+  （`workspace_dir` / `workspace_agent_notice_dirs`）。
+- 回归测试（`tests/test_toolrun.py`）：新增 `WorkspaceStoreWiringTests`——
+  - `test_prepare_tool_context_injects_real_workspace_store`：断言注入对象
+    `isinstance(store, SessionWorkspaceStore)` 且满足 `WorkspaceStore` 协议、`workspace` 工具
+    set 后目录真的落进 session metadata、残留桩已从模块里消失；
+  - `test_workspace_tool_accepts_dot_in_session_context`：`{"path": "."}` 在真实会话上下文里成功。
+- 顺带修复两个小问题（同一轮里让模型多踩两次的噪声）：
+
+  1. **通知发送失败日志丢字段**（`atri_x/delivery/delivery.py`）：把 `_output_log_attrs()`
+     返回的属性元组当成**一个**位置参数传给 slog 风格 logger，格式化器把非字符串键渲染成
+     `!BADKEY`，日志变成 `level=WARN msg="notice output failed %s" !BADKEY=!BADKEY`，
+     platform / error 全丢。现在按 Go 风格展开成 `key, value` 位置参数，日志恢复
+     `msg="notice output failed" platform=... error=...`；外部传标准库 `logging.Logger` 时
+     退回 `k=v` 文本（不再 `TypeError`）。回归测试见 `tests/test_delivery.py::TestManager`
+     的两条 `test_send_notice_failure_*`。
+  2. **`workspace {"path": "."}` 报误导性的 `workspace path is required`**
+     （`atri_x/tool/workspace.py::validate_workspace_dir`）：Go 只认绝对路径，`"."` 归一后
+     仍等于 `"."`，于是被判成"空路径"。现在相对路径先按**当前工作目录**解析成绝对路径再校验：
+     空路径才报 `required`，存在但不是目录报 `workspace path is not a directory`；
+     `workspace` 工具描述同步说明"相对路径按当前工作目录解析"。回归测试见
+     `tests/test_builtin_files.py::TestWorkspaceTool` 的三条 `test_validate_workspace_dir_*` /
+     `test_workspace_tool_accepts_dot`。
+- 版本号 `1.0.8` → `1.0.9`：`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION`、
+  `README.md`（当前版本与 Release 链接）同步。
+- 发行重建：重新 PyInstaller onedir → 便携版 zip → Inno 安装包，并重打全仓库源码归档
+  （含内置 DSH 内核与脱敏后的 QQ 协议端）。
+
 ## [1.0.8] - 2026-10-29 — 修复「人设卡 → 表情图库」子选项卡整页空白
 
 旧状态（1.0.7）：

@@ -404,6 +404,53 @@ class TestManager(unittest.IsolatedAsyncioTestCase):
         self.assertIn("hook myhook output", str(ctx.exception))
         self.assertTrue(ctx.exception.receipt.failed)
 
+    async def test_send_notice_failure_logs_structured_fields(self) -> None:
+        """1.0.9 回归：失败日志必须是 slog 风格的 ``key=value``，不能再有 ``!BADKEY``。
+
+        1.0.8 把整条 attrs 当成一个位置参数传给 slog 风格 logger，渲染成
+        ``msg="notice output failed %s" !BADKEY=!BADKEY``（platform / error 全丢）。
+        """
+        import io
+
+        from atri_x.logging.logging import new_logger
+
+        buffer = io.StringIO()
+        logger = new_logger("debug", buffer)
+        sender = FakeSender(notice_error=RuntimeError("boom"))
+        manager = Manager(sender=sender, logger=logger)
+        out = Output(kind=Kind.TEXT, text="hi", meta={META_HOOK_NAME: "myhook"})
+        with self.assertRaises(DeliveryError):
+            await manager.send_notice(None, Notice(outputs=[out]))
+        line = buffer.getvalue()
+        self.assertIn('msg="notice output failed"', line)
+        self.assertIn("level=WARN", line)
+        self.assertIn("error=", line)
+        self.assertIn("hook=myhook", line)
+        self.assertNotIn("!BADKEY", line)
+        self.assertNotIn("%s", line)
+
+    async def test_send_notice_failure_with_stdlib_logger(self) -> None:
+        """传标准库 logger 时退回 ``k=v`` 文本，不能抛 ``TypeError``。"""
+        messages: list[str] = []
+
+        class _Handler(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                messages.append(record.getMessage())
+
+        logger = logging.getLogger("test.delivery.structured")
+        logger.addHandler(_Handler())
+        logger.propagate = False
+        sender = FakeSender(notice_error=RuntimeError("boom"))
+        out = Output(kind=Kind.TEXT, text="hi", meta={META_HOOK_NAME: "myhook"})
+        with self.assertRaises(DeliveryError):
+            await Manager(sender=sender, logger=logger).send_notice(
+                None, Notice(outputs=[out])
+            )
+        self.assertEqual(1, len(messages))
+        self.assertIn("notice output failed", messages[0])
+        self.assertIn("hook=myhook", messages[0])
+        self.assertNotIn("!BADKEY", messages[0])
+
     async def test_send_notices_with_receipt_delegates(self) -> None:
         sender = FakeSender()
         receipt = await Manager(sender=sender).send_notices_with_receipt(None, [text("hi")])

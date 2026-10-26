@@ -134,14 +134,22 @@ async def resolve_workspace_path(
 
 
 def validate_workspace_dir(path: str) -> str:
-    """对应 Go ``ValidateWorkspaceDir``：必须是存在的目录。"""
-    path = (path or "").strip()
-    if path == "":
+    """对应 Go ``ValidateWorkspaceDir``：必须是存在的目录。
+
+    与 Go 的差异（Python 版扩展）：**相对路径按当前工作目录解析**后再校验。
+    Go 只认绝对路径，``"."`` 会被 ``filepath.Clean`` 归一成 ``"."`` 然后报
+    "workspace path is required"；模型很自然会把「就用当前目录」写成 ``"."``，
+    这条误导性报错会让它反复重试（1.0.8 实测）。现在相对路径先钉成绝对路径：
+    空路径才报 ``workspace path is required``，存在但不是目录报
+    ``workspace path is not a directory``。
+    """
+    raw_path = (path or "").strip()
+    if raw_path == "":
         raise InvalidError("workspace path is required")
-    expanded_path = _expand_workspace_path(path)
+    expanded_path = _expand_workspace_path(raw_path)
     path = os.path.normpath(_normalize_workspace_local_path(expanded_path))
-    if path in ("", "."):
-        raise InvalidError("workspace path is required")
+    if not os.path.isabs(path):
+        path = os.path.normpath(os.path.join(os.getcwd(), path))
     try:
         st = os.stat(path)
     except OSError as exc:

@@ -1144,6 +1144,115 @@ class StartToolRequestContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(inspect.iscoroutinefunction(AgentToolRunDeps.start_tool_request))
 
 
+class WorkspaceStoreWiringTests(unittest.IsolatedAsyncioTestCase):
+    """1.0.9 回归：``prepare_tool_context`` 注入的 workspace store 必须符合工具层协议。
+
+    1.0.8 注入的是移植残留桩 ``_SessionWorkspaceStore``（只有 ``load``/``save``，且依赖的
+    ``agent.session_workspace`` / ``persist_session_workspace`` 全仓不存在），于是
+    ``workspace`` 工具报 ``set workspace: ... has no attribute 'set_workspace_dir'``，
+    ``shell`` 与所有路径类工具报 ``load workspace: ... get_workspace_dir``。
+
+    旧单测里 workspace 工具都用**手写假 store**（实现了协议），没有任何用例断言真实
+    适配层注入的对象，所以 1.0.8 单测全绿也照样带着这个缺陷发布。
+    """
+
+    def _host(self):
+        class _Row:
+            def __init__(self) -> None:
+                self.id = "s1"
+                self.metadata = "{}"
+                self.updated_at = None
+
+        class _Sessions:
+            def __init__(self) -> None:
+                self.row = _Row()
+
+            def get(self, session_id: str):
+                return self.row
+
+            def mutate(self, session_id: str, apply):
+                apply(self.row)
+                return self.row
+
+        class _Store:
+            def __init__(self) -> None:
+                self._sessions = _Sessions()
+
+            def sessions(self):
+                return self._sessions
+
+        class _Host:
+            def __init__(self) -> None:
+                self.store = _Store()
+                self.safety_guard = None
+
+        return _Host()
+
+    async def test_prepare_tool_context_injects_real_workspace_store(self) -> None:
+        import os
+
+        from atri_x.agent import toolrun_adapter
+        from atri_x.agent.toolrun_adapter import AgentToolRunDeps
+        from atri_x.agent.workspace import SessionWorkspaceStore
+        from atri_x.tool.builtin.workspace import WorkspaceTool
+        from atri_x.tool.workspace import (
+            WorkspaceAgentNoticeStore,
+            WorkspaceStore,
+            workspace_store_from_context,
+        )
+
+        # 残留桩必须已经删掉（否则以后又会被接回去）
+        self.assertFalse(hasattr(toolrun_adapter, "_SessionWorkspaceStore"))
+
+        deps = AgentToolRunDeps(agent=self._host(), output=None)
+        session = make_session()
+        ctx = await deps.prepare_tool_context(
+            {}, session, ToolCallRequest(id="1", name="workspace", arguments="{}")
+        )
+        store, ok = workspace_store_from_context(ctx)
+        self.assertTrue(ok)
+        self.assertIsInstance(store, SessionWorkspaceStore)
+        self.assertIsInstance(store, WorkspaceStore)
+        self.assertIsInstance(store, WorkspaceAgentNoticeStore)
+
+        target = os.path.normpath(os.getcwd())
+        result = await WorkspaceTool().call(
+            ctx,
+            ToolCallRequest(
+                id="2", name="workspace", arguments=json.dumps({"path": target})
+            ),
+        )
+        self.assertIn("workspace set.", result.content)
+        self.assertIn(target, result.content)
+        # 真的写进了 session metadata，不是空操作
+        self.assertEqual(target, await store.get_workspace_dir(ctx))
+        self.assertIn("workspace_dir", session.metadata or "")
+        # clear 也要落库（旧的桩没有任何一个方法，这里顺带钉住整条读写路径）
+        await store.clear_workspace_dir(ctx)
+        self.assertEqual("", await store.get_workspace_dir(ctx))
+
+    async def test_workspace_tool_accepts_dot_in_session_context(self) -> None:
+        """模型最自然的 ``{"path": "."}`` 在真实会话上下文里要成功。"""
+        import os
+
+        from atri_x.agent.toolrun_adapter import AgentToolRunDeps
+        from atri_x.tool.builtin.workspace import WorkspaceTool
+        from atri_x.tool.workspace import workspace_store_from_context
+
+        deps = AgentToolRunDeps(agent=self._host(), output=None)
+        session = make_session()
+        ctx = await deps.prepare_tool_context(
+            {}, session, ToolCallRequest(id="1", name="workspace", arguments="{}")
+        )
+        result = await WorkspaceTool().call(
+            ctx, ToolCallRequest(id="2", name="workspace", arguments='{"path": "."}')
+        )
+        self.assertIn("workspace set.", result.content)
+        store, ok = workspace_store_from_context(ctx)
+        self.assertTrue(ok)
+        self.assertEqual(os.path.normpath(os.getcwd()), await store.get_workspace_dir(ctx))
+
+
 class StartToolRequestLifecycleTests(unittest.TestCase):
     """``done()`` 的调用责任：登记成功后恰好一次，任何失败/取消路径都释放。"""
 

@@ -146,7 +146,11 @@ def workspace_builder() -> Builder:
         .superadmin_only()
         .tags("agent", "files")
         .foreground_only()
-        .string("path", "要设置为 workspace 的已有目录路径。支持~或者$HOME开头。")
+        .string(
+            "path",
+            "要设置为 workspace 的已有目录路径。支持~或者$HOME开头；"
+            "相对路径按当前工作目录解析（\".\" 即当前目录）。",
+        )
         .boolean("reset", "为 true 时重置为默认工作目录。")
     )
 

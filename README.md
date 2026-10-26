@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.0.8`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `1.0.9`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -175,10 +175,10 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.0.8`**（桌面端修复：**「人设卡 → 表情图库」子选项卡整页空白**。1.0.4 引入的本地表情图库面板建在自己未布局的 frame 上，1.0.4–1.0.7 打开该页只有空白、无法编辑，从「功能」页双击「本地表情图库」跳转还会抛 `TclError`；1.0.8 把面板显式 pack 进子选项卡页框、跳转改为选中真正的 notebook 页框，并新增「所有页与子页都必须有已布局控件」的全量回归测试。功能面与 1.0.7 相同：1.0.7 的桌面端**选项卡按需构建**（启动 50 个 Win32 子窗口、约 1 ms/次移动，修掉拖动迟滞）、1.0.6 的「后台服务启动即崩」修复、两批《dsh-qq 借鉴落地评估》①**高风险确认的授权边界**②**常驻记忆的会话可见性**③**授权生命周期**④**长期记忆按会话隔离**⑤**引用/转发慢取**⑥**费用归因**⑦**计算静默 `[quiet]` 与群聊参与状态机 `[participation]`**，以及 1.0.4 的工具进度提示、本地表情图库与 1.0.3 的内置内容安全、常驻记忆配额、识图改造；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
-交付物尺寸与校验和见发行库里的 `SHA256SUMS.txt` 与 `ATRI-X-1.0.8-compatibility-report.md`。
+当前最新版本：**`1.0.9`**（修复前台会话的工具链路：**`workspace` 工具永远失败、`shell` 与所有路径类工具报 `load workspace`**。1.0.8 的工具运行适配层把移植残留桩 `_SessionWorkspaceStore`（只有 `load`/`save`，依赖的 `agent.session_workspace` / `persist_session_workspace` 全仓不存在）当成 workspace 存储注入工具上下文，而工具层要求 `get/set/clear_workspace_dir` 异步协议：`workspace` 的 set / query / reset 分别报 `no attribute 'set_workspace_dir' / 'get_workspace_dir' / 'clear_workspace_dir'`，`shell`（前台无沙盒）与 `read_file`/`edit_file`/`send_file`/`view_image`/`rollback_file`（**绝对路径也会**）报 `load workspace: ... has no attribute 'get_workspace_dir'`——用户可见症状是模型调工具连续失败后放弃、改成猜答案。1.0.9 改用真正的 `SessionWorkspaceStore`（workspace 目录与「AGENT 提示已发」标记恢复写进 session metadata）并删除残留桩，新增端到端回归测试。顺带修复两个小问题：通知发送失败日志把 dict 当位置参数传给 slog 风格 logger，渲染成 `msg="notice output failed %s" !BADKEY=!BADKEY`（platform / error 全丢）；`workspace {"path": "."}` 被误导性报 `workspace path is required`（现在相对路径按当前工作目录解析，空路径才报 required）。功能面与 1.0.8 相同：1.0.8 的「人设卡 → 表情图库」子选项卡空白页修复、1.0.7 的桌面端选项卡按需构建、1.0.6 的后台服务递归崩溃修复，以及 1.0.5 以来两批《dsh-qq 借鉴落地评估》①**高风险确认的授权边界**②**常驻记忆的会话可见性**③**授权生命周期**④**长期记忆按会话隔离**⑤**引用/转发慢取**⑥**费用归因**⑦**计算静默 `[quiet]` 与群聊参与状态机 `[participation]`**、1.0.4 的工具进度提示与本地表情图库、1.0.3 的内置内容安全 / 常驻记忆配额 / 识图改造；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+交付物尺寸与校验和见发行库里的 `SHA256SUMS.txt` 与 `ATRI-X-1.0.9-compatibility-report.md`。
 
-已发布：[**GitHub Release v1.0.8**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)（当前版）；上一版 [v1.0.7](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.7)。交付物尺寸与 SHA-256 见各 Release 的 `SHA256SUMS.txt` 与 `ATRI-X-<版本>-compatibility-report.md`；更早的 1.0.6 / 1.0.5 / 1.0.4 与 1.0.3 热修版、1.0.2 补丁版（tag `v1.0.2` = `00a6653`）仍在。
+已发布：[**GitHub Release v1.0.9**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.9)（当前版）；上一版 [v1.0.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)。交付物尺寸与 SHA-256 见各 Release 的 `SHA256SUMS.txt` 与 `ATRI-X-<版本>-compatibility-report.md`；更早的 1.0.7 / 1.0.6 / 1.0.5 / 1.0.4 与 1.0.3 热修版、1.0.2 补丁版（tag `v1.0.2` = `00a6653`）仍在。
 
 | 产物 | 位置 |
 | --- | --- |

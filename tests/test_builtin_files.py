@@ -405,13 +405,51 @@ class TestWorkspaceTool(unittest.TestCase):
         again = _run(tool.call(ctx, _call("workspace", {"path": TMP_ROOT})))
         self.assertNotIn("Loaded workspace instructions", again.content)
 
+    def test_validate_workspace_dir_resolves_relative_paths(self) -> None:
+        """1.0.9：相对路径按 cwd 解析；`"."` 不再被当成空路径报错。"""
+        from atri_x.tool.workspace import validate_workspace_dir
+
+        self.assertEqual(os.path.normpath(os.getcwd()), validate_workspace_dir("."))
+        self.assertEqual(
+            os.path.normpath(os.getcwd()),
+            validate_workspace_dir(os.path.join(".", "")),
+        )
+        self.assertEqual(TMP_ROOT, validate_workspace_dir(os.path.join(TMP_ROOT, ".")))
+
+    def test_validate_workspace_dir_messages(self) -> None:
+        """空路径与非目录的报错要能区分（1.0.8 两者都报 required，误导模型）。"""
+        from atri_x.tool.workspace import validate_workspace_dir
+
+        with self.assertRaises(InvalidError) as blank:
+            validate_workspace_dir("   ")
+        self.assertIn("workspace path is required", str(blank.exception))
+
+        path = os.path.join(TMP_ROOT, "not-a-dir.txt")
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write("x\n")
+        with self.assertRaises(InvalidError) as file_error:
+            validate_workspace_dir(path)
+        self.assertIn("not a directory", str(file_error.exception))
+
+    def test_workspace_tool_accepts_dot(self) -> None:
+        """workspace 工具支持 `{"path": "."}`（模型最自然的"就用当前目录"）。"""
+        store = _FakeWorkspaceStore()
+        from atri_x.tool.workspace import with_workspace_store
+
+        ctx = with_workspace_store(None, store)
+        result = _run(WorkspaceTool().call(ctx, _call("workspace", {"path": "."})))
+        self.assertIn("workspace set.", result.content)
+        self.assertEqual(os.path.normpath(os.getcwd()), store.directory)
+
     def test_workspace_tool_metadata(self) -> None:
         info = WorkspaceTool().info()
         self.assertEqual(info.name, "workspace")
         self.assertEqual(info.tags, ["agent", "files"])
         self.assertTrue(info.superadmin_only)
         self.assertTrue(info.foreground_only)
-        self.assertEqual(WorkspaceTool().schema().function.name, "workspace")
+        schema = WorkspaceTool().schema()
+        self.assertEqual(schema.function.name, "workspace")
+        self.assertIn("相对路径", str(schema.function.parameters["properties"]["path"]))
 
 
 class _FakeWorkspaceStore:

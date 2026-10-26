@@ -446,7 +446,7 @@ class Manager:
                 attrs = _output_log_attrs(
                     notice.outputs[0], "platform", notice.target.platform, "error", str(exc)
                 )
-                self.logger.warning("notice output failed %s", attrs)
+                _log_notice_failure(self.logger, attrs)
             wrapped = _wrap_output_source_error(notice.outputs[0], exc)
             raise DeliveryError(str(wrapped), _receipt_of(exc).mark_partial_failure(exc)) from exc
 
@@ -494,6 +494,34 @@ def _output_log_attrs(out: Output, *attrs: Any) -> tuple[Any, ...]:
         if value:
             out_attrs.extend((label, value))
     return tuple(out_attrs)
+
+
+def _log_notice_failure(logger: Any, attrs: "tuple[Any, ...]") -> None:
+    """写「通知发送失败」日志（结构化 key/value）。
+
+    生产传的是 :class:`atri_x.logging.logging.Logger`（Go ``slog`` 语义：位置参数是
+    ``key, value`` 对）。1.0.8 把整条 attrs 当成**一个**位置参数传进去，slog 风格的
+    格式化器把非字符串键渲染成 ``!BADKEY=!BADKEY``，日志变成
+    ``msg="notice output failed %s" !BADKEY=!BADKEY``，platform / error 全部丢失
+    （见 CHANGELOG 1.0.9）。
+
+    外部/测试可能传标准库 ``logging.Logger``（只支持 ``msg % args``），这时退回把属性
+    渲染成 ``k=v`` 文本，避免 ``TypeError: not all arguments converted``。
+    """
+    if isinstance(logger, logging.Logger):
+        logger.warning("notice output failed %s", _render_log_attrs(attrs))
+        return
+    logger.warning("notice output failed", *attrs)
+
+
+def _render_log_attrs(attrs: "tuple[Any, ...]") -> str:
+    """把 ``key, value`` 交错属性渲染成 ``k=v`` 文本（仅标准库 logging 兼容用）。"""
+    parts: list[str] = []
+    for index in range(0, len(attrs), 2):
+        key = attrs[index]
+        value = attrs[index + 1] if index + 1 < len(attrs) else "!BADKEY"
+        parts.append(f"{key}={value}")
+    return " ".join(parts)
 
 
 def _wrap_output_source_error(out: Output, err: BaseException | None) -> BaseException | None:
