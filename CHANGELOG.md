@@ -66,6 +66,31 @@
 - 发行重建：重新 PyInstaller onedir → 便携版 zip → Inno 安装包，并重打全仓库源码归档
   （含内置 DSH 内核与脱敏后的 QQ 协议端）。
 
+### 发行
+
+- 版本号 `1.0.8` → `1.0.9` 随本版提交同步（`atri_x/__init__.py` / `pyproject.toml` /
+  `deploy/VERSION` / `README.md`）。
+- 产物级自检：全量单测 `Ran 6495 tests` 全部 `OK`（1504.5 s，199 个测试模块逐个执行）；
+  门禁 0 失败（`check_syntax` 952 文件 / `check_imports` 734/734 / `check_integration` 74 项 /
+  `check_coverage` 100% / `check_except` 119 = 基线 / `check_secrets` 0 命中 / `gen_stats`）；
+  便携版解压 27,045 条目、10 项断言全 ok；安装包静默安装 27,043 个文件后卸载清空。
+- 脱敏复查（源码树 / 源码归档 / 内置 DSH 内核 / onedir / 安装包 / 发行文本）：全部 **0 命中**；
+  便携包文本条目 0 命中。便携包内 7 个第三方二进制（腾讯 QQ / NapCat 的 `libcurl.dll`、
+  `librtmp.dll`、`crashpad_handler*.exe`、`ilink2.dll`、`QBar.dll`、`BugReport.dll`）自带的上游
+  构建机路径与构建输入 SHA-256 逐字节一致，不含本机用户名 / 用户目录 / 令牌（与 1.0.8 同源）。
+- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：`main` 提交 `49d116e`
+  （`release: ATRI-X 1.0.9 …`），tag `v1.0.9` 指向同一提交；GitHub Release `v1.0.9` 附带七个
+  资产（安装包 / 便携版 / 便携版 `.sha256` / 源码归档 zip 与 tar.gz / `SHA256SUMS.txt` /
+  `ATRI-X-1.0.9-compatibility-report.md`）。四件产物的尺寸与 SHA-256：
+  - `ATRI-X-1.0.9-setup.exe` 461,122,659 字节 —
+    `c791410751ac3406dff7c8707ff6429e9da8baf06e4325a5ee917547c0fe2d18`
+  - `ATRI-X-1.0.9-portable-win64.zip` 684,255,875 字节 —
+    `3f75f9045aa19d94560e96cd288a67a089dffc2b381effef25ae2ec60bf5d8cb`
+  - `ATRI-X-1.0.9-repo.zip` 10,408,007 字节 —
+    `e7f30c7dfe2952bc95b5415ea390b72e1eb48b01d90f1dd2049c295d7a50641f`
+  - `ATRI-X-1.0.9-repo.tar.gz` 9,438,440 字节 —
+    `7eeca8f595f104419831d7aabc413c8be0c4f03f2158b1380f995e2918d333af`
+
 ## [1.0.8] - 2026-10-29 — 修复「人设卡 → 表情图库」子选项卡整页空白
 
 旧状态（1.0.7）：
