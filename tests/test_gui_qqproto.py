@@ -24,7 +24,7 @@ from tkinter import ttk
 from typing import Any
 from unittest import mock
 
-from atri_x.gui import configedit, qqproto, service
+from atri_x.gui import configedit, linkstate, qqproto, service
 
 #: 测试临时目录（仓库规定：临时目录放仓库内 ``tests/_tmp_*``）。
 TEMP_ROOT = Path(__file__).resolve().parent / "_tmp_gui_qqproto"
@@ -216,6 +216,54 @@ class QqProtoLogicCase(unittest.TestCase):
         self.assertEqual(section["access_token_env"], qqproto.ONEBOT_TOKEN_ENV)
         self.assertEqual(section["trigger_keywords"], ["atri"])
 
+    # ---------------------------------------------------------------- 协议端类型
+
+    def test_new_section_records_legacy_bundle_backend(self) -> None:
+        """整段新建时写 ``protocol_backend``；旧内置包没有元数据 → napcat。"""
+        self._ensure()
+        data = configedit.read_toml(str(self.config_path))
+        self.assertEqual(data["platform"]["qqonebot"]["protocol_backend"], "napcat")
+
+    def test_snowluma_bundle_is_rejected(self) -> None:
+        """发行包声明 SnowLuma 时不内置（许可限制），也不能把配置写成 snowluma。"""
+        _write(
+            self.bundle / qqproto.ENV_DIR_NAME / qqproto.INFO_NAME,
+            json.dumps({"kind": "qqproto", "backend": "snowluma"}),
+        )
+        before = self.config_path.read_text(encoding="utf-8")
+        setup = self._ensure()
+        self.assertFalse(setup.available)
+        self.assertIn("SnowLuma", setup.reason)
+        self.assertEqual(setup.backend, "snowluma")
+        self.assertEqual(self.config_path.read_text(encoding="utf-8"), before)
+
+    def test_existing_section_is_never_given_backend(self) -> None:
+        """老配置的段已存在但不带该键：**不补写**（补写等于替用户切协议端）。"""
+        _write(
+            self.config_path,
+            APP_TOML + '\n[platform.qqonebot]\nenabled = true\nws_url = "ws://127.0.0.1:3456/"\n',
+        )
+        self._ensure()
+        data = configedit.read_toml(str(self.config_path))
+        self.assertNotIn("protocol_backend", data["platform"]["qqonebot"])
+
+    def test_bundle_backend_reads_metadata(self) -> None:
+        env_root = str(self.bundle / qqproto.ENV_DIR_NAME)
+        self.assertEqual(qqproto.bundle_backend(env_root), "napcat")  # 旧包 = 无元数据
+        _write(
+            self.bundle / qqproto.ENV_DIR_NAME / qqproto.INFO_NAME,
+            json.dumps({"kind": "qqproto", "backend": "snowluma"}),
+        )
+        self.assertEqual(qqproto.bundle_backend(env_root), "snowluma")
+
+    def test_bundle_backend_tolerates_broken_metadata(self) -> None:
+        env_root = str(self.bundle / qqproto.ENV_DIR_NAME)
+        info = self.bundle / qqproto.ENV_DIR_NAME / qqproto.INFO_NAME
+        for text in ("not json", "[]", json.dumps({"backend": "llonebot"})):
+            with self.subTest(text=text):
+                _write(info, text)
+                self.assertEqual(qqproto.bundle_backend(env_root), "napcat")
+
     def test_second_run_is_idempotent(self) -> None:
         first = self._ensure()
         napcat = _napcat_config_dir(first.shell_dir)
@@ -376,12 +424,28 @@ class QqProtoServiceCase(unittest.TestCase):
         shutil.rmtree(TEMP_ROOT, ignore_errors=True)
 
     def test_settings_carry_qqproto(self) -> None:
+        # 默认协议端就是内置 NapCat；新装直接走内置环境。
         with _env(**{qqproto.BUNDLE_ENV_VAR: str(self.bundle / qqproto.ENV_DIR_NAME)}):
             settings = service.prepare_settings(str(self.config_path))
         self.assertIsNotNone(settings.qqproto)
         assert settings.qqproto is not None
         self.assertTrue(settings.qqproto.available, settings.qqproto.reason)
+        self.assertEqual(settings.qqproto.backend, "napcat")
         self.assertEqual(settings.qqproto.onebot_port, qqproto.DEFAULT_ONEBOT_PORT)
+
+    def test_new_install_prepares_bundled_napcat(self) -> None:
+        """新装默认 NapCat：首次启动就用内置协议端，并落显式 ``protocol_backend``。"""
+        with _env(**{qqproto.BUNDLE_ENV_VAR: str(self.bundle / qqproto.ENV_DIR_NAME)}):
+            settings = service.prepare_settings(str(self.config_path))
+        self.assertIsNotNone(settings.qqproto)
+        assert settings.qqproto is not None
+        self.assertEqual(settings.qqproto.backend, "napcat")
+        self.assertTrue(settings.qqproto.available, settings.qqproto.reason)
+        data = configedit.read_toml(str(self.config_path))
+        section = (data.get("platform") or {}).get("qqonebot")
+        self.assertIsInstance(section, dict)
+        self.assertEqual(section.get("protocol_backend"), "napcat")
+        self.assertIs(section.get("enabled"), False)
 
     def test_settings_without_bundle(self) -> None:
         with _env(**{qqproto.BUNDLE_ENV_VAR: ""}):
@@ -438,12 +502,86 @@ class LinkTabCase(unittest.TestCase):
         )
         tab = self._tab(setup)
         self.assertEqual(str(tab._start_button.cget("state")), "normal")
-        self.assertIn("内置协议端", tab._vars["endpoint_env"].get())
+        env_text = tab._vars["endpoint_env"].get()
+        self.assertIn("NapCat", env_text)
+        self.assertIn("内置", env_text)
 
     def test_start_button_disabled_without_env(self) -> None:
         tab = self._tab(qqproto.QqProtoSetup(available=False, reason="未内置"))
         self.assertEqual(str(tab._start_button.cget("state")), "disabled")
         self.assertIn("不可用", tab._vars["endpoint_env"].get())
+
+    def test_snowluma_setup_is_labelled_external(self) -> None:
+        from atri_x.gui.proto_setup import ProtoSetup
+
+        setup = ProtoSetup(
+            available=True,
+            backend="snowluma",
+            env_dir="C:/SnowLuma",
+            onebot_port=3001,
+            webui_port=5099,
+            webui_url="http://127.0.0.1:5099/",
+            external=True,
+        )
+        tab = self._tab(setup)
+        env_text = tab._vars["endpoint_env"].get()
+        self.assertIn("SnowLuma", env_text)
+        self.assertIn("外部自备", env_text)
+
+    def test_four_state_separates_transport_from_login(self) -> None:
+        """端口/连接通了但 QQ 没登录，不能显示成"已登录"。"""
+        tab = self._tab(
+            qqproto.QqProtoSetup(available=True, env_dir="C:/x/qqproto", onebot_port=3001)
+        )
+        tab._cfg = linkstate.PlatformConfig(enabled=True, ws_url="ws://127.0.0.1:3001/")
+        tab._report = linkstate.HealthReport(
+            platforms=(
+                linkstate.PlatformEntry(
+                    name="qqonebot",
+                    connected=True,
+                    login_checked=True,
+                    login_ok=False,
+                ),
+            )
+        )
+        tab._render_endpoint()
+        self.assertIn("未登录", tab._vars["endpoint_state"].get())
+        self.assertIn("QQ 登录：未登录", tab._vars["endpoint_detail"].get())
+
+    def test_four_state_shows_logged_in_account(self) -> None:
+        tab = self._tab(
+            qqproto.QqProtoSetup(available=True, env_dir="C:/x/qqproto", onebot_port=3001)
+        )
+        tab._cfg = linkstate.PlatformConfig(enabled=True, ws_url="ws://127.0.0.1:3001/")
+        tab._report = linkstate.HealthReport(
+            platforms=(
+                linkstate.PlatformEntry(
+                    name="qqonebot",
+                    connected=True,
+                    login_checked=True,
+                    login_ok=True,
+                    self_id="10001",
+                    nickname="bot",
+                    backend="snowluma",
+                ),
+            )
+        )
+        tab._render_endpoint()
+        self.assertIn("QQ 已登录", tab._vars["endpoint_state"].get())
+        detail = tab._vars["endpoint_detail"].get()
+        self.assertIn("10001", detail)
+        self.assertIn("OneBot：已连通", detail)
+
+    def test_four_state_without_login_check_says_unknown(self) -> None:
+        tab = self._tab(
+            qqproto.QqProtoSetup(available=True, env_dir="C:/x/qqproto", onebot_port=3001)
+        )
+        tab._cfg = linkstate.PlatformConfig(enabled=True, ws_url="ws://127.0.0.1:3001/")
+        tab._report = linkstate.HealthReport(
+            platforms=(linkstate.PlatformEntry(name="qqonebot", connected=True),)
+        )
+        tab._render_endpoint()
+        self.assertIn("登录态未确认", tab._vars["endpoint_state"].get())
 
 
 if __name__ == "__main__":

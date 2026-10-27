@@ -365,6 +365,7 @@ api_key_env = "OPENAI_API_KEY"
 models = ["gpt-4o-mini"]             # 手动补充模型列表（API 获取不到时使用）
 api_mode = "chat"                    # chat（默认）/ response，见下方说明
 reasoning_effort = "medium"          # 推理思考强度：none/minimal/low/medium/high；留空 = 不发送
+                                     # chat 发顶层 reasoning_effort；response 自动折成 reasoning.effort
 
 # 可选：网关要求的自定义请求头（保留头不能覆盖）
 [providers.openai.extra_headers]
@@ -389,7 +390,7 @@ default_context_window = 256000
 - `proxy` 可选，支持 `http://` 和 `socks5://` 代理地址；省略或留空时直连，不继承 ATRI-X 进程的 `HTTP_PROXY`、`HTTPS_PROXY` 等环境代理。该设置同时作用于模型列表和聊天请求。
 - `models` 是手动补充的模型名列表，当 Provider 的模型列表接口获取不到某些模型时使用。
 - `[providers.<name>.model_configs."<model>"]` 为特定模型配置 `context_window`、`extra_payload`、`vision` 和 `audio`，都是可选的。
-- `reasoning_effort` 是**推理思考强度**，取值 `none` / `minimal` / `low` / `medium` / `high`（大小写不敏感），写进 LLM 请求 JSON 的 `reasoning_effort` 字段；留空表示**不发送**该字段。只对支持这个参数的模型/网关有效（OpenAI o 系、部分中转站），不支持的模型请保持留空——它不会自动降级，发错会由上游返回 400。Provider 级写在 `[providers.<name>]`，`[providers.<name>.model_configs."<model>"]` 可按模型覆盖（空串表示回落到 Provider 级）。桌面端「模型」页的 Provider 表单可以直接选这一项；启动期与桌面端保存前用同一个白名单校验，写错会直接报错而不是静默发出去。个别网关的私有档位（例如 `xhigh`、`auto`）请改用 `extra_payload` 透传。
+- `reasoning_effort` 是**推理思考强度**，取值 `none` / `minimal` / `low` / `medium` / `high`（大小写不敏感），留空表示**不发送**。字段形态跟协议走：`chat` 协议写请求 JSON 的顶层 `reasoning_effort`；`response` 协议自动折成 Responses 原生的 `reasoning.effort`（顶层 `reasoning_effort` 会被 OpenAI 官方和多数严格校验的网关直接 400 拒掉，例如 opencode.ai 的 `reasoning_effort: requires a native Responses target`）。只对支持该参数的模型/网关有效（OpenAI o 系、部分中转站），不支持的模型请保持留空——它不会自动降级，发错会由上游返回 400。Provider 级写在 `[providers.<name>]`，`[providers.<name>.model_configs."<model>"]` 可按模型覆盖（空串表示回落到 Provider 级）。桌面端「模型」页的 Provider 表单可以直接选这一项；启动期与桌面端保存前用同一个白名单校验，写错会直接报错而不是静默发出去。个别网关的私有档位（例如 `xhigh`、`auto`）请改用 `extra_payload` 透传；如果已经用 `extra_payload` 显式给了 `reasoning` 对象，则显式值优先（只在其缺少 `effort` 时才补上）。
 - `vision` / `audio` 是可选的三态能力声明：`true` 表示声明支持，`false` 表示明确不支持，不写则由上层按未知处理。`[vision]` 和 `[asr]` 启用时，目标模型被显式声明为 `false` 会在启动阶段报错；model 级声明优先于 provider 级。
 - `extra_payload` 会合并到 LLM 请求 JSON 中，模型级覆盖 Provider 级。
 - `extra_headers` 是 Provider 级自定义请求头（`[providers.<name>.extra_headers]` 子表），
@@ -1233,6 +1234,8 @@ allow_superadmin = true       # 静默期仍允许超级管理员触发
 
 `app.toml` 的 `[time]` 是**时间口径的唯一来源**：提示词里的"现在"、cron / 提醒 / 静默时段的时区判定、`get_current_time` 工具、`/diagnostics` 的时间段都从这里取同一个口径。
 
+**桌面端入口**：主窗口「时间」选项卡（`atri_x/gui/tabs/timepanel.py`，数据层 `atri_x/gui/timeview.py`）把这一节的全部内容做成了界面——实时读数（时区 / 偏移 / 当前时间 / UTC / 星期 / tzdata）、不触网的时区探针（含 DST 冬夏断言）、`[time]` 与 `[time.verification]` 的全部可调项、`[[time.sources]]` 的表格增删改，以及从后台 `/diagnostics` 只读回来的校验状态与每条来源最近观测。界面只写这三个配置段，**不会**修改系统时钟，也不会替你触发校验（手动触发仍用 `/time verify`）。
+
 ```toml
 [time]
 # IANA 名（全量 tzdata 随包交付），也可写 "fixed:+08:00"（固定偏移，不支持 DST）
@@ -1859,6 +1862,7 @@ QQ OneBot 最小配置示例：
 ```toml
 [platform.qqonebot]
 enabled = true
+protocol_backend = "napcat" # 协议端：napcat / snowluma；不写 = napcat（老配置升级不自动切换）
 ws_url = "ws://127.0.0.1:6700/"
 access_token_env = "QQONEBOT_ACCESS_TOKEN"
 api_timeout_seconds = 15 # OneBot 写入和响应等待的基础超时
@@ -1893,10 +1897,26 @@ slow_fetch_max_entries = 512 # 慢取缓存条目上限（LRU）
 > **内置协议端**：便携版 / 安装版可以内置一套 NapCat + 便携 QQ（构建参数
 > `--with-qqproto`，见 [packaging/README.md](../packaging/README.md) §3.5）。此时上面这段
 > `[platform.qqonebot]` 由桌面端首次启动时自动补齐（`ws_url` 指向本机空闲端口、
-> `access_token_env = "QQONEBOT_ACCESS_TOKEN"`、`enabled = false`），并同步生成
+> `access_token_env = "QQONEBOT_ACCESS_TOKEN"`、`enabled = false`、
+> `protocol_backend` = 包内自带的那一类协议端），并同步生成
 > `%APPDATA%\ATRI-X\.env` 里的 OneBot 令牌与 NapCat 的 `onebot11.json` / `webui.json`；
 > **已有值一律不动**，没有内置环境的构建或自备 NapCat 的配置完全不受影响。之后在「在线」页
 > 点「启动协议端」→「打开 WebUI」扫码 → 「连接（上线）」即可。
+
+**协议端选择（`protocol_backend`）**：`qqonebot` 平台支持两类 OneBot v11 协议端——**NapCat**
+（默认，发行包内置、开箱即用）与 **SnowLuma**（可选的备用方案，需自行安装，发行包不内置）。取值：
+
+- `"napcat"`：连 NapCat（内置或外置都算）——**默认值**；
+- `"snowluma"`：连 SnowLuma（它的默认正向 WS 端口是 3001、WebUI 是 5099）；只有显式写它才生效；
+- **不写 / 写空串**：按"未配置"处理，等价于 `napcat`——**升级不会自动切换协议端**。
+
+切换它只决定"由哪一套接管 QQ"：`ws_url` 与 `access_token*` **不会**被改写，仍要按目标协议端的
+实际监听地址与令牌单独填（SnowLuma 的令牌在它自己的 `config/onebot_<QQ号>.json` 里自动生成）。
+两套协议端都是往 `QQ.exe` 里注入的 hook，**同一台机器不能同时接管同一个 QQ**：切换时先停旧的
+那套、确认 QQ 侧注入已退出，再起新的那套，然后重启后台服务。取值拼错或写成非字符串会让后台
+启动直接报配置错误（不会静默回退），`atri-x config check` 也会给出告警。桌面版「平台」页的
+「协议端」下拉就写这个键；**全新安装**且没有历史配置可继承时它预选 **NapCat**，并在保存时落成
+显式值（不是靠默认资产注入）。
 
 `show_tool_preview_in_group` 控制群聊里是否投递工具调用进度预览（例如"正在调用 web_search"）。默认 `false`，与上游 Go 一致——群里的进度提示通常被当成噪声；想在群里看到"现在在用什么工具"就打开它（`[platform.qqofficial]` 有同名字段）。桌面端「工具权限」页提供了这个开关。
 

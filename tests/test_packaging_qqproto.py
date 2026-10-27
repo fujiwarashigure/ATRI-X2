@@ -92,7 +92,10 @@ class StageCase(unittest.TestCase):
         stop = (self.dest / "Stop-NapCat.bat").read_text(encoding="utf-8")
         self.assertIn("NapCat.52230.Shell", start)
         self.assertIn("NapCatWinBootMain.exe", start)
-        self.assertIn("taskkill", stop)
+        # 停止脚本改成按 PID 归属（委托给 atri-x.exe），不再按进程名杀。
+        self.assertIn("--stop", stop)
+        self.assertNotIn("taskkill /f /im QQ.exe", stop)
+        self.assertNotIn("/im QQ.exe", stop)
         for text in (start, stop):
             self.assertNotRegex(text, qqproto._ABSOLUTE_PATH_RE)
         readme = (self.dest / "NapCat-使用说明.txt").read_bytes()
@@ -104,6 +107,9 @@ class StageCase(unittest.TestCase):
         info = json.loads((self.dest / "proto-info.json").read_text(encoding="utf-8"))
         self.assertEqual(info["kind"], "qqproto")
         self.assertTrue(info["sanitized"])
+        # 协议端类型进元数据：运行期据此读"内置的是哪一套"，读不到按 NapCat。
+        self.assertEqual(info["backend"], "napcat")
+        self.assertEqual(info["backendVersion"], info["napcatVersion"])
         raw = (self.dest / "proto-info.json").read_text(encoding="utf-8")
         self.assertIn("NapCat.52230.Shell", raw)
         self.assertNotRegex(raw, qqproto._ABSOLUTE_PATH_RE)

@@ -22,7 +22,8 @@
 16. [前端 API](frontend-api.md)：WebSocket 协议、消息类型和补全接口，用于编写自定义前端。
 17. [部署与运维](../deploy/README.md)：云服务器 / Linux 容器部署、健康接口、watchdog、备份恢复、升级回滚，以及 [Windows 本地容器部署](../deploy/windows/README.md)。
 18. [Windows 桌面端与原生应用](windows-app.md)：把 ATRI-X 打成免安装 Python/Docker 的 exe（窗口版 + 控制台版），带托盘常驻/开机自启/安装卸载/会话列表，可选内置 DSH 内核并启用**深度路由**，还能出 Inno Setup 安装包，并接上 QQ OneBot 协议端当机器人；「在线」页可看后台服务/协议端/QQ 平台三段状态并一键上下线。
-19. [文档移植状态](../devdocs/porting-status.md)：哪些内容是从 Go 上游改写而来、哪些命令行接口需要逐条核对。
+19. [SnowLuma 使用与配置教程](snowluma.md)：**可选的备用 QQ 协议端**（默认协议端是随包内置的 NapCat）——安装、首次启动、WebUI、进程注入、OneBot 正向 WS 配置、`ATRIX_SNOWLUMA_DIR` 探测、ATRI-X 桌面端切换与排障。独立成篇，可单独转发。
+20. [文档移植状态](../devdocs/porting-status.md)：哪些内容是从 Go 上游改写而来、哪些命令行接口需要逐条核对。
 
 ## 文档维护约定
 

@@ -1,24 +1,30 @@
 """「在线」选项卡：一条线看住「后台服务 → 协议端 → QQ 平台」三段，并提供上下线开关。
 
 为什么需要这一页：QQ 机器人"看起来在跑"和"真的在线"是两件事 —— 后台服务活着、
-NapCat 端口在听、OneBot 连接真的连上了，任何一环断掉现象都只是"群里不回话"。
-这里把三段状态并排显示，并把「启用/停用 QQ 平台 + 重启后台服务」做成一个开关：
+协议端端口在听、OneBot 连接真的连上了、QQ 真的登录了，任何一环断掉现象都只是
+"群里不回话"。这里把四段状态并排显示，并把「启用/停用 QQ 平台 + 重启后台服务」
+做成一个开关：
 
 - **连接（上线）**：校验 ``[platform.qqonebot]`` 的 ws 地址与 token → 写
   ``enabled = true`` → 重启后台服务 → 轮询 ``/healthz`` 直到平台状态变成已连接；
 - **断开（下线）**：写 ``enabled = false`` → 重启后台服务。
 
+**四维状态**（这是本页的核心语义，别再合并成一个"在线/离线"）：
+
+| 维度 | 数据源 |
+|---|---|
+| 进程运行 | 本程序托管的 PID 记录（只认自己启动的；外置显示"外部自备"） |
+| OneBot 连通 | ``/healthz`` 的 ``platforms[].connected``（= WebSocket 通了） |
+| QQ 登录 | ``/healthz`` 的 ``platforms[].login_ok``（= ``get_login_info`` 成功；**端口在听不等于登录**） |
+| ATRI 平台接入 | ``[platform.qqonebot].enabled`` + 上面的连通状态 |
+
 状态数据来自后台服务的 ``/healthz``（见 :mod:`atri_x.gui.linkstate` 与
 :mod:`atri_x.health.server`），**不是**猜日志；协议端端口用一次 TCP 探测，
 完整的一次性验证仍然用 ``atri-x.exe -m atri_x.platform.qq_onebot.smoke``。
 
-发行包自带协议端环境（``qqproto\\``）时，本页还能一键「启动协议端」并直接打开带
-令牌的 NapCat WebUI（扫码登录）；令牌与端口由 :mod:`atri_x.gui.qqproto` 在启动时
-自动生成。外部 NapCat 用户看到的仍是普通端口探测。
-
-本页不改 ``.env`` 里的密钥，只改 ``app.toml`` 的 ``enabled`` 与
-``[platform.qqonebot].trigger_keywords``（唤醒词：除 @机器人 外，"以唤醒词开头"的消息
-也会叫醒模型；改完重启后台服务生效）。
+协议端可以是用户自备的 SnowLuma（1.1.0 起新装默认，外置接入）或内置/外置的 NapCat：
+启动/停止/WebUI 入口统一走 :mod:`atri_x.gui.proto_manager`，停止**只停本程序启动的
+PID 树**，不按进程名杀。发行包内置 NapCat 时，本页会提示"可在「平台」页切过去用"。
 """
 
 from __future__ import annotations
@@ -28,21 +34,26 @@ import webbrowser
 from tkinter import ttk
 from typing import Any
 
-from atri_x.gui import linkstate, process, qqproto, service, widgets
+from atri_x.gui import linkstate, process, proto_manager, service, widgets
 from atri_x.gui.configedit import ConfigEditError, patch_section
+from atri_x.gui.proto_setup import ProtoSetup
 from atri_x.gui.tabs.base import ConfigTab, confirm
+from atri_x.platform.qq_onebot.backend import detect_backend
 
 __all__ = ["LinkTab", "REFRESH_INTERVAL_MS"]
 
 #: 状态自动刷新间隔（毫秒）。健康接口在本机回环，2 秒一次开销可以忽略。
 REFRESH_INTERVAL_MS = 2000
 
-#: 部署提示：内置协议端后，换机器只需要带「程序目录 + 配置目录」。
+#: 部署提示：默认 SnowLuma（外置）与内置 NapCat 两条路都要说清楚。
 DEPLOY_HINT = (
-    "换电脑部署（照顺序）：① 复制本程序目录（便携版/安装版都自带 NapCat + 便携 QQ，"
+    "换电脑部署（照顺序）：① 复制本程序目录（内置 NapCat 的发行版自带 NapCat + 便携 QQ，"
     "首次启动自动生成令牌与端口）；② 复制配置目录（%APPDATA%\\ATRI-X，"
-    "或用便携版 start-portable.bat 时在包内 data\\ 下）→ 新机器上先启动桌面端 → "
-    "在本页点「启动协议端」扫码登录 → 点「连接（上线）」。"
+    "或用便携版 start-portable.bat 时在包内 data\\ 下）→ 新机器上先启动桌面端。"
+    "用 SnowLuma（1.1.0 起新装默认，外置接入）：先自行安装 SnowLuma，"
+    "在「平台」页确认协议端是 SnowLuma，再回本页启动并连接上线；"
+    "用内置 NapCat：在「平台」页把协议端切成 NapCat、重启桌面端，"
+    "再回本页点「启动协议端」扫码登录 → 点「连接（上线）」。"
 )
 
 
@@ -73,7 +84,7 @@ class LinkTab(ConfigTab):
         super().__init__(parent, paths, on_restart=on_restart)
         self.settings = settings
         self.can_control_service = bool(can_control_service and settings is not None)
-        self._proto: qqproto.QqProtoSetup | None = (
+        self._proto: ProtoSetup | None = (
             settings.qqproto if settings is not None else None
         )
         self._visible = False
@@ -140,7 +151,10 @@ class LinkTab(ConfigTab):
         self._connect_button.pack(side=tk.LEFT)
 
         # 协议端
-        card = self._card(grid, "协议端（NapCat）", 0, 2, pady=(0, 6))
+        proto_title = (
+            f"协议端（{self._proto.name}）" if self._proto is not None else "协议端（外部自备）"
+        )
+        card = self._card(grid, proto_title, 0, 2, pady=(0, 6))
         self._label(card, "endpoint_state", row=0, bold=True)
         self._label(card, "endpoint_detail", row=1, wrap=280)
         self._label(card, "endpoint_env", row=2, wrap=280)
@@ -150,10 +164,12 @@ class LinkTab(ConfigTab):
         self._probe_button.pack(side=tk.LEFT, padx=(0, 6))
         self._start_button = ttk.Button(actions, text="启动协议端", command=self._start_protocol)
         self._start_button.pack(side=tk.LEFT, padx=(0, 6))
-        if self._proto is None or not self._proto.available:
-            self._start_button.configure(state="disabled")
+        self._stop_button = ttk.Button(actions, text="停止协议端", command=self._stop_protocol)
+        self._stop_button.pack(side=tk.LEFT, padx=(0, 6))
         self._webui_button = ttk.Button(actions, text="打开 WebUI", command=self._open_webui)
         self._webui_button.pack(side=tk.LEFT)
+        if self._proto is None or not self._proto.available:
+            self._start_button.configure(state="disabled")
 
         # 模型 + 提示
         card = self._card(grid, "模型与就绪状态", 1, 0, pady=(0, 6))
@@ -329,8 +345,11 @@ class LinkTab(ConfigTab):
         self._vars["platform_state"].set(
             linkstate.describe_platform(entry, enabled=cfg.enabled, service_known=report is not None)
         )
-        if entry is not None and entry.connected:
+        if entry is not None and entry.connected and entry.login_ok:
             color = "#1a7f37"
+        elif entry is not None and entry.connected:
+            # 连上了但 QQ 没登录（或还没握手）：不能显示成"可用"的绿色。
+            color = "#b26a00"
         elif cfg.enabled:
             color = "#b42318"
         else:
@@ -348,6 +367,16 @@ class LinkTab(ConfigTab):
         detail = " · ".join(parts)
         if entry is not None:
             extra = [f"连接次数 {entry.connect_count}"]
+            if entry.backend:
+                extra.append(f"协议端 {entry.backend}")
+            if entry.login_checked:
+                extra.append("QQ 登录：" + ("已登录" if entry.login_ok else "未登录"))
+            if entry.app_name:
+                detected = detect_backend(entry.app_name)
+                if detected and entry.backend and detected != entry.backend:
+                    extra.append(
+                        f"后端不一致：配置 {entry.backend}，实际连上 {detected}（{entry.app_name}）"
+                    )
             connected_at = linkstate.format_clock(entry.last_connected_at)
             if connected_at:
                 extra.append(f"最近上线 {connected_at}")
@@ -368,29 +397,92 @@ class LinkTab(ConfigTab):
             pass
 
     def _render_endpoint(self) -> None:
+        """四维状态：进程 / OneBot 连通 / QQ 登录 / ATRI 接入（**互不代替**）。"""
         cfg = self._cfg
         proto = self._proto
-        if proto is not None:
-            if proto.available:
-                self._vars["endpoint_env"].set(f"内置协议端：{proto.env_dir}")
-            else:
-                self._vars["endpoint_env"].set(f"内置协议端：不可用（{proto.reason}）")
-        else:
-            self._vars["endpoint_env"].set("协议端：外部自备（本程序没有内置环境）")
+        entry = linkstate.platform_of(self._report) if self._report is not None else None
+        self._vars["endpoint_env"].set(self._describe_proto_env(proto))
         if not cfg.ws_url:
             self._vars["endpoint_state"].set("未配置")
             self._vars["endpoint_detail"].set("到「平台」页填 [platform.qqonebot].ws_url 后再回来。")
             return
+
+        process_text = self._describe_process(proto)
+        connect_text = "OneBot：已连通" if entry is not None and entry.connected else "OneBot：未连通"
+        if entry is None:
+            connect_text = "OneBot：未知（后台服务状态未取到）"
+        login_text = self._describe_login(entry)
+        atri_text = "ATRI 接入：{}".format("已启用" if cfg.enabled else "未启用")
         probe = self._probe
         if probe is None:
-            self._vars["endpoint_state"].set("未检测")
-            self._vars["endpoint_detail"].set(cfg.ws_url)
-            return
-        self._vars["endpoint_state"].set("已监听" if probe.reachable else "未监听")
-        detail = probe.detail
-        if not probe.reachable and proto is not None and proto.available:
-            detail += "\n协议端没起？点「启动协议端」再检测。"
-        self._vars["endpoint_detail"].set(detail)
+            port_text = "端口：未检测"
+        else:
+            port_text = "端口：" + ("可达（仅说明有进程在听，不代表 QQ 已登录）" if probe.reachable else "不可达")
+
+        # 主状态：先看"能不能收消息"，再看卡在哪一层。
+        if entry is not None and entry.connected and entry.login_checked and not entry.login_ok:
+            head = "协议端已连上，但 QQ 未登录"
+        elif entry is not None and entry.connected and entry.login_ok:
+            head = "QQ 已登录（可用）"
+        elif entry is not None and entry.connected:
+            head = "OneBot 已连通（登录态未确认）"
+        elif probe is not None and probe.reachable:
+            head = "端口在听，但 OneBot 未连通"
+        else:
+            head = "协议端未就绪"
+        self._vars["endpoint_state"].set(head)
+        detail_lines = [
+            f"进程：{process_text}",
+            connect_text,
+            login_text,
+            atri_text,
+            port_text,
+        ]
+        if probe is not None and not probe.reachable:
+            detail_lines.append(probe.detail)
+        if proto is not None and not proto.available and proto.reason:
+            detail_lines.append(proto.reason)
+        elif proto is not None and proto.needs_consent:
+            detail_lines.append("SnowLuma 还没完成首启（同意 EULA/隐私 + 设 WebUI 密码）")
+        elif not probe or not probe.reachable:
+            detail_lines.append("协议端没起？点「启动协议端」再检测。")
+        self._vars["endpoint_detail"].set("\n".join(detail_lines))
+
+    def _describe_process(self, proto: ProtoSetup | None) -> str:
+        """"进程运行"这一维：只认本程序托管的 PID，外置一律显示未托管。"""
+        if proto is None or not proto.env_dir:
+            return "外部自备（未托管）"
+        try:
+            info = proto_manager.status(proto)
+        except Exception:  # noqa: BLE001 - 状态查询失败不该让页面崩
+            return "未知"
+        if info.get("managed"):
+            return f"运行中（本程序托管，PID {info.get('pid')}）"
+        reason = str(info.get("reason") or "")
+        if reason:
+            return f"未运行或未托管（{reason}）"
+        return "未运行（外置协议端请自行确认）"
+
+    def _describe_login(self, entry: Any) -> str:
+        """``QQ 登录``这一维：``login_checked`` 为假表示后台还没握过手。"""
+        if entry is None:
+            return "QQ 登录：未知（后台服务状态未取到）"
+        if not entry.login_checked:
+            return "QQ 登录：未确认（后台服务还没握手；端口在听不等于已登录）"
+        if entry.login_ok:
+            who = entry.nickname or "机器人"
+            account = f"（{entry.self_id}）" if entry.self_id else ""
+            return f"QQ 登录：已登录 {who}{account}"
+        return "QQ 登录：未登录"
+
+    def _describe_proto_env(self, proto: ProtoSetup | None) -> str:
+        """协议端环境一行说明（后端名 + 目录/不可用原因）。"""
+        if proto is None:
+            return "协议端：外部自备（本程序没有内置环境）"
+        if not proto.available:
+            return f"{proto.name}：不可用（{proto.reason}）"
+        where = "外部自备" if proto.external else "内置"
+        return f"{proto.name}：{where}（{proto.env_dir}）"
 
     def _render_models(self) -> None:
         report = self._report
@@ -436,7 +528,7 @@ class LinkTab(ConfigTab):
             if not probe.reachable and not confirm(
                 self.frame,
                 "协议端未监听",
-                f"{probe.detail}。\n\nNapCat 没启动时后台会一直重连、机器人不会上线。"
+                f"{probe.detail}。\n\n协议端没启动时后台会一直重连、机器人不会上线。"
                 "仍要现在启用吗？",
             ):
                 return
@@ -552,6 +644,7 @@ class LinkTab(ConfigTab):
             self._webui_button,
             self._copy_button,
             self._wake_button,
+            self._stop_button,
         ]
         if self._proto is not None and self._proto.available:
             buttons.append(self._start_button)
@@ -582,27 +675,44 @@ class LinkTab(ConfigTab):
         self.notify(value.detail)
 
     def _start_protocol(self) -> None:
-        """启动内置协议端（新控制台窗口；关掉窗口等于下线）。"""
+        """启动协议端（新控制台窗口；关掉窗口等于下线）。"""
         proto = self._proto
         if proto is None or not proto.available:
-            self.fail(proto.reason if proto is not None else "本程序没有内置协议端环境")
+            self.fail(proto.reason if proto is not None else "本程序没有可用的协议端环境")
             return
-        ok, detail = qqproto.launch_background(proto)
+        ok, detail = proto_manager.launch(proto)
         if not ok:
             self.fail(detail)
             return
-        self.journal("在线页：启动内置 NapCat 协议端")
+        self.journal(f"在线页：启动 {proto.name} 协议端")
         self.notify(detail)
         self._schedule(3000)
 
+    def _stop_protocol(self) -> None:
+        """停止**本程序启动的**协议端进程树（不按进程名杀，不碰外置进程）。"""
+        proto = self._proto
+        if proto is None or not proto.env_dir:
+            self.fail("没有可停止的托管协议端")
+            return
+        ok, detail = proto_manager.stop(proto)
+        self.journal(f"在线页：停止 {proto.name} 协议端 -> {detail}")
+        if ok:
+            self.notify(detail)
+        else:
+            self.fail(detail)
+        self._render_endpoint()
+
     def _open_webui(self) -> None:
         proto = self._proto
-        if proto is not None and proto.available and proto.webui_url:
-            url = proto.webui_url
-            label = "内置 NapCat WebUI（登录二维码见页面）"
-        else:
-            url = "http://127.0.0.1:6099/webui"
-            label = "NapCat WebUI"
+        url = proto_manager.webui_url(proto) if proto is not None else ""
+        if not url:
+            self.fail(
+                proto.reason if proto is not None and proto.reason else "还没有可用的协议端 WebUI 地址"
+            )
+            return
+        label = f"{proto.name} WebUI" if proto is not None else "协议端 WebUI"
+        if proto is not None and proto.backend == "snowluma":
+            label += "（账号密码登录；首启密码只在它自己的控制台里显示）"
         try:
             opened = webbrowser.open(url)
         except Exception as exc:  # noqa: BLE001 - 打不开浏览器是可展示的失败
@@ -619,17 +729,19 @@ class LinkTab(ConfigTab):
         except ConfigEditError:
             secret = "?"
         proto = self._proto
+        proto_name = proto.name if proto is not None else "协议端"
         lines = [
             "ATRI-X QQ 接入信息",
             f"后台服务 WS：{self.settings.url if self.settings else '（未知）'}",
+            f"协议端类型：{proto_name}",
             f"OneBot 协议端：{self._cfg.ws_url or '（未配置）'}",
             f"OneBot 令牌：{'已写入 .env' if secret == 'set' else secret}",
-            f"NapCat WebUI：{(proto.webui_url.rsplit('?', 1)[0] if proto and proto.webui_url else 'http://127.0.0.1:6099/webui')}",
+            f"{proto_name} WebUI：{proto_manager.webui_url(proto) if proto else '（未配置）'}",
         ]
         if proto is not None:
             lines.insert(
                 1,
-                f"协议端环境：{'内置 ' + proto.env_dir if proto.available else '外部自备（' + proto.reason + '）'}",
+                f"协议端环境：{'外部自备 ' + proto.env_dir if proto.external else ('内置 ' + proto.env_dir if proto.available else '不可用（' + proto.reason + '）')}",
             )
         try:
             self.frame.clipboard_clear()

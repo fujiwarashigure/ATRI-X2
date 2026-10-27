@@ -218,6 +218,9 @@ def register_platform_hooks(agent: Any, adapters: Any, health_state: Any) -> Non
             if callable(expect):
                 expect(name)
         notifier(_connect_notifier(health_state, name))
+        login_notifier = getattr(adapter, "set_login_notifier", None)
+        if callable(login_notifier) and health_state is not None:
+            login_notifier(_login_notifier(health_state, name))
 
 
 def _connect_notifier(health_state: Any, default_name: str) -> Any:
@@ -237,6 +240,31 @@ def _connect_notifier(health_state: Any, default_name: str) -> Any:
         return None
 
     return on_connect
+
+
+def _login_notifier(health_state: Any, default_name: str) -> Any:
+    """构造"登录态已刷新"回调（Python 侧新增）。
+
+    只登记事实，不派发事件：QQ 登录成功后不需要触发"平台已连接"那套钩子，
+    但 ``/healthz`` 必须能把"WS 连上"与"QQ 已登录"分开显示。
+    """
+
+    def on_login(ctx: Any, platform_name: str = "", state: Any = None) -> None:
+        name = (platform_name or "").strip() or default_name
+        mark = getattr(health_state, "mark_platform_login", None)
+        if not callable(mark):
+            return
+        payload = state if isinstance(state, dict) else {}
+        mark(
+            name,
+            backend=str(payload.get("backend") or ""),
+            login_ok=bool(payload.get("login_ok")),
+            self_id=str(payload.get("self_id") or ""),
+            nickname=str(payload.get("nickname") or ""),
+            app_name=str(payload.get("app_name") or ""),
+        )
+
+    return on_login
 
 
 def register_cron_platform_hook(hooks: Any, service: Any) -> None:

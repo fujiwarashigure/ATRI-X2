@@ -219,7 +219,13 @@ def is_direct_image_url(value: str) -> bool:
 
 
 def file_segment(kind: str, data: Mapping[str, Any] | None) -> MessageSegment:
-    """对应 Go ``fileSegment``。"""
+    """对应 Go ``fileSegment``。
+
+    ``file_hash`` 必须保留：SnowLuma 的私聊 ``file_id`` 是裸 fileUUID，下载时要靠
+    它（NapCat 能从复合 file_id 自己还原，带上也无害）。它放进跨平台中性的
+    ``platform_meta``，不污染 ``media_id``（那是媒体库的本地 ID 槽位）。
+    """
+    file_hash = segment_data_string(data, "file_hash").strip()
     return MessageSegment(
         type=SegmentFile,
         text=kind,
@@ -235,6 +241,7 @@ def file_segment(kind: str, data: Mapping[str, Any] | None) -> MessageSegment:
             segment_data_string(data, "file_id"),
         ),
         size=segment_data_int64(data, "file_size"),
+        platform_meta={"file_hash": file_hash} if file_hash else {},
     )
 
 

@@ -6,7 +6,8 @@
    ``base_url`` / ``api_key_env`` / ``models`` / ``api_mode`` / ``extra_headers``
    （网关要求的自定义请求头，例如 OpenCode Go 的 ``x-opencode-session``）/
    ``reasoning_effort``（推理思考强度：none / minimal / low / medium / high，
-   写进请求 JSON 的 ``reasoning_effort`` 字段；留空 = 不发送，只对支持该参数的
+   chat 协议写进请求 JSON 的顶层 ``reasoning_effort``，response 协议自动折成
+   Responses 原生的 ``reasoning.effort``；留空 = 不发送，只对支持该参数的
    模型生效；也可在 ``model_configs`` 里按模型覆盖）；
    密钥值单独写进配置根 ``.env``（界面只显示"已设置/未设置 + 掩码"，不回显明文；
    输入框默认掩码，点「显示」才明文）；
@@ -229,7 +230,7 @@ class ModelTab(ConfigTab):
         self.reasoning_box.pack(side=tk.LEFT)
         ttk.Label(
             effort_row,
-            text="  reasoning_effort：留空 = 不发送；只对支持该参数的模型/网关生效",
+            text="  留空 = 不发送；chat → reasoning_effort，response → reasoning.effort；只对支持该参数的模型/网关生效",
             foreground="#8a8a8a",
         ).pack(side=tk.LEFT)
 

@@ -52,7 +52,6 @@ ENV_DIR_NAME = "qqproto"
 #: Shell 根里的引导程序 / 便携 QQ 启动器。
 SHELL_EXE = "NapCatWinBootMain.exe"
 QQ_EXE = "QQ.exe"
-SHELL_GLOB = "NapCat*.Shell"
 #: 包内额外文件。
 LAUNCHER_START = "Start-NapCat.bat"
 LAUNCHER_STOP = "Stop-NapCat.bat"
@@ -261,17 +260,27 @@ def start_launcher(shell_name: str) -> str:
 
 
 def stop_launcher() -> str:
-    """``Stop-NapCat.bat``：只按进程名结束，不区分目录（与 NapCat 自带脚本一致）。"""
+    """``Stop-NapCat.bat``：只停**本程序托管的**协议端进程树。
+
+    旧版本这里是 ``taskkill /f /im QQ.exe``——会结束本机**所有** QQ 进程（包括与
+    ATRI-X 无关的会话）。现在改成委托给 ``atri-x.exe -m atri_x.gui.qqproto --stop``：
+    它按 PID 归属停止（PID + 镜像名 + 启动时间都记在 ``atri-x-proto-process.json``），
+    不是本程序启动的进程一律不动。找不到 exe 时只打印指引，不猜、不杀。
+    """
     lines = [
         "@echo off",
-        "rem Stop the ATRI-X built-in QQ protocol environment.",
-        "rem NOTE: this ends ALL QQ.exe processes on this machine.",
+        "rem Stop the protocol backend that ATRI-X started (PID-owned).",
+        "rem This script does NOT kill every QQ.exe on the machine.",
         "setlocal",
-        "taskkill /f /im NapCatWinBootMain.exe >nul 2>&1",
-        "taskkill /f /im QQ.exe >nul 2>&1",
-        "echo Stopped NapCat / portable QQ.",
-        "timeout /t 2 >nul",
-        "exit /b 0",
+        'set "ATRIX=%~dp0..\\atri-x.exe"',
+        'if not exist "%ATRIX%" goto nogui',
+        '"%ATRIX%" -m atri_x.gui.qqproto --stop',
+        "exit /b %ERRORLEVEL%",
+        ":nogui",
+        "echo ATRI-X executable not found next to this folder.",
+        "echo Stop the protocol backend from the ATRI-X GUI: tab Online -^> Stop protocol backend.",
+        "timeout /t 3 >nul",
+        "exit /b 1",
     ]
     return "\r\n".join(lines) + "\r\n"
 
@@ -302,8 +311,8 @@ def readme_text(shell_name: str, qq_version: str, napcat_version: str) -> str:
         "三、目录",
         f"  {shell_name}\\   便携 QQ + NapCat 本体（约 1.2 GB）",
         f"  {LAUNCHER_START}      启动协议端（等于运行 NapCatWinBootMain.exe）",
-        f"  {LAUNCHER_STOP}       停止协议端（注意：会结束本机所有 QQ.exe 进程）",
-        f"  {INFO_NAME}       构建元数据（版本、文件数、脱敏标记，不含令牌）",
+        f"  {LAUNCHER_STOP}       停止协议端（只停 ATRI-X 自己启动的那个进程，不影响其它 QQ）",
+        f"  {INFO_NAME}       构建元数据（协议端类型/版本、文件数、脱敏标记，不含令牌）",
         "",
         "四、注意",
         "  * 默认端口：OneBot 3001 / WebUI 6099；实际端口见 ATRI-X「在线」页。",
@@ -361,6 +370,10 @@ def stage(
     info = {
         "app": "ATRI-X",
         "kind": "qqproto",
+        # 协议端类型：发行包里目前只允许内置 NapCat。SnowLuma 的专有原生组件并入
+        # 安装包需要书面授权（SnowLuma EULA §5.4），所以不内置、走外置接入。
+        "backend": "napcat",
+        "backendVersion": napcat_version,
         "shell": shell.name,
         "qqVersion": qq_version,
         "napcatVersion": napcat_version,

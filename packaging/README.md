@@ -147,7 +147,8 @@ python packaging/build.py --with-kernel --release ^
 2. **脱敏**：跳过 `resources\app\napcat\` 下的 `config` / `cache` / `logs`（本机生成的
    OneBot/WebUI 令牌、扫码登录痕迹都在里面）与所有 `*.log`；
 3. 写 `Start-NapCat.bat` / `Stop-NapCat.bat` / `NapCat-使用说明.txt` / `proto-info.json`
-   （纯相对路径、不含令牌）；
+   （纯相对路径、不含令牌）；`Stop-NapCat.bat` 委托 `atri-x.exe -m atri_x.gui.qqproto --stop`
+   按 **PID 归属**停止（旧版本是 `taskkill /f /im QQ.exe`，会杀掉本机所有 QQ）；
 4. **核验**：必需文件在、敏感目录不在、最长相对路径 ≤ 200、生成文本里没有盘符路径/个人目录。
 
 包内布局：
@@ -156,10 +157,19 @@ python packaging/build.py --with-kernel --release ^
 qqproto/
 ├── NapCat.<版本>.Shell/   便携 QQ + NapCat 本体
 ├── Start-NapCat.bat       启动协议端（新控制台窗口，关窗即下线）
-├── Stop-NapCat.bat        停止协议端（会结束本机所有 QQ.exe）
+├── Stop-NapCat.bat        停止本程序启动的那个协议端进程树（不影响其它 QQ）
 ├── NapCat-使用说明.txt     给用户的操作说明（UTF-8 BOM）
-└── proto-info.json        构建元数据（版本/文件数/脱敏标记）
+└── proto-info.json        构建元数据（backend=napcat / 版本 / 文件数 / 脱敏标记）
 ```
+
+`proto-info.json` 里的 `backend` 字段声明**内置的是哪一类协议端**（当前固定 `napcat`）：
+运行期据此决定配置写什么，读不到该字段的旧包按 NapCat 处理。
+
+> **SnowLuma 不随包分发**：SnowLuma 是非商业源码可见许可 + 专有原生组件，其 EULA §5.4
+> 规定"并入第三方安装包 / Docker 镜像 / 自动化脚本部署须事先书面授权"。因此本仓库的
+> 发行包**只内置 NapCat**，SnowLuma 走"用户自行安装 + ATRI-X 外置接入"
+> （见 [docs/windows-app.md](../docs/windows-app.md) §5.1、[docs/configuration.md](../docs/configuration.md)
+> 的「协议端选择」）。ATRI-X 的 Apache-2.0 许可**不覆盖** SnowLuma。
 
 **运行期配置在目标机生成**（`atri_x/gui/qqproto.py`）：桌面端首次启动时生成 OneBot 令牌
 （写进配置目录 `.env` 的 `QQONEBOT_ACCESS_TOKEN`）、挑 OneBot/WebUI 端口、写 NapCat 的

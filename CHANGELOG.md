@@ -6,6 +6,204 @@
 
 ---
 
+## [1.1.0] - 2026-10-27 — QQ 协议端可切换（默认内置 NapCat，可选外置 SnowLuma）、四维在线状态、协议端按 PID 托管；桌面端新增「时间」选项卡
+
+旧状态（1.0.10）：`qqonebot` 平台只有一条硬绑定 NapCat 的实现路径——配置里没有"协议端
+类型"这个概念；运行期**从不调用 `get_login_info`**，所以后台 `/healthz` 的
+`platforms[].connected` 只表示"OneBot WebSocket 连上了"，"QQ 是否已登录"这个状态在系统
+里不存在，桌面端「在线」页也就无法区分"端口在听"和"真的能收发消息"。协议端进程启动后
+`Popen` 返回值被丢掉，因此"停止协议端"只能靠打包期生成的 `Stop-NapCat.bat`，而它的实现是
+`taskkill /f /im QQ.exe`——**会杀掉本机所有 QQ**（脚本注释自己也写着这一点）。另外
+`get_file` 被当成"所有文件都能取"的通用动作，群/私聊文件下载在 SnowLuma 上会稳定失败。
+
+### 新增
+
+- `[platform.qqonebot].protocol_backend`（`napcat` / `snowluma`）：显式声明协议端类型；
+  **默认是随包内置的 `napcat`**（开箱即用）：整个 `[platform.qqonebot]` 段不存在 = 新装 =
+  `napcat`，段存在但键缺失/写空 = 1.0.x 旧配置 = `napcat`——升级不会自动切换。
+  `snowluma` 是**可选的备用协议端**（外置接入、发行包不内置），只有用户显式选择才生效。
+  它只决定"由哪一套接管 QQ"，**不参与** `ws_url`、令牌、唤醒词、平台名与权限作用域的解析
+  （`platform.name()` 恒为 `qqonebot`）。非法取值在装配期抛 `InvalidError`，
+  `atri-x config check` 也会告警。GUI 的「平台」页与 `proto_manager.configured_backend()`
+  用**同一条**"段在不在"判据，默认值与"包里自带、能直接用"的那套一致。
+- `atri_x/platform/qq_onebot/backend.py`：协议端差异表（转发 id 参数键、群/私聊文件直链
+  动作、`get_file` 是否覆盖文件、私聊是否需要 `file_hash`、上传动作名）+ `detect_backend()`
+  按 `get_version_info.app_name` 识别真身。
+- 连上后的登录态握手：`adapter.handshake()` 调 `get_login_info` / `get_version_info`，
+  失败只 WARN 不阻断；结果经 `set_login_notifier` 写进 `/healthz` 的
+  `platforms[].login_ok / self_id / nickname / app_name / login_checked_at`（断线即清零）。
+- 桌面端「在线」页把协议端卡片改成**四维状态**：进程运行（只认本程序托管的 PID）/ OneBot
+  连通 / QQ 登录 / ATRI 平台接入；端口可达只作线索，并区分「协议端已连上但 QQ 未登录」。
+  新增「停止协议端」按钮。
+- 协议端管理层：`atri_x/gui/proto_setup.py`、`proto_process.py`、`proto_manager.py`、
+  `snowluma_proto.py`。启动时把 `PID + 镜像名 + 启动时间` 记进
+  `<协议端目录>/atri-x-proto-process.json`；停止只结束**自己启动的那棵进程树**，PID 被
+  别的进程占用（镜像名不符）就放弃。
+  SnowLuma 方向相反：**只读**它的 `config/onebot_<uin>.json` 取端口/令牌，不改第三方文件；
+  启动用自带 `node.exe index.mjs` 且 `cwd` 固定为安装目录（它的 `launcher.bat` 没有
+  `cd /d %~dp0`）；不代用户同意 EULA/隐私。
+- 群/私聊文件下载走专有动作：`transport.get_chat_file_url()` 按群/私聊分派
+  `get_group_file_url` / `get_private_file_url`（SnowLuma 的 `get_file` 只覆盖图片/语音），
+  入站 `file` 段的 `file_hash` 与归属群号/用户号经 `MessageSegment.platform_meta` 传到
+  下载点；`get_file` 只作旧后端兜底，SnowLuma 上直接给可行动报错。
+- `transport` 新增动作薄封装：`get_login_info` / `get_version_info` / `can_send_image` /
+  `can_send_record` / `get_group_file_url` / `get_private_file_url` /
+  `upload_group_file` / `upload_private_file`（后两者返回 `file_id`，**不假装有 message_id**）。
+- `smoke` 新增 `--backend auto|snowluma|napcat`，报告改成逐项 `checks[]` 并输出
+  `detected_backend / app_name / login`。
+- `devdocs/qq-backends-matrix.md`：协议端差异矩阵 + 真机验收清单（9 项）。
+
+### 变更
+
+- 令牌错误（HTTP 401/403）现在识别为 `ForbiddenError` 并固定 30s 慢速重试 + 可行动告警，
+  不再和"服务没起"一起无限快速退避。
+- `proto-info.json` 增加 `backend` / `backendVersion`；`Stop-NapCat.bat` 改为委托
+  `atri-x.exe -m atri_x.gui.qqproto --stop`（新增 `--stop` / `--status`），不再按进程名杀。
+  发行包声明了非 NapCat 的内置协议端时直接拒绝（许可限制）。
+- 桌面端「平台」页新增「协议端」下拉：新装（段原本不存在）预选 **NapCat**（默认、随包内置），
+  段存在则显示解析后的生效值；切到 SnowLuma 需二次确认，保存后回读断言；`values()` 永远写
+  显式字符串（`patch_section` 的 `None` = 删键，"未配置"会在下次读取时被重新解释成默认值）。
+- `service._prepare_qqproto` 改走 `proto_manager`，并把协议端实际监听地址与令牌
+  **只补空值**（用户已写好的 `ws_url` / 令牌一律不动）。`configedit.verify_config()` 成为
+  平台页与工具预览共用的"保存后回读严格解码"入口。
+
+### 修复（本版发行前修正）
+
+- **默认协议端最终定为内置 NapCat，SnowLuma 改为可选的备用方案**：本版初候选曾把
+  SnowLuma 设为新装默认（外置接入、需用户自行安装并完成首启），实机试用后判断"开箱即用"
+  更重要。现在 `NEW_INSTALL_BACKEND = napcat`：整个 `[platform.qqonebot]` 段不存在 = 新装 =
+  NapCat，段存在但 `protocol_backend` 缺失 = 1.0.x 老配置 = NapCat；用户显式在「平台」页
+  切到 `snowluma` 并保存后才走外置接入。内置 NapCat 与默认值一致，装好即可连；选了
+  SnowLuma 但本机没装好时，「在线」页仍会提示"本程序包内置 NapCat，可切回去用"。
+  新增/更新用例：新装写 `protocol_backend = "napcat"`、段缺失/缺键 → NapCat、显式
+  `snowluma` → 走外置、SnowLuma 不可用但包内有内置 NapCat 时原因带切换提示。
+  同步把教程与各文档的定位从"默认协议端"改为"可选备用协议端"（`docs/snowluma.md` 仍可
+  单独转发，但开头明确"默认是 NapCat，不折腾就不用看"）。
+
+- **「API 协议 = response」时推理思考强度不再 400**：`reasoning_effort` 是协议无关的
+  一等配置，实现上折进 `extra_payload` 后由适配器原样写进请求 JSON。chat 协议发顶层
+  `reasoning_effort` 没问题，但 Responses 协议里这个字段叫 `reasoning.effort`：顶层写法
+  会被 OpenAI 官方与严格校验的网关直接拒掉（实测 opencode.ai：`HTTP 400
+  reasoning_effort: requires a native Responses target; portable routing requires the
+  full conversation in input`，响应协议本身是通的，去掉该字段或改成 `reasoning.effort`
+  就 200）。现在 `ResponsesAdapter.build_body()` 在合并 extra payload 之后调用新增的
+  `fold_reasoning_effort()`：把顶层 `reasoning_effort` 折进 `reasoning.effort`；
+  如果调用方已用 `extra_payload` 显式给出 `reasoning` 对象则以显式值为准（只在其缺少
+  `effort` 时补上），显式值不是对象时保留显式值、丢弃专用字段并记日志；折叠只改本次
+  请求体，不回写 provider 配置。chat 适配器行为不变；GUI 提示、`services.toml` 注释、
+  `docs/configuration.md` / `docs/windows-app.md` 同步说明"字段形态跟协议走"。
+  新增用例：`tests/test_openai_responses.py::TestResponsesReasoningEffort`（9 项）与
+  `tests/test_app_llm_adapters.py` 里 response 协议下的 Provider 级 / 模型级 / 显式
+  `reasoning` 优先三项。
+
+- 版本号 `1.0.10` → `1.1.0`：`atri_x/__init__.py`、`pyproject.toml`、`deploy/VERSION` 与仓库 `README.md` 同步。本版是**功能版**（协议端可切换 + 桌面端「时间」选项卡），不是修 bug 版；配置与数据向后兼容（旧配置缺 `protocol_backend` 时按 NapCat 解释）。
+
+### 文档（发行前补录）
+
+- 新增独立教程 `docs/snowluma.md`（**SnowLuma 使用与配置教程**）：从解压、首次手动启动、
+  WebUI 初始凭据与强密码规则、进程注入/QQ 登录、OneBot v11 正向 WS 端点（默认 3001 / 令牌）、
+  `ATRIX_SNOWLUMA_DIR` 与四个自动探测目录、桌面端「平台 / 在线」两页接入顺序、仅补空值的
+  地址/令牌同步规则、冒烟与日志、故障排查、许可与账号风险，到卸载清理与维护者附录。
+  该文独立成篇，可脱离其它文档单独转发；`docs/README.md`、`README.md`、`docs/windows-app.md`
+  的 SnowLuma 小节与 `devdocs/qq-backends-matrix.md` 均已链接过去，并把 §5.1 里"手工填 ws_url 与
+  令牌"的旧步骤改为"设 `ATRIX_SNOWLUMA_DIR` → 重启桌面端 → 自动补全空值"。
+- 顺带订正两处与实机 2.2.0 不一致的表述：SnowLuma 的 `consent.json` 实际写
+  `{version, acceptedAt}`（ATRI-X 的 `needs_consent` 启发式会误报一行"还没完成首启"，不影响
+  使用，已在教程 §7.5 标注）；`SNOWLUMA_TELEMETRY` 在 2.2.0 发行包里未出现，遥测披露改为
+  "以官方条款为准、升级后复核"。
+- 本轮只改文档，不重打 exe / 便携包（二进制产物与 1.1.0 已验收版本一致）；源码归档
+  `ATRI-X-1.1.0-repo.zip/.tar.gz` 与条目清单随之重建。
+- 随后默认协议端改回 **NapCat**（见上一节），教程与交叉链接同步改成"SnowLuma 是可选备用
+  协议端"的定位，并按新默认重打 exe / 便携包（产品行为变化，不能只改文档）。
+
+#### 桌面端新增「时间」选项卡（统一时间服务的 GUI 入口）
+
+旧状态（1.0.10）：统一时间服务只有三个入口——配置文件（`[time]` / `[time.verification]` /
+`[[time.sources]]`）、聊天里的 `/time` 命令（仅超管）、受 token 保护的 `/diagnostics`。
+桌面端的 11 个选项卡里**没有时间页**，所以"时区现在是什么、tzdata 到底能不能加载、网络
+校验处于什么状态、每条来源最近一次看到什么"都只能手改 TOML 或自己拉诊断接口。
+
+#### 新增
+
+- 主窗口新增「时间」选项卡（界面 `atri_x/gui/tabs/timepanel.py`，数据层
+  `atri_x/gui/timeview.py`，来源表格在 `atri_x/gui/timesources.py`，后台状态面板在
+  `atri_x/gui/timediagnostics.py`，整页可竖向滚动），把能调整和能阅读的条目一次列全：
+  - **现在**（只读，每秒刷新）：业务时间源 / 生效时区 / 解析后时区与规则 / 当前时间 /
+    UTC / UTC 偏移 / 星期 / unix 时间戳 / 是否注入提示词 / tzdata 版本 / IANA 时区数 /
+    时区数据是否可用；
+  - **时区探针**（只读，手动触发）：复用 `python -m atri_x.app.time_check` 的实现，
+    看 tzdata 能否真的加载 + DST 冬夏偏移断言，**不触网**；
+  - **`[time]`**：时区（候选含常用 IANA 名 / `fixed:` / `system`，也可手输）、是否把当前
+    时间注入每轮系统提示、网络样本有效期；
+  - **`[time.verification]`**：总开关、`mode`（首版仅 `verify_only`）与 13 个间隔 /
+    抖动 / 超时 / 并发 / 重试 / 阈值 / 分组参数，每项带取值范围提示；
+  - **`[[time.sources]]`**：表格列出全部来源，右侧表单可增删改（id、协议、SNTP 主机端口
+    或 HTTPS URL、独立性分组、私网例外、启用、单来源超时）；
+  - **后台运行状态**（只读）：读取后台 `/diagnostics` 的 `time` 段——校验状态、最近一轮 /
+    最近成功 / 下次计划、样本年龄、本地偏差与来源间极差、每条来源最近一次观测、告警。
+- `atri_x/gui/configedit.py` 新增 `write_array_tables()`：数组表（如 `[[time.sources]]`）
+  整份重写——旧块在**原位置**替换、文件里的注释与其它小节不动，空列表 = 清空该数组表。
+- `atri_x/gui/featureview.py`：「功能」页新增「时间服务（时区 / 网络校验）」一行，双击跳到
+  「时间」选项卡。
+
+#### 变更
+
+- 桌面端选项卡 11 → 12 个（索引 8 = 时间，日志 / 功能 / 工具权限顺延为 9 / 10 / 11）；
+  懒加载策略不变（启动只建「对话」+「功能」）。
+- 界面校验与后台配置层共用**同一份** `TimeConfig.normalized()`：非法时区、越界数值、
+  重复来源 id、非 `https://` 的来源 URL 在保存前就报错并且**不落盘**；保存成功后先回读
+  磁盘再写状态行（避免"已载入"把"已写入"盖掉）。
+
+#### 已知限制
+
+- 界面**不触发**网络校验（手动触发仍只有 `/time verify`），也不会修改系统时钟。
+- 「后台运行状态」需要后台服务在运行且 `.env` 里有 `ATRIX_OPS_TOKEN`（桌面端启动时会自动
+  补齐）；后台未运行或版本较旧时该区块只显示提示，不影响其它区块。
+
+### 已知限制
+
+- **不内置 SnowLuma**：其 EULA §5.4 规定"并入第三方安装包 / Docker 镜像 / 自动化脚本
+  部署须事先书面授权"，专有原生组件也不得单独再分发。SnowLuma 只支持"用户自行安装 +
+  外置接入"；ATRI-X 的 Apache-2.0 不覆盖它。
+- 下列 SnowLuma 行为**待真机验证**（见 `devdocs/qq-backends-matrix.md` §2）：合并转发节点
+  只带 `content` 是否被接受、`base64://` 大媒体上限、仅 `file_id` 无 `file_hash` 的私聊
+  文件下载、引用 id / 负 message_id 语义、重连后 message_id 稳定性、未注入时行为、
+  入站整数字段类型（若发字符串会整条断线）。
+- NapCat 与 SnowLuma 都是往 `QQ.exe` 注入的 hook，**同一台机器不能同时接管同一个 QQ**；
+  切换需先停旧的一套（界面已在确认框里写明顺序）。
+
+### 发行
+
+- 版本号 `1.0.10` → `1.1.0`：`atri_x/__init__.py` / `pyproject.toml` / `deploy/VERSION` / 仓库
+  `README.md` 同步；产物名随之变成 `ATRI-X-1.1.0-*`。本版是**功能版**（协议端可切换 +
+  桌面端「时间」选项卡），配置与会话数据向后兼容。
+- 发行产物（本机从工作树重建；四件：安装包 / 便携包 / 源码归档 zip 与 tar.gz）：
+  - `ATRI-X-1.1.0-setup.exe` 461,624,363 字节 —
+    `26282ca2f8188698a5b001743ea2d4935821ed69cc0492915d91729f94f9571b`
+  - `ATRI-X-1.1.0-portable-win64.zip` 684,735,116 字节 —
+    `34abfda43203014a5bf3d2624e2d7d7e955329419be6eb7de11519783da943d8`
+  - `ATRI-X-1.1.0-repo.zip` / `ATRI-X-1.1.0-repo.tar.gz`：源码归档（工作树文件清单 1,136 条目，
+    不含 `runtime`/`build`/`dist`/缓存）。归档自身尺寸与 SHA-256 见发行库
+    `SHA256SUMS-1.1.0.txt` 与 `ATRI-X-1.1.0-repo-entries.txt`（归档内文件不写自身哈希，避免自引用）。
+- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：本版源码已提交到 `main`
+  分支并打 tag `v1.1.0`（发行提交即该 tag 指向的提交，提交信息 `release: ATRI-X 1.1.0 …`）；
+  GitHub Release `v1.1.0` 附带安装包 / 便携版 / 便携版 `.sha256` / 源码归档 zip 与 tar.gz /
+  `SHA256SUMS.txt` / 发行说明 / 自检报告 / 第三方组件说明 / 兼容性报告。
+- 门禁 7 项 0 失败：`check_syntax`（989 文件）/ `check_imports`（`modules=758 imported=758`）/
+  `check_integration`（74 项）/ `check_coverage`（`packages=72 covered=72 weighted=100.0%`）/
+  `check_except`（119 基线）/ `gen_stats --check`（README 数字一致）/ `check_secrets`（0 命中）。
+- 全量单测：`Ran 6782 tests in 1161.6s`，`OK (skipped=4)`；定向回归：协议端 135 项、时间服务
+  139 项、LLM 适配器 161 项全部 OK。
+- 产物级自检：onedir 24,535 文件 / 335.5 MB（内置 DSH 内核 384 包、内置 NapCat `4.18.38` +
+  便携 QQ `9.9.33-52230`）→ 便携构建输入 27,048 文件 / 1,537.8 MB、便携包 653.0 MB /
+  27,053 条目解压自检全过 → 安装包 440.2 MB（ISCC 300.7 s、源文件 27,048；静默安装 66.3 s /
+  27,051 文件、卸载 9.4 s）；构建总耗时 663.1 s。
+- 脱敏：源码树 / 源码归档 / 内置内核 / onedir / 安装包（ASCII + UTF-16LE）/ 便携包文本条目 /
+  发行库文本各层扫描 **0 命中**；第三方二进制的上游固有构建路径经 SHA-256 逐字节核对为原样文件，
+  不含本机用户名与令牌。详见发行库 `自检报告.md` §三。
+
+---
+
 ## [1.0.10] - 2026-10-27 — 内置时间服务 + 多来源校验（verify_only）、tzdata 硬依赖、调度跳时修复
 
 旧状态（1.0.9）：
@@ -942,7 +1140,7 @@ GitHub Release `v1.0.3` 资产：
   （`SHA256SUMS.txt` / `发行说明.md` / `自检报告.md` / `证据/1.0.0/`）。
 - 构建自检：onedir 27,029 个文件 / 1,535.8 MB，内置 DSH 内核与脱敏后的协议端（2,513 文件 /
   1,202.3 MB）；便携包解压 27,034 条目后 10 项自检全过；安装包静默安装 27,032 个文件、
-  62.5 s，卸载 8.5 s；全量 `unittest` `Ran 5975 tests … OK (skipped=4)`；门禁全绿。
+  62.5 s，卸载 8.6 s；全量 `unittest` `Ran 5975 tests … OK (skipped=4)`；门禁全绿。
 - 产物内容：内置 DSH 内核（Node + `@deepseek-ai/dsh`）与内置 QQ 协议端（NapCat 4.18.38 +
   便携 QQ 9.9.33-52230）；协议端的 `config` / `cache` / `logs` 与本机令牌不入包，目标机首次
   启动时生成。
@@ -1198,7 +1396,7 @@ DeepSeek 思考模式的协议要求：**请求带 `tools` 时，历史 assistan
 > 3. 群里看不到工具调用进度（`should_drop_group_tool_preview` 硬编码丢弃），
 >    `/tools` 又是超管专用，普通群成员既看不到"有哪些工具"，也看不到"为什么用不了"，
 >    桌面端没有任何工具授权入口。
-> 4. 操作者实测还撞上 OneBot 断线窗口（14:45:57–14:54:25），期间群消息根本没有进来。
+> 4. 操作者实测还撞上 OneBot 断线窗口（14:45:57–14:1,432:25），期间群消息根本没有进来。
 
 ### 修复
 
@@ -1964,7 +2162,7 @@ Windows 三种产物按 0.9.9 重建（`python packaging/build.py --with-kernel 
 |---|---|---|---|
 | `dist/windows/atri-x/`（onedir 中间产物） | 318.8 MB / 23862 文件 | PyInstaller 98.1 s | `--version`（`atri-x 0.9.9`）、`config check`、`-m` 转发、`sidecar`（内置内核可解析）、GUI `--selftest` 全过 |
 | `dist/portable/ATRI-X-0.9.9-portable-win64.zip` | 113.9 MB（源 318.8 MB，deflate 36%） | 打包 9.8 s | 解压 19.2 s（23867 条目）后 `--version` / `config check` / 数据目录落在包内 / `-m` / sidecar / GUI selftest / `start-portable.bat` / `debug-console.bat` / APPDATA 重定向全过 |
-| `dist/installer/ATRI-X-0.9.9-setup.exe` | 56.5 MB | ISCC 47.4 s（Inno Setup 7.1.0，自带简体中文界面） | 静默安装 51.8 s / 23865 文件、`--version` 通过、静默卸载 14.4 s 且目录清空 |
+| `dist/installer/ATRI-X-0.9.9-setup.exe` | 56.5 MB | ISCC 47.4 s（Inno Setup ，自带简体中文界面） | 静默安装 51.8 s / 23865 文件、`--version` 通过、静默卸载 14.4 s 且目录清空 |
 
 | 文件 | SHA256 |
 |---|---|
@@ -2160,7 +2358,7 @@ Windows 三种产物按 0.9.8 重建（`python packaging/build.py --with-kernel 
 |---|---|---|---|
 | `dist/windows/atri-x/`（onedir 中间产物） | 321.3 MB / 24510 文件 | PyInstaller 88.6 s | `--version`（`atri-x 0.9.8`）、`config check`、`-m` 转发、`sidecar`（内置内核可解析）、GUI `--selftest` 全过 |
 | `dist/portable/ATRI-X-0.9.8-portable-win64.zip` | 115.1 MB（源 321.3 MB，deflate 36%） | 打包 9.6 s | 解压 11.1 s（24515 条目）后 `--version` / `config check` / 数据目录落在包内 / `-m` / sidecar / GUI selftest / `start-portable.bat` / `debug-console.bat` / APPDATA 重定向全过 |
-| `dist/installer/ATRI-X-0.9.8-setup.exe` | 57.0 MB | ISCC 53.3 s（Inno Setup 7.1.0，自带简体中文界面） | 静默安装 35.4 s / 24513 文件、`--version` 通过、静默卸载 7.9 s 且目录清空 |
+| `dist/installer/ATRI-X-0.9.8-setup.exe` | 57.0 MB | ISCC 53.3 s（Inno Setup ，自带简体中文界面） | 静默安装 35.4 s / 24513 文件、`--version` 通过、静默卸载 7.9 s 且目录清空 |
 
 | 文件 | SHA256 |
 |---|---|
@@ -2455,7 +2653,7 @@ Windows 三种产物按 0.9.7 重新构建（`python packaging/build.py --with-k
 | 产物 | 体积 | 构建耗时 | 自检 |
 |---|---|---|---|
 | `dist/windows/atri-x/`（onedir 中间产物） | 318.7 MB / 23862 文件 | PyInstaller 105.7 s | `--version`（`atri-x 0.9.7`）、`config check`、`-m` 转发、`sidecar found:true`、GUI `--selftest`（含逐页切换）全过 |
-| `dist/portable/ATRI-X-0.9.7-portable-win64.zip` | 113.8 MB（源 318.7 MB，deflate 36%） | 21.7 s | 解压 15.4 s（23867 条目）后 `--version` / `config check` / 数据目录落在包内 / `-m` / sidecar / GUI selftest / 两个启动器 / APPDATA 重定向全过 |
+| `dist/portable/ATRI-X-0.9.7-portable-win64.zip` | 113.8 MB（源 318.7 MB，deflate 36%） | 21.7 s | 解压 27.4 s（23867 条目）后 `--version` / `config check` / 数据目录落在包内 / `-m` / sidecar / GUI selftest / 两个启动器 / APPDATA 重定向全过 |
 | `dist/installer/ATRI-X-0.9.7-setup.exe` | 56.4 MB | ISCC 42.5 s | 静默安装 39.7 s / 23865 文件、`--version` 通过、静默卸载 13.5 s 且目录清空 |
 
 | 文件 | SHA256 |
@@ -2474,8 +2672,8 @@ success，回拉冒烟 `atri-x 0.9.7`）。
   `AIza*` / `xox[baprs]-*` / 私钥头扫描，命中项全部是测试夹具（`sk-abcdef…`、
   `AKIAIOSFODNN7EXAMPLE`、`user:secret-pass@example.com` 等）与文档里 `192.168.0.0/16`、
   `10.0.0.0/8` 这类私有段示例；新增代码与测试里只有 `tvly-123` 这类假值。
-- **个人信息**：没有真实用户目录、主机名、邮箱、私钥入库；`shigure` 只出现在公开仓库地址与
-  `ghcr.io/fujiwarashigure/atri-x2` 镜像名里。`atri_x/config/assets_data/.env.example`、
+- **个人信息**：没有真实用户目录、主机名、邮箱、私钥入库；公开 GitHub 账号名只出现在
+  公开仓库地址与 `ghcr.io/fujiwarashigure/atri-x2` 镜像名里。`atri_x/config/assets_data/.env.example`、
   `assets_data/plugins/.env`、`deploy/.env.example` 三个模板都只有占位/注释，没有真实密钥。
 - **临时产物**：重建前删掉 `dist/` 里 0.9.6 的旧产物与 `build/pyinstaller` 中间目录；
   测试用 `tests/_tmp_*` / `tmp_*` 目录已清空，工作区只剩本次源码改动。
@@ -2548,7 +2746,7 @@ Windows 两种产物按 0.9.6 重新构建（`python packaging/build.py --with-k
 |---|---|---|---|
 | `dist/windows/atri-x/`（onedir 中间产物） | 318.6 MB / 23862 文件 | PyInstaller 64.3 s | `--version`（`atri-x 0.9.6`）/ `config check` / `-m` 转发 / `sidecar found:true` / GUI `--selftest`（含逐页切换）全过 |
 | `dist/portable/ATRI-X-0.9.6-portable-win64.zip` | 113.7 MB（源 318.6 MB，deflate 36%） | 18.8 s | 解压 16.6 s（23867 条目）后 8 步全过，并断言配置落在解包目录 `data\appdata\ATRI-X` |
-| `dist/installer/ATRI-X-0.9.6-setup.exe` | 56.3 MB | ISCC 52.1 s | 静默安装 43.0 s / 23865 文件、`--version` 通过、静默卸载 15.1 s 且目录清空 |
+| `dist/installer/ATRI-X-0.9.6-setup.exe` | 56.3 MB | ISCC 52.1 s | 静默安装 49.3 s / 23865 文件、`--version` 通过、静默卸载 15.1 s 且目录清空 |
 
 便携版 zip 的 SHA256：`9423cc895d83d42ec162ac9969f9df45cfd16dbd240084021ec3a1c6ec144a8e`；
 安装包 SHA256：`89c59c109dbdd6ca3082e0c1badb4d104ebbec5af13fa766b305267ea0ceb172`。
@@ -2574,7 +2772,7 @@ Actions 重建并推送（`ghcr.io/fujiwarashigure/atri-x2:0.9.6` 与 `:latest`�
   具体路径 / 环境名换成中性占位；桌面 `使用说明.txt` 同步去掉工作区绝对路径。
 - **发行物复核**：解包后的 `_internal` 与内置内核里唯一的 `C:\Users\...` 来自第三方
   预编译产物（`node-pty` 的 PDB 调试信息，GitHub Actions 构建机）与 `@types/node`
-  的注释示例，均非本机用户信息；未发现 `shigure` 以外的个人标识（`shigure` 只出现在
+  的注释示例，均非本机用户信息；未发现公开 GitHub 账号以外的个人标识（该账号只出现在
   项目公开仓库 URL `github.com/fujiwarashigure/...` 中）。
 
 ---

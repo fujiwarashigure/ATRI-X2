@@ -9,6 +9,10 @@
 * 请求用 ``input`` 而不是 ``messages``，system 段合并为 ``instructions``，
   固定 ``store=false``（ATRI-X 每轮重放完整历史、从不读回已存响应，服务端保留
   没有意义），工具定义扁平化到 ``type`` 旁边；
+* 思考强度在 Responses 里是 ``reasoning.effort``，不是 chat 的顶层
+  ``reasoning_effort``：一等配置 ``reasoning_effort`` 会在这里折进
+  ``reasoning.effort``（见 :meth:`ResponsesAdapter.fold_reasoning_effort`），
+  否则严格校验的网关会直接回 400；
 * 流式事件是命名事件（``response.output_text.delta`` 等），翻译成与 chat
   适配器同一套 ``StreamChunk``；
 * ``ProtocolCapabilitiesFor`` 报告 ``responses`` 但**服务端能力全 False**：它是
@@ -66,6 +70,10 @@ __all__ = [
 #: ``store`` **刻意不保留**：适配器自己发 ``store=false``（ATRI-X 每轮重放完整
 #: 历史、从不读回已存响应，服务端保留没有意义），但需要别的值的网关仍可通过
 #: extra_payload 覆盖它。
+#:
+#: ``reasoning_effort`` 同样不列入保留字段：它需要保留，但发出去之前会被
+#: :meth:`ResponsesAdapter.fold_reasoning_effort` 折进 ``reasoning.effort``，
+#: 直接透传顶层字段会 400。
 RESPONSES_RESERVED_REQUEST_FIELDS = frozenset(
     {"model", "input", "instructions", "stream", "tools"}
 )
@@ -117,8 +125,37 @@ class ResponsesAdapter(OpenAIClient):
         dropped = merge_extra_fields(body, self.extra_payload, reserved)
         dropped += merge_extra_fields(body, self.model_extra_payloads.get(req.model), reserved)
         dropped += merge_extra_fields(body, req.extra_body, reserved)
+        dropped += self.fold_reasoning_effort(body)
         self._log_dropped_extra_fields(dropped)
         return body
+
+    def fold_reasoning_effort(self, body: dict[str, Any]) -> list[str]:
+        """把 chat 风格的顶层 ``reasoning_effort`` 折成 Responses 的 ``reasoning.effort``。
+
+        桌面端「模型」页的推理思考强度是**协议无关**的一等配置，实现上写成
+        provider/模型级 ``reasoning_effort``。chat 适配器把它当顶层字段发没问题，
+        Responses 协议里这个字段叫 ``reasoning.effort``：原样透传会被严格校验的
+        网关拒掉（例如 opencode.ai 回 400 ``reasoning_effort: requires a native
+        Responses target``），OpenAI 官方同样不认这个顶层字段。
+
+        优先级与 extra payload 合并顺序一致：调用方显式给的 ``reasoning`` 对象
+        **优先生效**——只有在它没写 ``effort`` 时才补上，写的是非对象值时保留显式
+        值、把 ``reasoning_effort`` 计入被丢弃字段（不擅自改写用户意图）。
+        返回被丢弃的字段名（供日志）。
+        """
+        effort = body.pop("reasoning_effort", None)
+        if not effort:
+            return []
+        explicit = body.get("reasoning")
+        if explicit is None:
+            body["reasoning"] = {"effort": effort}
+            return []
+        if isinstance(explicit, Mapping):
+            merged = dict(explicit)
+            merged.setdefault("effort", effort)
+            body["reasoning"] = merged
+            return []
+        return ["reasoning_effort"]
 
     async def chat(self, ctx: Any, req: ChatRequest) -> Any:
         """Responses 适配器没有非流式实现（Go 侧同样只有 ``ChatStream``）。"""

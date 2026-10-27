@@ -24,25 +24,31 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import secrets
 import socket
-import subprocess
-from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-from atri_x.gui import configedit
+from atri_x.errors import InvalidError
+from atri_x.gui import configedit, proto_process
+from atri_x.gui.proto_setup import ProtoSetup
+from atri_x.platform.qq_onebot.backend import (
+    LEGACY_DEFAULT_BACKEND,
+    PROTOCOL_BACKEND_NAPCAT,
+    resolve_protocol_backend,
+)
 
 __all__ = [
     "BUNDLE_ENV_VAR",
     "DEFAULT_ONEBOT_PORT",
     "DEFAULT_WEBUI_PORT",
     "ENV_DIR_NAME",
+    "INFO_NAME",
     "ONEBOT_TOKEN_ENV",
     "PLATFORM_SECTION",
     "QqProtoSetup",
+    "bundle_backend",
     "bundle_env_root",
     "ensure_qqproto",
     "find_shell",
@@ -50,6 +56,7 @@ __all__ = [
     "main",
     "pick_free_port",
     "setup_summary",
+    "stop_background",
 ]
 
 #: 发行包里内置协议端环境的目录名（相对程序目录）。
@@ -58,9 +65,11 @@ ENV_DIR_NAME = "qqproto"
 #: 开发/排障时用环境变量显式指定协议端环境目录（优先于程序目录下的 ``qqproto``）。
 BUNDLE_ENV_VAR = "ATRIX_QQPROTO_DIR"
 
-#: NapCat Shell 目录名（一键安装器解出来的那个）与它里面的引导程序。
-SHELL_GLOB = "NapCat*.Shell"
+#: NapCat Shell 目录里的引导程序（``find_shell`` 用它判定目录形状）。
 SHELL_EXE = "NapCatWinBootMain.exe"
+
+#: 打包期写进 ``qqproto`` 目录的元数据（``packaging/qqproto.py`` 生成）。
+INFO_NAME = "proto-info.json"
 
 #: OneBot 令牌的环境变量名（``.env`` 里的键，也是 ``[platform.qqonebot].access_token_env``）。
 ONEBOT_TOKEN_ENV = "QQONEBOT_ACCESS_TOKEN"
@@ -82,40 +91,9 @@ WEBUI_CONFIG_NAME = "webui.json"
 #: WebSocket 服务端条目名：换个名字会多出一条服务端配置，所以固定用这个。
 SERVER_NAME = "atri-x"
 
-#: ``launch_background`` 用的 Windows ``CREATE_NEW_CONSOLE``：协议端要有自己的控制台窗口，
-#: 关掉它就等于下线，这一点必须让用户看得见。
-_CREATE_NEW_CONSOLE = 0x00000010
-
-
-@dataclass(frozen=True)
-class QqProtoSetup:
-    """内置协议端环境的准备结果（纯数据，不依赖 Tk）。"""
-
-    available: bool = False
-    reason: str = ""
-    env_dir: str = ""
-    shell_dir: str = ""
-    config_dir: str = ""
-    start_script: str = ""
-    stop_script: str = ""
-    onebot_port: int = 0
-    webui_port: int = 0
-    webui_url: str = ""
-    #: OneBot 令牌；``repr=False`` 避免被日志/异常顺手打出来。
-    token: str = field(default="", repr=False)
-    changed: bool = False
-
-    @property
-    def ws_url(self) -> str:
-        """后台服务该连的地址（协议端没准备出来时为空串）。"""
-        return f"ws://127.0.0.1:{self.onebot_port}/" if self.onebot_port else ""
-
-    @property
-    def label(self) -> str:
-        """一句话描述，给「在线」页用。"""
-        if not self.available:
-            return self.reason or "未内置协议端环境"
-        return f"内置 NapCat（端口 {self.onebot_port}）"
+#: 1.0.x 的旧名字：协议端环境描述现在由 :mod:`atri_x.gui.proto_setup` 统一提供
+#: （两个后端共用），这里保留别名，外部 import 不用改。
+QqProtoSetup = ProtoSetup
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +149,26 @@ def bundle_env_root(bundle_dir: str = "") -> str:
         if shell:
             return os.path.abspath(os.path.expanduser(candidate))
     return ""
+
+
+def bundle_backend(env_root: str) -> str:
+    """内置包自带的协议端类型（``proto-info.json`` 里的 ``backend``）。
+
+    兼容旧内置包：1.1 之前的 ``proto-info.json`` 没有 ``backend`` 字段，而那批包
+    装的都是 NapCat，所以"文件缺失/损坏/字段缺失/取值非法"一律回落到
+    :data:`atri_x.platform.qq_onebot.backend.LEGACY_DEFAULT_BACKEND`。
+    """
+    path = os.path.join(str(env_root or ""), INFO_NAME)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            info = json.load(handle)
+    except (OSError, ValueError):
+        return LEGACY_DEFAULT_BACKEND
+    raw = info.get("backend") if isinstance(info, Mapping) else None
+    try:
+        return resolve_protocol_backend(raw)
+    except InvalidError:
+        return LEGACY_DEFAULT_BACKEND
 
 
 def napcat_app_dir(shell_dir: str) -> str:
@@ -381,8 +379,16 @@ def _ensure_webui(config_dir: str) -> tuple[int, str, bool]:
     return port, token, _write_json(path, merged)
 
 
-def _ensure_platform_section(app_toml: str, port: int) -> bool:
-    """``app.toml`` 缺 ``[platform.qqonebot]`` / 键时补默认值；返回是否改动。"""
+def _ensure_platform_section(app_toml: str, port: int, backend: str = "") -> bool:
+    """``app.toml`` 缺 ``[platform.qqonebot]`` / 键时补默认值；返回是否改动。
+
+    ``backend`` 只在**整段新建**时写进 ``protocol_backend``，且只覆盖"直接调用
+    ``ensure_qqproto`` 的入口"（GUI / CLI / 打包自检 / 老配置升级）。GUI 启动时新装
+    默认走 NapCat（:data:`NEW_INSTALL_BACKEND`），也会走到这里；只有用户显式选了
+    SnowLuma 时才由 ``snowluma_proto`` 接管、不写这一套配置。
+    **已有小节绝不补这个键**——老配置里键缺失本来就按 NapCat 解析，补写会把用户的
+    选择覆盖掉。
+    """
     if not app_toml or not os.path.isfile(app_toml) or not port:
         return False
     try:
@@ -404,9 +410,9 @@ def _ensure_platform_section(app_toml: str, port: int) -> bool:
         return configedit.patch_section(
             app_toml,
             PLATFORM_SECTION,
-            desired,
+            dict(desired, protocol_backend=resolve_protocol_backend(backend)),
             header_comment=(
-                "# QQ 群机器人（本程序包内置 NapCat；换外部协议端时只改 ws_url）"
+                "# QQ 群机器人（本程序包内置协议端；换外部协议端时只改 ws_url 与 protocol_backend）"
             ),
         )
     missing: dict[str, Any] = {}
@@ -439,6 +445,19 @@ def ensure_qqproto(
             available=False,
             reason="本程序未内置 QQ 协议端环境（qqproto）；外部 NapCat 请照旧手动配置",
         )
+    declared = bundle_backend(env_root)
+    if declared != PROTOCOL_BACKEND_NAPCAT:
+        # 发行包声明了别的协议端：本版本只内置 NapCat。SnowLuma 的专有原生组件
+        # 并入安装包需要书面授权（EULA §5.4），所以走外置接入，不在包里分发。
+        return QqProtoSetup(
+            available=False,
+            backend=declared,
+            env_dir=env_root,
+            reason=(
+                "本版本不支持内置 SnowLuma（许可限制，需自行安装后走外置接入）；"
+                "内置协议端目前只有 NapCat"
+            ),
+        )
     shell = find_shell(env_root)
     app_dir = napcat_app_dir(shell) if shell else ""
     if not shell or not app_dir:
@@ -467,10 +486,11 @@ def ensure_qqproto(
     changed = changed or onebot_changed
     webui_port, webui_token, webui_changed = _ensure_webui(napcat_config)
     changed = changed or webui_changed
-    changed = _ensure_platform_section(app_toml, onebot_port) or changed
+    changed = _ensure_platform_section(app_toml, onebot_port, declared) or changed
 
     return QqProtoSetup(
         available=True,
+        backend=PROTOCOL_BACKEND_NAPCAT,
         env_dir=env_root,
         shell_dir=shell,
         config_dir=napcat_config,
@@ -485,28 +505,33 @@ def ensure_qqproto(
 
 
 # ---------------------------------------------------------------------------
-# 启动 / 展示
+# 启动 / 停止 / 展示
 # ---------------------------------------------------------------------------
 
 
 def launch_background(setup: QqProtoSetup) -> tuple[bool, str]:
-    """在新控制台窗口里启动内置协议端（保留窗口：关窗即下线）。"""
+    """在新控制台窗口里启动内置协议端（保留窗口：关窗即下线），并记下 PID 归属。"""
     if not setup.available:
         return False, setup.reason or "本程序未内置 QQ 协议端环境"
     script = setup.start_script
     if not script or not os.path.isfile(script):
         return False, f"缺少协议端启动脚本：{script or '（未知）'}"
-    flags = _CREATE_NEW_CONSOLE if os.name == "nt" else 0
-    try:
-        subprocess.Popen(  # noqa: S603 - 命令行是本模块写死的批处理路径
-            ["cmd", "/c", script],
-            cwd=setup.shell_dir or setup.env_dir,
-            creationflags=flags,
-            close_fds=True,
-        )
-    except OSError as exc:
-        return False, f"启动协议端失败：{exc}"
-    return True, "已启动内置 NapCat（新的控制台窗口）；扫码登录后回本页点「连接（上线）」"
+    return proto_process.launch_console(
+        setup.env_dir,
+        setup.backend,
+        ["cmd", "/c", script],
+        cwd=setup.shell_dir or setup.env_dir,
+        detail="已启动内置 NapCat（新的控制台窗口）；扫码登录后回本页点「连接（上线）」",
+    )
+
+
+def stop_background(setup: QqProtoSetup) -> tuple[bool, str]:
+    """只停**本程序启动的**协议端进程树（按 PID 归属，不按进程名）。
+
+    以前的停止手段是打包期生成的 ``Stop-NapCat.bat``，它会 ``taskkill /f /im QQ.exe``
+    ——那是"杀掉本机所有 QQ"。这里改成认 PID：不是本程序起的进程一律不动。
+    """
+    return proto_process.stop_managed(setup.env_dir)
 
 
 def setup_summary(setup: QqProtoSetup) -> dict[str, Any]:
@@ -514,6 +539,7 @@ def setup_summary(setup: QqProtoSetup) -> dict[str, Any]:
     return {
         "available": setup.available,
         "reason": setup.reason,
+        "backend": setup.backend,
         "envDir": setup.env_dir,
         "shellDir": setup.shell_dir,
         "configDir": setup.config_dir,
@@ -526,38 +552,15 @@ def setup_summary(setup: QqProtoSetup) -> dict[str, Any]:
     }
 
 
-def _log(message: str) -> None:
-    """ASCII 兜底输出（GBK 控制台不因中文抛异常）。"""
-    try:
-        print(message, flush=True)
-    except UnicodeEncodeError:
-        print(message.encode("ascii", "backslashreplace").decode("ascii"), flush=True)
-
-
 def main(argv: Sequence[str] | None = None) -> int:
-    """``atri-x.exe -m atri_x.gui.qqproto [--json]`` 的入口；可用返回 0。"""
-    parser = argparse.ArgumentParser(
-        prog="python -m atri_x.gui.qqproto",
-        description="准备内置 NapCat/QQ 协议端环境（令牌、端口、NapCat 与 app.toml 配置）",
-    )
-    parser.add_argument("--config", default="", help="app.toml 路径（默认按查找顺序）")
-    parser.add_argument("--bundle-dir", default="", help="程序目录（默认自动推断）")
-    parser.add_argument("--json", action="store_true", help="输出 JSON 摘要")
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    """``atri-x.exe -m atri_x.gui.qqproto [--json|--stop|--status]`` 的入口。
 
-    config_path = (args.config or "").strip() or configedit.default_config_path()
-    config_dir = os.path.dirname(os.path.abspath(config_path)) if config_path else ""
-    setup = ensure_qqproto(config_dir, bundle_dir=args.bundle_dir, app_toml=config_path)
-    summary = setup_summary(setup)
-    if args.json:
-        _log(json.dumps(summary, ensure_ascii=False, sort_keys=True))
-    elif setup.available:
-        _log(f"内置协议端：可用（{setup.env_dir}）")
-        _log(f"  OneBot：ws://127.0.0.1:{setup.onebot_port}/ · WebUI：{summary['webuiUrl']}")
-        _log(f"  配置{'已更新' if setup.changed else '已是最新'}")
-    else:
-        _log(f"内置协议端：不可用（{setup.reason}）")
-    return 0 if setup.available else 1
+    实现在 :mod:`atri_x.gui.qqproto_cli`（本模块已接近单文件行数上限）；``-m`` 的调用
+    方式不变，``atri-x.exe -m atri_x.gui.qqproto --json`` 仍走这里。
+    """
+    from atri_x.gui.qqproto_cli import main as _main
+
+    return _main(argv)
 
 
 if __name__ == "__main__":

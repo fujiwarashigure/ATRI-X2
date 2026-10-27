@@ -11,7 +11,7 @@
 后台服务的状态接口默认**不启用**：桌面端在
 :func:`atri_x.gui.service.prepare_settings` 里往 ``.env`` 补
 ``ATRIX_HEALTH_ADDR`` 与 ``ATRIX_OPS_TOKEN``（幂等，已有值不动），后端读到后才会在
-``http://127.0.0.1:32173`` 上起 ``/live`` / ``/ready`` / ``/healthz``。
+``http://127.0.0.1:32171`` 上起 ``/live`` / ``/ready`` / ``/healthz``。
 
 为什么状态从 ``/healthz`` 拿而不是自己观察日志：平台连接状态是**后端进程**的事实
 （``atri_x.health.state.PlatformStatus``），由 ``atri_x.app.platforms`` 在连接/断开实际
@@ -106,7 +106,11 @@ def _items(value: Any) -> list[Any]:
 
 @dataclass(frozen=True)
 class PlatformEntry:
-    """``/healthz`` 里 ``platforms[]`` 的一项（对应 ``health.state.PlatformStatus``）。"""
+    """``/healthz`` 里 ``platforms[]`` 的一项（对应 ``health.state.PlatformStatus``）。
+
+    ``connected`` 只表示"传输层连上了"；``login_ok`` 才是"QQ 已登录"。两者都为真
+    才等于"能用 QQ 收发消息"。
+    """
 
     name: str = ""
     connected: bool = False
@@ -114,6 +118,13 @@ class PlatformEntry:
     last_connected_at: str = ""
     last_disconnected_at: str = ""
     last_error: str = ""
+    backend: str = ""
+    login_ok: bool = False
+    login_checked: bool = False
+    login_checked_at: str = ""
+    self_id: str = ""
+    nickname: str = ""
+    app_name: str = ""
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "PlatformEntry":
@@ -125,6 +136,13 @@ class PlatformEntry:
             last_connected_at=_text(data.get("last_connected_at")),
             last_disconnected_at=_text(data.get("last_disconnected_at")),
             last_error=_text(data.get("last_error")),
+            backend=_text(data.get("backend")),
+            login_ok=_bool(data.get("login_ok")),
+            login_checked="login_checked_at" in data,
+            login_checked_at=_text(data.get("login_checked_at")),
+            self_id=_text(data.get("self_id")),
+            nickname=_text(data.get("nickname")),
+            app_name=_text(data.get("app_name")),
         )
 
 
@@ -206,7 +224,7 @@ def parse_health(body: Any, *, http_status: int = 0) -> HealthReport:
 
 
 def health_endpoint(addr: str) -> str:
-    """``127.0.0.1:32173`` → ``http://127.0.0.1:32173/healthz``。"""
+    """``127.0.0.1:32171`` → ``http://127.0.0.1:32171/healthz``。"""
     text = _text(addr)
     if not text:
         raise LinkError("未配置后台服务状态接口地址")

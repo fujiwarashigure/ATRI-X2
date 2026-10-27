@@ -475,6 +475,33 @@ class TestConfigCheckWarnings(unittest.TestCase):
             any("base_url/endpoint" in item for item in check_config_warnings(cfg))
         )
 
+    def _config_with_backend(self, value):
+        return SimpleNamespace(
+            model_profiles={},
+            providers={},
+            image_generation=SimpleNamespace(enabled=False, profiles={}, base_url="", endpoint=""),
+            maintenance=SimpleNamespace(daily_report=SimpleNamespace(enabled=False, prices={})),
+            security=SimpleNamespace(superadmins={}),
+            platform={"qqonebot": {"protocol_backend": value}},
+        )
+
+    def test_invalid_protocol_backend_warned(self):
+        for raw in ("llonebot", 123):
+            with self.subTest(raw=raw):
+                warnings = check_config_warnings(self._config_with_backend(raw))
+                self.assertTrue(any("protocol_backend" in item for item in warnings))
+
+    def test_valid_or_missing_protocol_backend_is_quiet(self):
+        for value in ("snowluma", "napcat", ""):
+            with self.subTest(value=value):
+                warnings = check_config_warnings(self._config_with_backend(value))
+                self.assertFalse(any("protocol_backend" in item for item in warnings))
+        missing = self._config_with_backend(None)
+        missing.platform = {"qqonebot": {"enabled": True}}
+        self.assertFalse(
+            any("protocol_backend" in item for item in check_config_warnings(missing))
+        )
+
 
 class TestDoctorHelpers(unittest.TestCase):
     def setUp(self):

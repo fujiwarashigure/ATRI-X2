@@ -28,8 +28,13 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from atri_x.delivery.delivery import ctx_error
-from atri_x.errors import AtriXError, InvalidError
+from atri_x.errors import AtriXError, ForbiddenError, InvalidError
 from atri_x.net.websocket import CLOSE_NORMAL, WebSocketConnection, connect as ws_connect
+from atri_x.platform.qq_onebot.backend import (
+    BackendProfile,
+    backend_profile,
+    resolve_protocol_backend,
+)
 from atri_x.platform.qq_onebot.types import Event, Sender, json_int64, json_str
 
 DEFAULT_TIMEOUT = 15.0
@@ -119,6 +124,30 @@ class GetFileData:
     file_name: str = ""
 
 
+@dataclass
+class LoginInfo:
+    """``get_login_info`` 的响应体（"协议端已登录的账号"）。
+
+    注意：这是"**QQ 已登录**"，与"WebSocket 连上了"不是一回事——协议端进程在跑、
+    端口在听，但 QQ 没登录时这个动作会失败或返回空。
+    """
+
+    user_id: int = 0
+    nickname: str = ""
+
+    def logged_in(self) -> bool:
+        return self.user_id > 0
+
+
+@dataclass
+class VersionInfo:
+    """``get_version_info`` 的响应体；``app_name`` 用来识别实际协议端（NapCat / SnowLuma）。"""
+
+    app_name: str = ""
+    app_version: str = ""
+    protocol_version: str = ""
+
+
 def write_timeout_for(timeout: float, frame_bytes: int) -> float:
     """按帧体积放宽写超时（自由函数形态）。对应 Go ``(*Transport).writeTimeout``。"""
     base = timeout if timeout > 0 else DEFAULT_TIMEOUT
@@ -144,6 +173,7 @@ class Transport:
         timeout: float = DEFAULT_TIMEOUT,
         read_limit_bytes: int = 0,
         logger: Any = None,
+        backend: str = "",
     ) -> None:
         self.url = url
         self.access_token = access_token
@@ -151,6 +181,9 @@ class Transport:
         #: 单次 ``get_forward_msg`` 响应的体积上限（0 表示不额外限制）。
         self.read_limit_bytes = read_limit_bytes
         self.logger = logger
+        #: 协议端类型（差异只在 :attr:`profile`，**不参与** url/令牌解析）。
+        self.backend = resolve_protocol_backend(backend)
+        self.profile: BackendProfile = backend_profile(self.backend)
         self._conn: WebSocketConnection | None = None
         self._pending: dict[str, asyncio.Queue] = {}
         self._seq = 0
@@ -170,6 +203,14 @@ class Transport:
         try:
             conn = await ws_connect(self.url, headers=headers or None, open_timeout=open_timeout)
         except Exception as exc:  # noqa: BLE001 - 连接失败按 Go 返回 error
+            # 401/403 是"令牌不对"，不是"服务没起"：上层必须能区分，否则用户看到的
+            # 只是"连不上"然后无限退避。SnowLuma 在 WS 升级阶段就用 401 拒绝错令牌。
+            status = int(getattr(exc, "status", 0) or 0)
+            if status in (401, 403):
+                raise ForbiddenError(
+                    "onebot websocket rejected the access token "
+                    f"(HTTP {status}); check [platform.qqonebot] access_token / access_token_env"
+                ) from exc
             raise AtriXError(f"connect onebot websocket: {exc}") from exc
         self._conn = conn
         self._pending = {}
@@ -334,7 +375,12 @@ class Transport:
         )
 
     async def get_forward_msg(self, ctx: Any, message_id: str) -> Any:
-        """``get_forward_msg``（带单次响应体积上限）。对应 Go ``GetForwardMsg``。"""
+        """``get_forward_msg``（带单次响应体积上限）。对应 Go ``GetForwardMsg``。
+
+        参数名按协议端差异走：SnowLuma 的合并转发 id 是 res_id 字符串，主参数键是
+        ``id``；NapCat 用 ``message_id``。主键失败时用另一套键再试一次——NapCat 的
+        调用序列与改动前完全一致，SnowLuma 则覆盖两种 id 形态。
+        """
         message_id = (message_id or "").strip()
         if message_id == "":
             raise InvalidError("forward message id is empty")
@@ -342,9 +388,16 @@ class Transport:
         if self.read_limit_bytes > 0:
             # 给 JSON 键/echo 留一点信封余量，正文本身仍受预算约束。
             limit = self.read_limit_bytes + ENVELOPE_ALLOWANCE
-        resp = await self.call_with_limit(
-            ctx, "get_forward_msg", {"message_id": message_id}, limit
-        )
+        primary = self.profile.forward_id_param or "message_id"
+        try:
+            resp = await self.call_with_limit(
+                ctx, "get_forward_msg", {primary: message_id}, limit
+            )
+        except AtriXError:
+            secondary = "id" if primary != "id" else "message_id"
+            resp = await self.call_with_limit(
+                ctx, "get_forward_msg", {secondary: message_id}, limit
+            )
         return resp.data
 
     async def get_image(self, ctx: Any, file: str) -> GetImageData:
@@ -363,6 +416,116 @@ class Transport:
             file_size=json_str(raw.get("file_size")),
             file_name=json_str(raw.get("file_name")),
         )
+
+    async def get_login_info(self, ctx: Any = None) -> LoginInfo:
+        """``get_login_info``：**QQ 已登录**的账号（不是"端口在听"）。
+
+        协议端进程在跑、WS 也连上，但 QQ 没登录时这个动作会失败；上层据此区分
+        "协议端就绪"与"QQ 已登录"两个状态。
+        """
+        resp = await self.call(ctx, "get_login_info", {})
+        raw = _mapping(resp.data, "get_login_info response")
+        return LoginInfo(
+            user_id=json_int64(raw.get("user_id", 0), "user_id"),
+            nickname=json_str(raw.get("nickname")),
+        )
+
+    async def get_version_info(self, ctx: Any = None) -> VersionInfo:
+        """``get_version_info``：协议端自报家门（``app_name`` 用来识别真身）。"""
+        resp = await self.call(ctx, "get_version_info", {})
+        raw = _mapping(resp.data, "get_version_info response")
+        return VersionInfo(
+            app_name=json_str(raw.get("app_name")),
+            app_version=json_str(raw.get("app_version")),
+            protocol_version=json_str(raw.get("protocol_version")),
+        )
+
+    async def can_send_image(self, ctx: Any = None) -> bool:
+        """``can_send_image``（差异探测用，运行期不阻断发送）。"""
+        resp = await self.call(ctx, "can_send_image", {})
+        return bool(_mapping(resp.data, "can_send_image response").get("yes"))
+
+    async def can_send_record(self, ctx: Any = None) -> bool:
+        """``can_send_record``（差异探测用，运行期不阻断发送）。"""
+        resp = await self.call(ctx, "can_send_record", {})
+        return bool(_mapping(resp.data, "can_send_record response").get("yes"))
+
+    async def get_group_file_url(
+        self, ctx: Any, group_id: int, file_id: str, file_hash: str = ""
+    ) -> str:
+        """``get_group_file_url``：群文件下载直链。
+
+        SnowLuma 的 ``get_file`` **只覆盖图片/语音缓存**，群文件必须走这个动作；
+        NapCat 也实现了它，所以两端共用。``busid`` 两端都容忍缺省。
+        """
+        params: dict[str, Any] = {"group_id": group_id, "file_id": file_id}
+        if file_hash:
+            params["file_hash"] = file_hash
+        resp = await self.call(ctx, "get_group_file_url", params)
+        return json_str(_mapping(resp.data, "get_group_file_url response").get("url"))
+
+    async def get_private_file_url(
+        self, ctx: Any, user_id: int, file_id: str, file_hash: str = ""
+    ) -> str:
+        """``get_private_file_url``：私聊文件下载直链。
+
+        SnowLuma 的 ``file_id`` 是裸 fileUUID，**依赖入站 ``file`` 段的
+        ``file_hash``** 才能取到；NapCat 能从复合 file_id 自己还原，两者都把
+        ``file_hash`` 当可选参数，所以这里始终按"有就带上"处理。
+        """
+        params: dict[str, Any] = {"file_id": file_id}
+        if user_id > 0:
+            params["user_id"] = user_id
+        if file_hash:
+            params["file_hash"] = file_hash
+        resp = await self.call(ctx, "get_private_file_url", params)
+        return json_str(_mapping(resp.data, "get_private_file_url response").get("url"))
+
+    async def upload_group_file(
+        self, ctx: Any, group_id: int, file: str, name: str = "", folder: str = ""
+    ) -> str:
+        """``upload_group_file`` → **file_id**（不是 message_id）。
+
+        与"发消息"是两回事：上传成功不表示发出去过。
+        """
+        params: dict[str, Any] = {"group_id": group_id, "file": file, "name": name or ""}
+        if folder:
+            params["folder"] = folder
+        resp = await self.call(ctx, "upload_group_file", params)
+        return json_str(_mapping(resp.data, "upload_group_file response").get("file_id"))
+
+    async def upload_private_file(
+        self, ctx: Any, user_id: int, file: str, name: str = ""
+    ) -> str:
+        """``upload_private_file`` → **file_id**（不是 message_id）。"""
+        resp = await self.call(
+            ctx,
+            "upload_private_file",
+            {"user_id": user_id, "file": file, "name": name or ""},
+        )
+        return json_str(_mapping(resp.data, "upload_private_file response").get("file_id"))
+
+    async def get_chat_file_url(
+        self,
+        ctx: Any,
+        file_id: str,
+        *,
+        group_id: int = 0,
+        user_id: int = 0,
+        file_hash: str = "",
+    ) -> str:
+        """群/私聊文件下载直链：按后端差异选动作，取不到返回空串。
+
+        SnowLuma 的 ``get_file`` **只覆盖图片/语音缓存**，群/私聊文件必须走
+        ``get_group_file_url`` / ``get_private_file_url``；NapCat 两者都实现了，
+        但同样优先用专有动作（直链语义更明确）。两端都没有对应动作时返回空串，
+        让调用方回落到 ``get_file``。
+        """
+        if group_id > 0 and self.profile.group_file_url_action:
+            return await self.get_group_file_url(ctx, group_id, file_id, file_hash)
+        if user_id > 0 and self.profile.private_file_url_action:
+            return await self.get_private_file_url(ctx, user_id, file_id, file_hash)
+        return ""
 
     async def get_group_member_info(self, ctx: Any, group_id: int, user_id: int) -> Sender:
         """``get_group_member_info``。对应 Go ``GetGroupMemberInfo``。"""
@@ -502,7 +665,11 @@ class Transport:
         return str(message_id)
 
     def log_call(self, ctx: Any, action: str, frame_bytes: int, started_at: float) -> None:
-        """慢调用/失败调用的 WARN/DEBUG 日志。对应 Go ``logCall``。"""
+        """慢调用/失败调用的 WARN/DEBUG 日志。对应 Go ``logCall``。
+
+        只记 ``action`` / 体积 / 耗时 / 后端名，**不记 ``params``**：那里会出现
+        base64 媒体与令牌，落日志等于泄露。
+        """
         if self.logger is None:
             return
         elapsed = time.monotonic() - started_at
@@ -510,6 +677,7 @@ class Transport:
             self.logger.debug(
                 "onebot action",
                 action=action,
+                backend=self.backend,
                 frame_bytes=frame_bytes,
                 elapsed_ms=round(elapsed * 1000),
             )

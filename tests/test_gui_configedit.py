@@ -431,5 +431,112 @@ class CharacterPathsTestCase(ConfigCase):
         self.assertFalse(configedit.write_text_file(soul, "新的系统人设"))
 
 
+class WriteArrayTablesTestCase(ConfigCase):
+    """``[[time.sources]]`` 这类数组表的整份重写：只动该数组表，注释与其它小节不动。"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # 示例注释（发行版 app.toml 里那两段被注释掉的 [[time.sources]]）必须原地保留。
+        self.comment = "# [[time.sources]]\n# id = \"corp-ntp\"\n"
+        configedit.write_text_file(
+            self.paths.config_path, self.read("app.toml") + "\n" + self.comment
+        )
+
+    def blocks(self) -> list[dict[str, Any]]:
+        return [
+            {"id": "a", "protocol": "sntp", "host": "ntp.example.com", "port": 123, "enabled": True},
+            {"id": "b", "protocol": "https", "url": "https://t.example.com/now", "enabled": False},
+        ]
+
+    def test_writes_blocks_after_named_section(self) -> None:
+        self.assertTrue(
+            configedit.write_array_tables(
+                self.paths.config_path,
+                "time.sources",
+                self.blocks(),
+                after_section="time.verification",
+            )
+        )
+        parsed = self.parse("app.toml")
+        sources = parsed["time"]["sources"]
+        self.assertEqual([item["id"] for item in sources], ["a", "b"])
+        self.assertTrue(sources[0]["enabled"])
+        self.assertEqual(sources[1]["url"], "https://t.example.com/now")
+        # 旧配置与注释都还在（数组表插在 [time.verification] 之后，不是无脑追加到文件尾）。
+        self.assertEqual(parsed["time"]["timezone"], "Asia/Shanghai")
+        text = self.read("app.toml")
+        self.assertIn("# [[time.sources]]", text)
+        self.assertIn("time.verification", text)
+        lines = [line.strip() for line in text.splitlines()]
+        self.assertLess(lines.index("[[time.sources]]"), lines.index("[security]"))
+
+    def test_rewrite_replaces_previous_blocks(self) -> None:
+        configedit.write_array_tables(
+            self.paths.config_path, "time.sources", self.blocks(), after_section="time.verification"
+        )
+        configedit.write_array_tables(
+            self.paths.config_path,
+            "time.sources",
+            [{"id": "only", "protocol": "sntp", "host": "h", "port": 123}],
+            after_section="time.verification",
+        )
+        sources = self.parse("app.toml")["time"]["sources"]
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0]["id"], "only")
+        real = [
+            line for line in self.read("app.toml").splitlines() if line.strip() == "[[time.sources]]"
+        ]
+        self.assertEqual(len(real), 1)
+
+    def test_clearing_removes_every_block(self) -> None:
+        configedit.write_array_tables(
+            self.paths.config_path, "time.sources", self.blocks(), after_section="time.verification"
+        )
+        self.assertTrue(
+            configedit.write_array_tables(self.paths.config_path, "time.sources", [])
+        )
+        self.assertNotIn("sources", self.parse("app.toml")["time"])
+        self.assertIn("# [[time.sources]]", self.read("app.toml"))
+
+    def test_unchanged_content_is_not_rewritten(self) -> None:
+        configedit.write_array_tables(
+            self.paths.config_path, "time.sources", self.blocks(), after_section="time.verification"
+        )
+        before = self.read("app.toml")
+        self.assertFalse(
+            configedit.write_array_tables(
+                self.paths.config_path,
+                "time.sources",
+                self.blocks(),
+                after_section="time.verification",
+            )
+        )
+        self.assertEqual(self.read("app.toml"), before)
+
+    def test_none_value_skips_key(self) -> None:
+        configedit.write_array_tables(
+            self.paths.config_path, "time.sources", [{"id": "x", "group": None}]
+        )
+        # TOML 解析回来就是没有 group 这个键。
+        self.assertNotIn("group", self.parse("app.toml")["time"]["sources"][0])
+
+    def test_file_without_section_still_parses(self) -> None:
+        """完全没有 [time] 段时，调用方按"[time] → [time.verification] → 数组表"顺序写也合法。"""
+        target = str(TEMP_ROOT / "fresh" / "app.toml")
+        Path(target).parent.mkdir(parents=True, exist_ok=True)
+        Path(target).write_text('[security]\nuser_max_tool_risk = "low"\n', encoding="utf-8")
+        configedit.patch_section(target, "time", {"timezone": "UTC"})
+        configedit.patch_section(target, "time.verification", {"enabled": True})
+        configedit.write_array_tables(
+            target,
+            "time.sources",
+            [{"id": "s1", "protocol": "sntp", "host": "h", "port": 123}],
+            after_section="time.verification",
+        )
+        parsed = tomllib.loads(Path(target).read_text(encoding="utf-8"))
+        self.assertEqual(parsed["time"]["timezone"], "UTC")
+        self.assertEqual(parsed["time"]["sources"][0]["id"], "s1")
+
+
 if __name__ == "__main__":  # pragma: no cover - 手工运行入口
     unittest.main()

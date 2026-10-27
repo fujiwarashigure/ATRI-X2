@@ -23,7 +23,7 @@ from tkinter import ttk
 from typing import Any
 
 from atri_x.config.app_sections import ToolPreviewConfig
-from atri_x.gui.configedit import ConfigEditError, patch_section, read_toml
+from atri_x.gui.configedit import ConfigEditError, patch_section, read_toml, verify_config
 
 __all__ = [
     "PREVIEW_TAB_TITLE",
@@ -134,12 +134,7 @@ def save_platform_preview_switch(
 
 def _verify_config(paths: Any) -> None:
     """保存后回读整份配置：严格解码能过，后台服务才起得来。"""
-    from atri_x.config.loader import load
-
-    try:
-        load(paths.config_path, strict=True)
-    except Exception as exc:  # noqa: BLE001 - 统一转成 GUI 可展示的错误
-        raise ConfigEditError(f"回读校验失败（配置会被后台服务拒绝）：{exc}") from exc
+    verify_config(paths)
 
 
 class ToolPreviewPanel:

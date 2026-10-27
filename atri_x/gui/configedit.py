@@ -32,7 +32,7 @@ import os
 import re
 import tomllib
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from atri_x.config.loader import load_env_file
 
@@ -49,6 +49,8 @@ __all__ = [
     "remove_section",
     "set_env_value",
     "toml_value",
+    "verify_config",
+    "write_array_tables",
     "write_text_file",
 ]
 
@@ -374,6 +376,82 @@ def remove_section(path: str, section: str) -> bool:
     return _commit(path, text, "\n".join(kept) + "\n")
 
 
+def write_array_tables(
+    path: str,
+    header: str,
+    blocks: Iterable[Mapping[str, Any]],
+    *,
+    after_section: str = "",
+) -> bool:
+    """整份重写 ``[[header]]`` 数组表（例如 ``[[time.sources]]``），返回是否改动。
+
+    :func:`patch_section` 只能改 ``[section]`` 里的标量键：数组表的条数会变，没法用
+    "替换某个键"表达，所以这里走"摘掉全部旧块 → 写入全部新块"：旧块整段移除
+    （文件里的注释与其它小节原样保留），新块插回它原来的位置；原本没有旧块时插到
+    ``after_section`` 指定的小节之后，小节也不存在就追加到文件末尾。
+    ``blocks`` 为空表示清空这个数组表（旧块一并删除）。
+
+    每个块按 ``blocks`` 的顺序渲染成一行 ``[[header]]`` + 若干 ``key = value``；
+    值为 ``None`` 的键跳过（与 :func:`patch_section` 的约定一致）。
+    """
+    if not header.strip():
+        raise ConfigEditError("数组表名不能为空")
+    text = _read_text(path)
+    lines = text.splitlines()
+
+    # 1) 摘掉所有 [[header]] 块，记下第一块原来的位置（新块写回这里）。
+    kept: list[str] = []
+    anchor: int | None = None
+    index = 0
+    while index < len(lines):
+        name = _array_header_name(lines[index])
+        if name is None:
+            kept.append(lines[index])
+            index += 1
+            continue
+        end = _block_end(lines, index)
+        if name == header:
+            if anchor is None:
+                anchor = len(kept)
+            index = end
+            continue
+        kept.extend(lines[index:end])
+        index = end
+
+    # 2) 渲染新块。
+    rendered: list[str] = []
+    for block in blocks:
+        if rendered:
+            rendered.append("")
+        rendered.append(f"[[{header}]]")
+        for key, value in block.items():
+            if value is None:
+                continue
+            rendered.append(f"{_check_key(key)} = {toml_value(value)}")
+
+    # 3) 决定插入位置，并把两侧多余空行收掉（保持"块与块之间一个空行"）。
+    if anchor is not None:
+        position = anchor
+    elif after_section:
+        position = _section_insert_index(kept, after_section)
+    else:
+        position = len(kept)
+    before, after = kept[:position], kept[position:]
+    while before and not before[-1].strip():
+        before.pop()
+    while after and not after[0].strip():
+        after.pop(0)
+    merged = list(before)
+    if merged and rendered:
+        merged.append("")
+    merged.extend(rendered)
+    if merged and after:
+        merged.append("")
+    merged.extend(after)
+    body = "\n".join(merged).rstrip("\n")
+    return _commit(path, text, body + "\n" if body else "")
+
+
 def write_text_file(path: str, text: str) -> bool:
     """整份写一个文本文件（SOUL.md 这类），带备份与原子替换；返回是否改动。"""
     old = _read_text(path)
@@ -383,6 +461,21 @@ def write_text_file(path: str, text: str) -> bool:
     _backup(path, old)
     _atomic_write(path, new)
     return True
+
+
+def verify_config(paths: Any) -> None:
+    """保存 ``app.toml`` 后回读整份配置：严格解码能过，后台服务才起得来。
+
+    与 :meth:`patch_section` 的分工：那条只保证"写进去的是合法 TOML"，这条保证
+    "整份配置还能被后台服务按当前代码解码"。失败统一转成
+    :class:`ConfigEditError`（GUI 可展示），因为写盘已经发生。
+    """
+    from atri_x.config.loader import load
+
+    try:
+        load(paths.config_path, strict=True)
+    except Exception as exc:  # noqa: BLE001 - 统一转成 GUI 可展示的错误
+        raise ConfigEditError(f"回读校验失败（配置会被后台服务拒绝）：{exc}") from exc
 
 
 def _check_key(key: str) -> str:
@@ -412,6 +505,33 @@ def _section_end(lines: list[str], header: int) -> int:
         if _header_name(lines[index]) is not None:
             return index
     return len(lines)
+
+
+def _array_header_name(line: str) -> str | None:
+    """``[[name]]`` → ``name``；不是数组表返回 ``None``。"""
+    stripped = line.strip()
+    if not (stripped.startswith("[[") and stripped.endswith("]]")):
+        return None
+    return stripped[2:-2].strip() or None
+
+
+def _block_end(lines: list[str], header: int) -> int:
+    """一个表块的结束行：下一个任意表头（``[x]`` 或 ``[[x]]``）之前。"""
+    for index in range(header + 1, len(lines)):
+        if _header_name(lines[index]) is not None or _array_header_name(lines[index]) is not None:
+            return index
+    return len(lines)
+
+
+def _section_insert_index(lines: list[str], section: str) -> int:
+    """``[section]`` 最后一个键之后的位置（小节不存在时返回文件末尾）。"""
+    header = _section_header_index(lines, section)
+    if header is None:
+        return len(lines)
+    end = _block_end(lines, header)
+    while end > header + 1 and not lines[end - 1].strip():
+        end -= 1
+    return end
 
 
 def _key_line_index(lines: list[str], header: int, end: int, key: str) -> int | None:

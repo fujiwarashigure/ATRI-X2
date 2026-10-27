@@ -179,11 +179,11 @@ class TkCase(unittest.TestCase):
 
 
 class LazyTabBuildTest(TkCase):
-    """11 个选项卡**按需构建**：启动只建对话 + 功能，重页首次访问才建。
+    """12 个选项卡**按需构建**：启动只建对话 + 功能，重页首次访问才建。
 
     为什么值得立成测试：Tk 每个控件都是一个 Win32 子窗口，窗口移动成本随子窗口数
     线性上升（实测 2434 个控件时每次移动约 6ms，拖窗口明显发滞；裸 Tk 约 1ms）。
-    全量预建 11 页是 2400+ 控件，按需构建后启动只剩 50 个左右。
+    全量预建 12 页是 2400+ 控件，按需构建后启动只剩 50 个左右。
     """
 
     def _build_app(self):
@@ -221,10 +221,10 @@ class LazyTabBuildTest(TkCase):
     def test_heavy_tab_built_on_first_visit(self) -> None:
         app = self._build_app()
         self.root.update()
-        self.assertNotIn(10, app._tab_instances)  # 「工具权限」1811 个控件，不预建
-        app.select_tab(10)
+        self.assertNotIn(11, app._tab_instances)  # 「工具权限」1811 个控件，不预建
+        app.select_tab(11)
         self.root.update()
-        self.assertIn(10, app._tab_instances)
+        self.assertIn(11, app._tab_instances)
         toolperm = app.toolperm_tab
         # 懒加载页建在占位 Frame 里（占位页挂在 notebook 上），建完占位记录移除。
         self.assertIs(toolperm.frame.master.master, app.notebook)
@@ -282,16 +282,19 @@ class LayoutCase(unittest.TestCase):
     """不建窗口：选项卡清单、「功能」页跳转键、关于文案。"""
 
     def test_tab_list_and_keys(self) -> None:
-        self.assertEqual(len(gui_app._TABS), 11)
-        self.assertEqual(len(set(gui_app._TABS)), 11)
+        self.assertEqual(len(gui_app._TABS), 12)
+        self.assertEqual(len(set(gui_app._TABS)), 12)
         self.assertIn("在线", gui_app._TABS)
+        self.assertIn("时间", gui_app._TABS)
         self.assertIn("工具权限", gui_app._TABS)
         self.assertLess(gui_app._TABS.index("平台"), gui_app._TABS.index("在线"))
+        self.assertLess(gui_app._TABS.index("进阶"), gui_app._TABS.index("时间"))
         for key in (
             "model",
             "character",
             "platform",
             "advanced",
+            "time",
             "members",
             "knowledge",
             "logs",
@@ -1036,6 +1039,47 @@ class PlatformTabCase(TkCase):
         env_text = Path(self.paths.env_path).read_text(encoding="utf-8")
         self.assertIn("QQONEBOT_TOKEN=secret-value", env_text)
         self.assertEqual(tab.qqonebot.token_entry.get(), "")
+
+    def test_backend_defaults_to_napcat_for_new_install(self) -> None:
+        """段原本不存在 = 新装：下拉预选 NapCat（随包内置），保存落显式字符串。"""
+        tab = self.build(PlatformTab)
+        self.assertEqual(tab.qqonebot.backend.get(), "NapCat")
+        self.assertEqual(tab.qqonebot.selected_backend(), "napcat")
+        tab._save()
+        app = self.read_toml("app.toml")
+        self.assertEqual(app["platform"]["qqonebot"]["protocol_backend"], "napcat")
+
+    def test_existing_section_shows_napcat_and_can_switch(self) -> None:
+        """老配置（段存在但无该键）显示生效值 napcat；改成 SnowLuma 要二次确认。"""
+        configedit.patch_section(
+            str(self.paths.config_path),
+            "platform.qqonebot",
+            {"enabled": True, "ws_url": "ws://127.0.0.1:3456/"},
+        )
+        tab = self.build(PlatformTab)
+        self.assertEqual(tab.qqonebot.backend.get(), "NapCat")
+        self.assertEqual(tab.qqonebot.selected_backend(), "napcat")
+        tab.qqonebot.backend.set("SnowLuma")
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            tab._save()
+        section = self.read_toml("app.toml")["platform"]["qqonebot"]
+        self.assertEqual(section["protocol_backend"], "snowluma")
+        # 切协议端不动地址（"不覆盖原 WS 地址"这条硬约束的回归断言）。
+        self.assertEqual(section["ws_url"], "ws://127.0.0.1:3456/")
+        self.assertTrue(section["enabled"])
+
+    def test_backend_switch_can_be_cancelled(self) -> None:
+        configedit.patch_section(
+            str(self.paths.config_path),
+            "platform.qqonebot",
+            {"enabled": True},
+        )
+        before = Path(self.paths.config_path).read_text(encoding="utf-8")
+        tab = self.build(PlatformTab)
+        tab.qqonebot.backend.set("SnowLuma")
+        with mock.patch("tkinter.messagebox.askyesno", return_value=False):
+            tab._save()
+        self.assertEqual(Path(self.paths.config_path).read_text(encoding="utf-8"), before)
 
 
 class ToolPermTabCase(TkCase):

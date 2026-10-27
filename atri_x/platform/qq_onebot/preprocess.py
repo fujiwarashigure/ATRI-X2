@@ -88,6 +88,7 @@ async def prepare_inbound(
     )
     normalized = await resolve_at_segments(adapter, prep_ctx, event, normalized)
     normalized = await resolve_forward_segments(adapter, prep_ctx, event, normalized)
+    attach_media_scope(normalized.segments, event)
     if event.message_type not in (MESSAGE_TYPE_PRIVATE, MESSAGE_TYPE_GROUP):
         record_chat_message(adapter, base_ctx, event, normalized, ReplyContext())
         return MessageContext(), None, "", False
@@ -143,6 +144,28 @@ async def prepare_inbound(
     if text.strip() == "" and not current_segments:
         return message_ctx, msg_ctx, "", False
     return message_ctx, msg_ctx, text, True
+
+
+def attach_media_scope(segments: Sequence[MessageSegment], event: Event) -> None:
+    """把群号/用户号补进**文件段**的 ``platform_meta``（就地修改）。
+
+    为什么在这里补：QQ 的群文件下载动作必须带 ``group_id``、私聊文件要
+    ``user_id``，而媒体解析发生在 Agent 侧——那里只拿到段，拿不到事件。文件段
+    （语音/视频也投影成文件段）是唯一需要这两个字段的媒体；其它段不动。
+
+    历史消息里读回来的段没有这两个字段：那条路径继续回落到 ``get_file``（老行为）。
+    """
+    group_id = int(event.group_id or 0)
+    user_id = int(event.user_id or 0)
+    for segment in segments:
+        if segment.type != MessageSegmentType.FILE:
+            continue
+        meta = dict(segment.platform_meta or {})
+        if group_id > 0:
+            meta.setdefault("group_id", str(group_id))
+        if user_id > 0:
+            meta.setdefault("user_id", str(user_id))
+        segment.platform_meta = meta
 
 
 def _with_outbound_target(ctx: Any, event: Event) -> Any:

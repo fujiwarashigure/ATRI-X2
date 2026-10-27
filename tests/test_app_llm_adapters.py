@@ -448,6 +448,44 @@ class ReasoningEffortInjectionTest(unittest.TestCase):
         )
         self.assertEqual(body["reasoning_effort"], "high")
 
+    def test_response_protocol_folds_effort_into_reasoning_object(self) -> None:
+        """``api_mode = "response"`` 时思考强度必须走 ``reasoning.effort``。
+
+        回归：顶层 ``reasoning_effort`` 在 ``/responses`` 会被严格校验的网关
+        400（实测 opencode.ai：``requires a native Responses target``）。
+        """
+        provider = ProviderConfig(
+            base_url="https://x/v1", api_mode="response", reasoning_effort="HIGH"
+        )
+        router = new_provider_llm("p", provider, RequestOptions())
+        body = router.pick("m1").build_body(ChatRequest(model="m1"))
+        self.assertNotIn("reasoning_effort", body)
+        self.assertEqual(body["reasoning"], {"effort": "high"})
+
+    def test_response_protocol_model_level_effort_is_folded(self) -> None:
+        provider = ProviderConfig(
+            base_url="https://x/v1",
+            api_mode="response",
+            reasoning_effort="low",
+            model_configs={"m1": ModelConfig(reasoning_effort="high", api_mode="response")},
+        )
+        router = new_provider_llm("p", provider, RequestOptions())
+        body = router.pick("m1").build_body(ChatRequest(model="m1"))
+        self.assertEqual(body["reasoning"], {"effort": "high"})
+        self.assertNotIn("reasoning_effort", body)
+
+    def test_response_protocol_explicit_reasoning_object_is_kept(self) -> None:
+        provider = ProviderConfig(
+            base_url="https://x/v1",
+            api_mode="response",
+            reasoning_effort="high",
+            extra_payload={"reasoning": {"effort": "low", "summary": "auto"}},
+        )
+        router = new_provider_llm("p", provider, RequestOptions())
+        body = router.pick("m1").build_body(ChatRequest(model="m1"))
+        self.assertEqual(body["reasoning"], {"effort": "low", "summary": "auto"})
+        self.assertNotIn("reasoning_effort", body)
+
 
 if __name__ == "__main__":
     unittest.main()

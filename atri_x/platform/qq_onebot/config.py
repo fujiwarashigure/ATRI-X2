@@ -24,6 +24,7 @@ from typing import Any, Mapping, Sequence
 from atri_x.config.loader import config_env
 from atri_x.errors import AtriXError, InvalidError
 from atri_x.platform.config import decode_config
+from atri_x.platform.qq_onebot.backend import resolve_protocol_backend
 from atri_x.platform.qq_onebot.output import SEND_FILE_MODE_BASE64, SEND_FILE_MODE_FILE_URI
 from atri_x.platform.qq_onebot.types import (
     DEFAULT_FORWARD_FETCH_TIMEOUT,
@@ -62,6 +63,10 @@ class Config:
     """``[platform.qqonebot]`` 小节。对应 Go ``Config``。"""
 
     enabled: bool = False
+    #: 协议端（后端）：``""`` = 未配置（旧配置 → ``napcat``，见
+    #: :func:`atri_x.platform.qq_onebot.backend.resolve_protocol_backend`）；
+    #: 显式 ``"napcat"`` / ``"snowluma"``。**不参与** ``ws_url`` 与令牌解析。
+    protocol_backend: str = ""
     url: str = ""
     access_token: str = ""
     access_token_env: str = ""
@@ -192,6 +197,8 @@ def apply_defaults(cfg: Config) -> None:
     cfg.send_file_mode = (cfg.send_file_mode or "").strip().lower()
     if cfg.send_file_mode == "":
         cfg.send_file_mode = SEND_FILE_MODE_BASE64
+    # 协议端三态：空串（键缺失）→ 旧配置的 napcat；非法值在这里抛 InvalidError。
+    cfg.protocol_backend = resolve_protocol_backend(cfg.protocol_backend)
     if not cfg.command_prefixes:
         cfg.command_prefixes = ["/"]
     if (cfg.max_receive_file_bytes or 0) <= 0:

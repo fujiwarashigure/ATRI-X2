@@ -53,6 +53,7 @@ from atri_x.gui.tabs import (
     MembersTab,
     ModelTab,
     PlatformTab,
+    TimeTab,
     ToolPermTab,
 )
 from atri_x.gui.tray import TrayIcon
@@ -70,7 +71,20 @@ WINDOW_TITLE = "ATRI-X"
 POLL_INTERVAL_MS = 80
 
 #: 选项卡顺序（索引 → 名字）；菜单和 Ctrl+N 快捷键共用。
-_TABS = ("对话", "模型", "人设卡", "平台", "在线", "群友", "知识库", "进阶", "日志", "功能", "工具权限")
+_TABS = (
+    "对话",
+    "模型",
+    "人设卡",
+    "平台",
+    "在线",
+    "群友",
+    "知识库",
+    "进阶",
+    "时间",
+    "日志",
+    "功能",
+    "工具权限",
+)
 
 #: 选项卡名字 → 索引（供「功能」页双击跳转）。
 _TAB_INDEX = {name: index for index, name in enumerate(_TABS)}
@@ -81,6 +95,7 @@ _TAB_KEYS = {
     "character": "人设卡",
     "platform": "平台",
     "advanced": "进阶",
+    "time": "时间",
     "members": "群友",
     "knowledge": "知识库",
     "logs": "日志",
@@ -213,8 +228,9 @@ class GuiApp:
             7: lambda parent: AdvancedTab(
                 parent, self.paths, on_restart=self._restart_backend
             ),
-            8: lambda parent: LogsTab(parent, self.paths, on_restart=self._restart_backend),
-            9: lambda parent: FeaturesTab(
+            8: lambda parent: TimeTab(parent, self.paths, on_restart=self._restart_backend),
+            9: lambda parent: LogsTab(parent, self.paths, on_restart=self._restart_backend),
+            10: lambda parent: FeaturesTab(
                 parent,
                 self.paths,
                 on_goto=self.show_tab_key,
@@ -222,12 +238,12 @@ class GuiApp:
                 on_reconnect=self.reconnect,
                 service_status=lambda: self._status_text,
             ),
-            10: lambda parent: ToolPermTab(
+            11: lambda parent: ToolPermTab(
                 parent, self.paths, on_restart=self._restart_backend
             ),
         }
         #: 启动时就构建的页：对话（默认页）与功能（状态栏轮询要写它）。
-        eager = (0, 9)
+        eager = (0, 10)
         for index, name in enumerate(_TABS):
             text = f" {name} "
             factory = self._tab_factories.get(index)
@@ -294,15 +310,19 @@ class GuiApp:
 
     @property
     def logs_tab(self) -> Any:
+        return self._ensure_tab(9)
+
+    @property
+    def time_tab(self) -> Any:
         return self._ensure_tab(8)
 
     @property
     def features_tab(self) -> Any:
-        return self._ensure_tab(9)
+        return self._ensure_tab(10)
 
     @property
     def toolperm_tab(self) -> Any:
-        return self._ensure_tab(10)
+        return self._ensure_tab(11)
 
     def _build_menu(self) -> None:
         menubar = tk.Menu(self.root)

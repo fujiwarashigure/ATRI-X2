@@ -11,6 +11,7 @@
 | :mod:`atri_x.gui.tabs.knowledge` | 知识库 | ``app.toml`` 的 ``[group_knowledge]``（只读 ``state.toml`` 的条目） |
 | :mod:`atri_x.gui.tabs.advanced` | 进阶 | 生图/视觉/ASR、记忆与群功能开关；自学习/HOOK/维护任务是二级窗口 |
 | :mod:`atri_x.gui.tabs.logs` | 日志 | 只读（服务日志 + ``gui/gui.log`` 界面操作日志），可导出 |
+| :mod:`atri_x.gui.tabs.timepanel` | 时间 | ``app.toml`` 的 ``[time]`` / ``[time.verification]`` / ``[[time.sources]]`` + 只读实时读数与 ``/diagnostics`` 后台校验状态 |
 | :mod:`atri_x.gui.tabs.features` | 功能 | 只读状态 + 服务/日志入口 |
 | :mod:`atri_x.gui.tabs.toolperm` | 工具权限 | ``state.toml`` 的 ``[group_policy]`` 群工具白名单（纵向滚动菜单：激活按钮 + 状态 + 功能解释，chat / work 分两个子选项卡）+ 第三个子选项卡「工具参数（全局）」（每个工具一组可展开参数，写 ``app.toml`` / ``services.toml``）+ ``app.toml`` 的群聊工具进度开关 |
 
@@ -30,6 +31,7 @@ from atri_x.gui.tabs.logs import LogsTab
 from atri_x.gui.tabs.members import MembersTab
 from atri_x.gui.tabs.model import ModelTab
 from atri_x.gui.tabs.platform import PlatformTab
+from atri_x.gui.tabs.timepanel import TimeTab
 from atri_x.gui.tabs.toolperm import ToolPermTab
 
 __all__ = [
@@ -44,5 +46,6 @@ __all__ = [
     "MembersTab",
     "ModelTab",
     "PlatformTab",
+    "TimeTab",
     "ToolPermTab",
 ]

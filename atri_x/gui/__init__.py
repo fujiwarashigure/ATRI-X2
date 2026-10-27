@@ -44,8 +44,16 @@
 | :mod:`atri_x.gui.client` | WS 客户端（握手/收发/断线重连） |
 | :mod:`atri_x.gui.protocol` | 帧 → 界面状态的纯逻辑（聊天记录、状态栏文本、补全） |
 | :mod:`atri_x.gui.service` | 配置与 token 准备、后台服务探测/拉起/停止/重启 |
-| :mod:`atri_x.gui.qqproto` | 内置 NapCat/便携 QQ 协议端：令牌、端口、NapCat 配置与 `[platform.qqonebot]` 补齐 |
+| :mod:`atri_x.gui.qqproto` | 内置 NapCat/便携 QQ 协议端：令牌、端口、NapCat 配置与 `[platform.qqonebot]` 补齐（NapCat 专用） |
+| :mod:`atri_x.gui.qqproto_cli` | ``-m atri_x.gui.qqproto`` 的命令行入口（准备 / ``--stop`` / ``--status``） |
+| :mod:`atri_x.gui.proto_setup` | 协议端环境描述 ``ProtoSetup``（NapCat / SnowLuma 共用，纯数据） |
+| :mod:`atri_x.gui.proto_process` | 协议端进程托管：按 PID 归属启动/停止，绝不按进程名杀 |
+| :mod:`atri_x.gui.snowluma_proto` | SnowLuma（外置）探测与托管：只读它的配置取端口/令牌，不改第三方文件 |
+| :mod:`atri_x.gui.proto_manager` | 按 ``protocol_backend`` 分派 NapCat / SnowLuma，并把实际地址令牌只补空值 |
 | :mod:`atri_x.gui.linkstate` | 「在线」页的数据层：平台配置、协议端端口探测、``/healthz`` 健康快照（无 Tk） |
+| :mod:`atri_x.gui.timeview` | 「时间」页的数据层：读 ``[time]``、实时快照、时区探针、后台 ``/diagnostics`` 时间段（无 Tk） |
+| :mod:`atri_x.gui.timesources` | 「时间」页的 ``[[time.sources]]`` 表格 + 表单编辑器（只编内存列表，落盘由选项卡统一做） |
+| :mod:`atri_x.gui.timediagnostics` | 「时间」页的「后台运行状态」面板：拉取并渲染 ``/diagnostics`` 的时间段（只读） |
 | :mod:`atri_x.gui.tray` | ``ctypes`` 写的托盘图标（无第三方依赖） |
 | :mod:`atri_x.gui.autostart` | 开机自启（注册表 ``Run`` 项） |
 """

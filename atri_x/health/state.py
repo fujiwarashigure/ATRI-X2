@@ -61,7 +61,12 @@ class ModelStatus:
 
 @dataclass
 class PlatformStatus:
-    """某个平台的连接状态。对应 Go ``PlatformStatus``。"""
+    """某个平台的连接状态。对应 Go ``PlatformStatus``。
+
+    ``connected`` 的语义是"**传输层连上了**"（QQ 即 OneBot WebSocket 已建立），
+    **不是**"机器人已登录"。Python 侧新增后面几个字段，用来把"QQ 是否登录"与
+    "端口是否在听"分开显示（见 ``devdocs/qq-backends-matrix.md``）。
+    """
 
     name: str = ""
     connected: bool = False
@@ -69,6 +74,17 @@ class PlatformStatus:
     last_connected_at: datetime | None = None
     last_disconnected_at: datetime | None = None
     last_error: str = ""
+    #: 配置的协议端（``napcat`` / ``snowluma``；空 = 未上报）。
+    backend: str = ""
+    #: ``get_login_info`` 是否成功且拿到了非零账号——这才是"QQ 已登录"。
+    login_ok: bool = False
+    #: 已登录账号（QQ 号）与昵称。
+    self_id: str = ""
+    nickname: str = ""
+    #: 协议端 ``get_version_info`` 自报的 ``app_name``（识别真身）。
+    app_name: str = ""
+    #: 最近一次登录态检查时间。
+    login_checked_at: datetime | None = None
 
 
 @dataclass
@@ -204,8 +220,43 @@ class State:
             status.name = name
             status.connected = False
             status.last_disconnected_at = now
+            # 传输层断开后登录态一定不再可信：宁可显示"未登录"，也不要留旧值冒充在线。
+            status.login_ok = False
+            status.login_checked_at = now
             if err is not None:
                 status.last_error = redact_secrets(str(err))
+            self._platforms[name] = status
+
+    def mark_platform_login(
+        self,
+        name: str,
+        *,
+        backend: str = "",
+        login_ok: bool = False,
+        self_id: str | int = "",
+        nickname: str = "",
+        app_name: str = "",
+    ) -> None:
+        """记录"QQ 是否已登录"与协议端真身（Python 侧新增）。
+
+        与 :meth:`mark_platform_connected` 分开：连接成功只说明 WebSocket 通了，
+        登录握手（``get_login_info``）才说明协议端已经登上了 QQ。
+        """
+        name = (name or "").strip()
+        if not name:
+            return
+        now = self._clock()
+        with self._mu:
+            status = self._platforms.get(name) or PlatformStatus(name=name)
+            status.name = name
+            if backend:
+                status.backend = backend
+            status.login_ok = bool(login_ok)
+            status.self_id = str(self_id) if self_id else ""
+            status.nickname = redact_secrets(nickname or "")
+            if app_name:
+                status.app_name = app_name
+            status.login_checked_at = now
             self._platforms[name] = status
 
     def record_model_error(self, provider: str, err: BaseException | None = None) -> None:

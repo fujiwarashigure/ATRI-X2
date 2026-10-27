@@ -213,6 +213,22 @@ def marshal_platform_status(status: Any) -> dict[str, Any]:
         out["last_disconnected_at"] = _iso(status.last_disconnected_at)
     if status.last_error:
         out["last_error"] = status.last_error
+    # Python 侧新增：把"传输层连上"与"QQ 已登录"分开（只在有信息时输出）。
+    backend = str(getattr(status, "backend", "") or "")
+    if backend:
+        out["backend"] = backend
+    if getattr(status, "login_checked_at", None) is not None:
+        out["login_ok"] = bool(getattr(status, "login_ok", False))
+        out["login_checked_at"] = _iso(status.login_checked_at)
+    self_id = str(getattr(status, "self_id", "") or "")
+    if self_id:
+        out["self_id"] = self_id
+    nickname = str(getattr(status, "nickname", "") or "")
+    if nickname:
+        out["nickname"] = nickname
+    app_name = str(getattr(status, "app_name", "") or "")
+    if app_name:
+        out["app_name"] = app_name
     return out
 
 

@@ -41,6 +41,11 @@ import sys
 import time
 from typing import Any, Sequence, TextIO
 
+from atri_x.platform.qq_onebot.backend import (
+    PROTOCOL_BACKENDS,
+    detect_backend,
+    resolve_protocol_backend,
+)
 from atri_x.platform.qq_onebot.config import DEFAULT_WS_URL
 from atri_x.platform.qq_onebot.transport import Transport
 from atri_x.platform.qq_onebot.types import Event
@@ -89,6 +94,15 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--private", type=int, default=0, help="send a text to this user id")
     parser.add_argument("--text", default="ATRI-X 连通性测试", help="text to send")
     parser.add_argument(
+        "--backend",
+        default="auto",
+        choices=("auto", *PROTOCOL_BACKENDS),
+        help=(
+            "protocol backend: auto (detect from get_version_info) / "
+            + " / ".join(PROTOCOL_BACKENDS)
+        ),
+    )
+    parser.add_argument(
         "--listen", type=float, default=0.0, help="seconds to listen for reported events"
     )
     parser.add_argument("--timeout", type=float, default=15.0, help="per-action timeout seconds")
@@ -97,41 +111,96 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 
 async def run(args: argparse.Namespace) -> dict[str, Any]:
-    """跑一遍握手 / 动作 / 发送 / 监听，返回结构化结果。"""
+    """跑一遍握手 / 动作 / 发送 / 监听，返回结构化结果。
+
+    报告是**逐项**的 ``checks: [{name, ok, detail}]``，方便一眼看出卡在哪一层；
+    同时保留 ``ok`` / ``self_id`` / ``nickname`` / ``sent`` / ``events`` 这些老字段。
+    """
     url = (args.url or "").strip()
     token = resolve_access_token(args.access_token, args.access_token_env)
-    transport = Transport(url=url, access_token=token, timeout=args.timeout)
-    report: dict[str, Any] = {"ok": False, "url": url, "auth": bool(token)}
+    configured_backend = _resolve_backend(args.backend)
+    transport = Transport(
+        url=url,
+        access_token=token,
+        timeout=args.timeout,
+        backend=configured_backend,
+    )
+    report: dict[str, Any] = {
+        "ok": False,
+        "url": url,
+        "auth": bool(token),
+        "backend": configured_backend or "auto",
+        "checks": [],
+    }
+
+    def check(name: str, ok: bool, detail: str = "") -> bool:
+        report["checks"].append({"name": name, "ok": bool(ok), "detail": detail})
+        return bool(ok)
+
     _out("[qqbot] connecting: %s (token=%s)\n" % (url, "yes" if token else "no"))
     await transport.connect(None)
+    check("connect", True, url)
     # 读循环必须与 call 并发跑：动作响应靠它 dispatch 回等待方；上报事件靠它进队列。
     events: asyncio.Queue = asyncio.Queue()
     pump = asyncio.ensure_future(_pump(transport, events))
     try:
-        login = await transport.call(None, "get_login_info", {})
-        data = login.data if isinstance(login.data, dict) else {}
-        report["self_id"] = _as_int(data.get("user_id"))
-        report["nickname"] = str(data.get("nickname") or "")
+        login = await transport.get_login_info(None)
+        report["self_id"] = login.user_id
+        report["nickname"] = login.nickname
+        report["login"] = login.logged_in()
+        check(
+            "login",
+            login.logged_in(),
+            "self_id=%s nickname=%s" % (login.user_id, login.nickname or "?"),
+        )
         _out(
             "[qqbot] connected: self_id=%s nickname=%s\n"
             % (report["self_id"], report["nickname"] or "?")
         )
 
+        # 协议端自报家门：识别"配置的后端 vs 实际连上的后端"是否一致。
+        version = await _probe(transport.get_version_info(None))
+        if version is not None:
+            report["app_name"] = version.app_name
+            report["app_version"] = version.app_version
+            report["detected_backend"] = detect_backend(version.app_name)
+            check(
+                "version",
+                True,
+                "%s %s" % (version.app_name or "?", version.app_version or ""),
+            )
+            check(
+                "backend_match",
+                not configured_backend
+                or not report["detected_backend"]
+                or report["detected_backend"] == configured_backend,
+                "configured=%s connected=%s"
+                % (configured_backend or "auto", report["detected_backend"] or "unknown"),
+            )
+        for action, label in (("can_send_image", "image"), ("can_send_record", "record")):
+            probe = getattr(transport, action)
+            allowed = await _probe(probe(None))
+            check("can_send_" + label, bool(allowed), "yes" if allowed else "no")
+
         sent: list[dict[str, Any]] = []
         if args.group:
             message_id = await transport.send_group_message(None, args.group, args.text)
             sent.append({"target": "group", "id": args.group, "message_id": message_id})
+            check("send_group", bool(message_id), "message_id=" + (message_id or "-"))
             _out("[qqbot] sent group %d message_id=%s\n" % (args.group, message_id))
         if args.private:
             message_id = await transport.send_private_message(None, args.private, args.text)
             sent.append({"target": "private", "id": args.private, "message_id": message_id})
+            check("send_private", bool(message_id), "message_id=" + (message_id or "-"))
             _out("[qqbot] sent private %d message_id=%s\n" % (args.private, message_id))
         report["sent"] = sent
 
         collected = await _drain(events, args.listen)
         report["events"] = collected
         report["event_count"] = len(collected)
-        report["ok"] = True
+        if args.listen > 0:
+            check("listen", True, "events=%d" % len(collected))
+        report["ok"] = bool(report["login"])
         _out("[qqbot] ok (events=%d)\n" % len(collected))
         return report
     finally:
@@ -139,6 +208,24 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         with contextlib.suppress(BaseException):
             await pump
         await transport.close()
+
+
+def _resolve_backend(value: str) -> str:
+    """``--backend``：``auto`` 交给 ``get_version_info`` 识别，其余按显式后端。"""
+    text = (value or "").strip().lower()
+    if text in ("", "auto"):
+        return ""
+    return resolve_protocol_backend(text)
+
+
+async def _probe(coro: Any) -> Any:
+    """跑一个可选动作；``None`` 表示协议端不支持（不当作失败）。"""
+    try:
+        return await coro
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - 可选能力探测，失败就是"没有"
+        return None
 
 
 async def _pump(transport: Transport, events: "asyncio.Queue[Event]") -> None:

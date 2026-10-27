@@ -107,6 +107,10 @@ class MessageSegment:
     mime_type: str = ""
     name: str = ""
     size: int = 0
+    #: 平台私有元数据（**Python 侧新增**，JSON 键 ``platform_meta``）。
+    #: 只承载"解析媒体时还要用、但跨平台没有统一语义"的字段，例：QQ 私聊文件下载
+    #: 需要入站 ``file`` 段的 ``file_hash`` 与归属的群号/用户号。空字典不进 JSON。
+    platform_meta: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         """对应 Go ``MessageSegment`` 的 json tag（除 type 外全部 omitempty）。"""
@@ -120,6 +124,7 @@ class MessageSegment:
             ("mime_type", self.mime_type),
             ("name", self.name),
             ("size", self.size),
+            ("platform_meta", self.platform_meta),
         ):
             if value:
                 out[key] = value
@@ -133,6 +138,7 @@ class MessageSegment:
         if not isinstance(raw, dict):
             return cls()
         size = raw.get("size")
+        meta = raw.get("platform_meta")
         return cls(
             type=str(raw.get("type") or MessageSegmentType.TEXT),
             text=str(raw.get("text") or ""),
@@ -143,6 +149,7 @@ class MessageSegment:
             mime_type=str(raw.get("mime_type") or ""),
             name=str(raw.get("name") or ""),
             size=int(size) if isinstance(size, (int, float)) else 0,
+            platform_meta=dict(meta) if isinstance(meta, dict) else {},
         )
 
 

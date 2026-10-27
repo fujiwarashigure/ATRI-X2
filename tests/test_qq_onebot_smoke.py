@@ -49,10 +49,16 @@ class FakeOneBot:
     * ``push_event`` 非空时，在登录动作之后立刻推一条上报事件。
     """
 
-    def __init__(self, push_event: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        push_event: dict[str, Any] | None = None,
+        version_info: dict[str, Any] | None = None,
+    ) -> None:
         self.actions: list[tuple[str, dict[str, Any]]] = []
         self.connections = 0
         self.push_event = push_event
+        #: ``get_version_info`` 的应答（``None`` 表示这个假协议端不支持该动作）。
+        self.version_info = version_info
         #: 每次握手带的 Authorization 头（用来验证 token 透传）。
         self.auth_headers: list[str] = []
 
@@ -73,6 +79,8 @@ class FakeOneBot:
                 )
                 if self.push_event is not None:
                     await conn.send_text(json.dumps(self.push_event))
+            elif action == "get_version_info" and self.version_info is not None:
+                await conn.send_text(_reply(echo, dict(self.version_info)))
             elif action in ("send_group_msg", "send_private_msg"):
                 await conn.send_text(_reply(echo, {"message_id": 42}))
             else:
@@ -206,6 +214,39 @@ class SmokeTestCase(unittest.TestCase):
         report = json.loads(out.getvalue().strip().splitlines()[-1])
         self.assertFalse(report["ok"])
         self.assertTrue(report["error"])
+
+    # -- 后端识别（SnowLuma / NapCat 差异）--------------------------------
+    def _checks(self, report: dict[str, Any]) -> dict[str, bool]:
+        return {item["name"]: item["ok"] for item in report["checks"]}
+
+    def test_report_is_itemized(self) -> None:
+        code, report, _ = self.run_smoke()
+        self.assertEqual(code, 0)
+        checks = self._checks(report)
+        self.assertTrue(checks["connect"])
+        self.assertTrue(checks["login"])
+        self.assertIn("backend", report)
+
+    def test_explicit_backend_is_reported(self) -> None:
+        code, report, _ = self.run_smoke("--backend", "snowluma")
+        self.assertEqual(code, 0)
+        self.assertEqual(report["backend"], "snowluma")
+
+    def test_auto_backend_detects_app_name(self) -> None:
+        self.fake.version_info = {"app_name": "NapCat", "app_version": "4.8.0"}
+        code, report, _ = self.run_smoke()
+        self.assertEqual(code, 0)
+        self.assertEqual(report["backend"], "auto")
+        self.assertEqual(report["detected_backend"], "napcat")
+        self.assertEqual(report["app_name"], "NapCat")
+        self.assertTrue(self._checks(report)["backend_match"])
+
+    def test_backend_mismatch_is_flagged(self) -> None:
+        self.fake.version_info = {"app_name": "SnowLuma", "app_version": "2.2.0"}
+        code, report, _ = self.run_smoke("--backend", "napcat")
+        self.assertEqual(code, 0)
+        self.assertEqual(report["detected_backend"], "snowluma")
+        self.assertFalse(self._checks(report)["backend_match"])
 
 
 class TokenResolutionTestCase(unittest.TestCase):

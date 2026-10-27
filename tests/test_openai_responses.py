@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import unittest
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from atri_x.llm.errors import APIError, ErrorCategory, as_api_error
 from atri_x.llm.llm import (
@@ -568,6 +568,87 @@ class TestResponsesTransportWiring(_ResponsesCase):
         args, kwargs = seen["calls"][0]
         self.assertEqual(args, ("GET", client.models_endpoint()))
         self.assertIsNone(kwargs.get("retry"))
+
+
+class TestResponsesReasoningEffort(_ResponsesCase):
+    """chat 风格的顶层 ``reasoning_effort`` 必须折进 Responses 的 ``reasoning.effort``。
+
+    回归：严格校验的网关（实测 opencode.ai）对 ``/responses`` 里的顶层
+    ``reasoning_effort`` 直接回 400——``reasoning_effort: requires a native
+    Responses target``；OpenAI 官方的 Responses 协议同样只认 ``reasoning.effort``。
+    """
+
+    async def _body(
+        self,
+        extra_payload: Mapping[str, Any] | None = None,
+        model_extra: Mapping[str, Mapping[str, Any]] | None = None,
+        **request_kwargs: Any,
+    ) -> tuple[dict[str, Any], ResponsesAdapter]:
+        server = self.responses_server(
+            ['data: {"type":"response.completed","response":{"status":"completed"}}']
+        )
+        client = self.make_responses(server.url, "test-key", extra_payload, model_extra)
+        await self.collect(client.chat_stream(None, self.request(**request_kwargs)))
+        return server.last_body(), client
+
+    async def test_provider_level_effort_becomes_reasoning_effort_object(self) -> None:
+        body, _ = await self._body({"reasoning_effort": "high"})
+        self.assertNotIn("reasoning_effort", body)
+        self.assertEqual(body["reasoning"], {"effort": "high"})
+
+    async def test_model_level_effort_overrides_provider_level(self) -> None:
+        provider_low = {"reasoning_effort": "low"}
+        model_high = {"test": {"reasoning_effort": "high"}}
+        body, _ = await self._body(provider_low, model_high)
+        self.assertEqual(body["reasoning"], {"effort": "high"})
+        # 没有模型级覆盖的模型仍用 Provider 级档位。
+        other, _ = await self._body(provider_low, model_high, model="other")
+        self.assertEqual(other["reasoning"], {"effort": "low"})
+
+    async def test_explicit_reasoning_object_wins_over_dedicated_field(self) -> None:
+        body, _ = await self._body(
+            {"reasoning": {"effort": "low", "summary": "auto"}, "reasoning_effort": "high"}
+        )
+        self.assertNotIn("reasoning_effort", body)
+        self.assertEqual(body["reasoning"], {"effort": "low", "summary": "auto"})
+
+    async def test_effort_is_added_when_explicit_reasoning_lacks_it(self) -> None:
+        body, _ = await self._body(
+            {"reasoning": {"summary": "auto"}, "reasoning_effort": "high"}
+        )
+        self.assertEqual(body["reasoning"], {"summary": "auto", "effort": "high"})
+
+    async def test_non_object_reasoning_keeps_explicit_value(self) -> None:
+        body, _ = await self._body({"reasoning": "auto", "reasoning_effort": "high"})
+        self.assertNotIn("reasoning_effort", body)
+        self.assertEqual(body["reasoning"], "auto")
+
+    async def test_extra_payload_is_not_mutated(self) -> None:
+        """折叠只改本次请求体，不能把 effort 写回可复用的 provider 配置。"""
+        payload = {"reasoning": {"summary": "auto"}, "reasoning_effort": "high"}
+        _, client = await self._body(payload)
+        self.assertEqual(client.extra_payload, {"reasoning": {"summary": "auto"}, "reasoning_effort": "high"})
+
+    async def test_empty_effort_is_not_sent_at_all(self) -> None:
+        body, _ = await self._body({"reasoning_effort": ""})
+        self.assertNotIn("reasoning_effort", body)
+        self.assertNotIn("reasoning", body)
+
+    async def test_request_extra_body_effort_is_folded_too(self) -> None:
+        body, _ = await self._body(
+            None, None, extra_body={"reasoning_effort": "minimal"}
+        )
+        self.assertNotIn("reasoning_effort", body)
+        self.assertEqual(body["reasoning"], {"effort": "minimal"})
+
+    def test_fold_reasoning_effort_is_idempotent(self) -> None:
+        client = ResponsesAdapter("https://example.invalid/v1", "k")
+        body: dict[str, Any] = {}
+        self.assertEqual(client.fold_reasoning_effort(body), [])
+        body = {"reasoning_effort": "high"}
+        self.assertEqual(client.fold_reasoning_effort(body), [])
+        self.assertEqual(body, {"reasoning": {"effort": "high"}})
+        self.assertEqual(client.fold_reasoning_effort(body), [])
 
 
 if __name__ == "__main__":

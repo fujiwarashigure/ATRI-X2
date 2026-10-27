@@ -6,6 +6,7 @@
 Python 模块                 Go 文件
 ==========================  ==========================================
 ``adapter.py``              ``adapter.go``（主循环、出站发送）
+``backend.py``              Python 侧新增，无 Go 对应（协议端差异：NapCat / SnowLuma）
 ``attachment.py``           ``attachment.go``（入站媒体解析）
 ``capabilities.py``         ``capabilities.go``（群历史 / 群资料 / 群成员 / 头像）
 ``config.py``               ``adapter.go`` 的 ``Config`` / ``applyDefaults`` /
@@ -27,6 +28,7 @@ Python 模块                 Go 文件
 
 from __future__ import annotations
 
+from atri_x.platform.qq_onebot import backend as backend
 from atri_x.platform.qq_onebot import (  # noqa: F401 - 先建立子模块属性，见模块 docstring
     types as types,
 )
@@ -55,6 +57,22 @@ from atri_x.platform.qq_onebot.capabilities import (  # noqa: F401
     get_group_member_list,
     get_user_avatar_url,
     raw_id_string,
+)
+from atri_x.platform.qq_onebot.backend import (  # noqa: F401
+    BACKEND_LABELS,
+    BackendProfile,
+    LEGACY_DEFAULT_BACKEND,
+    NEW_INSTALL_BACKEND,
+    PROTOCOL_BACKENDS,
+    PROTOCOL_BACKEND_NAPCAT,
+    PROTOCOL_BACKEND_SNOWLUMA,
+    backend_choices,
+    backend_label,
+    backend_profile,
+    detect_backend,
+    normalize_protocol_backend,
+    resolve_protocol_backend,
+    validate_protocol_backend,
 )
 from atri_x.platform.qq_onebot.config import (  # noqa: F401
     DEFAULT_WS_URL,

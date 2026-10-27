@@ -398,6 +398,52 @@ class TestSnapshotAndJsonShape(unittest.TestCase):
         payload = hs.marshal_snapshot(state.snapshot())
         self.assertEqual("open", payload["models"][0]["circuit"])
 
+    def test_platform_login_state_is_separate_from_connected(self) -> None:
+        """``connected`` 只说明传输层通了；``login_ok`` 才是"QQ 已登录"。"""
+        state = make_state()
+        state.mark_platform_connected("qqonebot")
+        state.mark_platform_login(
+            "qqonebot",
+            backend="snowluma",
+            login_ok=True,
+            self_id="10001",
+            nickname="bot",
+            app_name="SnowLuma",
+        )
+        entry = hs.marshal_snapshot(state.snapshot())["platforms"][0]
+        self.assertTrue(entry["connected"])
+        self.assertTrue(entry["login_ok"])
+        self.assertEqual(entry["backend"], "snowluma")
+        self.assertEqual(entry["self_id"], "10001")
+        self.assertEqual(entry["nickname"], "bot")
+        self.assertEqual(entry["app_name"], "SnowLuma")
+        self.assertIn("login_checked_at", entry)
+
+    def test_disconnect_clears_login_state(self) -> None:
+        state = make_state()
+        state.mark_platform_connected("qqonebot")
+        state.mark_platform_login("qqonebot", backend="nan", login_ok=True, self_id="1")
+        state.mark_platform_disconnected("qqonebot", RuntimeError("boom"))
+        entry = hs.marshal_snapshot(state.snapshot())["platforms"][0]
+        self.assertFalse(entry["connected"])
+        self.assertFalse(entry["login_ok"])
+
+    def test_platform_without_login_check_omits_login_fields(self) -> None:
+        state = make_state()
+        state.mark_platform_connected("telegram")
+        entry = hs.marshal_snapshot(state.snapshot())["platforms"][0]
+        self.assertNotIn("login_ok", entry)
+        self.assertNotIn("login_checked_at", entry)
+        self.assertNotIn("backend", entry)
+
+    def test_login_nickname_is_redacted(self) -> None:
+        state = make_state()
+        state.mark_platform_login(
+            "qqonebot", login_ok=True, self_id="1", nickname="token=sk-abcdefghijklmnop"
+        )
+        entry = hs.marshal_snapshot(state.snapshot())["platforms"][0]
+        self.assertNotIn("sk-abcdefghijklmnop", entry["nickname"])
+
     def test_restart_reason_redacted(self) -> None:
         state = make_state()
         state.set_last_restart_reason("crashed api_key=abcdef123456")

@@ -601,6 +601,7 @@ token_env = ["ATRIX_CLI_LOCAL_TOKEN"]
 
 # [platform.qqonebot]
 # enabled = false
+# protocol_backend = "napcat" # OneBot protocol backend: "napcat" (default; bundled with this package) or "snowluma" (optional external backup, must be installed by the user). A missing whole [platform.qqonebot] section means a fresh install, whose default is napcat; a section present without this key means a legacy 1.0.x config, also read as napcat. Switching is always explicit and never happens on upgrade. The backend never changes ws_url or the token.
 # ws_url = "ws://127.0.0.1:6700/" # native/local OneBot. Inside a container 127.0.0.1 points to ATRI-X itself; use a Compose service name or reachable host address.
 # access_token = "" # legacy direct value; optional
 # access_token_env = "QQONEBOT_ACCESS_TOKEN" # optional; reads process env, then config .env

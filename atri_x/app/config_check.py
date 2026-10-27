@@ -16,6 +16,8 @@ from typing import Any
 
 from atri_x.config import builtin_asset_drift, load as load_config
 from atri_x.config import unknown_app_config_keys
+from atri_x.errors import InvalidError
+from atri_x.platform.qq_onebot.backend import validate_protocol_backend
 
 __all__ = ["CheckConfig", "check_config", "checkConfigWarnings", "check_config_warnings"]
 
@@ -130,7 +132,26 @@ def check_config_warnings(cfg: Any) -> list[str]:
                 "daily_report 没有配置 prices，报告只统计 token 不统计金额"
             )
     warnings.extend(_time_warnings(cfg))
+    warnings.extend(_protocol_backend_warnings(cfg))
     return warnings
+
+
+def _protocol_backend_warnings(cfg: Any) -> list[str]:
+    """``[platform.qqonebot].protocol_backend`` 的取值告警（Python 版新增，1.1）。
+
+    ``[platform.*]`` 小节内部的值类型是 ``Any``，不受"未知键"检查约束，所以把
+    协议端名拼错（或写成数字）不会让 ``config check`` 失败，只会在装配期抛
+    :class:`atri_x.errors.InvalidError`。这条告警把问题提前到检查阶段。
+    """
+    platform = getattr(cfg, "platform", None)
+    section = platform.get("qqonebot") if isinstance(platform, dict) else None
+    if not isinstance(section, dict) or "protocol_backend" not in section:
+        return []
+    try:
+        validate_protocol_backend(section.get("protocol_backend"))
+    except InvalidError as exc:
+        return [str(exc)]
+    return []
 
 
 def _time_warnings(cfg: Any) -> list[str]:

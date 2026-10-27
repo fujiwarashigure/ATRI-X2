@@ -19,6 +19,7 @@ from typing import Any, Mapping
 
 from atri_x.gui.configedit import ConfigEditError, ConfigPaths, read_toml
 from atri_x.gui.configmodel import load_providers, provider_key_state
+from atri_x.timezones import DEFAULT_TIMEZONE
 
 __all__ = ["FeatureRow", "collect_features"]
 
@@ -77,6 +78,7 @@ def collect_features(paths: ConfigPaths) -> list[FeatureRow]:
     rows.append(_soul_row(paths))
     rows.append(_members_row(paths))
     rows.append(_knowledge_row(paths, app))
+    rows.append(_time_row(app))
     rows.append(_logs_row(paths))
     rows.append(_section_row(
         "resident_memory", "常驻记忆（memories.toml）", app, default_on=True,
@@ -181,6 +183,39 @@ def _knowledge_row(paths: ConfigPaths, app: Mapping[str, Any]) -> FeatureRow:
     status = _status_of(enabled, explicit=enabled is not None)
     detail = f"{count} 条知识；每群上限 {section.get('max_entries_per_scope') or 200}"
     return FeatureRow("knowledge", "群知识库（FAQ）", status, detail, tab="knowledge")
+
+
+def _time_row(app: Mapping[str, Any]) -> FeatureRow:
+    """统一时间服务：业务时间口径恒定生效，网络校验是可选的一段（默认关闭）。
+
+    状态口径：网络校验真的能跑（开关打开 + 至少一条启用来源）才是「已启用」；
+    否则时间服务本身仍按默认值工作（系统时钟 + ``[time].timezone``），记「默认启用」。
+    """
+    section = _section(app, "time")
+    timezone = str(section.get("timezone") or "").strip() or DEFAULT_TIMEZONE
+    verification = _section(section, "verification")
+    sources = [
+        item
+        for item in section.get("sources") or []
+        if isinstance(item, Mapping) and bool(item.get("enabled"))
+    ]
+    verify_on = bool(verification.get("enabled"))
+    parts = [f"时区 {timezone}"]
+    if section.get("inject_context") is False:
+        parts.append("不注入系统提示")
+    if verify_on and sources:
+        parts.append(f"网络校验已启用（{len(sources)} 个来源）")
+    elif verify_on:
+        parts.append("网络校验已启用但没有启用的来源 → 运行期不可用")
+    else:
+        parts.append("网络校验未启用（只读系统时钟，不联网）")
+    return FeatureRow(
+        "time",
+        "时间服务（时区 / 网络校验）",
+        "已启用" if verify_on and sources else "默认启用",
+        "；".join(parts),
+        tab="time",
+    )
 
 
 def _logs_row(paths: ConfigPaths) -> FeatureRow:

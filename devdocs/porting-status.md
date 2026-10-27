@@ -188,3 +188,22 @@
 - 文档里引用的 `deploy/data/`、`deploy/.env`、`deploy/rollback/rollback.env` 等路径**在仓库里不存在是正常的**：它们由首次部署生成（见 [deploy/README.md](../deploy/README.md)）。
 - 上游 README 里的截图指向 `github.com/Elfreese/elbot-showcase`（上游展示仓库），本次移植保留了链接与图片地址，但**没有把图片复制进本仓库**。
 - 上游 `LICENSE` 未复制：本仓库沿用同一许可（Apache-2.0），README「许可」一节已说明。若发布时需要独立的 `LICENSE` 文件，请从上游复制同一份文本。
+
+---
+
+## 7. 资产分叉登记（`atri_x/config/assets_data/`）
+
+`atri_x/config/assets_data/*` 是 `scripts/extract_assets.py` 从上游 Go 仓库**机械抽取**的产物
+（`scripts/extract_assets.py:1-20`；默认上游路径是本仓库同级的 `ATRI-X`）。凡手工改动这里的文件，
+都等于与上游资产分叉：重新抽取会覆盖，必须在下表登记，并在下次抽取后重放。
+
+| 文件 | 分叉内容 | 原因 | 重放方式 |
+|---|---|---|---|
+| `atri_x/config/assets_data/app.toml` | `[platform.qqonebot]` 注释块里新增一行 `# protocol_backend = "napcat"`（**仅注释，不新增生效小节**） | 1.1 起 `qqonebot` 支持 SnowLuma / NapCat 两类协议端，默认资产要给出可发现的字段名与取值 | 在同样位置补回该行注释。**不要**把该小节写成生效配置：那会让新装凭空多出一个 `[platform.qqonebot]`，改变 `section_exists` 与 doctor 的"缺 `enabled` 视为启用"判定 |
+
+**共享类型加了字段（Python 侧新增，不影响 Go 契约）**：
+
+| 类型 | 新字段 | 说明 |
+|---|---|---|
+| `atri_x/health/state.py` 的 `PlatformStatus` | `backend` / `login_ok` / `self_id` / `nickname` / `app_name` / `login_checked_at` + `State.mark_platform_login` | `connected` 的语义是"传输层连上了"，新增字段把"QQ 已登录"分开；`/healthz` 只在有信息时输出新键，老读端不受影响 |
+| `atri_x/platform/platform.py` 的 `MessageSegment` | `platform_meta: dict` | 承载"解析媒体还要用、但跨平台没有统一语义"的字段（QQ 文件的 `file_hash` / 归属群号）；JSON 键 `platform_meta`，空字典不入库 |

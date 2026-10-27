@@ -110,8 +110,9 @@ def parse_api_protocol(raw: str) -> tuple[APIProtocol, bool]:
 
 #: ``reasoning_effort`` 允许的取值（OpenAI 兼容上游的通用思考强度档位）。
 #:
-#: 语义是"把值原样放进请求 JSON 的 ``reasoning_effort`` 字段"，因此只收各家都认的
-#: 通用档位；个别网关的私有取值请走 ``extra_payload``（那里不做白名单）。
+#: 语义是"把值放进请求 JSON"：chat 协议发顶层 ``reasoning_effort``；Responses
+#: 协议由适配器折成 ``reasoning.effort``（顶层字段会被严格校验的网关 400）。因此
+#: 只收各家都认的通用档位；个别网关的私有取值请走 ``extra_payload``（那里不做白名单）。
 REASONING_EFFORT_VALUES: tuple[str, ...] = ("none", "minimal", "low", "medium", "high")
 
 
@@ -141,7 +142,8 @@ class ModelConfig(StrictConfig):
     audio: bool | None = None
     api_mode: str = ""
     #: 推理思考强度（``none`` / ``minimal`` / ``low`` / ``medium`` / ``high``）。
-    #: 空串 = 不发送 ``reasoning_effort``；模型级覆盖 Provider 级。
+    #: 空串 = 不发送；chat 协议发顶层 ``reasoning_effort``，Responses 协议发
+    #: ``reasoning.effort``；模型级覆盖 Provider 级。
     reasoning_effort: str = ""
 
 
@@ -173,9 +175,10 @@ class ProviderConfig(StrictConfig):
     fallback_on_error: bool = False
     fallback_timeout_seconds: int = 0
     api_mode: str = ""
-    #: Provider 级推理思考强度（写进请求 JSON 的 ``reasoning_effort``）。
-    #: 空串 = 不发送；``[providers.<name>.model_configs.<model>].reasoning_effort``
-    #: 可按模型覆盖。桌面端「模型」页直接编辑 Provider 级这一项。
+    #: Provider 级推理思考强度。空串 = 不发送；chat 协议写进请求 JSON 的顶层
+    #: ``reasoning_effort``，Responses 协议由适配器折成 ``reasoning.effort``。
+    #: ``[providers.<name>.model_configs.<model>].reasoning_effort`` 可按模型覆盖。
+    #: 桌面端「模型」页直接编辑 Provider 级这一项。
     reasoning_effort: str = ""
 
     def uses_fallback_on_error(self) -> bool:

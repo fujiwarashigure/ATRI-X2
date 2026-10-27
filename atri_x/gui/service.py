@@ -14,7 +14,7 @@ QQ 机器人因此可以继续在线。本模块负责这条链路的前半段�
 - ``app.toml``：把 ``[platform.cli.server]`` 的 ``enabled`` 置为 ``true``（先备份 ``.bak``，
   写完用 :mod:`tomllib` 重新解析校验）；
 - ``.env``：写入/更新一行 ``ATRIX_CLI_LOCAL_TOKEN=<随机值>``（本机回环服务端的登录 token）；
-- ``.env``：补 ``ATRIX_HEALTH_ADDR``（默认 ``127.0.0.1:32173``，端口被占时顺延）与
+- ``.env``：补 ``ATRIX_HEALTH_ADDR``（默认 ``127.0.0.1:32171``，端口被占时顺延）与
   ``ATRIX_OPS_TOKEN``（随机值）—— 后端据此启动只读健康接口，「在线」选项卡从
   ``/healthz`` 读平台连接状态。**已有值一律不动**，用户自己配的地址/令牌优先；
 - 内置协议端（发行包带 ``qqproto\\`` 时）：由 :mod:`atri_x.gui.qqproto` 生成 OneBot
@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from atri_x.gui import qqproto
+from atri_x.gui import proto_manager, qqproto
 from atri_x.gui.process import (  # noqa: F401 - 这些名字属于本模块对外的对外接口
     app_dir,
     application_paths,
@@ -204,11 +204,17 @@ def prepare_settings(config_path: str = "") -> GuiSettings:
 
 
 def _prepare_qqproto(config_dir: str, config_path: str) -> qqproto.QqProtoSetup | None:
-    """准备内置 QQ 协议端；失败只记录原因，绝不影响桌面端启动。"""
+    """准备当前配置的协议端（NapCat / SnowLuma）；失败只记录原因，绝不影响桌面端启动。"""
     try:
-        return qqproto.ensure_qqproto(config_dir, app_toml=config_path)
+        setup = proto_manager.prepare(config_dir, app_toml=config_path)
+        # 协议端的实际监听地址/令牌只补**空值**（用户已写好的绝不覆盖）。
+        if setup.available:
+            proto_manager.apply_connection(
+                setup, config_path, os.path.join(config_dir, ".env") if config_dir else ""
+            )
+        return setup
     except Exception as exc:  # noqa: BLE001 - 协议端问题不能变成启动失败
-        return qqproto.QqProtoSetup(available=False, reason=f"内置协议端准备失败：{exc}")
+        return qqproto.QqProtoSetup(available=False, reason=f"协议端准备失败：{exc}")
 
 
 def ensure_server_enabled(text: str) -> tuple[str, bool]:
@@ -604,7 +610,7 @@ def _log_header(settings: GuiSettings) -> str:
     moment = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     proto = settings.qqproto
     proto_line = (
-        f"内置协议端：{proto.label} · {proto.ws_url}" if proto is not None else "内置协议端：（无）"
+        f"协议端：{proto.label} · {proto.ws_url}" if proto is not None else "协议端：（无）"
     )
     return (
         f"\n=== {moment} 启动后台服务 ===\n"

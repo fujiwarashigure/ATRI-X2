@@ -42,7 +42,7 @@ from atri_x.delivery.delivery import (
     should_drop_group_tool_preview,
     use_temporary_connection,
 )
-from atri_x.errors import AtriXError, InvalidError
+from atri_x.errors import AtriXError, ForbiddenError, InvalidError
 from atri_x.net.websocket import CLOSE_NORMAL
 from atri_x.platform import refcontext
 from atri_x.platform.backoff import new_backoff
@@ -60,6 +60,7 @@ from atri_x.platform.qq_onebot import attachment as qq_attachment
 from atri_x.platform.qq_onebot import capabilities as qq_capabilities
 from atri_x.platform.qq_onebot import preprocess as qq_preprocess
 from atri_x.platform.qq_onebot import slowfetch as qq_slowfetch
+from atri_x.platform.qq_onebot.backend import detect_backend
 from atri_x.platform.qq_onebot.config import Config, PLATFORM_NAME, apply_defaults
 from atri_x.platform.qq_onebot.forward import first_non_empty
 from atri_x.platform.qq_onebot.inbound import (
@@ -106,6 +107,10 @@ from atri_x.platform.qq_onebot.types import (
 from atri_x.security import GroupRoleUnknown, ParseGroupRole
 from atri_x.storage.times import now as storage_now
 
+#: 协议端拒绝令牌（HTTP 401/403）后的重试间隔（秒）。
+#: 比普通断线退避慢得多：错令牌不会因为多试几次就变对，也不该刷屏。
+AUTH_RETRY_SECONDS = 30.0
+
 
 def new_adapter(cfg: Config, store: Any, chat_history: Any, logger: Any) -> "Adapter":
     """对应 Go ``New``。"""
@@ -130,8 +135,12 @@ class Adapter:
             timeout=timeout,
             read_limit_bytes=int(cfg.forward_max_result_bytes or 0),
             logger=logger,
+            backend=cfg.protocol_backend,
         )
         self.notify: Any = None
+        #: 登录态回调（Python 侧新增）：``(ctx, platform_name, state)``，
+        #: 供 ``/healthz`` 把"QQ 已登录"与"WS 已连接"分开显示。
+        self.notify_login: Any = None
         self.inbound = new_inbound_runtime(cfg)
         # 引用 / 转发的慢取缓存（Python 新增）：预算内等不到就先放占位，后台继续取。
         self.fetch_cache = qq_slowfetch.new_fetch_cache(
@@ -145,6 +154,14 @@ class Adapter:
             max_entries=int(cfg.slow_fetch_max_entries or 0),
         )
         self._tasks: set[asyncio.Task] = set()
+        #: 最近一次 ``get_login_info`` 的结果：**"QQ 是否已登录"**，与"WS 是否连上"
+        #: 是两件事（协议端进程在跑、端口在听时 QQ 仍可能没登录）。
+        self.login_info: Any = None
+        self.login_ok: bool = False
+        #: 协议端自报的版本（``get_version_info``）；``detected_backend`` 由
+        #: ``app_name`` 识别，用来发现"配的后端与实际连上的不是同一个"。
+        self.version_info: Any = None
+        self.detected_backend: str = ""
 
     # -- 生命周期 -----------------------------------------------------------
     def name(self) -> str:
@@ -159,6 +176,25 @@ class Adapter:
         """对应 Go ``SetConnectNotifier``。"""
         self.notify = notify
 
+    def set_login_notifier(self, notify: Any) -> None:
+        """注册"登录态已刷新"回调（Python 侧新增，非 Go 对应）。"""
+        self.notify_login = notify
+
+    async def notify_login_state(self, ctx: Any) -> None:
+        """把最近一次握手结果发布给订阅方（``/healthz`` 的状态来源）。"""
+        if self.notify_login is None:
+            return
+        payload = {
+            "backend": self.cfg.protocol_backend,
+            "login_ok": self.login_ok,
+            "self_id": str(getattr(self.login_info, "user_id", "") or ""),
+            "nickname": str(getattr(self.login_info, "nickname", "") or ""),
+            "app_name": str(getattr(self.version_info, "app_name", "") or ""),
+        }
+        result = self.notify_login(ctx, self.name(), payload)
+        if asyncio.iscoroutine(result):
+            await result
+
     async def notify_connected(self, ctx: Any) -> None:
         """对应 Go ``notifyConnected``。"""
         if self.notify is None:
@@ -166,6 +202,63 @@ class Adapter:
         result = self.notify(ctx, self.name())
         if asyncio.iscoroutine(result):
             await result
+
+    async def handshake(self, ctx: Any) -> None:
+        """连上后握手：``get_login_info``（QQ 是否已登录）+ ``get_version_info``（真身）。
+
+        两个动作都**只记录、不阻断**：
+
+        * 协议端刚启动时 QQ 可能还没登录，而 OneBot v11 没有"登录完成"事件，所以
+          登录失败不算错误——下一次连接成功时会再握手一次；
+        * 有的测试桩/旧协议端不实现这两个动作，缺失时直接跳过（能力探测）。
+        """
+        self.login_ok = False
+        self.login_info = None
+        get_login = getattr(self.transport, "get_login_info", None)
+        if callable(get_login):
+            try:
+                info = await get_login(ctx)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 登录态可能延后，不阻断连接
+                self.log_warn("onebot login check failed", error=exc)
+            else:
+                self.login_info = info
+                logged_in = getattr(info, "logged_in", None)
+                self.login_ok = bool(logged_in()) if callable(logged_in) else False
+                if self.login_ok:
+                    self.log_info(
+                        "onebot login ok",
+                        self_id=getattr(info, "user_id", 0),
+                        nickname=getattr(info, "nickname", ""),
+                    )
+                else:
+                    self.log_warn("onebot not logged in", self_id=getattr(info, "user_id", 0))
+
+        self.detected_backend = ""
+        get_version = getattr(self.transport, "get_version_info", None)
+        if not callable(get_version):
+            await self.notify_login_state(ctx)
+            return
+        try:
+            version = await get_version(ctx)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - 只是诊断信息
+            self.log_debug("onebot version probe failed", error=exc)
+            await self.notify_login_state(ctx)
+            return
+        self.version_info = version
+        app_name = str(getattr(version, "app_name", "") or "")
+        self.detected_backend = detect_backend(app_name)
+        if self.detected_backend and self.detected_backend != self.cfg.protocol_backend:
+            self.log_warn(
+                "onebot backend mismatch",
+                configured=self.cfg.protocol_backend,
+                connected=self.detected_backend,
+                app_name=app_name,
+            )
+        await self.notify_login_state(ctx)
 
     def forward_limits(self) -> ForwardLimits:
         """当前转发展开上限。对应 Go ``(*Adapter).forwardLimits``。"""
@@ -204,6 +297,14 @@ class Adapter:
                 await self.transport.connect(ctx)
             except asyncio.CancelledError:
                 raise
+            except ForbiddenError as exc:
+                # 令牌不对 ≠ 服务没起：前者不会因为多试几次就好，固定慢速重试并每次
+                # 给可行动告警（改 .env 令牌后重启后台服务即可）。SnowLuma 在 WS 升级
+                # 阶段就用 HTTP 401 拒绝错令牌，走的就是这条分支。
+                self.log_warn("onebot access token rejected", error=exc)
+                if not await sleep_context(ctx, AUTH_RETRY_SECONDS):
+                    raise_context_error(ctx)
+                continue
             except Exception as exc:  # noqa: BLE001 - 连接失败按退避重试
                 if backoff.should_warn():
                     self.log_warn("onebot connect failed", error=exc)
@@ -213,6 +314,8 @@ class Adapter:
             backoff.reset()
             self.log_info("onebot connected", url=self.cfg.url)
             self._spawn(self.notify_connected(ctx))
+            # 登录态握手与读循环并发跑：动作响应靠读循环 dispatch 回等待方。
+            self._spawn(self.handshake(ctx))
             error: BaseException | None = None
             try:
                 await self.read_loop(ctx, handler)
@@ -222,6 +325,9 @@ class Adapter:
             except Exception as exc:  # noqa: BLE001 - 断开原因只用于日志
                 error = exc
             await self.transport.close(CLOSE_NORMAL, "reconnect")
+            # 断线后登录态失效：宁可显示"未登录"，也不要拿上一次的旧值冒充在线。
+            self.login_ok = False
+            self.login_info = None
             ctx_err = ctx_error(ctx)
             if ctx_err is not None:
                 raise ctx_err
@@ -596,6 +702,13 @@ class Adapter:
         if self.logger is None:
             return
         self.logger.warn(message, **fields)
+
+    def log_debug(self, message: str, **fields: Any) -> None:
+        if self.logger is None:
+            return
+        debug = getattr(self.logger, "debug", None)
+        if callable(debug):
+            debug(message, **fields)
 
     # -- 内部小工具（Go 的自由函数） ----------------------------------------
     def is_superadmin(self, identifier: str) -> bool:
