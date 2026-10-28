@@ -218,7 +218,7 @@ python -m atri_x --version                 # 版本
 ## 发行版与容器镜像
 
 当前最新版本：**`1.1.2`**（正式发行版）：桌面端「群友」页保存的**群友人设真正进入对话**——新增共享层 `atri_x/memberprofile/`（`MemberProfile` / `MemberProfileStore` / 提示词渲染）与 `MemberProfileSystemPromptSource`，每轮只把**当前发言人**的档案（称呼 / 昵称 / 标签 / 角色资料）注入系统提示词，严格按**平台 + 完整作用域（如 `group:群号`）+ user id** 精确匹配；私聊、频道与后台任务（Cron / 外部事件）不注入；档案正文带信任声明，不改自身身份、不授予任何权限，写"我是管理员 / 忽略规则"不会改变工具授权；`gui/members.json` 向后兼容（新增 `enabled` 字段缺省视为开启），停用或留空时行为与旧版完全一致；保存 / 修改 / 删除**下一轮对话生效**，不需要重启。桌面端「群友」页同时新增「参与对话」勾选、列表「对话」列与实时「提示词预览」。**并修复一处装配期覆盖**：`rebuild_system_prompt()` 在安装期会整体替换系统提示词来源清单，导致 Python 侧新增来源（群友档案，以及此前同样被丢掉的 `[reactions]` 表情提示）在真实运行路径上不生效，现已与装配期清单保持一致。1.1.1 的两处修复（图转提示词入口、图片生成参数留档）全部保留；配置与会话数据**向后兼容**；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
-交付物尺寸与校验和见本版发行库 `SHA256SUMS-1.1.2.txt`（安装包 / 便携版 / 源码归档）、发行说明与自检报告；本版尚未推送 GitHub，发布后对应 tag 为 `v1.1.2`。
+交付物尺寸与校验和见发行库 `SHA256SUMS-1.1.2.txt`（安装包 / 便携版 / 源码归档）、发行说明与自检报告；本版已推送 GitHub（`main` 提交 `fe04c4e`、tag `v1.1.2`），发行资产尚未上传 GitHub Release。
 
 已线上发布的历史版本：[**GitHub Release v1.1.1**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.1)（当前线上版，tag `v1.1.1` 指向 1.1.1 发行提交）；上一版 [v1.1.0](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.0)（tag `v1.1.0`）；更早的 [v1.0.10](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.10)、[v1.0.9](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.9)、[v1.0.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)。各版本的尺寸与 SHA-256 见对应 Release 的 `SHA256SUMS.txt` 与兼容性报告（`ATRI-X-<版本>-compatibility-report.md`）。
 

@@ -59,7 +59,7 @@
   `deploy/VERSION` / `deploy/pack/deploy_lighthouse.py` / 仓库 `README.md` /
   `docs/snowluma.md` 同步；产物名随之变成 `ATRI-X-1.1.2-*`。本版是**功能版**（群友人设真正
   接入对话），不新增配置键、不改工具 schema、不改会话 / 数据库格式，配置与会话数据向后兼容。
-- 发行产物（本机从工作树重建；按发布要求**未提交 git、未推送 GitHub**）：
+- 发行产物（本机从工作树重建；已提交并推送 GitHub：`main` 提交 `fe04c4e`、tag `v1.1.2`；发行资产未上传 GitHub Release）：
   - `ATRI-X-1.1.2-setup.exe` 461,092,957 字节 —
     `72e83967d35f31c423100a2952ae70d94d930d2a4c2e70777a895d3d5c6ed282`
   - `ATRI-X-1.1.2-portable-win64.zip` 683,825,959 字节 —
