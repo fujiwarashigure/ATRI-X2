@@ -515,15 +515,25 @@ class GuiApp:
             self.notebook.select(index)
 
     def show_tab_key(self, key: str) -> None:
-        """按「功能」页给的键跳转（``model`` / ``character`` / ``toolperm_params``…）。"""
-        name = _TAB_KEYS.get(key)
+        """按「功能」页给的键跳转（``model`` / ``character`` / ``toolperm_params``…）。
+
+        ``toolperm_params`` 还支持 ``toolperm_params:<工具名>`` 这一复合形式：
+        切到「工具权限」页的「工具参数（全局）」子选项卡后，直接展开该工具的参数
+        面板（1.1.0 实机：图转提示词在「功能」页双击后原来被送去「进阶」页，
+        而那一页没有它的字段；真正的字段在工具参数注册表里）。
+        """
+        base, _, tool = (key or "").partition(":")
+        name = _TAB_KEYS.get(base)
         if name is None:
             return
         self.select_tab(_TAB_INDEX[name])
-        if key == "toolperm_params":
+        if base == "toolperm_params":
             toolperm = getattr(self, "toolperm_tab", None)
+            show_tool = getattr(toolperm, "show_tool_params", None)
             show_params = getattr(toolperm, "show_global_params", None)
-            if callable(show_params):
+            if tool and callable(show_tool):
+                show_tool(tool)
+            elif callable(show_params):
                 show_params()
         elif key == "toolperm_preview":
             toolperm = getattr(self, "toolperm_tab", None)

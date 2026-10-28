@@ -243,6 +243,23 @@ class LazyTabBuildTest(TkCase):
         self.assertEqual(str(character.reaction_page), character.notebook.select())
         self.assertEqual("pack", character.reaction_panel.frame.winfo_manager())
 
+    def test_feature_jump_to_image_to_prompt_params(self) -> None:
+        """「功能」页 → 图转提示词：落到「工具参数（全局）」并展开对应面板。
+
+        回归背景：功能行原来指向 ``advanced``，而「进阶」页没有 ``image_to_prompt``
+        的字段，双击过去等于"导流到一个不能配置的地方"。
+        """
+        app = self._build_app()
+        self.root.update()
+        app.show_tab_key("toolperm_params:image_to_prompt")
+        self.root.update()
+        toolperm = app.toolperm_tab
+        self.assertEqual(
+            str(toolperm.params_editor.frame), toolperm.notebook.select()
+        )
+        panel = toolperm.params_editor.panels["image_to_prompt"]
+        self.assertTrue(panel.expanded)
+
     def test_every_tab_and_sub_tab_page_is_laid_out(self) -> None:
         """所有页（含子选项卡）都必须有已布局的子控件：防止再次出现“整页空白”。
 

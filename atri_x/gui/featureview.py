@@ -57,11 +57,8 @@ def collect_features(paths: ConfigPaths) -> list[FeatureRow]:
         tab="advanced", extra=_image_detail(services),
         fix="services.toml 的 [image_generation]",
     ))
-    rows.append(_section_row(
-        "image_to_prompt", "图片转提示词（image_to_prompt）", services, default_on=False,
-        tab="advanced",
-        extra=_kv_detail(services.get("image_to_prompt"), ("provider", "model")),
-    ))
+    rows.append(_image_to_prompt_row(services))
+    rows.append(_metadata_store_row(services))
     rows.append(_section_row(
         "vision", "视觉回退（图片描述）", services, default_on=False, tab="advanced",
         extra=_kv_detail(services.get("vision"), ("provider", "model")),
@@ -320,6 +317,118 @@ def _section_row(
     status = _status_of(enabled, explicit=enabled is not None)
     detail = extra or fix
     return FeatureRow(key, name, status, detail, tab=tab)
+
+
+# ---------------------------------------------------------------------------
+# 图片/视觉两行：它们真正的编辑入口在「工具权限 → 工具参数（全局）」
+# ---------------------------------------------------------------------------
+#: ``tab`` 前缀：``toolperm_params:<工具名>`` 由
+#: :meth:`atri_x.gui.app.GuiApp.show_tab_key` 解析成"切到工具权限页 + 展开该工具的面板"。
+#: 1.1.0 实机事故：``image_to_prompt`` 行原来指向 ``advanced``，可「进阶」页里根本没有
+#: 它的字段（字段在工具参数注册表里），双击过去只能看到一堆不相关的开关。
+_TOOL_PARAMS_PREFIX = "toolperm_params:"
+
+#: 这两行共用的编辑位置（写进 detail，用户照着找就能找到）。
+_IMAGE_TOOLS_LOCATION = "「工具权限 → 工具参数（全局）」"
+
+
+def _image_to_prompt_row(services: Mapping[str, Any]) -> FeatureRow:
+    """`image_to_prompt` 行：按 ``is_enabled`` 语义判状态，并指向真正的编辑面板。
+
+    ``enabled`` 是三态：显式 false = 强制停用；未显式配置时**填好 provider + model
+    就算启用**（与 :meth:`atri_x.config.services.ImageToPromptConfig.is_enabled`
+    一致）。没配 provider/model 时工具根本不会注册，所以状态写「未配置」而不是
+    「默认停用」——后者会让人以为"默认就该是关的，没救了"。
+    """
+    section = _section(services, "image_to_prompt")
+    provider = str(section.get("provider") or "").strip()
+    model = str(section.get("model") or "").strip()
+    explicit = section.get("enabled")
+    configured = provider != "" and model != ""
+    parts: list[str] = []
+    if configured:
+        parts.append(f"provider={provider}")
+        parts.append(f"model={model}")
+    else:
+        parts.append("没填 provider + model 时工具不会注册（群里看不到 image_to_prompt）")
+    if _metadata_store_path(services):
+        parts.append("入库参数留档已开启：转码前的原图参数仍可回读")
+    else:
+        parts.append(
+            "入库参数留档未开启：超过入库上限的图会被转码成 JPEG，原图参数会丢（同页可开）"
+        )
+    location = (
+        f"在{_IMAGE_TOOLS_LOCATION}的「图片反推提示词（image_to_prompt）」面板里配置"
+    )
+    tab = _TOOL_PARAMS_PREFIX + "image_to_prompt"
+    if explicit is False:
+        return FeatureRow(
+            "image_to_prompt",
+            "图片转提示词（image_to_prompt）",
+            "已停用",
+            "；".join(["显式 enabled=false 强制停用", *parts, location]),
+            tab=tab,
+        )
+    if configured:
+        return FeatureRow(
+            "image_to_prompt",
+            "图片转提示词（image_to_prompt）",
+            "已启用",
+            "；".join([*parts, location]),
+            tab=tab,
+        )
+    return FeatureRow(
+        "image_to_prompt",
+        "图片转提示词（image_to_prompt）",
+        "未配置",
+        "；".join([*parts, location]),
+        tab=tab,
+    )
+
+
+def _metadata_store_row(services: Mapping[str, Any]) -> FeatureRow:
+    """``[image_generation].metadata_store`` 行：它决定"转码前的参数还救不救得回来"。
+
+    单独列出来而不是塞进生图行，是因为它影响的不是"能不能生图"，而是
+    ``artist_extract`` / ``image_to_prompt`` 能不能读到原图里记录的画师串与提示词。
+    """
+    path = _metadata_store_path(services)
+    tab = _TOOL_PARAMS_PREFIX + "artist_extract"
+    if path:
+        return FeatureRow(
+            "image_metadata_store",
+            "图片生成参数留档（metadata_store）",
+            "已启用",
+            "；".join(
+                [
+                    f"留档文件：{path}",
+                    "入库转码前先存一份原图参数，之后 artist_extract / image_to_prompt "
+                    "仍能取回画师串与提示词",
+                    f"编辑位置：{_IMAGE_TOOLS_LOCATION}的「画师串与生成参数留档（artist_*）」面板",
+                ]
+            ),
+            tab=tab,
+        )
+    return FeatureRow(
+        "image_metadata_store",
+        "图片生成参数留档（metadata_store）",
+        "未启用",
+        "；".join(
+            [
+                "不开时：超过入库上限（默认 4 MiB / 长边 4096）的图会被转码成 JPEG，"
+                "PNG 里的画师串与提示词当场丢失",
+                f"在{_IMAGE_TOOLS_LOCATION}的「画师串与生成参数留档（artist_*）」面板里"
+                "填一个 JSON 文件名（例如 image_metadata.json）即可开启",
+            ]
+        ),
+        tab=tab,
+    )
+
+
+def _metadata_store_path(services: Mapping[str, Any]) -> str:
+    """``[image_generation].metadata_store`` 的非空值（未配置 / 留空都算关闭）。"""
+    value = _section(services, "image_generation").get("metadata_store")
+    return value.strip() if isinstance(value, str) else ""
 
 
 # ---------------------------------------------------------------------------

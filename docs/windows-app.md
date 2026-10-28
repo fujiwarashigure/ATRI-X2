@@ -236,10 +236,10 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 | 在线 | 三段状态（后台服务 / OneBot 协议端 / QQ 平台）+ **连接/断开开关**：只改 `[platform.qqonebot].enabled` 并重启后台服务，不用手改 TOML（见 §4.8）；还可就地改**唤醒词**（写回 `[platform.qqonebot].trigger_keywords`，逗号分隔；群里 @机器人 或消息以唤醒词开头都会叫醒） | `app.toml` 的 `[platform.qqonebot].enabled` / `trigger_keywords` | 点按钮即重启生效；唤醒词需重启后台服务 |
 | 群友 | 按群管理群友档案：备注名、标签、角色数据（自由文本）、头像（下载/本地图片），群友列表来自聊天历史库 | `gui/members.json`、`gui/avatars/*.png` | 只影响界面（后台服务暂不读） |
 | 知识库 | 群知识库 / FAQ 的全局开关与上限（每群条数、问题/答案/别名/关键词/匹配扫描字符数），并只读列出 `state.toml` 里各群的条目；条目增删用群里的 `/faq` 命令 | `app.toml` 的 `[group_knowledge]` | 重启后台服务 |
-| 进阶 | 生图 / 图片转提示词 / 视觉回退 / 语音转写；**本地生图服务挂载**（端口映射 / SSL 链接）；长期记忆、自学习、群分析、群服务、Atrinis 开关；日志级别与保留天数；生图 API 的「获取可用模型」与模型备注名；三个二级设置窗口（自学习 / HOOK 插件 / 定时维护任务，其中维护任务支持每天 / 每周 / 每月 / 自定义 cron / 指定日期一次性）；整页可竖向滚动 | `services.toml`、`app.toml`、`atrinis.toml`、`plugins/hooks.toml`（+ `.env`、`gui/model_catalog.json`） | 重启后台服务；Hook 配置可用 `/hooks reload` |
+| 进阶 | 生图 / 视觉回退 / 语音转写（**图片反推提示词 `image_to_prompt` 与入库参数留档 `metadata_store` 不在此页**——它们的字段注册在工具参数注册表里，请到「工具权限 → 工具参数（全局）」配置；本页底部有一行指路说明）；**本地生图服务挂载**（端口映射 / SSL 链接）；长期记忆、自学习、群分析、群服务、Atrinis 开关；日志级别与保留天数；生图 API 的「获取可用模型」与模型备注名；三个二级设置窗口（自学习 / HOOK 插件 / 定时维护任务，其中维护任务支持每天 / 每周 / 每月 / 自定义 cron / 指定日期一次性）；整页可竖向滚动 | `services.toml`、`app.toml`、`atrinis.toml`、`plugins/hooks.toml`（+ `.env`、`gui/model_catalog.json`） | 重启后台服务；Hook 配置可用 `/hooks reload` |
 | 时间 | 统一时间服务的图形入口，五块：**现在**（每秒刷新：生效时区 / 解析后时区与规则 / 当前时间 / UTC / UTC 偏移 / 星期 / unix 时间戳 / tzdata 版本与时区数 / 是否注入提示词）、**时区探针**（tzdata 是否可读 + DST 冬夏偏移断言，不触网）、`[time]`（时区、是否注入每轮系统提示、网络样本有效期）、`[time.verification]`（总开关、模式与 13 个间隔 / 阈值 / 并发 / 重试参数）、`[[time.sources]]`（表格增删改：id、协议 sntp/https、主机+端口或 URL、独立性分组、私网例外、启用、单来源超时；保存时整份重写该数组表）、以及**后台运行状态**（读 `/diagnostics` 的 `time` 段：校验状态、最近一轮 / 最近成功 / 下次计划、样本年龄、本地偏差与来源间极差、每条来源最近一次观测、告警） | `app.toml` 的 `[time]` / `[time.verification]` / `[[time.sources]]` | 重启后台服务（界面上的“现在”与探针是本地即时计算，不受重启影响） |
 | 日志 | 运行日志 / 审计日志 / Atrinis 日志 / 后台服务输出 / 界面操作五个通道；按日期、级别、关键字筛选，可自动刷新、打开文件/目录、复制、**导出当前视图** | 只读 | — |
-| 功能 | 只读清单：逐项显示"已启用 / 已停用 / 未配置"与关键配置；双击跳到对应选项卡；右侧是连接状态与日志入口 | — | — |
+| 功能 | 只读清单：逐项显示"已启用 / 已停用 / 未配置"与关键配置；**双击跳到对应位置**——普通条目跳到对应选项卡，工具类条目（如图转提示词）直接跳到「工具权限 → 工具参数（全局）」并**展开对应参数面板**；右侧是连接状态与日志入口。含「图片转提示词（image_to_prompt）」（三态：未配置 / 已启用 / 已停用，未配置 = 缺 provider 或 model，工具不会注册）与「图片生成参数留档（metadata_store）」两行 | — | — |
 | 工具权限 | 按群设置工具授权：左栏是群列表 + 作用域输入（**候选来自会话库里的真实群**；保存时自动把 `·` / 全角冒号 / 空白归一成半角 `:`，并把文件里旧写法的小节迁移到规范键），右侧是 **chat 模式 / work 模式两个子选项卡**，每个下面是可纵向滚动的工具菜单——每个工具一行（激活状态徽标 + 中文名 + 工具名 + 风险等级 + 一句话功能解释 + 激活 / 停用按钮），各自有搜索、「只看已激活」与「常用」「只读」预设、三态（继承通用 / 仅白名单 / 禁止全部）；**第三个子选项卡「工具参数（全局）」**——每个工具一组可展开 / 收起的参数面板（生图留档 `metadata_store`、搜索通道顺序、记忆写入上限、风险阈值等），有参数的工具行右侧多一个「参数」按钮可直接跳过去；**第四个子选项卡「工具进度预览」**——群聊进度投递开关（QQ OneBot；QQ 官方机器人段存在时同写一份）+ 文案风格（`persona` 角色口吻 / `system` 旧式带参数）+ 搜索 / 读取网页 / 默认 / 失败四类文案；顶部一行显示群内 `/tools allow` 写入的通用白名单作为兜底 | `state.toml` 的 `[group_policy."<平台:scope>"]`（`tool_allowlist_chat` / `tool_allowlist_work`，以及通用的 `tool_allowlist`）、`app.toml` / `services.toml` 里的工具参数（`[tools]` / `[security]` / `[ops]` / `[image_generation*]` / `[web_search]` / `[resident_memory]` / `[angel_memory]` / `[self_learning]` / `[group_analysis]` / `[media]` / `[vision]` …）、`app.toml` 的 `[tool_preview]` 与 `[platform.qqonebot]` / `[platform.qqofficial].show_tool_preview_in_group` | 工具授权 15 秒内热加载；工具参数、`[tool_preview]` 与进度开关需重启后台服务 |
 
 约定：
@@ -258,6 +258,10 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
   剥离工具图片 / 禁出站图片 / 禁出站文件），「媒体与视觉」面板新增**图片精度 `detail`、
   识图触发时机 `trigger`、前置描述短超时、图片外发隐私开关、SauceNAO 以图搜图**等字段；
   词表类别、敏感信息类别与逐类动作仍在 `app.toml` 的 `[safety]` 段手工配置。
+  面向「图转提示词」的两组面板也在这里：**「图片反推提示词（`image_to_prompt`）」**
+  （provider / model / 精度 / 外发开关等，只填 provider + model 才会注册工具）与
+  **「画师串与生成参数留档（`artist_*`）」**（含 `[image_generation].metadata_store`）。
+  「功能」页对应的两行双击后会直接切到本子选项卡并展开这两个面板。
 - **密钥只写 `.env`**：界面只显示"已设置 / 未设置 + 掩码"，不回显明文；读取时
   进程环境变量优先于 `.env`（与 `docs/configuration.md` 的规则一致）。输入框默认
   掩码，右侧「显示 / 隐藏」按钮可以临时看明文；保存成功后会自动清空并恢复掩码。

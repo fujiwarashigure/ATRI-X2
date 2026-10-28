@@ -8,7 +8,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.1.0`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `1.1.1`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -23,7 +23,7 @@
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 平台适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
 | 测试 | `tests/` 221 个 Python 文件（其中 212 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
-| 规模 | 1135 个受版本控制文件（工作树文件清单；不含 `runtime`/`build`/`dist`/缓存/本机私有配置；源码归档按同一清单打包，条目数相同） |
+| 规模 | 1136 个受版本控制文件（工作树文件清单；不含 `runtime`/`build`/`dist`/缓存/本机私有配置；源码归档按同一清单打包，条目数相同） |
 
 ## 功能特性
 
@@ -75,8 +75,8 @@
 ### 角色、生图与多模态
 
 - **角色素材库**：用文件夹管理角色文本（人设/世界观/开场白/示例）与图片素材，支持索引、检索、`@char:<id>` 临时启用与 `character_*` 工具。见 [角色素材库](docs/character-library.md)。
-- **图像生成**：对接 OpenAI 兼容的 `/images/generations`，按「全局预设 + 角色预设 + 场景描述」组装提示词，支持规则优化、画师串、多角色同框、并发与排队控制。见 [生图服务](docs/image-generation.md)。
-- **图片反推提示词**：内置 `image_to_prompt`，把参考图交给视觉模型反推绘图 prompt，带指纹缓存与并发合并。
+- **图像生成**：对接 OpenAI 兼容的 `/images/generations`，按「全局预设 + 角色预设 + 场景描述」组装提示词，支持规则优化、画师串、多角色同框、并发与排队控制。开启 `[image_generation].metadata_store`（桌面端「工具权限 → 工具参数（全局）」）后，入库转码**之前**会留档原图的生成参数（A1111 / NovelAI / ComfyUI 等），因此超过体积/尺寸限制被转成 JPEG 的图仍能取回提示词与画师串（留档只对开启之后入库的图生效）。见 [生图服务](docs/image-generation.md#生成参数留档)。
+- **图片反推提示词**：内置 `image_to_prompt`，把参考图交给视觉模型反推绘图 prompt，带指纹缓存与并发合并；provider + model 在「工具权限 → 工具参数（全局）→ 图片反推提示词」配置（「功能」页显示 未配置 / 已启用 / 已停用 三态，双击直达该面板）。见 [配置说明](docs/configuration.md#图片反推提示词-image_to_prompt)。
 - **视觉兜底**：主模型为纯文本、上游拒绝图片时，先用视觉模型转写图片再重试；结构化判定触发条件，不会把普通错误误判成「不支持视觉」。
 - **语音转写（可选）**：用已有 Provider 的 `/audio/transcriptions` 把被唤醒的语音消息转成文本，再进入聊天与工具流程。
 - **定时报告与会话总结**：向超级管理员推送生图量、Token、费用、磁盘与内存统计；每天把当天会话汇总成 `<数据目录>/daily_summaries/<日期>.json`（可选 LLM 二次摘要）。见 [定时报告](docs/reports.md)。
@@ -176,10 +176,10 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.1.0`**（协议端可切换：`qqonebot` 平台新增 `[platform.qqonebot].protocol_backend`，**默认 NapCat（随包内置、开箱即用）**，**SnowLuma 是可选的备用协议端**（外置接入，发行包不内置，需自行安装后在「平台」页显式切换）；旧配置（`[platform.qqonebot]` 段存在但键缺失 = 1.0.x）同样按 **NapCat** 解释，升级不自动切换；两套协议端共用同一平台身份（`platform.name()` 恒为 `qqonebot`）；「在线」页改成**四维状态**（进程运行 / OneBot 连通 / QQ 登录 / ATRI 平台接入），协议端进程按 PID 归属托管、可安全停止；群/私聊文件下载按协议端分派专有动作，`get_login_info` 登录态握手写进 `/healthz` 的 `platforms[]`。桌面端新增**「时间」选项卡**：时区、`[time]`、`[time.verification]`、`[[time.sources]]` 可读可改，含只读时区探针与后台校验状态面板（选项卡 11 → 12）。与 1.0.10 相比功能面只增不减：1.0.10 的内置时间服务与多来源校验（verify_only）、tzdata 硬依赖、cron 跳时 / DST 修复全部保留；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
-交付物尺寸与校验和见 [GitHub Release v1.1.0](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.0) 里的 `SHA256SUMS.txt`、发行说明与自检报告。
+当前最新版本：**`1.1.1`**（1.1.0 的补丁版）：① 「功能」页的「图片转提示词（`image_to_prompt`）」原来双击被送去「进阶」页（那页没有它的配置项），现在双击直达「工具权限 → 工具参数（全局）」并**展开**对应面板，行状态按 **未配置 / 已启用 / 已停用** 三态显示，另新增「图片生成参数留档（`metadata_store`）」功能行；② **图片生成参数留档（`[image_generation].metadata_store`）从未生效**——装配代码 import 了不存在的名字、又被裸 `except` 吞掉，配置了也永远是关闭的；大图入库转码成 JPEG 后 PNG 文本块被销毁，`artist_extract` / `image_to_prompt` 再无来源可读。现在改为正确导入、成功记 INFO（`image generation metadata archive enabled`）、失败记 WARN，开启留档后原图参数在**转码之前**入库，转码后仍能读回（`metadata_origin = archive`）。1.1.0 的 QQ 协议端可切换（默认内置 NapCat、可选外置 SnowLuma）、四维在线状态、桌面端「时间」选项卡等功能全部保留；配置与会话数据**向后兼容**；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+交付物尺寸与校验和见 [GitHub Release v1.1.1](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.1) 里的 `SHA256SUMS.txt`、发行说明与自检报告。
 
-已线上发布：[**GitHub Release v1.1.0**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.0)（当前线上版，tag `v1.1.0` 指向本版发行提交）；上一版 [v1.0.10](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.10)（tag `v1.0.10`）；更早的 [v1.0.9](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.9)、[v1.0.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)。各版本的尺寸与 SHA-256 见对应 Release 的 `SHA256SUMS.txt` 与兼容性报告（`ATRI-X-<版本>-compatibility-report.md`）。
+已线上发布：[**GitHub Release v1.1.1**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.1)（当前线上版，tag `v1.1.1` 指向本版发行提交）；上一版 [v1.1.0](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.0)（tag `v1.1.0`）；更早的 [v1.0.10](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.10)、[v1.0.9](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.9)、[v1.0.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)。各版本的尺寸与 SHA-256 见对应 Release 的 `SHA256SUMS.txt` 与兼容性报告（`ATRI-X-<版本>-compatibility-report.md`）。
 
 | 产物 | 位置 |
 | --- | --- |

@@ -1129,6 +1129,61 @@ class TestGenerationCapture(AsyncMediaTestCase):
         )
 
 
+class TestGenerationArchiveRoundTrip(AsyncMediaTestCase):
+    """入库留档 → 转码后回读：配了 ``metadata_store`` 参数就不该丢。
+
+    这是"图转提示词在群里总是取不到参数"的端到端回归：真实媒体管线把超大 PNG
+    转码成 JPEG（销毁 tEXt），留档必须在那之前拿到原图参数，并且 ``artist_extract``
+    / ``image_to_prompt`` 共用的 :class:`atri_x.artist.Service` 能按媒体 ID 读回来。
+    """
+
+    async def test_archived_parameters_survive_transcode(self) -> None:
+        from atri_x.artist import (
+            MetadataOriginArchive,
+            Service as ArtistService,
+            new_generation_store,
+        )
+        from atri_x.artist.metadata import extract_metadata
+
+        store = new_generation_store(
+            os.path.join(self.make_dir("archive"), "image_metadata.json")
+        )
+        manager, _store, _root = self.make_manager(
+            media=MediaConfig(
+                llm_image_compression_threshold_bytes=1 << 20,
+                llm_image_max_length=128,
+            )
+        )
+        manager.generation = store
+        original = png_with_text(
+            make_png(300, 300),
+            text=(
+                b"masterpiece, 1girl, solo\n"
+                b"Negative prompt: lowres, bad anatomy\n"
+                b"Steps: 20, Sampler: Euler a, CFG scale: 7"
+            ),
+        )
+        item = await self.guard(
+            manager.import_bytes(
+                None, original, Input(name="big.png", mime_type="image/png")
+            )
+        )
+        stored, _media = await self.guard(manager.read(None, item.id))
+        self.assertNotEqual(stored, original)
+        self.assertNotIn(b"tEXt", stored, "转码后对象里不应再有 PNG 文本块")
+        _embedded, found = extract_metadata(stored)
+        self.assertFalse(found, "JPEG 本体已经读不到生成参数")
+        # 工具侧（artist_extract / image_to_prompt 共用）按媒体 ID 回读留档。
+        service = ArtistService(None)
+        service.generations = store
+        meta = service.extract_image_metadata(item.id, stored)
+        self.assertTrue(meta.found)
+        self.assertEqual(meta.origin, MetadataOriginArchive)
+        self.assertIn("masterpiece", meta.metadata.positive)
+        self.assertIn("lowres", meta.metadata.negative)
+        self.assertEqual(meta.metadata.parameters.get("steps"), "20")
+
+
 class TestDeleteForgetsGeneration(AsyncMediaTestCase):
     """``generation_test.go`` 的 TestDeleteForgetsGenerationRecord。"""
 

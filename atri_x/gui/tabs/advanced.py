@@ -182,6 +182,18 @@ class AdvancedTab(ConfigTab, MountPanelMixin):
         self._text_row(box, 4, "ASR provider", self.asr_provider)
         self._text_row(box, 5, "ASR model", self.asr_model)
         self._text_row(box, 6, "ASR 语言", self.asr_language)
+        # 图片反推提示词 / 生图参数留档不在本页：它们的字段注册在工具参数注册表里，
+        # 这里只放一句指路，避免用户在本页找不到又不知道去哪（1.1.0 实机反馈）。
+        ttk.Label(
+            box,
+            text=(
+                "图片反推提示词（image_to_prompt）与入库参数留档（metadata_store）"
+                "在「工具权限 → 工具参数（全局）」里配置；本页只放生图服务地址/模型与视觉回退。"
+            ),
+            foreground="#8a8a8a",
+            wraplength=380,
+            justify=tk.LEFT,
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
     def _build_toggle_box(self, parent: Any) -> None:
         box = ttk.LabelFrame(parent, text="记忆 / 群功能 / 外部事件", padding=8)

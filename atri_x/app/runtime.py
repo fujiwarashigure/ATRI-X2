@@ -177,8 +177,10 @@ class DefaultRuntimeFactory:
             getattr(platform_files, "download_timeout_secs", 0) or 0
         )
         media_center.media = getattr(cfg, "media", None)
-        artist_metadata = _build_artist_metadata(cfg)
+        artist_metadata = _build_artist_metadata(cfg, logger)
         if artist_metadata is not None:
+            # 入库转码**之前**的原始字节只会经过这里；不挂上就永远拿不到
+            # 超大 PNG 里的 A1111 / NovelAI / ComfyUI 参数。
             media_center.generation = artist_metadata
         media_center.logger = logger
         media_center.guard = new_disk_guard(
@@ -446,15 +448,44 @@ def _risk_value(raw: Any, fallback: Any) -> Any:
     return raw
 
 
-def _build_artist_metadata(cfg: Any) -> Any:
-    path = str(getattr(getattr(cfg, "image_generation", None), "metadata_store", "") or "").strip()
+def _build_artist_metadata(cfg: Any, logger: Any = None) -> Any:
+    """``[image_generation].metadata_store`` → 入库前的生成参数留档库。
+
+    对应 Go ``buildArtistMetadata``。**返回值必须被挂到**
+    ``media_center.generation``（入库转码前的原始字节只在这里能拿到）**和**
+    ``ArtistTools.Service.Generations``（工具回读）两处；只挂一处就等于没接线。
+
+    教训（1.1.0 实机）：这里曾经 ``from atri_x.artist.metadata import
+    GenerationStore``——该模块只有容器解析，没有 ``GenerationStore``——导入必然
+    ``ImportError``，又被下面的裸 ``except`` 吞掉，于是**即使配置了
+    ``metadata_store``，留档也永远是 None**：超大 PNG 在入库转码时丢掉参数后，
+    ``artist_extract`` / ``image_to_prompt`` 再也读不回来。现在导入失败要留 WARN，
+    不允许再静默降级。
+    """
+    path = str(
+        getattr(getattr(cfg, "image_generation", None), "metadata_store", "") or ""
+    ).strip()
     if not path:
         return None
     try:
-        from atri_x.artist.metadata import GenerationStore
-    except Exception:  # noqa: BLE001 - 尚未交付时降级
+        from atri_x.artist.metadata_store import GenerationStore
+    except Exception as exc:  # noqa: BLE001 - 缺件只降级，但必须可观测
+        _warn(
+            logger,
+            "image generation metadata archive is unavailable; "
+            "generation parameters will be lost when import transcodes an image",
+            error=str(exc),
+        )
         return None
-    return GenerationStore(path)
+    store = GenerationStore(path)
+    if logger is not None:
+        try:
+            logger.info(
+                "image generation metadata archive enabled", path=store.backing_path()
+            )
+        except Exception:  # noqa: BLE001 - 日志实现差异不应影响装配
+            pass
+    return store
 
 
 def _tool_options(

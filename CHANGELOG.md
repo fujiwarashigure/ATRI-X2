@@ -6,6 +6,79 @@
 
 ---
 
+## [1.1.1] - 2026-10-28 — 修复「图转提示词」入口导流错误与入库生成参数留档失效（补丁版，取代 1.1.0 三产物）
+
+> 本版是 **1.1.0 的补丁版**：只修两处实机问题，不新增功能、不改配置格式、不改工具 schema；
+> 配置与会话数据完全向后兼容。`1.1.0` 的安装包 / 便携包 / 源码归档由本版取代。
+
+旧状态（1.1.0 发行版，实机复现）：
+
+- 「功能」页的「图片转提示词（image_to_prompt）」行指向 `advanced`（进阶页），但
+  `[image_to_prompt]` 的字段实际注册在「工具权限 → 工具参数（全局）」的工具参数
+  注册表里；进阶页只有生图 / 视觉回退 / ASR，双击过去**没有任何可配置项**。该行状态
+  只按段内 `enabled` 判定，没配 provider + model（工具根本不会注册）时也读不出「未配置」。
+- 群聊里发图后永远取不到图片自身记录的提示词与画师串，只得到"图片已被转码"的结果。
+  根因是 `atri_x/app/runtime.py` 的 `_build_artist_metadata()` 从
+  `atri_x.artist.metadata` 导入 `GenerationStore`——该模块只有容器解析，没有这个名字，
+  导入必然 `ImportError`，又被裸 `except` 吞掉；于是**即使配置了
+  `[image_generation].metadata_store`，入库留档库也永远是 None**。媒体管线把超过
+  4 MiB / 长边 4096 的图转码成 JPEG 时销毁 PNG 文本块，此后 `artist_extract` /
+  `image_to_prompt` 再无任何来源可读回参数。
+
+新状态：
+
+- `_build_artist_metadata()` 改从 `atri_x.artist.metadata_store` 导入 `GenerationStore`；
+  装配成功记一条 INFO（`image generation metadata archive enabled`），失败记 WARN，
+  不再静默降级。
+- 「功能」页的 `image_to_prompt` 行：状态改为按三态语义显示 **未配置 / 已启用 / 已停用**，
+  说明文字给出真正入口；双击跳到「工具权限 → 工具参数（全局）」并**展开**对应面板。
+  `GuiApp.show_tab_key` 新增 `toolperm_params:<工具名>` 复合键（无冒号时行为不变）。
+- 新增「图片生成参数留档（metadata_store）」功能行：显示是否开启、留档文件与"什么情况下
+  参数会丢"，双击直达「画师串与生成参数留档（artist_*）」面板。
+- 文档：便携版内附 `PATCH-NOTES-1.1.0-image-to-prompt.md`（根因、改动、验证与回滚）。
+
+新增用例：
+
+- `tests/test_app_tool_runtime_wiring.py::ArtistMetadataAssemblyCase`：配置
+  `metadata_store` 必须装配成启用的 `GenerationStore`，且 `ArtistTools.Service.Generations`
+  与媒体中心用的是同一个对象；
+- `tests/test_media_manager.py::TestGenerationArchiveRoundTrip`：含 A1111 参数的大 PNG
+  入库转码成 JPEG 后，按媒体 ID 仍能读回正向/负向提示词与采样参数（origin=archive）；
+- `tests/test_gui_configedit.py::FeatureViewTestCase` 与
+  `tests/test_gui_tabs.py::LazyTabBuildTest`：功能行状态/跳转目标与参数面板自动展开。
+
+### 发行
+
+- 版本号 `1.1.0` → `1.1.1`：`atri_x/__init__.py` / `pyproject.toml` / `deploy/VERSION` /
+  `deploy/pack/deploy_lighthouse.py` / 仓库 `README.md` 同步；产物名随之变成 `ATRI-X-1.1.1-*`。
+  本版是**补丁版**（图转提示词入口 + 图片生成参数留档），配置与会话数据向后兼容。
+- 发行产物（本机从工作树重建；**已提交并推送 GitHub**，见下条）：
+  - `ATRI-X-1.1.1-setup.exe` 461,623,999 字节 —
+    `60e02d4f6142912e78ff156574f42c30668b4d20857a629f468613323f687176`
+  - `ATRI-X-1.1.1-portable-win64.zip` 684,741,413 字节 —
+    `b44051a7ddde2bbb37675b47c18aa179de672574eb6f53cf29e73959fd040eb3`
+  - `ATRI-X-1.1.1-repo.zip` / `ATRI-X-1.1.1-repo.tar.gz`：源码归档（工作树文件清单 1136 条目，
+    不含 `runtime`/`build`/`dist`/缓存）。归档自身尺寸与 SHA-256 见发行库
+    `SHA256SUMS-1.1.1.txt` 与 `ATRI-X-1.1.1-repo-entries.txt`（归档内文件不写自身哈希，避免自引用）。
+- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：本版源码已提交到 `main`
+  分支并打 tag `v1.1.1`（发行提交即该 tag 指向的提交，提交信息 `release: ATRI-X 1.1.1 …`）；
+  GitHub Release `v1.1.1` 附带安装包 / 便携版 / 便携版 `.sha256` / 源码归档 zip 与 tar.gz /
+  `SHA256SUMS.txt` / 发行说明 / 自检报告 / 第三方组件说明 / 兼容性报告。
+- 门禁 7 项 0 失败：`check_syntax`（989 文件）/ `check_imports`（`modules=758 imported=758`）/
+  `check_integration`（74 项）/ `check_coverage`（`packages=72 covered=72 weighted=100.0%`）/
+  `check_except`（119 基线）/ `gen_stats --check`（README 数字一致）/ `check_secrets`（0 命中）。
+- 全量单测：`Ran 6789 tests in 1632.5s`，`OK (skipped=4)`；补丁定向回归 4 个模块（留档装配 /
+  大图转码后参数回读 / 功能行三态与跳转 / 参数面板展开）全部 OK。
+- 产物级自检：onedir 24,534 文件 / 335.5 MB，加内置 DSH 内核（277.6 MB）与脱敏后的内置 NapCat
+  （2,513 文件 / 1202.3 MB）后构成便携输入 27,047 文件 / 1,537.8 MB → 便携包 653.0 MB /
+  27,052 条目解压自检全过 → 安装包 440.2 MB（ISCC 305.4 s、源文件 27,047；静默安装 64.9 s /
+  27,050 文件、卸载 9.0 s）；构建总耗时 705.2 s。
+- 脱敏：源码树 / 源码归档 / 内置内核 / onedir / 安装包（ASCII + UTF-16LE）/ 便携包文本条目 /
+  发行库文本各层扫描 **0 命中**；第三方二进制的上游固有构建路径经 SHA-256 逐字节核对为原样文件，
+  不含本机用户名与令牌。详见发行库 `自检报告.md` §三。
+
+---
+
 ## [1.1.0] - 2026-10-27 — QQ 协议端可切换（默认内置 NapCat，可选外置 SnowLuma）、四维在线状态、协议端按 PID 托管；桌面端新增「时间」选项卡
 
 旧状态（1.0.10）：`qqonebot` 平台只有一条硬绑定 NapCat 的实现路径——配置里没有"协议端

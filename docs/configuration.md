@@ -1537,6 +1537,8 @@ queue_timeout_seconds = 0
 
 `image_to_prompt` 是内置工具：读入一张已入库的参考图，调用一个视觉模型反推成可直接用于绘图的提示词。它复用 `services.toml` 里已有的 `[providers.*]`，所以不需要单独的 API Key，也继承该 provider 的代理、超时、重试和熔断设置。
 
+> **桌面端入口**：「功能」页的「图片转提示词（image_to_prompt）」一行（状态按三态显示 **未配置 / 已启用 / 已停用**，未配置 = 缺 provider 或 model、工具不会注册），双击直达「工具权限 → 工具参数（全局）」并展开本工具的参数面板；也可以直接在那里的「图片反推提示词」面板里填写，效果与手写下面的 `[image_to_prompt]` 相同。
+
 ```toml
 [image_to_prompt]
 provider = "openai"     # [providers.*] 中的一个

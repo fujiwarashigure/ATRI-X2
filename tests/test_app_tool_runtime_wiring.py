@@ -420,5 +420,50 @@ class SkillWiringTest(_TmpDirTest):
             self.assertIn(name, set(REGISTERED_TOOLS), name)
 
 
+class ArtistMetadataAssemblyCase(_TmpDirTest):
+    """``[image_generation].metadata_store`` 必须真的变成入库前的留档库。
+
+    回归背景（1.1.0 实机）：:func:`atri_x.app.runtime._build_artist_metadata` 原来从
+    ``atri_x.artist.metadata`` 导入 ``GenerationStore``——那里没有它——``ImportError``
+    又被裸 ``except`` 吞掉，于是**配置了 metadata_store 也永远是 None**：入库转码把
+    PNG 文本块销毁后，``artist_extract`` / ``image_to_prompt`` 再也取不回画师串与
+    提示词，群里只会得到"图片已被转码、没有参数"的答案。
+    """
+
+    def _config(self, metadata_store: str) -> Any:
+        from atri_x.config import AppConfig
+
+        cfg = AppConfig()
+        cfg.image_generation.metadata_store = metadata_store
+        return cfg
+
+    def test_store_is_assembled_from_config(self) -> None:
+        from atri_x.app.runtime import _build_artist_metadata
+        from atri_x.artist import GenerationStore
+
+        path = os.path.join(TMP_DIR, "image_metadata.json")
+        store = _build_artist_metadata(self._config(path))
+        self.assertIsInstance(store, GenerationStore)
+        self.assertTrue(store.enabled())
+        self.assertEqual(store.backing_path(), path)
+
+    def test_store_is_none_when_not_configured(self) -> None:
+        from atri_x.app.runtime import _build_artist_metadata
+
+        self.assertIsNone(_build_artist_metadata(self._config("")))
+
+    def test_artist_tools_carry_the_store(self) -> None:
+        """工具回读走 ``ArtistTools.Service.Generations``，必须与入库侧同一个对象。"""
+        from atri_x.app.tool_runtime import _build_artists
+
+        options, closers = _make_full_options(TMP_DIR)
+        for closer in closers:
+            self.addCleanup(closer.close)
+        warnings: list[str] = []
+        artists = _build_artists(options, warnings)
+        self.assertEqual(warnings, [])
+        self.assertIs(artists.service.generations, options.artist_metadata_store)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

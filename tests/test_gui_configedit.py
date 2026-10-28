@@ -368,6 +368,14 @@ class FeatureViewTestCase(ConfigCase):
         self.assertEqual(rows["character_library"].tab, "character")
         self.assertEqual(rows["platforms"].tab, "platform")
         self.assertEqual(rows["image_generation"].tab, "advanced")
+        # 图转提示词的字段在「工具参数（全局）」里，不在「进阶」页；跳转必须直达面板。
+        self.assertEqual(rows["image_to_prompt"].tab, "toolperm_params:image_to_prompt")
+        self.assertEqual(rows["image_to_prompt"].status, "未配置")
+        self.assertIn("工具参数（全局）", rows["image_to_prompt"].detail)
+        self.assertIn("provider", rows["image_to_prompt"].detail)
+        # 入库参数留档单独一行：它决定转码后还能不能读回原图参数。
+        self.assertEqual(rows["image_metadata_store"].tab, "toolperm_params:artist_extract")
+        self.assertEqual(rows["image_metadata_store"].status, "未启用")
         # 内容安全不在「进阶」页：功能行要跳到「工具权限 → 工具参数（全局）」。
         self.assertEqual(rows["safety"].tab, "toolperm_params")
         self.assertIn("工具参数（全局）", rows["safety"].detail)
@@ -375,6 +383,39 @@ class FeatureViewTestCase(ConfigCase):
         self.assertIn("chat: 继承", rows["safety"].detail)
         self.assertIn("work: 继承", rows["safety"].detail)
         self.assertEqual(rows["llm"].status, "缺密钥")
+
+    def test_image_to_prompt_status_follows_tristate(self) -> None:
+        """未显式 enabled 时配好 provider + model 就算启用（与后台 is_enabled 一致）。"""
+        configedit.patch_section(
+            self.paths.services_path,
+            "image_to_prompt",
+            {"provider": "openai", "model": "gpt-4o-mini"},
+        )
+        rows = {row.key: row for row in featureview.collect_features(self.paths)}
+        self.assertEqual(rows["image_to_prompt"].status, "已启用")
+        self.assertIn("provider=openai", rows["image_to_prompt"].detail)
+        # 显式关掉才是"已停用"。
+        configedit.patch_section(
+            self.paths.services_path, "image_to_prompt", {"enabled": False}
+        )
+        rows = {row.key: row for row in featureview.collect_features(self.paths)}
+        self.assertEqual(rows["image_to_prompt"].status, "已停用")
+        # 清掉显式开关与 model：回到"未配置"，而不是容易误导的"默认停用"。
+        configedit.patch_section(
+            self.paths.services_path, "image_to_prompt", {"enabled": None, "model": ""}
+        )
+        rows = {row.key: row for row in featureview.collect_features(self.paths)}
+        self.assertEqual(rows["image_to_prompt"].status, "未配置")
+
+    def test_metadata_store_row_follows_config(self) -> None:
+        configedit.patch_section(
+            self.paths.services_path,
+            "image_generation",
+            {"metadata_store": "image_metadata.json"},
+        )
+        rows = {row.key: row for row in featureview.collect_features(self.paths)}
+        self.assertEqual(rows["image_metadata_store"].status, "已启用")
+        self.assertIn("image_metadata.json", rows["image_metadata_store"].detail)
 
     def test_safety_row_summarizes_mode_overrides(self) -> None:
         """功能页的「内容安全」行要显示 chat / work 各自覆盖了什么。"""

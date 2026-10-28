@@ -323,6 +323,9 @@ NovelAI 的方言判定同时看 `Comment` 的键集、`Software` 和 `Source`�
 metadata_store = "image_metadata.json"   # 相对 app.toml/services.toml 所在目录；留空即关闭
 ```
 
+> **桌面端入口**：「功能」页的「图片生成参数留档（metadata_store）」一行显示是否开启、留档文件与"什么情况下参数会丢"，双击直达「工具权限 → 工具参数（全局）」的「画师串与生成参数留档（artist_*）」面板；该面板写的就是这个键。
+> **生效自检**：启动日志出现 `msg="image generation metadata archive enabled" path=<留档文件>` 说明留档库已装配（只有路径配了才出现；装配失败会记一条 WARN 并保持关闭）。
+
 开启后：
 
 - 每一张入库图片的原始字节都在转码**之前**交给留档，以媒体 ID（`media:<sha256>`，即现存对象的哈希）为键写入记录。非图片不解析；图片没有生成参数则不写任何记录。存的是**解析出来的参数**，不是原图本身。
