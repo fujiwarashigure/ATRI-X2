@@ -366,9 +366,10 @@ def new_prompt_builder(opts: Any) -> PromptBuilder:
     """按装配参数构造 :class:`PromptBuilder`。
 
     对应 Go 装配代码里 ``SystemPromptManager`` 的组装（``internal/app``）：按
-    「对话元信息 → SOUL → 常驻记忆 → 工具名清单 → 工具标签提示词」的顺序加来源。
+    「对话元信息 → SOUL → 群友档案 → 常驻记忆 → 工具名清单 → 工具标签提示词」的顺序加来源。
     任何一项没配置就跳过（对应 Go 里传 ``nil`` 的写法）。
     """
+    from atri_x.agent.member_profile_prompt import MemberProfileSystemPromptSource
     from atri_x.agent.system_prompt import SystemPromptManager
     from atri_x.agent.system_prompt_sources import (
         ConversationMetaSystemPromptSource,
@@ -386,6 +387,9 @@ def new_prompt_builder(opts: Any) -> PromptBuilder:
     sources: list[Any] = [ConversationMetaSystemPromptSource()]
     if soul is not None:
         sources.append(SoulSystemPromptSource(soul))
+    member_profiles = getattr(opts, "member_profile_store", None)
+    if member_profiles is not None:
+        sources.append(MemberProfileSystemPromptSource(member_profiles))
     resident = getattr(opts, "resident_memory_store", None)
     if resident is not None:
         sources.append(ResidentMemorySystemPromptSource(resident))

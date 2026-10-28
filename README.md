@@ -13,7 +13,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.1.1`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `1.1.2`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -59,12 +59,12 @@ AS IS 免责条款、责任与赔偿、生效与更新机制，以及英文摘�
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行（含测试共 754 个文件 / 146,153 行） |
-| 本仓库 | 平铺布局的 `atri_x/`：758 个 `.py` 模块，约 22.3 万行（物理行，含空行/注释/docstring；`tests/` 另有约 10.8 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：763 个 `.py` 模块，约 22.4 万行（物理行，含空行/注释/docstring；`tests/` 另有约 10.8 万行） |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 平台适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 221 个 Python 文件（其中 212 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
-| 规模 | 1137 个受版本控制文件（工作树文件清单；不含 `runtime`/`build`/`dist`/缓存/本机私有配置；1.1.1 发行快照按当时清单打包为 1136 条，本次法务文档补充新增 `LEGAL.md`） |
+| 测试 | `tests/` 222 个 Python 文件（其中 213 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
+| 规模 | 1143 个受版本控制文件（工作树文件清单；不含 `runtime`/`build`/`dist`/缓存/本机私有配置；1.1.2 发行快照按当时清单打包为 1143 条） |
 
 ## 功能特性
 
@@ -82,7 +82,7 @@ AS IS 免责条款、责任与赔偿、生效与更新机制，以及英文摘�
 ### 平台与前端
 
 - **CLI**：本地 TUI（聊天区、通知区、滚动、copy mode、文件引用补全）；也支持把进程作为服务端、任意电脑用 CLI 客户端远程连接（默认端口 `32172`）。
-- **Windows 桌面端（选项卡式）**：Tk 窗口 + 托盘常驻 + 后台服务自动拉起；12 个选项卡（对话 / 模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 时间 / 日志 / 功能 / 工具权限）把模型 API 与密钥、角色人设卡与 `SOUL.md`、QQ/Telegram 接入、群知识库、生图/视觉/语音与记忆开关、维护任务和功能状态都做成界面操作，配置改动自动留备份。密钥输入框可一键显示/隐藏；模型页与生图区能直接拉取上游 `/models` 清单并给模型起本地备注名，Provider 表单还可选**推理思考强度（`reasoning_effort`：none / minimal / low / medium / high，留空 = 不发送）**并按模型覆盖；**模型页保存后会从磁盘回读逐字段校验**，界面值与配置文件不一致时直接报错，模型槽位清空/半填也有明确规则，不会出现"界面改了、文件没变"；生图区支持**本地生图服务挂载**（端口映射 / AUTODL 等 SSL 链接 → OpenAI 兼容 Base URL，可一键检测服务类型）；「在线」页并排显示后台服务 / OneBot 协议端 / QQ 平台三段状态，并提供连接/断开开关（不用手改 TOML），发行包可内置 NapCat + 便携 QQ，在「在线」页一键启动协议端并扫码登录；「日志」页统一查看运行/审计/Atrinis/后台输出/界面操作五类日志并可导出当前视图；「工具权限」页按群在**纵向可滚动的工具菜单**里逐个「激活」工具（每行带中文名、风险、一句话功能解释与激活状态；模式为继承全局 / 仅白名单 / 禁止全部，另有搜索 / 只看已激活 / 常用与只读预设）并开关"群聊里显示工具调用进度"，第三个子选项卡**「工具参数（全局）」**还给每个工具一组可展开 / 收起的参数面板（生图留档 `metadata_store`、搜索通道顺序、记忆写入上限、风险阈值、生图提示词优化……），不用再手改 `services.toml` 再重启；「群友」页按群管理每个人的备注名、标签、角色数据与头像；**「时间」页**把统一时间服务全摆到界面上：每秒刷新的当前时间/时区/偏移/tzdata 读数、不触网的时区探针（含 DST 冬夏断言）、`[time]` / `[time.verification]` / `[[time.sources]]` 的全部可调项（含按表格增删来源），以及从后台 `/diagnostics` 读回的校验状态、每条来源最近观测与告警；「进阶」页里的自学习设置、HOOK 插件配置与定时维护任务是按钮打开的二级窗口（维护任务用「每天 / 每周 / 每月 / 自定义 cron」或「指定日期一次性」调度，并实时显示下次触发时间）；「进阶」页整页可竖向滚动，窗口再小也不会把下方控件挤出可视区。见 [Windows 桌面端](docs/windows-app.md)。
+- **Windows 桌面端（选项卡式）**：Tk 窗口 + 托盘常驻 + 后台服务自动拉起；12 个选项卡（对话 / 模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 时间 / 日志 / 功能 / 工具权限）把模型 API 与密钥、角色人设卡与 `SOUL.md`、QQ/Telegram 接入、群知识库、生图/视觉/语音与记忆开关、维护任务和功能状态都做成界面操作，配置改动自动留备份。密钥输入框可一键显示/隐藏；模型页与生图区能直接拉取上游 `/models` 清单并给模型起本地备注名，Provider 表单还可选**推理思考强度（`reasoning_effort`：none / minimal / low / medium / high，留空 = 不发送）**并按模型覆盖；**模型页保存后会从磁盘回读逐字段校验**，界面值与配置文件不一致时直接报错，模型槽位清空/半填也有明确规则，不会出现"界面改了、文件没变"；生图区支持**本地生图服务挂载**（端口映射 / AUTODL 等 SSL 链接 → OpenAI 兼容 Base URL，可一键检测服务类型）；「在线」页并排显示后台服务 / OneBot 协议端 / QQ 平台三段状态，并提供连接/断开开关（不用手改 TOML），发行包可内置 NapCat + 便携 QQ，在「在线」页一键启动协议端并扫码登录；「日志」页统一查看运行/审计/Atrinis/后台输出/界面操作五类日志并可导出当前视图；「工具权限」页按群在**纵向可滚动的工具菜单**里逐个「激活」工具（每行带中文名、风险、一句话功能解释与激活状态；模式为继承全局 / 仅白名单 / 禁止全部，另有搜索 / 只看已激活 / 常用与只读预设）并开关"群聊里显示工具调用进度"，第三个子选项卡**「工具参数（全局）」**还给每个工具一组可展开 / 收起的参数面板（生图留档 `metadata_store`、搜索通道顺序、记忆写入上限、风险阈值、生图提示词优化……），不用再手改 `services.toml` 再重启；「群友」页按群管理每个人的备注名、标签、角色数据与头像，并可勾选「参与对话」——保存后下一轮对话就把**当前发言人**的档案注入系统提示词（按平台+群+用户精确匹配，界面下方有注入预览）；**「时间」页**把统一时间服务全摆到界面上：每秒刷新的当前时间/时区/偏移/tzdata 读数、不触网的时区探针（含 DST 冬夏断言）、`[time]` / `[time.verification]` / `[[time.sources]]` 的全部可调项（含按表格增删来源），以及从后台 `/diagnostics` 读回的校验状态、每条来源最近观测与告警；「进阶」页里的自学习设置、HOOK 插件配置与定时维护任务是按钮打开的二级窗口（维护任务用「每天 / 每周 / 每月 / 自定义 cron」或「指定日期一次性」调度，并实时显示下次触发时间）；「进阶」页整页可竖向滚动，窗口再小也不会把下方控件挤出可视区。见 [Windows 桌面端](docs/windows-app.md)。
 - **Windows 两种交付形态**：安装包（开始菜单/自启/卸载项）与**便携版 zip**（解压即用，数据可留在解压目录，整包拷走即可复现问题）；一条 `python packaging/build.py --release` 同时产出并各自自检。
 - **即时通信平台**：Telegram、QQ OneBot、QQ Official，统一抽象平台层与输出层，便于扩展新平台。
 - **前端自由定制**：远程 CLI 使用 WebSocket 协议，附带补全接口，可以自己写前端界面；协议见 [前端 API](docs/frontend-api.md)。
@@ -217,10 +217,10 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.1.1`**（1.1.0 的补丁版）：① 「功能」页的「图片转提示词（`image_to_prompt`）」原来双击被送去「进阶」页（那页没有它的配置项），现在双击直达「工具权限 → 工具参数（全局）」并**展开**对应面板，行状态按 **未配置 / 已启用 / 已停用** 三态显示，另新增「图片生成参数留档（`metadata_store`）」功能行；② **图片生成参数留档（`[image_generation].metadata_store`）从未生效**——装配代码 import 了不存在的名字、又被裸 `except` 吞掉，配置了也永远是关闭的；大图入库转码成 JPEG 后 PNG 文本块被销毁，`artist_extract` / `image_to_prompt` 再无来源可读。现在改为正确导入、成功记 INFO（`image generation metadata archive enabled`）、失败记 WARN，开启留档后原图参数在**转码之前**入库，转码后仍能读回（`metadata_origin = archive`）。1.1.0 的 QQ 协议端可切换（默认内置 NapCat、可选外置 SnowLuma）、四维在线状态、桌面端「时间」选项卡等功能全部保留；配置与会话数据**向后兼容**；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
-交付物尺寸与校验和见 [GitHub Release v1.1.1](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.1) 里的 `SHA256SUMS.txt`、发行说明与自检报告。
+当前最新版本：**`1.1.2`**（正式发行版）：桌面端「群友」页保存的**群友人设真正进入对话**——新增共享层 `atri_x/memberprofile/`（`MemberProfile` / `MemberProfileStore` / 提示词渲染）与 `MemberProfileSystemPromptSource`，每轮只把**当前发言人**的档案（称呼 / 昵称 / 标签 / 角色资料）注入系统提示词，严格按**平台 + 完整作用域（如 `group:群号`）+ user id** 精确匹配；私聊、频道与后台任务（Cron / 外部事件）不注入；档案正文带信任声明，不改自身身份、不授予任何权限，写"我是管理员 / 忽略规则"不会改变工具授权；`gui/members.json` 向后兼容（新增 `enabled` 字段缺省视为开启），停用或留空时行为与旧版完全一致；保存 / 修改 / 删除**下一轮对话生效**，不需要重启。桌面端「群友」页同时新增「参与对话」勾选、列表「对话」列与实时「提示词预览」。**并修复一处装配期覆盖**：`rebuild_system_prompt()` 在安装期会整体替换系统提示词来源清单，导致 Python 侧新增来源（群友档案，以及此前同样被丢掉的 `[reactions]` 表情提示）在真实运行路径上不生效，现已与装配期清单保持一致。1.1.1 的两处修复（图转提示词入口、图片生成参数留档）全部保留；配置与会话数据**向后兼容**；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+交付物尺寸与校验和见本版发行库 `SHA256SUMS-1.1.2.txt`（安装包 / 便携版 / 源码归档）、发行说明与自检报告；本版尚未推送 GitHub，发布后对应 tag 为 `v1.1.2`。
 
-已线上发布：[**GitHub Release v1.1.1**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.1)（当前线上版，tag `v1.1.1` 指向本版发行提交）；上一版 [v1.1.0](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.0)（tag `v1.1.0`）；更早的 [v1.0.10](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.10)、[v1.0.9](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.9)、[v1.0.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)。各版本的尺寸与 SHA-256 见对应 Release 的 `SHA256SUMS.txt` 与兼容性报告（`ATRI-X-<版本>-compatibility-report.md`）。
+已线上发布的历史版本：[**GitHub Release v1.1.1**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.1)（当前线上版，tag `v1.1.1` 指向 1.1.1 发行提交）；上一版 [v1.1.0](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.0)（tag `v1.1.0`）；更早的 [v1.0.10](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.10)、[v1.0.9](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.9)、[v1.0.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)。各版本的尺寸与 SHA-256 见对应 Release 的 `SHA256SUMS.txt` 与兼容性报告（`ATRI-X-<版本>-compatibility-report.md`）。
 
 | 产物 | 位置 |
 | --- | --- |
@@ -388,8 +388,8 @@ python -m unittest discover -s tests -t .             # 全量测试
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 989 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=758 imported=758`，0 失败 |
+| `check_syntax` | 995 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=763 imported=763`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径：只验 [PORTING.md](PORTING.md) §4 映射表里的 Python 模块是否存在，不衡量行为正确性） |
 | 全量 `unittest` | 用例数不硬编码（见下）；现场跑 `python -m unittest discover -s tests -t .`，以本机输出或 CI 记录为准 |

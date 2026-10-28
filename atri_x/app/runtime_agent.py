@@ -118,6 +118,8 @@ async def build_agent(
     naming_cfg = getattr(session_cfg, "naming", None)
     maintenance = getattr(cfg, "maintenance", None)
     session_idle = getattr(session_cfg, "idle_expiration", None)
+    # 群友档案与 GUI 共用 ``<配置目录>/gui/members.json``；配置目录 = app.toml 所在目录。
+    member_profile_store = _member_profile_store(cfg, foundation.logger)
 
     agent = new_agent(
         AgentOptions(
@@ -149,6 +151,7 @@ async def build_agent(
             naming_notifier=NamingLogger(foundation.logger, audit_func(foundation.logs)),
             soul_path=str(getattr(getattr(cfg, "soul", None), "path", "") or ""),
             resident_memory_store=tool_runtime.resident_memory_store,
+            member_profile_store=member_profile_store,
             angel_memory=tool_runtime.angel_memory,
             angel_memory_config=getattr(cfg, "angel_memory", None),
             self_learning=tool_runtime.self_learning,
@@ -212,6 +215,8 @@ async def build_agent(
     )
     # 1.0.3：内容安全 guard 与识图开关（不配置 = 完全保持旧行为）。
     _wire_safety_and_vision(agent, cfg, foundation.logger)
+    # 群友档案存储也挂到宿主上：装配失败（或无配置目录）时为 None，提示词来源自动跳过。
+    _set_attribute(agent, "member_profile_store", member_profile_store)
     # 把三组同僚实现的服务真正装到 Agent 上（``atri_x/agent/bootstrap.py``）。
     # 不做这一步 ``atri_x/agent/seams.py`` 只会走**保守降级**：预算、限流、上下文
     # 压缩、工具预载全部静默失效 —— Agent 能构造、测试也全绿，只是能力悄悄没了。
@@ -258,6 +263,30 @@ async def build_agent(
     if callable(watch):
         watch(ctx)
     return agent
+
+
+def _member_profile_store(cfg: Any, logger: Any) -> Any:
+    """按实际配置目录创建群友档案存储；拿不到目录时返回 ``None``。
+
+    档案文件位置必须与桌面端「群友」页一致：``<app.toml 所在目录>/gui/members.json``。
+    构造失败（例如导入异常）只记 WARN 并降级为"不注入"，不阻断 Agent 启动。
+    """
+    config_path = str(getattr(cfg, "config_path", "") or "").strip()
+    config_dir = os.path.dirname(os.path.abspath(config_path)) if config_path else ""
+    if not config_dir:
+        return None
+    try:
+        from atri_x.memberprofile import MemberProfileStore
+
+        return MemberProfileStore(config_dir, logger=logger)
+    except Exception as exc:  # noqa: BLE001 - 档案只能增强提示词，坏了不能拖垮启动
+        if logger is not None:
+            logger.warn(
+                "member profile store unavailable; member personas are not injected",
+                event="member_profile_unavailable",
+                error="%s: %s" % (type(exc).__name__, exc),
+            )
+        return None
 
 
 def _wire_safety_and_vision(agent: Any, cfg: Any, logger: Any) -> None:

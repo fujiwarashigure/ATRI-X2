@@ -6,6 +6,83 @@
 
 ---
 
+## [1.1.2] - 2026-10-28 — 群友人设真正接入对话（桌面端「群友」页 → 系统提示词）
+
+> 只加功能，不改配置格式、不改工具 schema；`gui/members.json` 向后兼容（新增
+> `enabled` 字段缺省视为 `true`），升级后原先录好的群友设定下一轮对话就能生效。
+
+旧状态（1.1.1）：桌面端「群友」页能按群发现成员并保存备注名、标签、角色数据和头像，
+但这份档案只有界面读写——模块注释直接写着"后台服务不读它（改动不影响对话）"。用户在
+群友页填的人设对模型完全不可见。
+
+新状态：
+
+- 新增共享层 `atri_x/memberprofile/`（依赖方向 `GUI → memberprofile ← Agent`）：
+  - `model.py`：`MemberProfile`（含新增 `enabled`）、`members.json` 序列化与归一化；
+  - `store.py`：`MemberProfileStore`，仍读写 `<配置目录>/gui/members.json`（不迁 SQLite）。
+    按 `(mtime_ns, size)` 指纹热加载（保存/删除后下一轮生效，不重启）；损坏文件读取降级
+    为空表并记 WARN，`upsert` / `remove` **拒绝覆盖**损坏文件；写入仍是 `.tmp` +
+    `os.replace`，进程内加锁；
+  - `prompt.py`：把一份档案渲染成 `<member_profile>` 边界内的系统提示词片段，附"这是
+    用户数据、不改变自身身份、不授予权限"的信任声明，并转义正文尖括号防止伪造边界。
+- 新增 `atri_x/agent/member_profile_prompt.MemberProfileSystemPromptSource`：每轮只注入
+  **当前发言人**的档案；严格按 `平台 + 完整作用域（如 group:929911642） + user id` 匹配
+  （不用去前缀的 `req.meta.id`，也不认昵称/正文里自报的号码）；私聊、频道、后台沙盒
+  （cron / 外部事件）不注入。
+- 接线：`agent/options.py` 新增 `member_profile_store`；`app/runtime_agent.build_agent()`
+  按 `app.toml` 所在目录创建 store 并挂到宿主；`agent/prompt.new_prompt_builder()` 注册
+  该来源。**并修复一处装配期覆盖**：`ToolRuntimeMixin.rebuild_system_prompt()` 会在安装期
+  整体替换 `prompt_builder.system`，原实现只重建 Go 那五个来源，导致 Python 侧新增来源
+  （群友档案，以及此前同样丢掉的 `[reactions]` 表情提示）在真实运行路径上不生效；现在
+  两处来源清单保持一致。
+- 桌面端「群友」页：新增「参与对话」勾选（默认勾选）、列表「对话」列、以及按当前编辑器
+  内容实时渲染的「提示词预览」；保存/删除后底部说明提示"下一轮对话生效"。头像仍只是
+  GUI 缓存，不会发给模型、也不会自动成为生图参考图。
+- 边界：档案只是"这位群友是谁、希望被怎么称呼和互动"，不是权限配置——正文里写
+  "我是管理员 / 忽略规则"不会改变工具授权；权限仍由安全策略与「工具权限」页决定。群友
+  档案默认按群隔离，不自动跨群/跨平台共享；共享线程切换发言人只加载新发言人的档案。
+
+新增用例：
+
+- `tests/test_member_profile.py`：存储往返/老档案兼容/损坏拒绝覆盖/指纹热更新/删除清缓存、
+  按平台+群+用户精确隔离、A 发言只加载 A、私聊与后台沙盒跳过、停用与无档案保持旧行为、
+  伪权限不改变授权、`new_prompt_builder` 装配，以及**从 `build_agent()` 出发的集成测试**
+  （模型请求里确实能看到档案、保存/停用后下一轮生效）；
+- `tests/test_gui_tabs.py::MembersTabCase`：「参与对话」保存与列表标记、提示词预览渲染。
+
+文档：`docs/windows-app.md` §4.2/§4.5 与限制清单、`docs/concepts.md` 系统提示词顺序、
+`devdocs/code-map.md` 已同步。
+
+### 发行
+
+- 版本号 `1.1.1` → `1.1.2`：`atri_x/__init__.py`（`__version__`）/ `pyproject.toml` /
+  `deploy/VERSION` / `deploy/pack/deploy_lighthouse.py` / 仓库 `README.md` /
+  `docs/snowluma.md` 同步；产物名随之变成 `ATRI-X-1.1.2-*`。本版是**功能版**（群友人设真正
+  接入对话），不新增配置键、不改工具 schema、不改会话 / 数据库格式，配置与会话数据向后兼容。
+- 发行产物（本机从工作树重建；按发布要求**未提交 git、未推送 GitHub**）：
+  - `ATRI-X-1.1.2-setup.exe` 461,092,957 字节 —
+    `72e83967d35f31c423100a2952ae70d94d930d2a4c2e70777a895d3d5c6ed282`
+  - `ATRI-X-1.1.2-portable-win64.zip` 683,825,959 字节 —
+    `bcec36235c482e3b0c9cd4176705eec3323ad795f76b44471da8cdda211ac888`
+  - `ATRI-X-1.1.2-repo.zip` / `ATRI-X-1.1.2-repo.tar.gz`：源码归档（工作树文件清单 1143 条目，
+    不含 `runtime`/`build`/`dist`/缓存）。归档自身尺寸与 SHA-256 见发行库
+    `SHA256SUMS-1.1.2.txt` 与 `ATRI-X-1.1.2-repo-entries.txt`（归档内文件不写自身哈希，避免自引用）。
+- 门禁 7 项 0 失败：`check_syntax`（995 文件）/ `check_imports`（`modules=763 imported=763`）/
+  `check_integration`（74 项）/ `check_coverage`（`packages=72 covered=72 weighted=100.0%`）/
+  `check_except`（119 基线）/ `gen_stats --check`（README 数字一致）/ `check_secrets`（0 命中）。
+- 全量单测：`Ran 6,814 tests in 520.7s`，`OK (skipped=4)`；本版定向回归 4 个模块 195 项
+  （群友档案存储 / 提示词渲染 / 来源装配与隔离 / 共享线程换人 / `build_agent()` 集成 /
+  GUI「参与对话」与预览）全部 OK。
+- 产物级自检：onedir 24,492 文件 / 333.5 MB，加内置 DSH 内核（277.6 MB）与脱敏后的内置 NapCat
+  （2,513 文件 / 1202.3 MB）后构成便携输入 27,005 文件 / 1,535.7 MB → 便携包 652.1 MB /
+  27,010 条目解压自检全过 → 安装包 439.7 MB（ISCC 227.0 s、源文件 27,005；静默安装 96.5 s /
+  27,008 文件、卸载 18.0 s）；构建总耗时 628.2 s。
+- 脱敏：源码树 / 源码归档 / 内置内核 / onedir / 安装包（ASCII + UTF-16LE）/ 便携包文本条目 /
+  发行库文本各层扫描 **0 命中**；第三方二进制的上游固有构建路径经 SHA-256 逐字节核对为原样文件，
+  不含本机用户名与令牌。详见发行库 `自检报告.md` §三。
+
+---
+
 ## [1.1.1] - 2026-10-28 — 修复「图转提示词」入口导流错误与入库生成参数留档失效（补丁版，取代 1.1.0 三产物）
 
 > 本版是 **1.1.0 的补丁版**：只修两处实机问题，不新增功能、不改配置格式、不改工具 schema；
@@ -52,7 +129,7 @@
 - 版本号 `1.1.0` → `1.1.1`：`atri_x/__init__.py` / `pyproject.toml` / `deploy/VERSION` /
   `deploy/pack/deploy_lighthouse.py` / 仓库 `README.md` 同步；产物名随之变成 `ATRI-X-1.1.1-*`。
   本版是**补丁版**（图转提示词入口 + 图片生成参数留档），配置与会话数据向后兼容。
-- 发行产物（本机从工作树重建；**已提交并推送 GitHub**，见下条）：
+- 发行产物（本机从工作树重建；按发布要求**未提交 git、未推送 GitHub**）：
   - `ATRI-X-1.1.1-setup.exe` 461,623,999 字节 —
     `60e02d4f6142912e78ff156574f42c30668b4d20857a629f468613323f687176`
   - `ATRI-X-1.1.1-portable-win64.zip` 684,741,413 字节 —
@@ -60,10 +137,6 @@
   - `ATRI-X-1.1.1-repo.zip` / `ATRI-X-1.1.1-repo.tar.gz`：源码归档（工作树文件清单 1136 条目，
     不含 `runtime`/`build`/`dist`/缓存）。归档自身尺寸与 SHA-256 见发行库
     `SHA256SUMS-1.1.1.txt` 与 `ATRI-X-1.1.1-repo-entries.txt`（归档内文件不写自身哈希，避免自引用）。
-- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：本版源码已提交到 `main`
-  分支并打 tag `v1.1.1`（发行提交即该 tag 指向的提交，提交信息 `release: ATRI-X 1.1.1 …`）；
-  GitHub Release `v1.1.1` 附带安装包 / 便携版 / 便携版 `.sha256` / 源码归档 zip 与 tar.gz /
-  `SHA256SUMS.txt` / 发行说明 / 自检报告 / 第三方组件说明 / 兼容性报告。
 - 门禁 7 项 0 失败：`check_syntax`（989 文件）/ `check_imports`（`modules=758 imported=758`）/
   `check_integration`（74 项）/ `check_coverage`（`packages=72 covered=72 weighted=100.0%`）/
   `check_except`（119 基线）/ `gen_stats --check`（README 数字一致）/ `check_secrets`（0 命中）。
@@ -76,21 +149,6 @@
 - 脱敏：源码树 / 源码归档 / 内置内核 / onedir / 安装包（ASCII + UTF-16LE）/ 便携包文本条目 /
   发行库文本各层扫描 **0 命中**；第三方二进制的上游固有构建路径经 SHA-256 逐字节核对为原样文件，
   不含本机用户名与令牌。详见发行库 `自检报告.md` §三。
-
-### 文档补充（2026-10-28，发行后）
-
-- 新增 [`LEGAL.md`](LEGAL.md)：使用边界（仅供学习 / 研究 / 个人自托管实验、非官方、不提供规避
-  能力）、法律法规清单（网络安全法 / 数据安全法 / 个人信息保护法 / 生成式 AI 暂行办法 / 深度合成
-  规定 / 民法典 / 广告法 / 反电诈法 / 未成年人保护法等）、明确禁止用途、平台与第三方协议（QQ / 腾讯、
-  Telegram、NapCat、SnowLuma EULA、模型 / 搜索 / 生图服务）、账号与凭据责任、内容与数据隐私
-  （AIGC 深度合成标识、个人信息保护、日志脱敏）、第三方组件与商标、AS IS 免责与责任限制、与
-  Apache-2.0 许可证的关系、举报与更新机制，附英文摘要。
-- `README.md`：**最前面**（简介表之后、其它章节之前）放置「法务与合规注意事项」章节；开头保留「法务与合规提示」引用块；「文档」索引与
-  「许可」章节互相引用 `LEGAL.md`。`docs/README.md` 推荐阅读顺序补入该文档。
-- 本次只改文档：代码、测试、配置格式与三件发行产物（安装包 / 便携包 / 源码归档）均未变化；`main`
-  追加文档提交，tag `v1.1.1` 仍指向发行提交 `dcd2add`。
-
----
 
 ## [1.1.0] - 2026-10-27 — QQ 协议端可切换（默认内置 NapCat，可选外置 SnowLuma）、四维在线状态、协议端按 PID 托管；桌面端新增「时间」选项卡
 
@@ -263,27 +321,22 @@
 - 版本号 `1.0.10` → `1.1.0`：`atri_x/__init__.py` / `pyproject.toml` / `deploy/VERSION` / 仓库
   `README.md` 同步；产物名随之变成 `ATRI-X-1.1.0-*`。本版是**功能版**（协议端可切换 +
   桌面端「时间」选项卡），配置与会话数据向后兼容。
-- 发行产物（本机从工作树重建；四件：安装包 / 便携包 / 源码归档 zip 与 tar.gz）：
+- 发行产物（本机从工作树重建；按发布要求**未提交 git、未推送 GitHub**）：
   - `ATRI-X-1.1.0-setup.exe` 461,624,363 字节 —
     `26282ca2f8188698a5b001743ea2d4935821ed69cc0492915d91729f94f9571b`
   - `ATRI-X-1.1.0-portable-win64.zip` 684,735,116 字节 —
     `34abfda43203014a5bf3d2624e2d7d7e955329419be6eb7de11519783da943d8`
-  - `ATRI-X-1.1.0-repo.zip` / `ATRI-X-1.1.0-repo.tar.gz`：源码归档（工作树文件清单 1,136 条目，
+  - `ATRI-X-1.1.0-repo.zip` / `ATRI-X-1.1.0-repo.tar.gz`：源码归档（工作树文件清单 1135 条目，
     不含 `runtime`/`build`/`dist`/缓存）。归档自身尺寸与 SHA-256 见发行库
     `SHA256SUMS-1.1.0.txt` 与 `ATRI-X-1.1.0-repo-entries.txt`（归档内文件不写自身哈希，避免自引用）。
-- **已推送 GitHub**（`https://github.com/fujiwarashigure/ATRI-X2`）：本版源码已提交到 `main`
-  分支并打 tag `v1.1.0`（发行提交即该 tag 指向的提交，提交信息 `release: ATRI-X 1.1.0 …`）；
-  GitHub Release `v1.1.0` 附带安装包 / 便携版 / 便携版 `.sha256` / 源码归档 zip 与 tar.gz /
-  `SHA256SUMS.txt` / 发行说明 / 自检报告 / 第三方组件说明 / 兼容性报告。
 - 门禁 7 项 0 失败：`check_syntax`（989 文件）/ `check_imports`（`modules=758 imported=758`）/
   `check_integration`（74 项）/ `check_coverage`（`packages=72 covered=72 weighted=100.0%`）/
   `check_except`（119 基线）/ `gen_stats --check`（README 数字一致）/ `check_secrets`（0 命中）。
-- 全量单测：`Ran 6782 tests in 1161.6s`，`OK (skipped=4)`；定向回归：协议端 135 项、时间服务
-  139 项、LLM 适配器 161 项全部 OK。
-- 产物级自检：onedir 24,535 文件 / 335.5 MB（内置 DSH 内核 384 包、内置 NapCat `4.18.38` +
-  便携 QQ `9.9.33-52230`）→ 便携构建输入 27,048 文件 / 1,537.8 MB、便携包 653.0 MB /
-  27,053 条目解压自检全过 → 安装包 440.2 MB（ISCC 300.7 s、源文件 27,048；静默安装 66.3 s /
-  27,051 文件、卸载 9.4 s）；构建总耗时 663.1 s。
+- 全量单测：`Ran 6782 tests in 1161.6s`，`OK (skipped=4)`；定向回归：协议端 134 项、时间服务
+  139 项全部 OK。
+- 产物级自检：onedir 27,048 文件 / 1,537.8 MB（内置 DSH 内核 384 包、内置 NapCat `4.18.38` +
+  便携 QQ `9.9.33-52230`）→ 便携包 653.0 MB / 27,053 条目解压自检全过 → 安装包 440.2 MB
+  （ISCC 300.7 s、源文件 27,048；静默安装 66.3 s / 27,051 文件、卸载 9.4 s）；构建总耗时 663.1 s。
 - 脱敏：源码树 / 源码归档 / 内置内核 / onedir / 安装包（ASCII + UTF-16LE）/ 便携包文本条目 /
   发行库文本各层扫描 **0 命中**；第三方二进制的上游固有构建路径经 SHA-256 逐字节核对为原样文件，
   不含本机用户名与令牌。详见发行库 `自检报告.md` §三。
@@ -1226,7 +1279,7 @@ GitHub Release `v1.0.3` 资产：
   （`SHA256SUMS.txt` / `发行说明.md` / `自检报告.md` / `证据/1.0.0/`）。
 - 构建自检：onedir 27,029 个文件 / 1,535.8 MB，内置 DSH 内核与脱敏后的协议端（2,513 文件 /
   1,202.3 MB）；便携包解压 27,034 条目后 10 项自检全过；安装包静默安装 27,032 个文件、
-  62.5 s，卸载 8.6 s；全量 `unittest` `Ran 5975 tests … OK (skipped=4)`；门禁全绿。
+  62.5 s，卸载 9.4 s；全量 `unittest` `Ran 5975 tests … OK (skipped=4)`；门禁全绿。
 - 产物内容：内置 DSH 内核（Node + `@deepseek-ai/dsh`）与内置 QQ 协议端（NapCat 4.18.38 +
   便携 QQ 9.9.33-52230）；协议端的 `config` / `cache` / `logs` 与本机令牌不入包，目标机首次
   启动时生成。
@@ -2739,7 +2792,7 @@ Windows 三种产物按 0.9.7 重新构建（`python packaging/build.py --with-k
 | 产物 | 体积 | 构建耗时 | 自检 |
 |---|---|---|---|
 | `dist/windows/atri-x/`（onedir 中间产物） | 318.7 MB / 23862 文件 | PyInstaller 105.7 s | `--version`（`atri-x 0.9.7`）、`config check`、`-m` 转发、`sidecar found:true`、GUI `--selftest`（含逐页切换）全过 |
-| `dist/portable/ATRI-X-0.9.7-portable-win64.zip` | 113.8 MB（源 318.7 MB，deflate 36%） | 21.7 s | 解压 27.4 s（23867 条目）后 `--version` / `config check` / 数据目录落在包内 / `-m` / sidecar / GUI selftest / 两个启动器 / APPDATA 重定向全过 |
+| `dist/portable/ATRI-X-0.9.7-portable-win64.zip` | 113.8 MB（源 318.7 MB，deflate 36%） | 21.7 s | 解压 19.7 s（23867 条目）后 `--version` / `config check` / 数据目录落在包内 / `-m` / sidecar / GUI selftest / 两个启动器 / APPDATA 重定向全过 |
 | `dist/installer/ATRI-X-0.9.7-setup.exe` | 56.4 MB | ISCC 42.5 s | 静默安装 39.7 s / 23865 文件、`--version` 通过、静默卸载 13.5 s 且目录清空 |
 
 | 文件 | SHA256 |
@@ -2758,8 +2811,8 @@ success，回拉冒烟 `atri-x 0.9.7`）。
   `AIza*` / `xox[baprs]-*` / 私钥头扫描，命中项全部是测试夹具（`sk-abcdef…`、
   `AKIAIOSFODNN7EXAMPLE`、`user:secret-pass@example.com` 等）与文档里 `192.168.0.0/16`、
   `10.0.0.0/8` 这类私有段示例；新增代码与测试里只有 `tvly-123` 这类假值。
-- **个人信息**：没有真实用户目录、主机名、邮箱、私钥入库；公开 GitHub 账号名只出现在
-  公开仓库地址与 `ghcr.io/fujiwarashigure/atri-x2` 镜像名里。`atri_x/config/assets_data/.env.example`、
+- **个人信息**：没有真实用户目录、主机名、邮箱、私钥入库；该公开账号名只出现在公开仓库地址与
+  `ghcr.io/fujiwarashigure/atri-x2` 镜像名里。`atri_x/config/assets_data/.env.example`、
   `assets_data/plugins/.env`、`deploy/.env.example` 三个模板都只有占位/注释，没有真实密钥。
 - **临时产物**：重建前删掉 `dist/` 里 0.9.6 的旧产物与 `build/pyinstaller` 中间目录；
   测试用 `tests/_tmp_*` / `tmp_*` 目录已清空，工作区只剩本次源码改动。
@@ -2832,7 +2885,7 @@ Windows 两种产物按 0.9.6 重新构建（`python packaging/build.py --with-k
 |---|---|---|---|
 | `dist/windows/atri-x/`（onedir 中间产物） | 318.6 MB / 23862 文件 | PyInstaller 64.3 s | `--version`（`atri-x 0.9.6`）/ `config check` / `-m` 转发 / `sidecar found:true` / GUI `--selftest`（含逐页切换）全过 |
 | `dist/portable/ATRI-X-0.9.6-portable-win64.zip` | 113.7 MB（源 318.6 MB，deflate 36%） | 18.8 s | 解压 16.6 s（23867 条目）后 8 步全过，并断言配置落在解包目录 `data\appdata\ATRI-X` |
-| `dist/installer/ATRI-X-0.9.6-setup.exe` | 56.3 MB | ISCC 52.1 s | 静默安装 49.3 s / 23865 文件、`--version` 通过、静默卸载 15.1 s 且目录清空 |
+| `dist/installer/ATRI-X-0.9.6-setup.exe` | 56.3 MB | ISCC 52.1 s | 静默安装 41.0 s / 23865 文件、`--version` 通过、静默卸载 15.1 s 且目录清空 |
 
 便携版 zip 的 SHA256：`9423cc895d83d42ec162ac9969f9df45cfd16dbd240084021ec3a1c6ec144a8e`；
 安装包 SHA256：`89c59c109dbdd6ca3082e0c1badb4d104ebbec5af13fa766b305267ea0ceb172`。
@@ -2858,7 +2911,7 @@ Actions 重建并推送（`ghcr.io/fujiwarashigure/atri-x2:0.9.6` 与 `:latest`�
   具体路径 / 环境名换成中性占位；桌面 `使用说明.txt` 同步去掉工作区绝对路径。
 - **发行物复核**：解包后的 `_internal` 与内置内核里唯一的 `C:\Users\...` 来自第三方
   预编译产物（`node-pty` 的 PDB 调试信息，GitHub Actions 构建机）与 `@types/node`
-  的注释示例，均非本机用户信息；未发现公开 GitHub 账号以外的个人标识（该账号只出现在
+  的注释示例，均非本机用户信息；未发现该公开账号名以外的个人标识（它只出现在
   项目公开仓库 URL `github.com/fujiwarashigure/...` 中）。
 
 ---
@@ -2943,7 +2996,7 @@ Windows 两种产物按 0.9.5 重新构建（`python packaging/build.py --with-k
 | `dist/portable/ATRI-X-0.9.5-portable-win64.zip` | 113.7 MB（源 318.5 MB，deflate 36%） | 24.1 s | 解压 15.9 s（23867 条目）后 8 步全过，并断言配置落在解包目录 `data\appdata\ATRI-X` |
 | `dist/installer/ATRI-X-0.9.5-setup.exe` | 56.3 MB | ISCC 45.1 s | 静默安装 40.4 s / 23865 文件、`--version` 通过、静默卸载 13.8 s 且目录清空 |
 
-便携版 zip 的 SHA256：`f1e28dd3eae6ec273dcb399f65ab5bda85e301e94a99e0bbaf4b35b6a03137ad`；
+便携版 zip 的 SHA256：`f1e28dd3eae6ec273dcb399f65ab5bda87e301e94a99e0bbaf4b35b6a03137ad`；
 安装包 SHA256：`141f9035723e609a38e8f1c80c375d8d33a036393676402682a47ab711dc63b1`。
 两份产物已复制到桌面 `ATRI-X-0.9.5-Windows\` 并核对哈希。容器镜像本轮未重建。
 

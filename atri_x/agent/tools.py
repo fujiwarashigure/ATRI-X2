@@ -312,11 +312,22 @@ class ToolRuntimeMixin:
         来源顺序与 Go 逐行一致（``tools.go:33-44``）：SOUL → 工具名 → 工具标签 →
         常驻记忆 → 对话元信息。注意 :class:`SystemPromptManager` 收的是**序列**，
         单个来源必须走 ``add_source``。
+
+        ⚠️ 本方法会**整体替换** ``prompt_builder.system``（安装期 ``set_tool_runtime``
+        / ``set_tool_provider`` / ``set_tool_tag_config`` 都会调它），因此 Python 侧
+        新增的提示词来源必须在这里再挂一次，否则它们只存在于
+        ``atri_x/agent/prompt.py`` 的构造期装配里、真实运行期会被这里覆盖丢掉。
+        当前 Python 侧新增来源：群友档案（``member_profile_store``）与表情提示
+        （``reactions_config``）。
         """
         try:  # 同僚模块可能尚未落地 —— 延迟导入
+            from atri_x.agent.member_profile_prompt import (
+                MemberProfileSystemPromptSource,
+            )
             from atri_x.agent.system_prompt import SystemPromptManager
             from atri_x.agent.system_prompt_sources import (
                 ConversationMetaSystemPromptSource,
+                ReactionSystemPromptSource,
                 ResidentMemorySystemPromptSource,
                 SoulSystemPromptSource,
                 ToolNamesSystemPromptSource,
@@ -327,6 +338,9 @@ class ToolRuntimeMixin:
         state = tool_runtime_state(host)
         manager = SystemPromptManager()
         manager.add_source(SoulSystemPromptSource(getattr(host, "soul", None)))
+        member_profiles = getattr(host, "member_profile_store", None)
+        if member_profiles is not None:
+            manager.add_source(MemberProfileSystemPromptSource(member_profiles))
         if hasattr(state.provider, "tool_names"):
             manager.add_source(ToolNamesSystemPromptSource(state.provider))
         if state.tool_tags is not None:
@@ -334,6 +348,9 @@ class ToolRuntimeMixin:
         manager.add_source(
             ResidentMemorySystemPromptSource(getattr(host, "resident_memory", None))
         )
+        reactions = getattr(host, "reactions_config", None)
+        if reactions is not None and getattr(reactions, "enabled", False):
+            manager.add_source(ReactionSystemPromptSource(reactions))
         manager.add_source(ConversationMetaSystemPromptSource())
         builder = getattr(host, "prompt_builder", None)
         if builder is not None:

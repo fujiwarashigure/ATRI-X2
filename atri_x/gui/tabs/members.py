@@ -4,14 +4,16 @@
 
 - **群友列表**来自后台服务的聊天历史库（``chat_messages`` 表，只读）：按群看"谁发过言、
   发了多少、最后什么时候"，不用手工一个个录；
-- **角色数据**是 GUI 自己的档案（``<配置目录>/gui/members.json``）：备注名、标签、自由
-  文本，加上一张头像（头像缓存到 ``<配置目录>/gui/avatars/*.png``）。
+- **角色数据**是 GUI 与后台共用的档案（``<配置目录>/gui/members.json``，
+  见 :mod:`atri_x.memberprofile`）：备注名、标签、自由文本，加上一张头像（头像缓存到
+  ``<配置目录>/gui/avatars/*.png``）。
 
-写入只走 :mod:`atri_x.gui.memberdata`（原子替换 + JSON 校验由它保证）；头像的下载/解码/
-缩放走 :mod:`atri_x.gui.avatars`（纯标准库图像编解码，JPEG 也能显示成 PNG）。
+写入只走 :mod:`atri_x.gui.memberdata`（委托共享存储；原子替换 + 损坏不覆盖由它保证）；
+头像的下载/解码/缩放走 :mod:`atri_x.gui.avatars`。
 
-关于生效时机：**这份档案目前只给界面看**——后台服务还不读它（改动不影响对话）。它解决
-的是"想翻一眼/改一改某个群友的设定"这件事，后续要接进 Agent 时从这里读即可。
+关于生效时机：**勾选「参与对话」并保存后，下一轮对话就生效，不需要重启后台服务**。
+后台 Agent 每轮按「平台 + 完整作用域 + 用户 id」读取当前发言人的档案并注入系统提示词；
+页面下方的「提示词预览」展示的就是会被注入的那段文字。头像只是界面缓存，不会发给模型。
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from typing import Any
 from atri_x.gui import avatars, memberdata, widgets
 from atri_x.gui.memberdata import GroupScope, MemberProfile, MemberSeen
 from atri_x.gui.tabs.base import ConfigTab, confirm, message
+from atri_x.memberprofile import render_member_profile
 
 __all__ = ["MembersTab"]
 
@@ -84,7 +87,7 @@ class MembersTab(ConfigTab):
         tree_wrap.pack(fill=tk.BOTH, expand=True)
         self.tree = ttk.Treeview(
             tree_wrap,
-            columns=("name", "uid", "count", "last"),
+            columns=("name", "uid", "talk", "count", "last"),
             show="tree headings",
             height=18,
             selectmode="browse",
@@ -92,11 +95,13 @@ class MembersTab(ConfigTab):
         self.tree.heading("#0", text="头像")
         self.tree.heading("name", text="群友")
         self.tree.heading("uid", text="QQ / ID")
+        self.tree.heading("talk", text="对话")
         self.tree.heading("count", text="发言")
         self.tree.heading("last", text="最近")
         self.tree.column("#0", width=44, stretch=False, anchor=tk.CENTER)
         self.tree.column("name", width=150, stretch=True)
         self.tree.column("uid", width=110, stretch=False)
+        self.tree.column("talk", width=46, stretch=False, anchor=tk.CENTER)
         self.tree.column("count", width=52, stretch=False, anchor=tk.E)
         self.tree.column("last", width=130, stretch=False)
         scrollbar = ttk.Scrollbar(tree_wrap, orient=tk.VERTICAL, command=self.tree.yview)
@@ -151,17 +156,44 @@ class MembersTab(ConfigTab):
         )
         self.profile_text.grid(row=3, column=1, sticky="nsew", pady=2)
         form.rowconfigure(3, weight=1)
+        self.enabled_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            form,
+            text="参与对话：把这份档案作为「当前发言人」的资料注入系统提示词",
+            variable=self.enabled_var,
+            command=self._update_preview,
+        ).grid(row=4, column=1, sticky="w", pady=(4, 0))
 
         actions = ttk.Frame(right)
         actions.pack(fill=tk.X, pady=(8, 0))
         ttk.Button(actions, text="保存档案", command=self._save).pack(side=tk.LEFT)
         ttk.Button(actions, text="删除档案", command=self._delete).pack(side=tk.LEFT, padx=(6, 0))
         ttk.Button(actions, text="重新载入", command=self.reload).pack(side=tk.LEFT, padx=(6, 0))
+
+        preview_box = ttk.LabelFrame(right, text="提示词预览（保存后下一轮对话生效）")
+        preview_box.pack(fill=tk.BOTH, expand=False, pady=(8, 0))
+        self.preview_text = tk.Text(
+            preview_box,
+            height=7,
+            wrap=tk.WORD,
+            font=("Microsoft YaHei UI", 9),
+            foreground="#333333",
+            background="#f6f6f6",
+        )
+        self.preview_text.pack(fill=tk.BOTH, expand=True)
+        self.preview_text.configure(state=tk.DISABLED)
+        # 编辑时实时刷新预览（保存与否不影响预览内容，只是让操作者看到注入形态）。
+        for variable in (self.name_var, self.alias_var, self.tags_var):
+            variable.trace_add("write", lambda *_args: self._update_preview())
+        self.profile_text.bind("<KeyRelease>", lambda _event: self._update_preview())
+
         ttk.Label(
             right,
             text=(
-                "角色数据存在本机 <配置目录>/gui/members.json（GUI 私有，不进 app.toml）；"
-                "群友列表来自后台服务的聊天历史库。"
+                "角色数据存在本机 <配置目录>/gui/members.json（GUI 与后台服务共用，不进 app.toml）；"
+                "群友列表来自后台服务的聊天历史库。\n"
+                "档案按「平台 + 群 + 用户 id」精确匹配：同一个人在不同群可以有不同的设定；"
+                "停用「参与对话」或删除档案后，下一轮就恢复为不注入。"
             ),
             foreground="#8a8a8a",
             wraplength=560,
@@ -255,6 +287,7 @@ class MembersTab(ConfigTab):
                 values=(
                     profile.title,
                     profile.user_id,
+                    "✓" if profile.enabled else "—",
                     (item.message_count if item is not None else 0) or "-",
                     (item.last_at if item is not None else profile.updated_at) or "-",
                 ),
@@ -340,9 +373,11 @@ class MembersTab(ConfigTab):
         self.name_var.set(profile.display_name)
         self.alias_var.set(profile.alias)
         self.tags_var.set(", ".join(profile.tags))
+        self.enabled_var.set(bool(profile.enabled))
         self.profile_text.delete("1.0", tk.END)
         self.profile_text.insert("1.0", profile.profile)
         self._show_avatar(profile)
+        self._update_preview()
 
     def _clear_editor(self) -> None:
         self._current = None
@@ -350,8 +385,40 @@ class MembersTab(ConfigTab):
         self.name_var.set("")
         self.alias_var.set("")
         self.tags_var.set("")
+        self.enabled_var.set(True)
         self.profile_text.delete("1.0", tk.END)
         self._show_avatar(None)
+        self._update_preview()
+
+    def _update_preview(self) -> None:
+        """把当前编辑器里的内容渲染成"会注入的提示词"预览。"""
+        if not hasattr(self, "preview_text"):
+            return
+        text = "（未选中群友）"
+        if self._current is not None:
+            draft = MemberProfile(
+                platform=self._current.platform,
+                scope_id=self._current.scope_id,
+                user_id=self._current.user_id,
+                display_name=self.name_var.get().strip(),
+                alias=self.alias_var.get().strip(),
+                tags=_split(self.tags_var.get()),
+                profile=self.profile_text.get("1.0", "end-1c").strip(),
+                enabled=bool(self.enabled_var.get()),
+            )
+            if not draft.enabled:
+                text = "当前设为「不参与对话」：保存后这份档案不会被注入系统提示词。"
+            else:
+                text = render_member_profile(draft)
+                if not text:
+                    text = (
+                        "这份档案还没有可注入的内容：填称呼、标签或角色资料，"
+                        "勾选「参与对话」并保存。"
+                    )
+        self.preview_text.configure(state=tk.NORMAL)
+        self.preview_text.delete("1.0", tk.END)
+        self.preview_text.insert("1.0", text)
+        self.preview_text.configure(state=tk.DISABLED)
 
     def _show_avatar(self, profile: MemberProfile | None) -> None:
         path = ""
@@ -393,6 +460,7 @@ class MembersTab(ConfigTab):
                     tags=_split(self.tags_var.get()),
                     profile=self.profile_text.get("1.0", "end-1c"),
                     avatar=profile.avatar,
+                    enabled=bool(self.enabled_var.get()),
                 ),
             )
         except (memberdata.MemberDataError, OSError) as exc:

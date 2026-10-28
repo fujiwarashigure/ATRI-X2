@@ -734,8 +734,31 @@ class MembersTabCase(TkCase):
         self.assertEqual(profile.alias, "小明明")
         self.assertEqual(profile.tags, ["群友", "爱画图"])
         self.assertEqual(profile.profile, "性格活泼，喜欢猫。")
+        # 默认参与对话：已录档案升级后直接生效。
+        self.assertTrue(profile.enabled)
         log_text = Path(journal.journal_path(self.paths.config_dir)).read_text(encoding="utf-8")
         self.assertIn("保存群友档案", log_text)
+
+    def test_enabled_switch_is_saved_and_shown(self) -> None:
+        keys = list(self.tab.tree.get_children(""))
+        self.tab._select(keys[0])
+        self.tab.enabled_var.set(False)
+        self.tab._update_preview()
+        self.assertIn("不参与对话", self.tab.preview_text.get("1.0", "end"))
+        self.tab._save()
+        profile = next(iter(memberdata.load_profiles(self.paths.config_dir).values()))
+        self.assertFalse(profile.enabled)
+        self.assertEqual(self.tab.tree.set(keys[0], "talk"), "—")
+
+    def test_preview_renders_prompt_for_current_member(self) -> None:
+        keys = list(self.tab.tree.get_children(""))
+        self.tab._select(keys[0])
+        self.tab.alias_var.set("小明明")
+        self.tab._update_preview()
+        preview = self.tab.preview_text.get("1.0", "end")
+        self.assertIn("当前发言人的角色档案", preview)
+        self.assertIn("称呼：小明明", preview)
+        self.assertIn("不改变你自身的身份", preview)
 
     def test_avatar_bytes_cache_and_preview(self) -> None:
         keys = list(self.tab.tree.get_children(""))
