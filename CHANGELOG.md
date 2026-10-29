@@ -153,7 +153,7 @@
 - 文档：新增 `docs/research.md`（完整使用与排障）、`research_pack/README.md`（随包资源与
   升级流程），`docs/commands.md` / `docs/windows-app.md`（13 个选项卡，§4.9 研究页）/
   `docs/concepts.md` / `devdocs/code-map.md` / `README.md` 同步。
-- 发行产物（本机从工作树重建；已提交并推送 GitHub：`main` 提交 `139aaf2`、tag `v1.1.3`；发行资产未上传 GitHub Release）：
+- 发行产物（本机从工作树重建；已提交并推送 GitHub，并作为 **GitHub Release v1.1.3**（11 个附件）发布——`main` 提交 `139aaf2`、tag `v1.1.3`）：
   - `ATRI-X-1.1.3-setup.exe` 477,667,625 字节（455.5 MB）—
     `2d5ff2193358c6ba0872a2afc13e1574749ea748497c923c8606470c0439fd14`
   - `ATRI-X-1.1.3-portable-win64.zip` 704,208,729 字节（671.6 MB）—
