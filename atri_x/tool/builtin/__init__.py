@@ -180,7 +180,9 @@ from atri_x.tool.builtin.chat_history import (  # noqa: F401
     truncate_chat_history_reference,
 )
 from atri_x.tool.builtin.character import (  # noqa: F401
+    CHARACTER_ACTIVATE_NAME,
     CHARACTER_DELETE_NAME,
+    CHARACTER_IMPORT_NAME,
     CHARACTER_LIST_DEFAULT_LIMIT,
     CHARACTER_LIST_MAX_LIMIT,
     CHARACTER_LIST_NAME,
@@ -189,9 +191,13 @@ from atri_x.tool.builtin.character import (  # noqa: F401
     CHARACTER_PROMPT_MAX_RUNES,
     CHARACTER_READ_NAME,
     CHARACTER_SEARCH_NAME,
+    CharacterActivateArgs,
+    CharacterActivateTool,
     CharacterDeleteArgs,
     CharacterDeleteTool,
     CharacterImageArgs,
+    CharacterImportArgs,
+    CharacterImportTool,
     CharacterListArgs,
     CharacterListTool,
     CharacterManageArgs,
@@ -505,6 +511,12 @@ from atri_x.tool.builtin.prompt_library import (  # noqa: F401
     PromptLibrarySearchTool,
     parse_prompt_library_search_args,
     truncate_prompt_lib_line,
+)
+from atri_x.tool.builtin.persona import (  # noqa: F401
+    PERSONA_CONTROL_NAME,
+    PersonaControlArgs,
+    PersonaControlTool,
+    new_persona_control_tool,
 )
 from atri_x.tool.builtin.self_learning import (  # noqa: F401
     SELF_LEARNING_HISTORY_LIMIT,

@@ -1,0 +1,39 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "flow",
+  "skill": "research_flow",
+  "title": "",
+  "description": "把「下一步该做什么」变成可计算的状态机：读运行目录里真实存在的产物，输出有序步骤、唯一可执行的下一步、阻塞项与闸门；顺序判断不再交给模型。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "workflow"
+  ],
+  "timeout_seconds": 60,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "action"
+    ],
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "plan",
+          "markdown",
+          "list"
+        ],
+        "description": "plan=返回计划（默认）；markdown=同时写 notes.md；list=列出全部运行。"
+      },
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。"
+      }
+    }
+  },
+  "args": {
+    "action": "--action",
+    "run": "--run"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "verify",
+  "skill": "research_verify",
+  "title": "",
+  "description": "引文核验：逐条用 DOI 反查 Crossref，比对标题/年份/第一作者，标记撤稿与疑似错配；缺 DOI 时按标题反查给出候选（不自动写入）。输出通过率与闸门。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "citation"
+  ],
+  "timeout_seconds": 300,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "run"
+    ],
+    "properties": {
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。缺省时多数工具要求显式给出。"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "最多核验多少条（默认全部纳入文献）。"
+      },
+      "min_ratio": {
+        "type": "number",
+        "description": "核验通过率闸门，默认 0.9；低于它闸门为 WARN。"
+      },
+      "suggest_doi": {
+        "type": "string",
+        "enum": [
+          "true",
+          "false"
+        ],
+        "description": "缺 DOI 时是否按标题反查候选，默认 true。"
+      }
+    }
+  },
+  "args": {
+    "run": "--run",
+    "limit": "--limit",
+    "min_ratio": "--min-ratio",
+    "suggest_doi": "--suggest-doi"
+  }
+}

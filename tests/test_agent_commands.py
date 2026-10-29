@@ -33,8 +33,8 @@ from atri_x.errors import InvalidError
 from atri_x.security import Actor, RoleSuperadmin, RoleUser
 from tests.agent_commands_fakes import Harness
 
-# 48 条默认命令（1.0.10 新增 /time），顺序与 Go ``DefaultModules`` 的注册顺序一致，
-# Python 侧新增的模块排在末尾。
+# 49 条默认命令（1.0.10 新增 /time；1.1.3 新增 /research），顺序与 Go ``DefaultModules``
+# 的注册顺序一致，Python 侧新增的模块排在末尾。
 EXPECTED_COMMANDS = [
     "help",
     "grant",
@@ -84,6 +84,7 @@ EXPECTED_COMMANDS = [
     "forget",
     "learning",
     "time",
+    "research",
 ]
 
 # 普通用户（非超管、非群管理员）能看到的命令。
@@ -105,6 +106,7 @@ USER_COMMANDS = {
     "poll",
     "remind",
     "rename",
+    "research",
     "resume",
     "sessions",
     "signup",
@@ -154,6 +156,7 @@ class RegistryTests(unittest.TestCase):
                 "StateModule",
                 "MemoryLearningModule",
                 "TimeModule",
+                "ResearchModule",
             ],
         )
 
@@ -298,7 +301,7 @@ class LookupAndAccessTests(unittest.TestCase):
     def test_superadmin_sees_everything(self) -> None:
         harness = Harness()
         actor = Actor(id="u1", platform="qq", platform_user_id="1", role=RoleSuperadmin)
-        self.assertEqual(len(harness.router.commands_for_actor(actor)), 48)
+        self.assertEqual(len(harness.router.commands_for_actor(actor)), 49)
 
     def test_plain_user_sees_only_user_commands(self) -> None:
         harness = Harness()

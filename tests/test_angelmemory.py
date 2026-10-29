@@ -361,7 +361,7 @@ class TestAngelMemoryUpstreamBoundary(AngelMemoryTestCase):
     def test_recall_matches_shared_bigram(self) -> None:
         """移植 ``TestRecallMatchesSharedBigram``。"""
         store, service = self.open_memory_service()
-        store.remember(Memory(platform="p", scope_id="s", content="妹红喜欢螃蟹", strength=50))
+        store.remember(Memory(platform="p", scope_id="s", content="小梅喜欢螃蟹", strength=50))
         memories = service.recall("p", "s", "还记得我喜欢吃什么吗", 5)
         self.assertTrue(memories, "recall returned nothing")
         self.assertIn("螃蟹", memories[0].content)

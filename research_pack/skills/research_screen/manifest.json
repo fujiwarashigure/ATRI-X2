@@ -1,0 +1,59 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "screen",
+  "skill": "research_screen",
+  "title": "",
+  "description": "按 PRISMA 做纳排筛选：用固定规则与原因码筛选标题摘要或全文阶段，支持人工判定覆盖，输出每条判定明细与 PRISMA 计数（可复算、可审计）。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "screening"
+  ],
+  "timeout_seconds": 180,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "run",
+      "stage"
+    ],
+    "properties": {
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。缺省时多数工具要求显式给出。"
+      },
+      "stage": {
+        "type": "string",
+        "enum": [
+          "title_abstract",
+          "full_text"
+        ],
+        "description": "筛选阶段；full_text 需要 decisions 给出逐条判断。"
+      },
+      "criteria": {
+        "type": "object",
+        "description": "纳排标准；不传则用运行内 criteria.json（首次自动生成模板）。结构：{include:{year_from,year_to,languages,types,require_abstract,title_keywords},exclude:{title_keywords,abstract_keywords,venues,retracted}}"
+      },
+      "decisions": {
+        "type": "object",
+        "description": "人工判定覆盖：{文献key: {decision:'include'|'exclude', reason:'...'}}。"
+      },
+      "pdf_dir": {
+        "type": "string",
+        "description": "全文 PDF 所在目录（仅 full_text 阶段；需要 venv 里的 pypdf）。"
+      },
+      "fulltext_keywords": {
+        "type": "object",
+        "description": "全文自动判定关键词：{include:[...],exclude:[...]}，仅作初筛建议。"
+      }
+    }
+  },
+  "args": {
+    "run": "--run",
+    "stage": "--stage",
+    "criteria": "--criteria",
+    "decisions": "--decisions",
+    "pdf_dir": "--pdf-dir",
+    "fulltext_keywords": "--fulltext-keywords"
+  }
+}

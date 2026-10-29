@@ -224,6 +224,12 @@ Atriyph Task Notation 是 ATRI-X 用来描述可复用任务的结构化表示�
 
 工具化 AgentSkill 配置示例见 [配置说明：AgentSkill 工具化配置](configuration.md#agentskill-工具化配置)。Atriyph 与 Skill 的关系见 [Atriyph 任务表示法：与 Skill 的关系](atriyph.md#与-skill-的关系)，完整语法见 [语法速查](atriyph.md#语法速查)。
 
+> **随包 AgentSkill（1.1.3 起）**：科研研究助理的 15 个 AgentSkill（12 个可调用的硬工具 +
+> 3 个协议文档）不由用户创建，而是**随安装包/便携版分发**；首次启动时从 `research_pack/`
+> 装进 `<配置目录>/skills/agent/research_*`，清单里的 `command` 指向随包引擎
+> （`atri-x.exe -m atri_x.research.runner`），因此冻结产物也不需要系统 Python。详见
+> [科研研究助理](research.md)。
+
 ### Skill 使用媒体
 
 媒体使用稳定标识 `media:<64 位小写 SHA-256>`。普通文档型 Skill 可以指导 Agent 将标识传给支持媒体的工具。

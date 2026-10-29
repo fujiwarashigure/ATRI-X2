@@ -17,6 +17,7 @@ from atri_x.agent.wakeup import message_wakeup
 from atri_x.config.app_sections import ParticipationConfig
 from atri_x.platform import (
     ConversationGroup,
+    ConversationPrivate,
     Identity,
     Mention,
     MessageContext,
@@ -80,6 +81,16 @@ def _group_ctx(text: str = "hi", mention_bot: bool = False):
         raw_text=text,
         bot=Identity(user_id="bot1", username="atri"),
         mentions=[Mention(user_id="bot1")] if mention_bot else [],
+    )
+    return with_message_context({}, msg)
+
+
+def _private_ctx(text: str = "hi", platform: str = "qqonebot"):
+    msg = MessageContext(
+        platform=platform,
+        scope_id="private:1",
+        conversation_kind=ConversationPrivate,
+        raw_text=text,
     )
     return with_message_context({}, msg)
 
@@ -182,6 +193,73 @@ class WakeupIntegrationTest(unittest.TestCase):
         self.assertTrue(message_wakeup(agent, _group_ctx(mention_bot=True), "atri"))
         self.assertEqual(
             participation.state_for(agent, ctx, now=102.0).no_reply_streak, 0
+        )
+
+
+class EchoGuardTest(unittest.TestCase):
+    """私聊回声保护：客户端自动回复与复读不唤醒模型。"""
+
+    def _agent(self, platform: str = "qqonebot") -> _Agent:
+        agent = _Agent()
+        agent.scope = lambda ctx: _Scope(platform=platform, scope_id="private:1")
+        return agent
+
+    def test_auto_reply_prefix_never_wakes(self) -> None:
+        agent = self._agent()
+        text = "[自动回复]你好，我现在有事不在，一会再和你联系。"
+        self.assertTrue(participation.looks_like_auto_reply(text))
+        self.assertTrue(participation.looks_like_auto_reply("  [Auto-Reply] away"))
+        self.assertTrue(participation.looks_like_auto_reply("[自動回覆] 不在"))
+        self.assertFalse(participation.looks_like_auto_reply("你好"))
+        self.assertFalse(participation.looks_like_auto_reply(""))
+        self.assertFalse(message_wakeup(agent, _private_ctx(text), text))
+
+    def test_normal_private_message_still_wakes(self) -> None:
+        agent = self._agent()
+        self.assertTrue(message_wakeup(agent, _private_ctx("在吗"), "在吗"))
+
+    def test_repeated_private_text_enters_silence(self) -> None:
+        agent = self._agent()
+        results = [message_wakeup(agent, _private_ctx("刷屏"), "刷屏") for _ in range(4)]
+        self.assertEqual(results[:3], [True, True, False])
+        self.assertFalse(results[3])
+        # 来了不同内容就恢复
+        self.assertTrue(message_wakeup(agent, _private_ctx("换个话题"), "换个话题"))
+
+    def test_repeat_window_resets(self) -> None:
+        agent = self._agent()
+        ctx = _private_ctx()
+        self.assertFalse(participation.suppress_private_echo(agent, ctx, "同一句", now=100.0))
+        self.assertFalse(participation.suppress_private_echo(agent, ctx, "同一句", now=101.0))
+        self.assertTrue(participation.suppress_private_echo(agent, ctx, "同一句", now=102.0))
+        self.assertFalse(
+            participation.suppress_private_echo(
+                agent,
+                ctx,
+                "同一句",
+                now=102.0 + participation.ECHO_WINDOW_SECONDS + 1.0,
+            )
+        )
+
+    def test_cli_platform_not_repeat_guarded(self) -> None:
+        agent = self._agent(platform="cli")
+        for _ in range(5):
+            self.assertTrue(message_wakeup(agent, _private_ctx("重复"), "重复"))
+
+    def test_group_messages_not_echo_guarded(self) -> None:
+        agent = _Agent(mode="all")
+        ctx = _group_ctx("重复")
+        for _ in range(5):
+            self.assertTrue(message_wakeup(agent, ctx, "重复"))
+
+    def test_reset_echo_guard(self) -> None:
+        agent = self._agent()
+        ctx = _private_ctx()
+        for _ in range(3):
+            participation.suppress_private_echo(agent, ctx, "同一句", now=100.0)
+        self.assertEqual(participation.reset_echo_guard(agent), 1)
+        self.assertFalse(
+            participation.suppress_private_echo(agent, ctx, "同一句", now=101.0)
         )
 
 

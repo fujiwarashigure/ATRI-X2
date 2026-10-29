@@ -541,6 +541,10 @@ def _tool_options(
         resident_memory_policy=resident_normal_write_policy(resident),
         character_enabled=_is_enabled(character_library),
         character_root=str(getattr(character_library, "root", "") or ""),
+        character_allow_user_create=bool(
+            getattr(character_library, "allow_user_create", True)
+        ),
+        soul_path=str(getattr(getattr(cfg, "soul", None), "path", "") or ""),
         artist_library_enabled=_is_enabled(artist_library),
         artist_library_root=str(getattr(artist_library, "root", "") or ""),
         artist_metadata_store=artist_metadata,

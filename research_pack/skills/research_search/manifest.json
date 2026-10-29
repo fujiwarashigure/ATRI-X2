@@ -1,0 +1,61 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "search",
+  "skill": "research_search",
+  "title": "",
+  "description": "多源文献检索与去重：在 OpenAlex/Crossref/arXiv/PubMed/Semantic Scholar 上按关键词检索，按 DOI/标题合并重复条目，写入本次运行的文献库并回报每个源的成败。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "literature"
+  ],
+  "timeout_seconds": 240,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "run",
+      "queries"
+    ],
+    "properties": {
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。缺省时多数工具要求显式给出。"
+      },
+      "queries": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "检索式列表（从研究问题拆出的 2-5 组关键词，中英文都可）。"
+      },
+      "sources": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "数据源子集，默认 openalex/crossref/arxiv；可选 pubmed、semanticscholar。"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "每个源每个检索式的条数上限，默认 20。"
+      },
+      "year_from": {
+        "type": "integer",
+        "description": "最早年份（可选）。"
+      },
+      "year_to": {
+        "type": "integer",
+        "description": "最晚年份（可选）。"
+      }
+    }
+  },
+  "args": {
+    "run": "--run",
+    "queries": "--queries",
+    "sources": "--sources",
+    "limit": "--limit",
+    "year_from": "--year-from",
+    "year_to": "--year-to"
+  }
+}

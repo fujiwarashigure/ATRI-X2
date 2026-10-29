@@ -57,10 +57,10 @@ TEMP_ROOT = Path(__file__).resolve().parent / "_tmp_member_profile"
 def _profile(**overrides: Any) -> MemberProfile:
     values: dict[str, Any] = {
         "platform": "qqonebot",
-        "scope_id": "group:929911642",
+        "scope_id": "group:123456789",
         "user_id": "10001",
-        "display_name": "妹红",
-        "alias": "妹红",
+        "display_name": "小梅",
+        "alias": "小梅",
         "tags": ["熟悉的朋友"],
         "profile": "性格直率，喜欢轻松吐槽。",
     }
@@ -68,14 +68,14 @@ def _profile(**overrides: Any) -> MemberProfile:
     return MemberProfile(**values)
 
 
-def _group_ctx(user_id: str = "10001", scope_id: str = "group:929911642", **extra: Any) -> Any:
+def _group_ctx(user_id: str = "10001", scope_id: str = "group:123456789", **extra: Any) -> Any:
     """带群消息上下文的 ctx：``scope_id`` 用带前缀的完整作用域。"""
     fields: dict[str, Any] = {
         "platform": "qqonebot",
         "actor_id": "qqonebot:" + user_id,
         "platform_user_id": user_id,
         "nickname": "群名片",
-        "group_card": "妹红",
+        "group_card": "小梅",
         "scope_id": scope_id,
         "platform_message_id": "pm1",
     }
@@ -83,7 +83,7 @@ def _group_ctx(user_id: str = "10001", scope_id: str = "group:929911642", **extr
     return with_message_context(None, MessageContext(**fields))
 
 
-def _request(ctx: Any, user_id: str = "10001", kind: str = "group", scope_id: str = "group:929911642"):
+def _request(ctx: Any, user_id: str = "10001", kind: str = "group", scope_id: str = "group:123456789"):
     """构造 ``SystemPromptRequest``（scope 与 meta 的字段与生产路径一致）。"""
     del ctx
     scope = SimpleNamespace(platform="qqonebot", platform_scope_id=scope_id)
@@ -121,11 +121,11 @@ class StoreCase(unittest.TestCase):
             {
                 "version": 1,
                 "members": {
-                    "qqonebot/group:929911642/10001": {
+                    "qqonebot/group:123456789/10001": {
                         "platform": "qqonebot",
-                        "scope_id": "group:929911642",
+                        "scope_id": "group:123456789",
                         "user_id": "10001",
-                        "alias": "妹红",
+                        "alias": "小梅",
                         "profile": "旧档案",
                     }
                 },
@@ -136,7 +136,7 @@ class StoreCase(unittest.TestCase):
 
     def test_disabled_flag_roundtrip(self) -> None:
         upsert_profile(self.config_dir, _profile(enabled=False))
-        stored = load_profiles(self.config_dir)["qqonebot/group:929911642/10001"]
+        stored = load_profiles(self.config_dir)["qqonebot/group:123456789/10001"]
         self.assertFalse(stored.enabled)
 
     def test_corrupt_file_degrades_read_but_refuses_write(self) -> None:
@@ -160,30 +160,30 @@ class StoreCase(unittest.TestCase):
     def test_store_caches_by_fingerprint_and_follows_file(self) -> None:
         store = MemberProfileStore(self.config_dir)
         store.upsert(_profile(profile="v1"))
-        self.assertEqual(store.get(platform="qqonebot", scope_id="group:929911642", user_id="10001").profile, "v1")
+        self.assertEqual(store.get(platform="qqonebot", scope_id="group:123456789", user_id="10001").profile, "v1")
         # 外部（另一个进程 / GUI）整表写回：指纹变化后必须重新加载。
         upsert_profile(self.config_dir, _profile(profile="v2-longer"))
         self.assertEqual(
-            store.get(platform="qqonebot", scope_id="group:929911642", user_id="10001").profile,
+            store.get(platform="qqonebot", scope_id="group:123456789", user_id="10001").profile,
             "v2-longer",
         )
         # 文件被删除：缓存必须清空，而不是继续返回旧档案。
         os.remove(members_path(self.config_dir))
         self.assertIsNone(
-            store.get(platform="qqonebot", scope_id="group:929911642", user_id="10001")
+            store.get(platform="qqonebot", scope_id="group:123456789", user_id="10001")
         )
 
     def test_store_is_scope_exact(self) -> None:
         store = MemberProfileStore(self.config_dir)
-        store.upsert(_profile(scope_id="group:929911642", profile="本群设定"))
-        store.upsert(_profile(scope_id="group:929911640", profile="另一个群"))
+        store.upsert(_profile(scope_id="group:123456789", profile="本群设定"))
+        store.upsert(_profile(scope_id="group:234567890", profile="另一个群"))
         store.upsert(_profile(platform="telegram", scope_id="chat-9", profile="另一个平台"))
         self.assertEqual(
-            store.get(platform="qqonebot", scope_id="group:929911642", user_id="10001").profile,
+            store.get(platform="qqonebot", scope_id="group:123456789", user_id="10001").profile,
             "本群设定",
         )
         self.assertEqual(
-            store.get(platform="qqonebot", scope_id="group:929911640", user_id="10001").profile,
+            store.get(platform="qqonebot", scope_id="group:234567890", user_id="10001").profile,
             "另一个群",
         )
         self.assertEqual(
@@ -203,9 +203,9 @@ class RenderCase(unittest.TestCase):
         self.assertIn("<member_profile>", text)
         self.assertIn("</member_profile>", text)
         self.assertIn("平台：qqonebot", text)
-        self.assertIn("作用域：group:929911642", text)
+        self.assertIn("作用域：group:123456789", text)
         self.assertIn("用户 id：10001", text)
-        self.assertIn("称呼：妹红", text)
+        self.assertIn("称呼：小梅", text)
         self.assertIn("标签：熟悉的朋友", text)
         self.assertIn("性格直率", text)
 
@@ -246,19 +246,19 @@ class PromptSourceCase(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("A 的设定", parts_b[0].content)
 
     async def test_scope_must_match_full_prefixed_scope_id(self) -> None:
-        self.store.upsert(_profile(scope_id="group:929911642", profile="本群设定"))
+        self.store.upsert(_profile(scope_id="group:123456789", profile="本群设定"))
         source = MemberProfileSystemPromptSource(self.store)
         hit = await source.parts(
-            _group_ctx(), _request(None, "10001", scope_id="group:929911642")
+            _group_ctx(), _request(None, "10001", scope_id="group:123456789")
         )
         self.assertIn("本群设定", hit[0].content)
         miss = await source.parts(
-            _group_ctx(scope_id="group:929911640"),
-            _request(None, "10001", scope_id="group:929911640"),
+            _group_ctx(scope_id="group:234567890"),
+            _request(None, "10001", scope_id="group:234567890"),
         )
-        # 用去前缀的群号（"929911642"）查询也必须匹配不到：档案键是完整作用域。
+        # 用去前缀的群号（"123456789"）查询也必须匹配不到：档案键是完整作用域。
         wrong_shape = await source.parts(
-            _group_ctx(), _request(None, "10001", scope_id="929911642")
+            _group_ctx(), _request(None, "10001", scope_id="123456789")
         )
         self.assertEqual(miss, [])
         self.assertEqual(wrong_shape, [])
@@ -321,7 +321,7 @@ class PromptSourceCase(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(actor.role, RoleSuperadmin)
         # 授权只看 security policy，与档案正文无关。
         self.assertEqual(
-            default_policy().actor("qqonebot:10001", "qqonebot", "10001", "妹红").role,
+            default_policy().actor("qqonebot:10001", "qqonebot", "10001", "小梅").role,
             "user",
         )
 
@@ -336,16 +336,16 @@ class PromptBuilderCase(unittest.IsolatedAsyncioTestCase):
         shutil.rmtree(TEMP_ROOT, ignore_errors=True)
 
     async def test_new_prompt_builder_registers_source(self) -> None:
-        self.store.upsert(_profile(alias="妹红", profile="喜欢轻松吐槽"))
+        self.store.upsert(_profile(alias="小梅", profile="喜欢轻松吐槽"))
         opts = SimpleNamespace(member_profile_store=self.store)
         builder = new_prompt_builder(opts)
         out = await builder.build(
             _group_ctx(),
             PromptBuildRequest(
                 session=Session(id="s1", mode="work"),
-                scope=SimpleNamespace(platform="qqonebot", platform_scope_id="group:929911642"),
+                scope=SimpleNamespace(platform="qqonebot", platform_scope_id="group:123456789"),
                 meta=ConversationMeta(
-                    platform="qqonebot", kind="group", id="929911642", user_id="10001"
+                    platform="qqonebot", kind="group", id="123456789", user_id="10001"
                 ),
                 messages=[Message(role="user", content="在吗")],
             ),
@@ -366,9 +366,9 @@ class PromptBuilderCase(unittest.IsolatedAsyncioTestCase):
                 _group_ctx(user_id),
                 PromptBuildRequest(
                     session=session,
-                    scope=SimpleNamespace(platform="qqonebot", platform_scope_id="group:929911642"),
+                    scope=SimpleNamespace(platform="qqonebot", platform_scope_id="group:123456789"),
                     meta=ConversationMeta(
-                        platform="qqonebot", kind="group", id="929911642", user_id=user_id
+                        platform="qqonebot", kind="group", id="123456789", user_id=user_id
                     ),
                     messages=[Message(role="user", content="hi")],
                 ),
@@ -511,7 +511,7 @@ class BuildAgentIntegrationCase(unittest.IsolatedAsyncioTestCase):
         shutil.rmtree(TEMP_ROOT, ignore_errors=True)
 
     async def test_agent_reads_profile_from_real_config_dir(self) -> None:
-        upsert_profile(str(TEMP_ROOT), _profile(alias="妹红", profile="蓬莱人，说话直率。"))
+        upsert_profile(str(TEMP_ROOT), _profile(alias="小梅", profile="蓬莱人，说话直率。"))
         agent = await self.fixture.build()
         # 装配路径必须把 store 建在 app.toml 所在目录（与 GUI 是同一个文件）。
         store = getattr(agent, "member_profile_store", None)
@@ -520,7 +520,7 @@ class BuildAgentIntegrationCase(unittest.IsolatedAsyncioTestCase):
         system = await self.fixture.system_prompt_for(agent)
         self.assertIn(MEMBER_PROFILE_PROMPT_HEADER, system)
         self.assertIn("蓬莱人，说话直率。", system)
-        self.assertIn("称呼：妹红", system)
+        self.assertIn("称呼：小梅", system)
 
     async def test_next_turn_uses_saved_change_and_disabled_flag(self) -> None:
         upsert_profile(str(TEMP_ROOT), _profile(profile="旧设定"))

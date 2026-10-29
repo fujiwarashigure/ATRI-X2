@@ -74,6 +74,7 @@ async def build_agent(
     from atri_x.app.doctor import DoctorService
 
     cfg = foundation.config
+    _ensure_research_engine(cfg, getattr(foundation, "logger", None))
     model_profiles, model_aliases = _model_profiles(cfg, models)
     tool_profiles, tool_aliases = _tool_profiles(cfg)
     image_profiles, image_aliases = _image_profiles(cfg, tool_runtime)
@@ -120,6 +121,8 @@ async def build_agent(
     session_idle = getattr(session_cfg, "idle_expiration", None)
     # 群友档案与 GUI 共用 ``<配置目录>/gui/members.json``；配置目录 = app.toml 所在目录。
     member_profile_store = _member_profile_store(cfg, foundation.logger)
+    # 成员专属人设（``gui/member_personas.json``）：决定"和某个人说话时机器人演谁"。
+    member_persona_store = _member_persona_store(cfg, foundation.logger)
 
     agent = new_agent(
         AgentOptions(
@@ -152,6 +155,7 @@ async def build_agent(
             soul_path=str(getattr(getattr(cfg, "soul", None), "path", "") or ""),
             resident_memory_store=tool_runtime.resident_memory_store,
             member_profile_store=member_profile_store,
+            member_persona_store=member_persona_store,
             angel_memory=tool_runtime.angel_memory,
             angel_memory_config=getattr(cfg, "angel_memory", None),
             self_learning=tool_runtime.self_learning,
@@ -217,6 +221,7 @@ async def build_agent(
     _wire_safety_and_vision(agent, cfg, foundation.logger)
     # 群友档案存储也挂到宿主上：装配失败（或无配置目录）时为 None，提示词来源自动跳过。
     _set_attribute(agent, "member_profile_store", member_profile_store)
+    _set_attribute(agent, "member_persona_store", member_persona_store)
     # 把三组同僚实现的服务真正装到 Agent 上（``atri_x/agent/bootstrap.py``）。
     # 不做这一步 ``atri_x/agent/seams.py`` 只会走**保守降级**：预算、限流、上下文
     # 压缩、工具预载全部静默失效 —— Agent 能构造、测试也全绿，只是能力悄悄没了。
@@ -265,6 +270,40 @@ async def build_agent(
     return agent
 
 
+def _ensure_research_engine(cfg: Any, logger: Any) -> None:
+    """首次启动把随包研究引擎装进配置目录（只有冻结产物会真的装，源码树跳过）。
+
+    为什么放在 ``build_agent``：AgentSkill 由 ``FilesystemScanner`` 在装配期扫盘，
+    技能文件必须在那之前就位；放这里比放 GUI 更稳——``atri-x service run`` 这类
+    无界面部署同样会装。幂等性由 :mod:`atri_x.research.bootstrap` 保证，失败只记
+    WARN：研究助理不可用不应该拖垮机器人启动。
+    """
+    config_path = str(getattr(cfg, "config_path", "") or "").strip()
+    config_dir = os.path.dirname(os.path.abspath(config_path)) if config_path else ""
+    if not config_dir:
+        return
+    try:
+        from atri_x.research import bootstrap as research_bootstrap
+
+        result = research_bootstrap.ensure_installed(config_dir)
+    except Exception as exc:  # noqa: BLE001 - 研究助理不可用不能拖垮启动
+        if logger is not None:
+            logger.warn(
+                "research engine bootstrap failed",
+                event="research_bootstrap_failed",
+                error="%s: %s" % (type(exc).__name__, exc),
+            )
+        return
+    if result.state in ("installed", "failed", "unavailable") and logger is not None:
+        emit = logger.info if result.state == "installed" else logger.warn
+        emit(
+            "research engine " + result.state,
+            event="research_engine_" + result.state,
+            engine_version=result.engine_version,
+            detail=result.message,
+        )
+
+
 def _member_profile_store(cfg: Any, logger: Any) -> Any:
     """按实际配置目录创建群友档案存储；拿不到目录时返回 ``None``。
 
@@ -284,6 +323,31 @@ def _member_profile_store(cfg: Any, logger: Any) -> Any:
             logger.warn(
                 "member profile store unavailable; member personas are not injected",
                 event="member_profile_unavailable",
+                error="%s: %s" % (type(exc).__name__, exc),
+            )
+        return None
+
+
+def _member_persona_store(cfg: Any, logger: Any) -> Any:
+    """按实际配置目录创建成员专属人设存储；拿不到目录时返回 ``None``。
+
+    与群友档案一样落在 ``<app.toml 所在目录>/gui/`` 下（``member_personas.json``），
+    GUI 与后台服务各持一个实例、按文件指纹热更新。构造失败只记 WARN 并降级为
+    "不注入专属人设"（回退 SOUL.md），不阻断 Agent 启动。
+    """
+    config_path = str(getattr(cfg, "config_path", "") or "").strip()
+    config_dir = os.path.dirname(os.path.abspath(config_path)) if config_path else ""
+    if not config_dir:
+        return None
+    try:
+        from atri_x.memberprofile.persona import MemberPersonaStore
+
+        return MemberPersonaStore(config_dir, logger=logger)
+    except Exception as exc:  # noqa: BLE001 - 专属人设只能增强提示词，坏了不能拖垮启动
+        if logger is not None:
+            logger.warn(
+                "member persona store unavailable; member personas are not injected",
+                event="member_persona_unavailable",
                 error="%s: %s" % (type(exc).__name__, exc),
             )
         return None

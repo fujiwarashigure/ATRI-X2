@@ -405,7 +405,11 @@ class VerifyCapabilityLineTest(unittest.TestCase):
             mock.patch.object(build, "service_smoke", fake_service_smoke),
             contextlib.redirect_stdout(out),
         ):
-            code = build.verify(self.artifact, "atri-x", with_pillow=with_pillow)
+            # 这里只测 pillow 能力行：随包研究引擎的产物级核验见
+            # ``test_missing_research_pack_fails_verify``（假 exe 没有 research_pack）。
+            code = build.verify(
+                self.artifact, "atri-x", with_pillow=with_pillow, with_research=False
+            )
         return code, out.getvalue()
 
     def test_requested_pillow_prints_the_offline_check_command(self) -> None:
@@ -441,6 +445,38 @@ class VerifyCapabilityLineTest(unittest.TestCase):
         with (
             mock.patch.object(build, "run_exe", fake_run_exe),
             mock.patch.object(build, "service_smoke", failing_service_smoke),
+            contextlib.redirect_stdout(out),
+        ):
+            code = build.verify(
+                self.artifact, "atri-x", with_pillow=False, with_research=False
+            )
+        self.assertEqual(code, 1)
+
+    def test_missing_research_pack_fails_verify(self) -> None:
+        """随包引擎缺失/装不上时 verify 必须返回 1（1.1.3 起是硬要求）。
+
+        假 exe 跑不出 research bootstrap 的 JSON，正好模拟"spec 漏收 research_pack"。
+        """
+
+        def fake_run_exe(artifact, argv, timeout, scratch_home=False):  # noqa: ANN001
+            del artifact, timeout, scratch_home
+            stdout = ""
+            if argv == ["--version"]:
+                stdout = "atri-x 9.9.9"
+            elif argv == ["config", "check"]:
+                stdout = "config OK"
+            elif argv[:2] == ["-m", "atri_x.app.time_check"]:
+                stdout = '{"ok": true, "zones": 598}'
+            return {"code": 0, "stdout": stdout, "stderr": ""}
+
+        def fake_service_smoke(artifact, timeout=180.0):  # noqa: ANN001
+            del artifact, timeout
+            return 0
+
+        out = io.StringIO()
+        with (
+            mock.patch.object(build, "run_exe", fake_run_exe),
+            mock.patch.object(build, "service_smoke", fake_service_smoke),
             contextlib.redirect_stdout(out),
         ):
             code = build.verify(self.artifact, "atri-x", with_pillow=False)

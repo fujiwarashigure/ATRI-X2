@@ -13,7 +13,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.1.2`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
+| 版本 | `1.1.3`（与上游 v0.9.0 对应；Windows 桌面端/安装包自 0.9.1 起提供，便携版 zip 自 0.9.3 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -59,12 +59,13 @@ AS IS 免责条款、责任与赔偿、生效与更新机制，以及英文摘�
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行（含测试共 754 个文件 / 146,153 行） |
-| 本仓库 | 平铺布局的 `atri_x/`：763 个 `.py` 模块，约 22.4 万行（物理行，含空行/注释/docstring；`tests/` 另有约 10.8 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：777 个 `.py` 模块，约 22.8 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.0 万行） |
+| 研究引擎 | 随包 `research_pack/`：38 个模块、约 8.7k 行的纯标准库引擎 + 15 个原创 AgentSkill（12 个硬工具 + 3 个协议技能，1.1.3 新增）；安装版 / 便携版首启自动装进配置目录，源码树用 `atri-research/install.py` 装 venv 版 |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 平台适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 222 个 Python 文件（其中 213 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带四道质量门禁 |
-| 规模 | 1143 个受版本控制文件（工作树文件清单；不含 `runtime`/`build`/`dist`/缓存/本机私有配置；1.1.2 发行快照按当时清单打包为 1143 条） |
+| 测试 | `tests/` 225 个 Python 文件（其中 216 个 `test_*.py`）；用例数不硬编码在这里（会随改动漂移，见「开发与验证」）；仓库自带七道质量门禁 |
+| 规模 | 1229 个受版本控制文件（工作树文件清单；不含 `runtime`/`build`/`dist`/缓存/本机私有配置；1.1.3 发行快照按当时清单打包为 1229 条） |
 
 ## 功能特性
 
@@ -72,7 +73,7 @@ AS IS 免责条款、责任与赔偿、生效与更新机制，以及英文摘�
 
 - **Chat / Work 双模式**：两种模式可分别配置模型，让低成本模型负责闲聊、强模型专注复杂任务；**两种模式都支持工具调用**（本仓相对上游 Go 版的有意差异）。
 - **按需工具发现**：不会每轮注入全部工具 schema，默认只暴露 `discover_tool` 与可用工具名；模型按需发现后再注入具体 schema，减少无效上下文开销。另可用 `@tool:` / `@skill:` 内联预载。
-- **内置工具 51 个**：文件、Shell、Web、Cron、Skill、媒体、记忆与时间等；其中 15 个无条件注册，其余按依赖条件注册。
+- **内置工具 54 个**：文件、Shell、Web、Cron、Skill、媒体、记忆、时间与人设卡导入/启用等；其中 15 个无条件注册，其余按依赖条件注册。
 - **联网搜索与网页抓取**：`web_search` 支持 DeepSeek 官方搜索 / Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity / Grok 多种通道并按顺序自动降级（没配 key 的通道自动跳过）；`web_extract` 支持 DeepSeek 官方抓取 / Jina Reader / 直接抓取。两条链路都在桌面端「模型 → 搜索服务 / 抓取服务」里配置，DeepSeek 官方通道需要 `api.deepseek.com` 的官方 Key（按成功请求计费），承载聊天的中转 Key 不能用于搜索/抓取。见 [配置说明](docs/configuration.md)。
 - **风险与确认**：工具带风险等级，按角色/权限判断可用范围；高风险调用需要逐次确认。
 - **单轮声明与命令前缀**：`@model:` / `@image:` / `@use:`（也支持 `#模型:` / `#生图:` / `#工具:`）只对当前这一轮生效，仅超级管理员可用；slash 命令前缀可通过 `[commands].prefixes` 追加。
@@ -82,7 +83,7 @@ AS IS 免责条款、责任与赔偿、生效与更新机制，以及英文摘�
 ### 平台与前端
 
 - **CLI**：本地 TUI（聊天区、通知区、滚动、copy mode、文件引用补全）；也支持把进程作为服务端、任意电脑用 CLI 客户端远程连接（默认端口 `32172`）。
-- **Windows 桌面端（选项卡式）**：Tk 窗口 + 托盘常驻 + 后台服务自动拉起；12 个选项卡（对话 / 模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 时间 / 日志 / 功能 / 工具权限）把模型 API 与密钥、角色人设卡与 `SOUL.md`、QQ/Telegram 接入、群知识库、生图/视觉/语音与记忆开关、维护任务和功能状态都做成界面操作，配置改动自动留备份。密钥输入框可一键显示/隐藏；模型页与生图区能直接拉取上游 `/models` 清单并给模型起本地备注名，Provider 表单还可选**推理思考强度（`reasoning_effort`：none / minimal / low / medium / high，留空 = 不发送）**并按模型覆盖；**模型页保存后会从磁盘回读逐字段校验**，界面值与配置文件不一致时直接报错，模型槽位清空/半填也有明确规则，不会出现"界面改了、文件没变"；生图区支持**本地生图服务挂载**（端口映射 / AUTODL 等 SSL 链接 → OpenAI 兼容 Base URL，可一键检测服务类型）；「在线」页并排显示后台服务 / OneBot 协议端 / QQ 平台三段状态，并提供连接/断开开关（不用手改 TOML），发行包可内置 NapCat + 便携 QQ，在「在线」页一键启动协议端并扫码登录；「日志」页统一查看运行/审计/Atrinis/后台输出/界面操作五类日志并可导出当前视图；「工具权限」页按群在**纵向可滚动的工具菜单**里逐个「激活」工具（每行带中文名、风险、一句话功能解释与激活状态；模式为继承全局 / 仅白名单 / 禁止全部，另有搜索 / 只看已激活 / 常用与只读预设）并开关"群聊里显示工具调用进度"，第三个子选项卡**「工具参数（全局）」**还给每个工具一组可展开 / 收起的参数面板（生图留档 `metadata_store`、搜索通道顺序、记忆写入上限、风险阈值、生图提示词优化……），不用再手改 `services.toml` 再重启；「群友」页按群管理每个人的备注名、标签、角色数据与头像，并可勾选「参与对话」——保存后下一轮对话就把**当前发言人**的档案注入系统提示词（按平台+群+用户精确匹配，界面下方有注入预览）；**「时间」页**把统一时间服务全摆到界面上：每秒刷新的当前时间/时区/偏移/tzdata 读数、不触网的时区探针（含 DST 冬夏断言）、`[time]` / `[time.verification]` / `[[time.sources]]` 的全部可调项（含按表格增删来源），以及从后台 `/diagnostics` 读回的校验状态、每条来源最近观测与告警；「进阶」页里的自学习设置、HOOK 插件配置与定时维护任务是按钮打开的二级窗口（维护任务用「每天 / 每周 / 每月 / 自定义 cron」或「指定日期一次性」调度，并实时显示下次触发时间）；「进阶」页整页可竖向滚动，窗口再小也不会把下方控件挤出可视区。见 [Windows 桌面端](docs/windows-app.md)。
+- **Windows 桌面端（选项卡式）**：Tk 窗口 + 托盘常驻 + 后台服务自动拉起；14 个选项卡（对话 / 模型 / 人设卡 / 平台 / 在线 / 群友 / 知识库 / 进阶 / 时间 / 日志 / 功能 / 工具权限 / 研究 / 权限）把模型 API 与密钥、角色人设卡与 `SOUL.md`、QQ/Telegram 接入、群知识库、生图/视觉/语音与记忆开关、维护任务和功能状态都做成界面操作，配置改动自动留备份。密钥输入框可一键显示/隐藏；模型页与生图区能直接拉取上游 `/models` 清单并给模型起本地备注名，Provider 表单还可选**推理思考强度（`reasoning_effort`：none / minimal / low / medium / high，留空 = 不发送）**并按模型覆盖；**模型页保存后会从磁盘回读逐字段校验**，界面值与配置文件不一致时直接报错，模型槽位清空/半填也有明确规则，不会出现"界面改了、文件没变"；生图区支持**本地生图服务挂载**（端口映射 / AUTODL 等 SSL 链接 → OpenAI 兼容 Base URL，可一键检测服务类型）；「在线」页并排显示后台服务 / OneBot 协议端 / QQ 平台三段状态，并提供连接/断开开关（不用手改 TOML），发行包可内置 NapCat + 便携 QQ，在「在线」页一键启动协议端并扫码登录；「日志」页统一查看运行/审计/Atrinis/后台输出/界面操作五类日志并可导出当前视图；「工具权限」页按群在**纵向可滚动的工具菜单**里逐个「激活」工具（每行带中文名、风险、一句话功能解释与激活状态；模式为继承全局 / 仅白名单 / 禁止全部，另有搜索 / 只看已激活 / 常用与只读预设）并开关"群聊里显示工具调用进度"，第三个子选项卡**「工具参数（全局）」**还给每个工具一组可展开 / 收起的参数面板（生图留档 `metadata_store`、搜索通道顺序、记忆写入上限、风险阈值、生图提示词优化……），不用再手改 `services.toml` 再重启；「人设卡」页可导入/导出角色卡、粘贴一段文本一步建卡，并能把某张卡载入全局 `SOUL.md`（自动备份、可回滚）；「群友」页按群管理每个人的备注名、标签、角色数据与头像，并可勾选「参与对话」——保存后下一轮对话就把**当前发言人**的档案注入系统提示词（按平台+群+用户精确匹配，界面下方有注入预览），还能给单个成员绑定**专属人设**并随时开关（只影响他本人的对话，关掉恢复默认 `SOUL.md`，不干扰其他人）；「权限」页登记各平台**超级管理员**（QQ 填 QQ 号）并调普通成员工具风险、单轮工具轮次与"允许成员建卡"开关；**「时间」页**把统一时间服务全摆到界面上：每秒刷新的当前时间/时区/偏移/tzdata 读数、不触网的时区探针（含 DST 冬夏断言）、`[time]` / `[time.verification]` / `[[time.sources]]` 的全部可调项（含按表格增删来源），以及从后台 `/diagnostics` 读回的校验状态、每条来源最近观测与告警；「进阶」页里的自学习设置、HOOK 插件配置与定时维护任务是按钮打开的二级窗口（维护任务用「每天 / 每周 / 每月 / 自定义 cron」或「指定日期一次性」调度，并实时显示下次触发时间）；「进阶」页整页可竖向滚动，窗口再小也不会把下方控件挤出可视区。见 [Windows 桌面端](docs/windows-app.md)。
 - **Windows 两种交付形态**：安装包（开始菜单/自启/卸载项）与**便携版 zip**（解压即用，数据可留在解压目录，整包拷走即可复现问题）；一条 `python packaging/build.py --release` 同时产出并各自自检。
 - **即时通信平台**：Telegram、QQ OneBot、QQ Official，统一抽象平台层与输出层，便于扩展新平台。
 - **前端自由定制**：远程 CLI 使用 WebSocket 协议，附带补全接口，可以自己写前端界面；协议见 [前端 API](docs/frontend-api.md)。
@@ -102,6 +103,16 @@ AS IS 免责条款、责任与赔偿、生效与更新机制，以及英文摘�
 - **Cron**：普通 Cron 按计划发送固定内容；LLM Cron 用任务描述驱动模型执行，适合需要分析、归纳或使用工具的定时任务。
 - **Skill**：原生 Skill 用 Atriyph 记法描述；也支持 Go 源码 Skill（需要 Go 工具链）与 agentskills.io 风格的外置 AgentSkill。内置 `create_atrix_skill` 元工具，可让模型把可复用经验沉淀为 Skill。
 - **Atriyph 任务表示法**：用结构化记法表达输入、输出、步骤、条件和约束，减少自然语言任务描述的歧义，便于 lint、审计与复用。见 [Atriyph](docs/atriyph.md)。
+
+### 科研研究助理（1.1.3）
+
+把「查文献 → 筛文献 → 核验引文 → 写稿 → 评审 → 导出」做成**可复用硬工具**的科研子功能：
+
+- **12 个确定性硬工具 + 3 个协议技能**：`research_plan` / `search` / `screen` / `verify` / `cite` / `write` / `panel` / `export` / `doctor` / `flow` / `compose` / `audit`。检索去重、PRISMA 计数、DOI 反查、引用格式化、正文结构、六维评分全部由 Python 引擎完成，**不依赖模型自评**——换模型时流程顺序、格式与判定标准不变；技能文档里的参数表由引擎生成并校验同源，不与实现漂移。
+- **随包交付、开箱即用**：研究引擎与 15 个 AgentSkill 随安装包/便携版一起分发（仓库里是 `research_pack/`），**首次启动自动装进配置目录**（`%APPDATA%\ATRI-X\research` 与 `skills\agent\research_*`），不需要系统 Python、不需要另跑安装器；升级安装包时按内容摘要自动升级。源码树用户按 `atri_x/research/` 的说明用 `atri-research/install.py` 装 venv 版。
+- **按需调用、普通成员可用**：12 个工具全部 `risk="low"`、`superadmin_only=false`，低于默认 `user_max_tool_risk="low"`；AgentSkill 渐进披露（系统提示只列技能名，发现后才注入正文），不常驻上下文。
+- **可观测**：`/research` 命令（`status` / `env` / `open` / `<运行id>`，普通成员只读）与桌面端「研究」选项卡（运行列表 + 产物树 + 打开报告/导出目录）看的是同一份研究目录；`research_doctor` 实测网络、缓存与依赖，`degraded` 字段显式声明降级（缺 PDF 库时导出仍给 md/html/docx）。
+- **离线与依赖**：引擎零第三方代码依赖；PDF 导出/全文抽取用可选 `reportlab` / `pypdf`，发行版把它们打进冻结包，源码树缺库时自动降级并在结果里说明。原创实现与许可说明见 [LEGAL.md](LEGAL.md)。
 
 ### 事件触发：Atrinis
 
@@ -217,8 +228,8 @@ python -m atri_x --version                 # 版本
 
 ## 发行版与容器镜像
 
-当前最新版本：**`1.1.2`**（正式发行版）：桌面端「群友」页保存的**群友人设真正进入对话**——新增共享层 `atri_x/memberprofile/`（`MemberProfile` / `MemberProfileStore` / 提示词渲染）与 `MemberProfileSystemPromptSource`，每轮只把**当前发言人**的档案（称呼 / 昵称 / 标签 / 角色资料）注入系统提示词，严格按**平台 + 完整作用域（如 `group:群号`）+ user id** 精确匹配；私聊、频道与后台任务（Cron / 外部事件）不注入；档案正文带信任声明，不改自身身份、不授予任何权限，写"我是管理员 / 忽略规则"不会改变工具授权；`gui/members.json` 向后兼容（新增 `enabled` 字段缺省视为开启），停用或留空时行为与旧版完全一致；保存 / 修改 / 删除**下一轮对话生效**，不需要重启。桌面端「群友」页同时新增「参与对话」勾选、列表「对话」列与实时「提示词预览」。**并修复一处装配期覆盖**：`rebuild_system_prompt()` 在安装期会整体替换系统提示词来源清单，导致 Python 侧新增来源（群友档案，以及此前同样被丢掉的 `[reactions]` 表情提示）在真实运行路径上不生效，现已与装配期清单保持一致。1.1.1 的两处修复（图转提示词入口、图片生成参数留档）全部保留；配置与会话数据**向后兼容**；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
-交付物尺寸与校验和见发行库 `SHA256SUMS-1.1.2.txt`（安装包 / 便携版 / 源码归档）、发行说明与自检报告；本版已发布：[GitHub Release v1.1.2](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.2)（tag `v1.1.2`，提交 `fe04c4e`；11 个附件含四件产物、`SHA256SUMS.txt` 与文档）。
+当前最新版本：**`1.1.3`**（正式发行版）：新增**科研研究助理**——随包分发的研究引擎（`research_pack/`，38 个模块约 8.7k 行、纯标准库）与 15 个原创 AgentSkill（12 个 `risk="low"` 硬工具 + 3 个协议技能），把「检索 → 筛选 → 核验 → 大纲 → 引用 → 写作 → 质检 → 评审 → 导出」做成确定性流水线：检索去重、PRISMA 计数、DOI 反查（Crossref / DataCite）、APA / GB-T 7714 引用、正文结构契约、六维固定公式评分全部由引擎代码完成，模型只负责判断与表达，**换 LLM 时流程与判定标准不变**。首次启动自动把引擎与技能装进配置目录（幂等、按内容摘要升级、尊重 `atri-research/install.py` 的 venv 版外部安装），**安装版 / 便携版开箱即用、不需要系统 Python**；源码树用户按 [docs/research.md](docs/research.md) 安装。新增 `/research` 只读命令（`status` / `<运行id>` / `env` / `open`，普通成员可用）与桌面端第 13 个选项卡「研究」（运行列表 + 产物树 + 打开报告/导出目录）。**1.1.3 修订（同日）**补齐人设卡「导入 / 启用」：聊天里 `character_import` 一步把粘贴文本建卡、`persona_control` 让成员自助开关**专属人设**（按人持久、只影响本人、关闭恢复默认 `SOUL.md`）、`character_activate` 把角色卡设为全局人设并可回滚（仅超管）；桌面端「人设卡」页新增导入文件 / 粘贴导入 / 导出（ZIP 含图片）与 SOUL 从卡载入，新增第 14 页「权限」登记各平台超级管理员（QQ 填 QQ 号）并调工具轮次 / 成员建卡开关；另加**私聊回声保护**：`[自动回复]` 等客户端自动应答与同一人连续复读完全相同文本不再唤醒模型，避免与对方的自动回复互相刷屏；**上线通知**从 `hooks.toml` 搬到 `app.toml [connect_notice]`，私聊（超管）与群聊（`groups` 里的 QQ 群号）变成两个独立开关，桌面端「在线」页可直接勾选。新增 `docs/research.md` 与 `research_pack/README.md`；引擎与技能为原创实现，不含上游 `academic-research-skills` 的任何文本或代码（原创性核查见发行说明与 `LEGAL.md`）。1.1.2 的群友人设接入与 1.1.1 的两处修复全部保留；**不改现有配置格式 / 工具 schema / 会话与数据库格式**，配置与会话数据**向后兼容**；完整变更见 [CHANGELOG.md](CHANGELOG.md)；
+交付物：`ATRI-X-1.1.3-setup.exe` 455.5 MB、`ATRI-X-1.1.3-portable-win64.zip` 671.6 MB、源码归档 `ATRI-X-1.1.3-repo.zip` / `.tar.gz`（1229 条目）；尺寸与 SHA-256 见本版发行库 `SHA256SUMS-1.1.3.txt`、发行说明与自检报告。本版尚未推送 GitHub，发布后对应 tag 为 `v1.1.3`。
 
 已线上发布的历史版本：[**GitHub Release v1.1.1**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.1)（当前线上版，tag `v1.1.1` 指向 1.1.1 发行提交）；上一版 [v1.1.0](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.0)（tag `v1.1.0`）；更早的 [v1.0.10](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.10)、[v1.0.9](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.9)、[v1.0.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.0.8)。各版本的尺寸与 SHA-256 见对应 Release 的 `SHA256SUMS.txt` 与兼容性报告（`ATRI-X-<版本>-compatibility-report.md`）。
 
@@ -327,6 +338,7 @@ python deploy/atri_x_watchdog.py                                # 外部 watchdo
 | [docs/vision.md](docs/vision.md) | 识图能力：图片精度、两段式描述、以图搜图兜底与隐私开关 |
 | [docs/safety.md](docs/safety.md) | 内容安全：道德限制词表、敏感信息脱敏、审计与出口策略 |
 | [docs/reports.md](docs/reports.md) | 定时报告 |
+| [docs/research.md](docs/research.md) | 科研研究助理：12 个硬工具、`/research` 命令、「研究」选项卡、数据布局与排障（1.1.3） |
 | [docs/frontend-api.md](docs/frontend-api.md) | 远程 CLI / 自定义前端协议 |
 | [docs/windows-app.md](docs/windows-app.md) | Windows 桌面端、托盘/自启、安装包与接 QQ |
 | [docs/snowluma.md](docs/snowluma.md) | SnowLuma（**可选的备用 QQ 协议端**，默认协议端是内置 NapCat）安装、WebUI 首启、进程注入、OneBot 端点与 ATRI-X 接入教程 |
@@ -360,8 +372,10 @@ atri_x/                  Python 包（平铺在仓库根下，不安装）
   atrinis/ atriena/ atriyph/       事件监听枢纽、事件协议、任务记法
   character/ imagegen/ vision/ artist/ asr/   角色、生图、视觉、画师串、语音转写
   selflearning/ groupanalysis/ groupkb/       自主学习与群分析、群知识库
+  research/              科研研究助理的随包引擎装配（pack 定位 / 首次启动引导 / 子进程入口）
   health/ ops/ security/ redact/ logging/ signal/  健康、限流熔断、安全、脱敏、日志与信号
   net/ shellparse/ media/imagecodec/ utils/runes.py   补齐 Python 标准库缺口
+research_pack/           随包研究引擎（engine/）、15 个 AgentSkill（skills/）与清单数据（pack.json）
 deploy/                  部署套件（Docker、systemd、Windows、离线包、备份升级、watchdog）
 tests/                   unittest 用例
 docs/                    用户文档        devdocs/  维护与架构文档
@@ -381,6 +395,9 @@ python scripts/check_syntax.py        # 语法 + BOM + CRLF + U+FFFD + mojibake
 python scripts/check_imports.py       # 逐个导入 atri_x 下每个模块，校验 __all__
 python scripts/check_integration.py   # 跨模块唯一出处、ctx 键、脱敏契约、ID 契约、async 误用
 python scripts/check_coverage.py --strict --summary   # 按 PORTING.md §4 映射表算**文件存在性**加权覆盖
+python scripts/check_except.py        # except BaseException 且不 re-raise 的位置基线（文件 + 函数 + 指纹）
+python scripts/gen_stats.py --check   # README 静态数字与工作树一致
+python scripts/check_secrets.py       # 密钥 / 令牌 / 本机身份扫描
 python -m unittest discover -s tests -t .             # 全量测试
 ```
 
@@ -388,10 +405,13 @@ python -m unittest discover -s tests -t .             # 全量测试
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 995 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=763 imported=763`，0 失败 |
+| `check_syntax` | 1012 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=777 imported=777`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径：只验 [PORTING.md](PORTING.md) §4 映射表里的 Python 模块是否存在，不衡量行为正确性） |
+| `check_except` | `except_baseexception_no_raise=119`，与基线一致（0 个新增位置） |
+| `gen_stats --check` | README 里的静态数字与工作树一致 |
+| `check_secrets` | 0 命中（扫描范围含未跟踪文件） |
 | 全量 `unittest` | 用例数不硬编码（见下）；现场跑 `python -m unittest discover -s tests -t .`，以本机输出或 CI 记录为准 |
 
 > **数字口径与复算方式**：上表的文件/模块计数由 `python scripts/gen_stats.py` 只读扫描工作树得出

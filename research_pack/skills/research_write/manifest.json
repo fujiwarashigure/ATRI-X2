@@ -1,0 +1,50 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "write",
+  "skill": "research_write",
+  "title": "",
+  "description": "稿件写入与质检：分段保存/追加正文（避免超长参数），或对全文跑固定规则检查（引用键闭合、占位符、引用预算、绝对化措辞、长度、参考文献格式）。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "writing"
+  ],
+  "timeout_seconds": 120,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "action"
+    ],
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "save",
+          "append",
+          "check",
+          "status"
+        ],
+        "description": "save=整体覆盖；append=追加一段；check=质检；status=字数与节数。"
+      },
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。缺省时多数工具要求显式给出。"
+      },
+      "content": {
+        "type": "string",
+        "description": "Markdown 正文（save/append 用；单次建议 ≤ 20000 字符）。"
+      },
+      "min_section_citations": {
+        "type": "integer",
+        "description": "每节最少引用数；缺省按大纲的引用预算。"
+      }
+    }
+  },
+  "args": {
+    "action": "--action",
+    "run": "--run",
+    "content": "--content",
+    "min_section_citations": "--min-section-citations"
+  }
+}

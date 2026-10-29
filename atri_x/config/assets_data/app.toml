@@ -203,6 +203,9 @@ path = "SOUL.md"
 [character_library]
 enabled = true
 root = "characters"
+# 普通成员是否允许建卡（默认允许）。关闭后只有超级管理员能新建 / 导入人设卡；
+# 成员修改自己已有的卡不受影响。桌面端「权限」页有同名开关。
+allow_user_create = true
 
 [group_analysis]
 # 群分析工具默认启用；它只读取本地 chat_history/outbound_messages，不复制第三方模板或素材。
@@ -344,6 +347,21 @@ suppress_keywords = ["错误", "报错", "失败", "异常", "抱歉", "对不�
 # 告诉模型可以用哪些标签（留空 = 使用内置 13 类）；保持单行：GUI 只做行级替换。
 emotions = ["开心", "期待", "得意", "害羞", "惊讶", "困惑", "难过", "生气", "思考", "无奈", "无语", "嘲笑", "ok"]
 
+# 上线通知（Python 版新增段，1.1.3 修订）。QQ 连上 OneBot 后发一条提示；
+# 私聊与群聊**各自独立开关**，互不影响。
+# 旧版写在 plugins/hooks.toml 的 notify_qqonebot_connected 规则已移到本段——
+# 若保留那条规则会重复发送；自定义 hooks 里也不建议再写 platform.connected 发送规则。
+# 生效：改完重启后台服务；桌面端「在线」页的「上线通知」控件就是写这一段。
+[connect_notice]
+# 私聊：给 [security.superadmins].qqonebot 里配置的超管发一条
+private = true
+# 群聊：给下面 groups 列出的每个 QQ 群发一条（开关打开但列表为空 = 不发群通知）
+group = true
+# QQ 群号（纯数字即可；接受 qqonebot:group:123 / group:123 这种从日志复制的写法）
+groups = []
+# 通知文案；留空用内置「ATRI-X 已连接 QQ OneBot。」
+text = ""
+
 # ATRI-X desktop extension (Python port only): hand complex tasks to the bundled
 # DSH (DeepSeek Harness) ACP kernel. Normal chat keeps using the low-cost native
 # chain. If no kernel/`dsh` command can be found, routing silently stays off.
@@ -458,6 +476,8 @@ allow_superadmin = true
 # 群聊参与状态机（Python 版新增，1.0.5）。默认关闭；开启后只做抑制：
 # 机器人刚在群里接过话的 cooldown_seconds 内，普通闲聊不再唤醒它（点名/回复/唤醒词
 # 仍然唤醒）；连续 no_reply_streak_max 次"被叫到没回应"后同样进入冷却。
+# 1.1.3 修订：私聊回声保护始终开启，不受本段影响——`[自动回复]` 等客户端自动应答
+# 前缀、以及同一私聊连续复读完全相同文本 3 次，都不会再叫醒模型（消息照常入库）。
 [participation]
 guard = false
 cooldown_seconds = 120

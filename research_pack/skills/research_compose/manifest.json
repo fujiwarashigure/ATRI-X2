@@ -1,0 +1,57 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "compose",
+  "skill": "research_compose",
+  "title": "",
+  "description": "写作只提交结构化内容（小节标题 + 段落 + cite_key），由引擎校验标题/引用键/占位符、按大纲顺序重排、渲染 [@key] 标记、统计引用预算，并在写盘后立刻用同一套规则质检。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "writing"
+  ],
+  "timeout_seconds": 120,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "run",
+      "action"
+    ],
+    "properties": {
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。"
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "validate",
+          "append",
+          "save"
+        ],
+        "description": "validate=只校验不写盘；append=追加未写过的小节；save=整体覆盖（须覆盖全部小节）。"
+      },
+      "sections": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        },
+        "description": "结构化小节：[{heading: 大纲里的节标题, paragraphs: [{text: 正文段落, cites: [cite_key, ...]}]}]；也可传保存该 JSON 的文件路径。"
+      },
+      "allow_extra": {
+        "type": "string",
+        "enum": [
+          "true",
+          "false"
+        ],
+        "description": "是否允许大纲之外的子节标题，默认 false（会报 E_UNKNOWN_HEADING）。"
+      }
+    }
+  },
+  "args": {
+    "run": "--run",
+    "action": "--action",
+    "sections": "--sections",
+    "allow_extra": "--allow-extra"
+  }
+}

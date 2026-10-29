@@ -71,10 +71,16 @@ def message_wakeup(agent: Any, ctx: Any, text: str) -> bool:
     msg, ok = message_context_from(ctx)
     if not ok:
         return True
-    if msg.conversation_kind in ("", ConversationUnknown, ConversationPrivate):
-        return True
     commands = getattr(agent, "commands", None)
     if commands is not None and commands.is_command(text):
+        return True
+    if msg.conversation_kind in ("", ConversationUnknown, ConversationPrivate):
+        # 私聊默认每条都唤醒；但"客户端自动回复"和"同一句话刷屏式复读"
+        # 不算真人输入，静默掉，避免机器人和自动应答互相回成死循环。
+        from atri_x.agent.participation import suppress_private_echo
+
+        if suppress_private_echo(agent, ctx, text):
+            return False
         return True
     match_text = text
     if msg.match_text_set:

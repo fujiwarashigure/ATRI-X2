@@ -137,6 +137,42 @@ if not any(path.endswith("tzdata/zoneinfo/Asia/Shanghai") for path in _tz_source
     )
 print("[atri-x.spec] tzdata %s: %d data file(s) collected" % (TZDATA_VERSION, len(tzdata_datas)))
 
+# ===========================================================================
+# 随包研究引擎（科研研究助理，1.1.3 起）
+#
+# 引擎本体**不进 PYZ**：它是 ``research_pack/engine`` 里的**数据文件**，首次启动由
+# ``atri_x.research.bootstrap`` 复制到用户配置目录，再由
+# ``atri-x.exe -m atri_x.research.runner`` 从磁盘加载（见 ``atri_x/research/runner.py``）。
+# 这样换引擎版本不需要重打包，也不会出现"PYZ 里一份旧引擎把配置目录的新引擎盖掉"。
+#
+# 但引擎用到的**可选第三方依赖**必须以 PYZ 模块的形式在冻结进程里可导入，否则
+# PDF 导出 / PDF 全文抽取会静默降级成"缺库"。这里按构建机是否装了它们来收集：
+# 构建机没装 = 产物降级（引擎会显式声明 degraded），不算构建失败。
+# ===========================================================================
+RESEARCH_PACK_DIR = os.path.join(REPO_ROOT, "research_pack")
+_research_meta = os.path.join(RESEARCH_PACK_DIR, "pack.json")
+if not os.path.isfile(_research_meta):
+    raise SystemExit(
+        "research_pack/ is required to build ATRI-X (missing %s).\n"
+        "它是 1.1.3 起的随包研究引擎与技能数据，由仓库根 research_pack/ 提供；"
+        "被误删时构建应当失败，而不是出一个没有研究助理的包。" % _research_meta
+    )
+datas.append((RESEARCH_PACK_DIR, "research_pack"))
+
+_research_deps: list[str] = []
+for _optional in ("reportlab", "pypdf"):
+    try:
+        __import__(_optional)
+    except Exception:  # noqa: BLE001 - 构建机没装就降级，不阻断构建
+        continue
+    hiddenimports += collect_submodules(_optional)
+    datas += collect_data_files(_optional)
+    _research_deps.append(_optional)
+print("[atri-x.spec] research_pack: engine=%s deps=%s" % (
+    "yes",
+    ",".join(_research_deps) or "<none: PDF degrades>",
+))
+
 a = Analysis(
     [os.path.join(SPECPATH, "entry.py")],
     pathex=[REPO_ROOT],

@@ -762,6 +762,54 @@ def verify(
         )
         step("-m dispatch", result, result["code"] == 0)
 
+        # 随包研究引擎：便携模式下也必须能装进 data\appdata 并跑起来（1.1.3）。
+        result = _run(
+            [str(exe), "-m", "atri_x.research.bootstrap", "--check"],
+            cwd=root,
+            env=env,
+            timeout=timeout,
+        )
+        research_payload: dict[str, Any] = {}
+        research_ok = result["code"] == 0
+        if research_ok:
+            try:
+                research_payload = json.loads((result["stdout"] or "").strip())
+            except ValueError:
+                research_payload = {}
+            research_ok = research_payload.get("state") in ("installed", "up-to-date") and bool(
+                research_payload.get("engine_version")
+            )
+        step(
+            "research",
+            result,
+            research_ok,
+            "engine=%s skills=%d"
+            % (
+                research_payload.get("engine_version") or "?",
+                len(research_payload.get("skills") or []),
+            ),
+        )
+        if research_ok:
+            research_home = str(research_payload.get("home") or "")
+            result = _run(
+                [str(exe), "-m", "atri_x.research.runner", "--home", research_home, "version"],
+                cwd=root,
+                env=env,
+                timeout=timeout,
+            )
+            engine_payload: dict[str, Any] = {}
+            if result["code"] == 0:
+                try:
+                    engine_payload = json.loads((result["stdout"] or "").strip())
+                except ValueError:
+                    engine_payload = {}
+            step(
+                "research run",
+                result,
+                result["code"] == 0 and bool(engine_payload.get("engine")),
+                str(engine_payload.get("engine") or ""),
+            )
+
         result = _run(
             [str(exe), "-m", "atri_x.sidecar", "status", "--json"],
             cwd=root,

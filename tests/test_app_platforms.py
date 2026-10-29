@@ -769,5 +769,106 @@ class TestCliClientHelpers(unittest.TestCase):
         self.assertIsInstance(ErrCLIClientFallback, BaseException)
 
 
+class TestConnectNoticeHook(unittest.TestCase):
+    """``register_connect_notice_hook``：私聊/群聊上线通知互相独立（1.1.3 修订）。
+
+    上线通知从 ``hooks.toml`` 规则搬到内置 Hook，就是为了两个落点能各自开关：
+    这里直接喂一个 ``platform.connected`` 事件，断言追加的 ``event.outputs``
+    里的 Target（超管私聊 / 指定群）与开关的组合。
+    """
+
+    class _Registrar:
+        def __init__(self) -> None:
+            self.registrations: list[object] = []
+
+        def register(self, registration: object) -> None:
+            self.registrations.append(registration)
+
+    @staticmethod
+    def _config(
+        *,
+        private: bool = True,
+        group: bool = True,
+        groups: tuple[str, ...] = (),
+        text: str = "",
+        superadmins: dict[str, list[str]] | None = None,
+        with_section: bool = True,
+    ):
+        if superadmins is None:
+            superadmins = {"qqonebot": ["10001"]}
+        cfg = SimpleNamespace(
+            security=SimpleNamespace(superadmins=superadmins),
+        )
+        if with_section:
+            cfg.connect_notice = SimpleNamespace(
+                private=private, group=group, groups=list(groups), text=text
+            )
+        return cfg
+
+    def _register(self, **kwargs):
+        from atri_x.app.platforms import register_connect_notice_hook
+
+        registrar = self._Registrar()
+        register_connect_notice_hook(registrar, self._config(**kwargs))
+        return registrar
+
+    @staticmethod
+    def _run(registrar, platform: str = "qqonebot"):
+        from atri_x.hook.event import Event, PlatformContext, Point
+
+        registration = registrar.registrations[0]
+        event = Event(
+            point=Point.PLATFORM_CONNECTED, platform=PlatformContext(name=platform)
+        )
+        return asyncio.run(registration.handler.handle_hook(None, event))
+
+    def test_private_and_group_are_independent_outputs(self) -> None:
+        from atri_x.delivery import Output
+
+        event = self._run(self._register(groups=("123456789",)))
+        self.assertEqual(len(event.outputs), 2)
+        self.assertIsInstance(event.outputs[0], Output)
+        self.assertTrue(event.outputs[0].target.superadmins)
+        self.assertEqual(event.outputs[0].text, "ATRI-X 已连接 QQ OneBot。")
+        self.assertEqual(event.outputs[1].target.group_id, "123456789")
+        self.assertEqual(event.outputs[1].target.platform, "qqonebot")
+
+    def test_private_off_keeps_group_only(self) -> None:
+        event = self._run(self._register(private=False, groups=("1", "2")))
+        self.assertEqual(
+            [item.target.group_id for item in event.outputs], ["1", "2"]
+        )
+        self.assertFalse(any(item.target.superadmins for item in event.outputs))
+
+    def test_group_off_keeps_private_only(self) -> None:
+        event = self._run(self._register(group=False, groups=("1",)))
+        self.assertEqual(len(event.outputs), 1)
+        self.assertTrue(event.outputs[0].target.superadmins)
+
+    def test_group_on_without_group_ids_sends_nothing(self) -> None:
+        registrar = self._register(private=False, groups=())
+        self.assertEqual(registrar.registrations, [])
+
+    def test_missing_superadmins_does_not_block_group_notice(self) -> None:
+        event = self._run(
+            self._register(groups=("123456789",), superadmins={"qqonebot": []})
+        )
+        self.assertEqual(len(event.outputs), 1)
+        self.assertEqual(event.outputs[0].target.group_id, "123456789")
+
+    def test_other_platform_is_ignored(self) -> None:
+        event = self._run(self._register(groups=("123456789",)), platform="telegram")
+        self.assertEqual(event.outputs, [])
+
+    def test_custom_text_and_missing_section(self) -> None:
+        event = self._run(self._register(groups=("1",), text="我醒了"))
+        self.assertEqual(event.outputs[0].text, "我醒了")
+        registrar = self._Registrar()
+        from atri_x.app.platforms import register_connect_notice_hook
+
+        register_connect_notice_hook(registrar, self._config(with_section=False))
+        self.assertEqual(registrar.registrations, [])
+
+
 if __name__ == "__main__":
     unittest.main()

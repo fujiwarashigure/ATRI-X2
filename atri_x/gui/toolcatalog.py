@@ -292,6 +292,27 @@ TOOL_CATALOG: tuple[ToolMeta, ...] = (
         "群聊与角色",
         "high",
     ),
+    ToolMeta(
+        "character_import",
+        "导入角色卡",
+        "把一段粘贴的人设文本一步保存成角色卡，可同时启用为专属人设或全局人设。",
+        "群聊与角色",
+        "low",
+    ),
+    ToolMeta(
+        "character_activate",
+        "设为全局人设",
+        "把某张角色卡写成全局系统人设 SOUL.md（仅超级管理员，自动备份可回滚）。",
+        "群聊与角色",
+        "high",
+    ),
+    ToolMeta(
+        "persona_control",
+        "开关专属人设",
+        "成员自己绑定 / 启用 / 关闭 / 清除专属人设，关闭后恢复默认 SOUL.md。",
+        "群聊与角色",
+        "low",
+    ),
     # -- 图片与画师 --------------------------------------------------------
     ToolMeta(
         "image_generate",

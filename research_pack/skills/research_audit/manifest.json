@@ -1,0 +1,29 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "audit",
+  "skill": "research_audit",
+  "title": "",
+  "description": "按固定公式给六项可度量维度打分（证据覆盖/引文可靠性/方法可复现性/结构完整度/表述克制/交付完整度），列出必须处理的缺陷；原创性与伦理明确标为未度量，交给 research_panel。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "review"
+  ],
+  "timeout_seconds": 90,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "run"
+    ],
+    "properties": {
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。"
+      }
+    }
+  },
+  "args": {
+    "run": "--run"
+  }
+}

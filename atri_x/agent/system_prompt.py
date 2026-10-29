@@ -27,10 +27,17 @@ __all__ = [
 
 @dataclass
 class SystemPromptPart:
-    """系统提示里的一段（``name`` 只用于排查/测试）。对应 Go ``SystemPromptPart``。"""
+    """系统提示里的一段（``name`` 只用于排查/测试）。对应 Go ``SystemPromptPart``。
+
+    ``replaces`` 是 Python 侧新增的：声明"这一段出现时，同名的其它段作废"。
+    目前只有「成员专属人设」用它顶掉 ``soul``——身份覆盖必须发生在拼接阶段，
+    否则 ``SOUL.md`` 里的全局身份会和专属人设同时进入提示词，模型会按系统人设
+    拒绝切换（1.1.3 实测：群里要求"切换人设"被拒，就是因为两段身份同时存在）。
+    """
 
     name: str = ""
     content: str = ""
+    replaces: tuple[str, ...] = ()
 
 
 @dataclass
@@ -79,14 +86,22 @@ class SystemPromptManager:
 
     async def build(self, ctx: Any, req: SystemPromptRequest) -> str:
         """拼接系统提示词。对应 Go ``SystemPromptManager.Build``。"""
-        parts: list[str] = []
+        collected: list[SystemPromptPart] = []
         for source in self.sources:
             source_parts = await source.parts(ctx, req)
             for part in source_parts or ():
                 content = (getattr(part, "content", "") or "").strip()
                 if not content:
                     continue
-                parts.append(content)
+                collected.append(part)
+        replaced: set[str] = set()
+        for part in collected:
+            replaced.update(getattr(part, "replaces", ()) or ())
+        parts = [
+            (getattr(part, "content", "") or "").strip()
+            for part in collected
+            if (getattr(part, "name", "") or "") not in replaced
+        ]
         return "\n\n".join(parts)
 
 

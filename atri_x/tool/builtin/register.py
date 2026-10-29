@@ -65,6 +65,7 @@ from atri_x.tool.builtin.group_analysis import new_group_analysis_tool
 from atri_x.tool.builtin.image_generate import ImageGenerateTool, ImageProfile
 from atri_x.tool.builtin.image_to_prompt import new_image_to_prompt_tool
 from atri_x.tool.builtin.long_memory import new_long_memory_tools
+from atri_x.tool.builtin.persona import new_persona_control_tool
 from atri_x.tool.builtin.prompt_library import PromptLibrarySearchTool
 from atri_x.tool.builtin.resident_memory import new_resident_memory_tools
 from atri_x.tool.builtin.runtimeinfo import RuntimeInfo
@@ -154,6 +155,10 @@ CONDITIONAL_TOOLS: dict[str, tuple[str, ...]] = {
         "character_search",
         "character_manage",
         "character_delete",
+        # Python 侧新增：一步导入 / 全局人设激活 / 成员专属人设开关。
+        "character_import",
+        "character_activate",
+        "persona_control",
     ),
     "image_profiles": ("image_generate",),
     # Go 的守卫是 ``Artists.Enabled()``（有可写画师串库）；artist_extract 不在此列。
@@ -180,10 +185,11 @@ CONDITIONAL_TOOLS: dict[str, tuple[str, ...]] = {
 #:
 #: * ``register_all(Registry(), RegisterOptions())``（全空选项；Go 里**没有**这条路径）
 #:   恰好在 :data:`ALWAYS_REGISTERED_TOOLS`（13 个）；
-#: * 最小**真实**装配 ``build_tool_runtime(ToolRuntimeOptions(config_dir=...))`` 是 **25** 个：
+#: * 最小**真实**装配 ``build_tool_runtime(ToolRuntimeOptions(config_dir=...))`` 是 **28** 个：
 #:   ``build_tool_runtime`` 自己补齐 ``resident_memory_store`` / ``long_memory_dir`` /
 #:   ``file_manager`` / ``skill_manager`` 四组守卫对象，与 Go 的 ``builtin.NewRuntime``
-#:   （``internal/tool/builtin/runtime.go:78,98,194,195,219``）同义。
+#:   （``internal/tool/builtin/runtime.go:78,98,194,195,219``）同义；其中角色库一组在
+#:   1.1.3 修订里新增了 ``character_import`` / ``character_activate`` / ``persona_control``。
 REGISTERED_TOOLS: tuple[str, ...] = ALWAYS_REGISTERED_TOOLS + tuple(
     name for group in CONDITIONAL_TOOLS.values() for name in group
 )
@@ -221,6 +227,10 @@ class RegisterOptions:
     #: 后台（cron / Atrinis）无人值守的 shell 放行策略；``None`` 用 ShellTool 内置默认。
     background_shell_policy: Any = None
     character_store: Any = None
+    #: Python 侧新增：普通成员是否允许建卡（``[character_library].allow_user_create``）。
+    character_allow_user_create: bool = True
+    #: Python 侧新增：``SOUL.md`` 绝对路径（``character_activate`` 用）。
+    soul_path: str = ""
     image_profiles: dict[str, ImageProfile] = field(default_factory=dict)
     default_image_profile: str = ""
     image_limiter: Any = None
@@ -326,8 +336,17 @@ def register_all(registry: Registry, opts: RegisterOptions) -> None:
     )
 
     if opts.character_store is not None and _enabled(opts.character_store):
-        for character_tool in new_character_tools(opts.character_store, media_center):
+        for character_tool in new_character_tools(
+            opts.character_store,
+            media_center,
+            soul_path=opts.soul_path,
+            config_dir=opts.config_dir,
+            allow_user_create=opts.character_allow_user_create,
+        ):
             registry.register(character_tool)
+        registry.register(
+            new_persona_control_tool(opts.config_dir, opts.character_store)
+        )
 
     if opts.image_profiles:
         image_tool = ImageGenerateTool(

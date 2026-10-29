@@ -9,6 +9,10 @@
   ``enabled = true`` → 重启后台服务 → 轮询 ``/healthz`` 直到平台状态变成已连接；
 - **断开（下线）**：写 ``enabled = false`` → 重启后台服务。
 
+**上线通知**（1.1.3 修订）：QQ 平台卡片上还有「私聊 / 群聊」两个独立复选框 + 群号
+输入框（写 ``app.toml`` 的 ``[connect_notice]``）——私聊发给 ``[security.superadmins]``
+里的超管，群聊发给列出的 QQ 群；两个开关互不影响。改完同样要重启后台服务。
+
 **四维状态**（这是本页的核心语义，别再合并成一个"在线/离线"）：
 
 | 维度 | 数据源 |
@@ -145,8 +149,39 @@ class LinkTab(ConfigTab):
             wraplength=320,
             justify=tk.LEFT,
         ).grid(row=4, column=0, sticky="w", pady=(4, 0))
+        # 上线通知：私聊 / 群聊各自独立开关（写 app.toml [connect_notice]，1.1.3 修订）。
+        notice_row = ttk.Frame(card)
+        notice_row.grid(row=5, column=0, sticky="ew", pady=(6, 0))
+        ttk.Label(notice_row, text="上线通知").pack(side=tk.LEFT)
+        self._notice_private_var = tk.BooleanVar(value=True)
+        self._notice_private_box = ttk.Checkbutton(
+            notice_row, text="私聊", variable=self._notice_private_var
+        )
+        self._notice_private_box.pack(side=tk.LEFT, padx=(4, 6))
+        self._notice_group_var = tk.BooleanVar(value=True)
+        self._notice_group_box = ttk.Checkbutton(
+            notice_row, text="群聊", variable=self._notice_group_var
+        )
+        self._notice_group_box.pack(side=tk.LEFT, padx=(0, 6))
+        self._notice_groups_var = tk.StringVar()
+        self._notice_groups_entry = ttk.Entry(
+            notice_row, textvariable=self._notice_groups_var, width=14
+        )
+        self._notice_groups_entry.pack(side=tk.LEFT, padx=(0, 4))
+        self._notice_button = ttk.Button(
+            notice_row, text="保存", command=self._save_connect_notice
+        )
+        self._notice_button.pack(side=tk.LEFT)
+        ttk.Label(
+            card,
+            text="私聊/群聊互不影响；群号逗号分隔（群聊开关打开但群号留空 = 不发群通知）。"
+            "改完重启后台服务生效。",
+            foreground="#8a8a8a",
+            wraplength=320,
+            justify=tk.LEFT,
+        ).grid(row=6, column=0, sticky="w", pady=(4, 0))
         actions = ttk.Frame(card)
-        actions.grid(row=5, column=0, sticky="w", pady=(6, 0))
+        actions.grid(row=7, column=0, sticky="w", pady=(6, 0))
         self._connect_button = ttk.Button(actions, text="连接（上线）", command=self._toggle_online)
         self._connect_button.pack(side=tk.LEFT)
 
@@ -217,6 +252,7 @@ class LinkTab(ConfigTab):
         except ConfigEditError as exc:
             self.fail(exc)
             return
+        self._sync_notice_entries(self._cfg)
         self._render_service()
         self._render_platform()
         self._render_endpoint()
@@ -547,17 +583,10 @@ class LinkTab(ConfigTab):
 
         try:
             linkstate.set_platform_enabled(paths.config_path, target)
+            self._cfg = linkstate.read_platform_config(paths.config_path)
         except ConfigEditError as exc:
             self.fail(exc)
             return
-        self._cfg = cfg = linkstate.PlatformConfig(
-            section_exists=True,
-            enabled=target,
-            ws_url=cfg.ws_url,
-            token_env=cfg.token_env,
-            trigger_keywords=cfg.trigger_keywords,
-            send_file_mode=cfg.send_file_mode,
-        )
         self.journal(f"在线页：platform.qqonebot.enabled -> {str(target).lower()}")
         self._render_platform()
         if not self.can_control_service:
@@ -596,6 +625,46 @@ class LinkTab(ConfigTab):
             if words
             else "已清空唤醒词；重启后台服务后生效"
         )
+
+    def _sync_notice_entries(self, cfg: linkstate.PlatformConfig) -> None:
+        """把配置里的上线通知开关填进控件（用户正在输入群号时不覆盖文本框）。"""
+        self._notice_private_var.set(bool(cfg.connect_private))
+        self._notice_group_var.set(bool(cfg.connect_group))
+        try:
+            focused = self.frame.focus_get()
+        except (KeyError, tk.TclError):  # pragma: no cover - 窗口销毁中
+            focused = None
+        if focused is self._notice_groups_entry:
+            return
+        text = "、".join(cfg.connect_groups)
+        if self._notice_groups_var.get() != text:
+            self._notice_groups_var.set(text)
+
+    def _save_connect_notice(self) -> None:
+        """把「上线通知」的私聊/群聊开关与群号写进 app.toml ``[connect_notice]``。"""
+        try:
+            paths = self.require_paths()
+            linkstate.set_connect_notice(
+                paths.config_path,
+                private=bool(self._notice_private_var.get()),
+                group=bool(self._notice_group_var.get()),
+                groups=_split_keywords(self._notice_groups_var.get()),
+            )
+            self._cfg = linkstate.read_platform_config(paths.config_path)
+        except ConfigEditError as exc:
+            self.fail(exc)
+            return
+        self._sync_notice_entries(self._cfg)
+        groups = "、".join(self._cfg.connect_groups) or "（空）"
+        self.journal(
+            "在线页：上线通知 private="
+            + str(self._cfg.connect_private).lower()
+            + " group="
+            + str(self._cfg.connect_group).lower()
+            + " groups="
+            + groups
+        )
+        self.notify("已保存上线通知设置；重启后台服务后生效")
 
     def _sync_wake_entry(self, cfg: linkstate.PlatformConfig) -> None:
         """把配置里的唤醒词填进输入框（用户正在输入时不覆盖）。"""

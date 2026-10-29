@@ -142,6 +142,22 @@ class GuiSettings:
 # ---------------------------------------------------------------------------
 
 
+def _ensure_research_engine(config_dir: str) -> None:
+    """GUI 启动时也装一次随包研究引擎（保证「研究」页在服务起来前就有内容）。
+
+    真正的安装时机在 ``build_agent``（服务进程）；这里只是把"随包引擎第一次落地"
+    提前到用户点开「研究」页之前。幂等、失败只忽略：GUI 启动不能被研究引擎拖垮。
+    """
+    try:
+        from atri_x.research import bootstrap as research_bootstrap
+    except Exception:  # noqa: BLE001 - 研究助理不可用不影响 GUI
+        return
+    try:
+        research_bootstrap.ensure_installed(config_dir)
+    except Exception:  # noqa: BLE001 - 同上
+        return
+
+
 def prepare_settings(config_path: str = "") -> GuiSettings:
     """准备配置与 token，返回 :class:`GuiSettings`。
 
@@ -159,6 +175,7 @@ def prepare_settings(config_path: str = "") -> GuiSettings:
         except Exception as exc:  # noqa: BLE001 - 配置层报错统一转成可展示的失败
             raise GuiConfigError(f"无法创建默认配置：{exc}") from exc
     config_dir = os.path.dirname(os.path.normpath(resolved))
+    _ensure_research_engine(config_dir)
 
     changed = False
     text = _read_text(resolved)

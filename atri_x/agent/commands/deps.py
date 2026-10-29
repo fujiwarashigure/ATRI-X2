@@ -398,6 +398,7 @@ def default_modules() -> list[Module]:
     from atri_x.agent.commands.memory_learning import MemoryLearningModule
     from atri_x.agent.commands.model import ModelModule
     from atri_x.agent.commands.request import RequestModule
+    from atri_x.agent.commands.research import ResearchModule  # [atri-research]
     from atri_x.agent.commands.rollback import FileModule
     from atri_x.agent.commands.session_module import SessionModule
     from atri_x.agent.commands.state import StateModule
@@ -425,6 +426,7 @@ def default_modules() -> list[Module]:
         StateModule(),
         MemoryLearningModule(),
         TimeModule(),
+        ResearchModule(),  # [atri-research]
     ]
 
 

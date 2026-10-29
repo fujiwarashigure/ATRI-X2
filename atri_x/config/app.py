@@ -36,6 +36,7 @@ from atri_x.config.app_sections import (
     CharacterLibraryConfig,
     CommandsConfig,
     ConfigDecodeError,
+    ConnectNoticeConfig,
     ContextConfig,
     FileDeliveryConfig,
     GroupAnalysisConfig,
@@ -157,6 +158,8 @@ class AppConfig(StrictConfig):
     tool_preview: ToolPreviewConfig = field(default_factory=ToolPreviewConfig)
     #: Python 版新增段：``[reactions]``（本地表情图库 + 表情图片输出策略）。
     reactions: ReactionsConfig = field(default_factory=ReactionsConfig)
+    #: Python 版新增段：``[connect_notice]``（平台上线通知：私聊/群聊独立开关）。
+    connect_notice: ConnectNoticeConfig = field(default_factory=ConnectNoticeConfig)
     #: Python 版新增段：``[quiet]``（全局静默时段，评估 §E）。
     quiet: QuietConfig = field(default_factory=QuietConfig)
     #: Python 版新增段：``[time]``（统一时间服务：时区 / 提示词注入 / 网络校验）。
@@ -353,6 +356,8 @@ class AppConfig(StrictConfig):
         # [tool_preview] / [reactions]：补默认文案、夹紧范围（幂等）。
         self.tool_preview = self.tool_preview.normalized()
         self.reactions = self.reactions.normalized()
+        # [connect_notice]：群号去前缀 / 去重，文案去空白（幂等）。
+        self.connect_notice = self.connect_notice.normalized()
         # [quiet]：静默窗口格式校验（幂等）。
         self.quiet = self.quiet.normalized()
         # [quiet].timezone 留空时沿用 [time].timezone；显式写了就必须能解析（不静默回落）。

@@ -39,6 +39,7 @@ from atri_x.delivery import (
     reply,
     should_drop_group_tool_preview,
     split_by_delivery_timing,
+    split_outputs_by_target,
     text,
     use_temporary_connection,
     validate_delivery_timing,
@@ -269,6 +270,22 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(immediate, [out])
         self.assertEqual(after, [deferred])
         self.assertEqual(split_by_delivery_timing([]), ([], []))
+
+    def test_split_outputs_by_target(self) -> None:
+        # 同一批里混用不同 target（超管私聊 + 指定群）必须拆成两批，否则
+        # validate_outputs_target 会拒绝整批（1.1.3 修订的上线通知就是这种形状）。
+        private = Output(kind=Kind.TEXT, text="a", target=Target(superadmins=True))
+        group = Output(kind=Kind.TEXT, text="b", target=Target(group_id="123"))
+        group2 = Output(kind=Kind.TEXT, text="c", target=Target(group_id="123"))
+        batches = split_outputs_by_target([private, group, group2])
+        self.assertEqual(batches, [[private], [group, group2]])
+        for batch in batches:
+            validate_outputs_target(batch)  # 拆完之后每批都合法
+        self.assertEqual(split_outputs_by_target(None), [])
+        # 没有显式 target 的输出归到同一批（沿用当前会话落点）。
+        plain = split_outputs_by_target([text("x"), text("y")])
+        self.assertEqual(len(plain), 1)
+        self.assertEqual([item.text for item in plain[0]], ["x", "y"])
 
     def test_invalid_timing_in_batch_is_reported(self) -> None:
         bad = Output(kind=Kind.TEXT, text="x", meta={META_DELIVERY_TIMING: "later"})

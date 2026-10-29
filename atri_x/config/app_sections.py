@@ -49,6 +49,7 @@ __all__ = [
     "AtrinisDeliveryDisabledConfig", "AtrinisHTTPConfig", "AtrinisSegmentConfig",
     "AtrinisTargetConfig", "AtrinisTokenConfig", "BudgetLimitsConfig",
     "CharacterLibraryConfig", "ChatHistoryCleanupConfig", "CommandsConfig",
+    "ConnectNoticeConfig", "CONNECT_NOTICE_DEFAULT_TEXT",
     "ContextConfig", "CronTaskConfig", "DailyReportConfig", "DailySummaryConfig",
     "DshCleanupConfig", "FileDeliveryConfig",
     "GroupAnalysisConfig", "GroupKnowledgeConfig", "GroupServicesConfig",
@@ -127,6 +128,9 @@ REACTION_DEFAULT_SUPPRESS_KEYWORDS: tuple[str, ...] = (
     "无法",
     "不能",
 )
+
+#: ``[connect_notice]`` 的默认文案（``text`` 留空时用它）。
+CONNECT_NOTICE_DEFAULT_TEXT = "ATRI-X 已连接 QQ OneBot。"
 
 #: ``[tool_preview]`` 各文案字段的默认值（``normalized()`` 与 GUI 共用）。
 TOOL_PREVIEW_DEFAULT_SEARCH_TEXT = "检索中……请稍候。"
@@ -256,6 +260,51 @@ def _reaction_text_list(values: Any, fallback: list[str]) -> list[str]:
     return out
 
 
+#: 群号里允许带的作用域前缀（用户从日志 / 群策略里复制过来时常见）。
+_CONNECT_NOTICE_GROUP_PREFIXES = ("qqonebot:group:", "qqonebot:", "group:")
+
+
+@dataclass
+class ConnectNoticeConfig(StrictConfig):
+    """``[connect_notice]``：平台上线通知的开关与落点（Python 侧新增段）。
+
+    私聊与群聊**各自独立**：
+
+    * ``private`` —— 平台（当前只对 ``qqonebot`` 生效）连上 OneBot 后，给
+      ``[security.superadmins]`` 里配置的超管发一条私聊提醒；
+    * ``group`` —— 同时给 ``groups`` 列出的 QQ 群发一条群提醒。群号写纯数字即可，
+      也接受从日志里复制来的 ``qqonebot:group:123`` / ``group:123``（会自动剥前缀）。
+
+    两个开关互不影响；群聊开关打开但 ``groups`` 为空时退化为"不发群提醒"
+    （不猜群、不群发）。``text`` 留空用 :data:`CONNECT_NOTICE_DEFAULT_TEXT`。
+    这些通知是"连接事实"的通知，**不经过** hooks.toml；旧版 hooks.toml 里的
+    ``notify_qqonebot_connected`` 规则如果保留会重复发送，1.1.3 修订已从默认模板移除。
+    """
+
+    private: bool = True
+    group: bool = True
+    groups: list[str] = field(default_factory=list)
+    text: str = ""
+
+    def normalized(self) -> "ConnectNoticeConfig":
+        """群号去前缀/去空白/去重，文案去空白（``apply_app_defaults`` 调用，幂等）。"""
+        groups: list[str] = []
+        for value in self.groups or []:
+            text = str(value or "").strip()
+            for prefix in _CONNECT_NOTICE_GROUP_PREFIXES:
+                if text.startswith(prefix):
+                    text = text[len(prefix):].strip()
+                    break
+            if text and text not in groups:
+                groups.append(text)
+        return ConnectNoticeConfig(
+            private=bool(self.private),
+            group=bool(self.group),
+            groups=groups,
+            text=(self.text or "").strip(),
+        )
+
+
 
 @dataclass
 class SandboxConfig(StrictConfig):
@@ -290,6 +339,9 @@ class PlatformFilesConfig(StrictConfig):
 class CharacterLibraryConfig(StrictConfig):
     enabled: bool | None = None
     root: str = "characters"
+    #: 普通成员是否允许建卡（默认允许）。关闭后只有超级管理员能建 / 导入新卡；
+    #: 修改自己已有的卡不受影响（不需要超管）。
+    allow_user_create: bool = True
 
     def is_enabled(self) -> bool:
         """默认启用。对应 Go ``IsEnabled``。"""

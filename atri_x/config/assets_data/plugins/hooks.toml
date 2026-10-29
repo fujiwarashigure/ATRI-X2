@@ -130,18 +130,22 @@
 # {{match.regex.0.group.1}}, {{match.regex.0.<name>}}
 # {{actions.<name>.result}}, {{actions.<name>.error}} from earlier tool actions.
 
-# Notify qqonebot superadmins after OneBot connects.
-[[rules]]
-name = "notify_qqonebot_connected"
-on = "platform.connected"
-priority = 1000
-if = "platform.name"
-op = "fullmatch"
-value = "qqonebot"
-action = "send"
-kind = "text"
-text = "ATRI-X 已连接 QQ OneBot。"
-target.superadmins = true
+# 上线通知（1.1.3 修订）：已移到 app.toml 的 [connect_notice]。
+# 私聊（超管）与群聊（groups）是**两个独立开关**，在配置文件 / 桌面端「在线」页调整；
+# 这里不要再写 platform.connected 的发送规则，否则会和内置通知重复发送。
+#
+# 旧规则（保留在此仅供对照，默认注释掉）：
+# [[rules]]
+# name = "notify_qqonebot_connected"
+# on = "platform.connected"
+# priority = 1000
+# if = "platform.name"
+# op = "fullmatch"
+# value = "qqonebot"
+# action = "send"
+# kind = "text"
+# text = "ATRI-X 已连接 QQ OneBot。"
+# target.superadmins = true
 
 # Example: append a low-risk tool result to the same user message before the LLM request.
 # [[rules]]

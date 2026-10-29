@@ -23,12 +23,26 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from typing import Any
 
+from atri_x.character import Store as CharacterStore
+from atri_x.character import Viewer
 from atri_x.gui import avatars, memberdata, widgets
 from atri_x.gui.memberdata import GroupScope, MemberProfile, MemberSeen
 from atri_x.gui.tabs.base import ConfigTab, confirm, message
-from atri_x.memberprofile import render_member_profile
+from atri_x.memberprofile import PersonaDataError, render_member_profile
+from atri_x.memberprofile.persona import (
+    MemberPersona,
+    MemberPersonaStore,
+    persona_key,
+    render_member_persona,
+)
 
 __all__ = ["MembersTab"]
+
+#: 本地 GUI 以超级管理员身份读写角色库（绑定卡片时要能看到所有卡）。
+_GUI_VIEWER = Viewer(platform="desktop", actor_id="local", superadmin=True)
+
+#: 专属人设卡下拉里"不绑定"的占位文本。
+_NO_PERSONA = "（不绑定）"
 
 #: 缩略图边长（列表里用）。
 _THUMB_SIZE = 22
@@ -54,6 +68,10 @@ class MembersTab(ConfigTab):
         self._seen: list[MemberSeen] = []
         self._profiles: dict[str, MemberProfile] = {}
         self._rows: dict[str, MemberProfile] = {}
+        self._personas: dict[str, MemberPersona] = {}
+        self._characters: dict[str, str] = {}
+        self._persona_store: MemberPersonaStore | None = None
+        self._character_store: CharacterStore | None = None
         self._db_error = ""
         self._current: MemberProfile | None = None
         self._pending_avatars: dict[str, str] = {}
@@ -87,7 +105,7 @@ class MembersTab(ConfigTab):
         tree_wrap.pack(fill=tk.BOTH, expand=True)
         self.tree = ttk.Treeview(
             tree_wrap,
-            columns=("name", "uid", "talk", "count", "last"),
+            columns=("name", "uid", "persona", "talk", "count", "last"),
             show="tree headings",
             height=18,
             selectmode="browse",
@@ -95,15 +113,17 @@ class MembersTab(ConfigTab):
         self.tree.heading("#0", text="头像")
         self.tree.heading("name", text="群友")
         self.tree.heading("uid", text="QQ / ID")
+        self.tree.heading("persona", text="专属人设")
         self.tree.heading("talk", text="对话")
         self.tree.heading("count", text="发言")
         self.tree.heading("last", text="最近")
         self.tree.column("#0", width=44, stretch=False, anchor=tk.CENTER)
-        self.tree.column("name", width=150, stretch=True)
-        self.tree.column("uid", width=110, stretch=False)
+        self.tree.column("name", width=130, stretch=True)
+        self.tree.column("uid", width=100, stretch=False)
+        self.tree.column("persona", width=90, stretch=False)
         self.tree.column("talk", width=46, stretch=False, anchor=tk.CENTER)
         self.tree.column("count", width=52, stretch=False, anchor=tk.E)
-        self.tree.column("last", width=130, stretch=False)
+        self.tree.column("last", width=120, stretch=False)
         scrollbar = ttk.Scrollbar(tree_wrap, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -164,6 +184,38 @@ class MembersTab(ConfigTab):
             command=self._update_preview,
         ).grid(row=4, column=1, sticky="w", pady=(4, 0))
 
+        persona_box = ttk.LabelFrame(
+            form, text="专属人设（只影响这位成员与机器人的对话）", padding=6
+        )
+        persona_box.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        persona_box.columnconfigure(1, weight=1)
+        self.persona_var = tk.StringVar(value=_NO_PERSONA)
+        self.persona_combo = ttk.Combobox(
+            persona_box, textvariable=self.persona_var, state="readonly"
+        )
+        self.persona_combo.grid(row=0, column=1, sticky="ew", pady=2)
+        self.persona_combo.bind("<<ComboboxSelected>>", lambda _event: self._update_preview())
+        ttk.Label(persona_box, text="人设卡").grid(row=0, column=0, sticky="w", pady=2)
+        self.persona_enabled_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            persona_box,
+            text="启用（关闭后恢复默认 SOUL.md 人设；绑定关系保留，可随时再开）",
+            variable=self.persona_enabled_var,
+            command=self._update_preview,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.persona_status = ttk.Label(persona_box, text="", foreground="#8a8a8a")
+        self.persona_status.grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        ttk.Label(
+            persona_box,
+            text=(
+                "专属人设按「平台 + 用户 id」绑定：同一个 QQ 换群、私聊都跟着他，"
+                "只替换他自己的对话风格，不影响其他成员与全局 SOUL.md。"
+            ),
+            foreground="#8a8a8a",
+            wraplength=560,
+            justify=tk.LEFT,
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
         actions = ttk.Frame(right)
         actions.pack(fill=tk.X, pady=(8, 0))
         ttk.Button(actions, text="保存档案", command=self._save).pack(side=tk.LEFT)
@@ -211,6 +263,8 @@ class MembersTab(ConfigTab):
             return
         paths = self.require_paths()
         self._profiles = memberdata.load_profiles(paths.config_dir)
+        self._personas = self._persona_store_obj().load()
+        self._load_characters()
         self._db_error = ""
         try:
             scopes = memberdata.list_scopes(paths)
@@ -239,6 +293,8 @@ class MembersTab(ConfigTab):
         paths = self.require_paths()
         scope = self._current_scope()
         self._profiles = memberdata.load_profiles(paths.config_dir)
+        self._personas = self._persona_store_obj().load()
+        self._load_characters()
         self._rows = {}
         self._thumb_refs.clear()
         self.tree.delete(*self.tree.get_children())
@@ -279,6 +335,10 @@ class MembersTab(ConfigTab):
         for _count, _title, profile, item in rows:
             key = profile.key
             self._rows[key] = profile
+            persona = self._persona_of(profile)
+            persona_text = "—"
+            if persona is not None and persona.character_id:
+                persona_text = ("✓ " if persona.enabled else "off ") + persona.character_id
             self.tree.insert(
                 "",
                 tk.END,
@@ -287,6 +347,7 @@ class MembersTab(ConfigTab):
                 values=(
                     profile.title,
                     profile.user_id,
+                    persona_text,
                     "✓" if profile.enabled else "—",
                     (item.message_count if item is not None else 0) or "-",
                     (item.last_at if item is not None else profile.updated_at) or "-",
@@ -376,6 +437,7 @@ class MembersTab(ConfigTab):
         self.enabled_var.set(bool(profile.enabled))
         self.profile_text.delete("1.0", tk.END)
         self.profile_text.insert("1.0", profile.profile)
+        self._load_persona(profile)
         self._show_avatar(profile)
         self._update_preview()
 
@@ -387,6 +449,9 @@ class MembersTab(ConfigTab):
         self.tags_var.set("")
         self.enabled_var.set(True)
         self.profile_text.delete("1.0", tk.END)
+        self.persona_var.set(_NO_PERSONA)
+        self.persona_enabled_var.set(False)
+        self.persona_status.configure(text="")
         self._show_avatar(None)
         self._update_preview()
 
@@ -406,15 +471,36 @@ class MembersTab(ConfigTab):
                 profile=self.profile_text.get("1.0", "end-1c").strip(),
                 enabled=bool(self.enabled_var.get()),
             )
-            if not draft.enabled:
-                text = "当前设为「不参与对话」：保存后这份档案不会被注入系统提示词。"
-            else:
-                text = render_member_profile(draft)
-                if not text:
-                    text = (
-                        "这份档案还没有可注入的内容：填称呼、标签或角色资料，"
-                        "勾选「参与对话」并保存。"
+            persona = self._draft_persona()
+            blocks: list[str] = []
+            if persona is not None:
+                if persona.enabled:
+                    rendered = render_member_persona(
+                        persona, self._character_store_obj(), superadmin=True
                     )
+                    blocks.append(
+                        rendered
+                        or "（绑定的角色卡不可用：可能已被删除，或对该成员不可见；"
+                        "下一轮会回退默认 SOUL.md 人设）"
+                    )
+                else:
+                    blocks.append(
+                        f"专属人设已绑定 {persona.character_id}，当前**关闭**："
+                        "下一轮仍使用默认 SOUL.md 人设（绑定关系保留）。"
+                    )
+            if draft.enabled:
+                profile_text = render_member_profile(draft)
+                if profile_text:
+                    blocks.append(profile_text)
+            if blocks:
+                text = "\n\n".join(blocks)
+            elif draft.enabled:
+                text = (
+                    "这份档案还没有可注入的内容：填称呼、标签或角色资料，"
+                    "勾选「参与对话」并保存。"
+                )
+            else:
+                text = "当前设为「不参与对话」：保存后这份档案不会被注入系统提示词。"
         self.preview_text.configure(state=tk.NORMAL)
         self.preview_text.delete("1.0", tk.END)
         self.preview_text.insert("1.0", text)
@@ -463,7 +549,8 @@ class MembersTab(ConfigTab):
                     enabled=bool(self.enabled_var.get()),
                 ),
             )
-        except (memberdata.MemberDataError, OSError) as exc:
+            self._save_persona(profile)
+        except (memberdata.MemberDataError, PersonaDataError, OSError) as exc:
             self.fail(exc)
             return
         self._current = saved
@@ -471,7 +558,7 @@ class MembersTab(ConfigTab):
         self.journal(f"保存群友档案：{saved.key}（备注名 {saved.alias or '-'}）")
         self._refresh_members()
         self._select(saved.key)
-        self.notify(f"已保存 {saved.title} 的角色数据")
+        self.notify(f"已保存 {saved.title} 的角色数据与专属人设")
 
     def _delete(self) -> None:
         profile = self._require_current()
@@ -486,7 +573,8 @@ class MembersTab(ConfigTab):
             return
         try:
             removed = memberdata.delete_profile(self._require_config_dir(), profile.key)
-        except (memberdata.MemberDataError, OSError) as exc:
+            self._persona_store_obj().remove(profile.platform, profile.user_id)
+        except (memberdata.MemberDataError, PersonaDataError, OSError) as exc:
             self.fail(exc)
             return
         self.journal(f"删除群友档案：{profile.key}" if removed else "删除群友档案：未找到")
@@ -581,6 +669,91 @@ class MembersTab(ConfigTab):
         self._select(profile.key)
         self.journal(f"移除头像：{profile.key}")
         self.notify("已移除头像缓存；点「保存档案」写入档案")
+
+    # -- 专属人设 -----------------------------------------------------------
+    def _persona_store_obj(self) -> MemberPersonaStore:
+        config_dir = self._require_config_dir()
+        if self._persona_store is None or self._persona_store.config_dir != config_dir:
+            self._persona_store = MemberPersonaStore(config_dir)
+        return self._persona_store
+
+    def _character_store_obj(self) -> CharacterStore:
+        paths = self.require_paths()
+        if self._character_store is None or self._character_store.root != paths.character_root:
+            self._character_store = CharacterStore(paths.character_root)
+        return self._character_store
+
+    def _load_characters(self) -> None:
+        """刷新「人设卡」下拉（所有角色；GUI 以超管身份读）。"""
+        try:
+            store = self._character_store_obj()
+            store.refresh(None)
+            items = store.list(None, _GUI_VIEWER)
+        except (OSError, ValueError):
+            items = []
+        self._characters = {item.id: item.name for item in items}
+        labels = [_NO_PERSONA] + [f"{item.id} · {item.name}" for item in items]
+        self.persona_combo.configure(values=labels)
+
+    def _persona_of(self, profile: MemberProfile) -> MemberPersona | None:
+        return self._personas.get(persona_key(profile.platform, profile.user_id))
+
+    def _selected_persona_id(self) -> str:
+        label = self.persona_var.get().strip()
+        if not label or label == _NO_PERSONA:
+            return ""
+        return label.split(" · ", 1)[0].strip()
+
+    def _draft_persona(self) -> MemberPersona | None:
+        """编辑器里当前选择的人设（用于预览 / 保存）。"""
+        if self._current is None:
+            return None
+        character_id = self._selected_persona_id()
+        if not character_id:
+            return None
+        return MemberPersona(
+            platform=self._current.platform,
+            user_id=self._current.user_id,
+            character_id=character_id,
+            enabled=bool(self.persona_enabled_var.get()),
+        )
+
+    def _load_persona(self, profile: MemberProfile) -> None:
+        """把该成员的专属人设绑定载入编辑器。"""
+        persona = self._persona_of(profile)
+        if persona is None or not persona.character_id:
+            self.persona_var.set(_NO_PERSONA)
+            self.persona_enabled_var.set(False)
+            self.persona_status.configure(text="未绑定专属人设：使用全局 SOUL.md 人设。")
+            return
+        label = ""
+        for candidate in self.persona_combo.cget("values") or []:
+            if str(candidate).split(" · ", 1)[0].strip() == persona.character_id:
+                label = str(candidate)
+                break
+        self.persona_var.set(label or persona.character_id)
+        self.persona_enabled_var.set(bool(persona.enabled))
+        note = "已启用" if persona.enabled else "已关闭（恢复默认）"
+        extra = "" if persona.character_id in self._characters else "；注意：该卡当前不可见"
+        self.persona_status.configure(
+            text=f"已绑定 {persona.character_id}（{note}）{extra}；最近保存 {persona.updated_at or '-'}"
+        )
+
+    def _save_persona(self, profile: MemberProfile) -> None:
+        """保存专属人设绑定；选「不绑定」等于删除绑定。"""
+        store = self._persona_store_obj()
+        character_id = self._selected_persona_id()
+        if not character_id:
+            store.remove(profile.platform, profile.user_id)
+            return
+        store.upsert(
+            MemberPersona(
+                platform=profile.platform,
+                user_id=profile.user_id,
+                character_id=character_id,
+                enabled=bool(self.persona_enabled_var.get()),
+            )
+        )
 
     # -- 路径 ---------------------------------------------------------------
     def _require_config_dir(self) -> str:

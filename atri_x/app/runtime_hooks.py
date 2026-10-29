@@ -11,7 +11,7 @@ from dataclasses import replace
 from typing import Any
 
 from atri_x.app.platform_caller import HookPlatformCallerResolver
-from atri_x.app.platforms import register_cron_platform_hook
+from atri_x.app.platforms import register_connect_notice_hook, register_cron_platform_hook
 from atri_x.app.runtime_support import (
     audit_func,
     log_error as _log_error,
@@ -90,6 +90,15 @@ async def build_hook_service(
             except Exception as exc:  # noqa: BLE001
                 notices.append(f"Hook 注册失败：{exc}")
                 _log_error(foundation.logger, "hook registration failed", error=str(exc))
+            # 1.1.3 修订：上线通知改成内置 Hook，开关在 app.toml [connect_notice]，
+            # 这样私聊/群聊两个落点才能各自独立开关（hooks 规则的 enabled 做不到）。
+            try:
+                register_connect_notice_hook(registrar, cfg)
+            except Exception as exc:  # noqa: BLE001
+                notices.append(f"Hook 注册失败：{exc}")
+                _log_error(
+                    foundation.logger, "connect notice hook registration failed", error=str(exc)
+                )
         return ReloadReport(notices=notices), configs
 
     hook_service = HookControlService(hooks, hook_runtime, load_hooks)

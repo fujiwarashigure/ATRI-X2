@@ -40,7 +40,7 @@ ARCH_ALIASES = {
     "aarch64": "arm64",
     "arm64": "arm64",
 }
-DEFAULT_VERSION = "1.1.2"
+DEFAULT_VERSION = "1.1.3"
 TARGET_UID = 10001
 TARGET_GID = 10001
 

@@ -185,6 +185,27 @@ Fork 会保留原会话，并从指定 assistant 消息位置创建新的上下�
 - 时间口径为"业务时间 = 系统时钟；网络时间只做观测"；`verification=consistent` 表示多来源与本地在容差内一致，**不是**"已校准"。
 - 状态只在受 token 保护的 `/diagnostics`（`time` 段）、`doctor` 与 `/time` 里出现，**不进 `/ready`**。
 
+## 科研研究助理（1.1.3）
+
+`/research` 是科研研究助理的**只读**状态命令（`min_role=user`，群内普通成员可用）；真正的研究
+步骤由 Agent 调用 `research_*` 硬工具完成，命令层不提供"一键跑完整流程"。
+
+| 命令 | 作用 |
+| --- | --- |
+| `/research` / `/research status` | 列出全部研究运行：运行 id、阶段（已立项 / 已检索 / 已筛选 / 已核验 / 已生成引用 / 已出大纲 / 写作中 / 已质检 / 已评审 / 已出报告 / 已导出）、题目与更新时间。 |
+| `/research <运行id>` | 查看指定运行的摘要与产物清单（文献数、筛除数、引用数、字数、各产物文件大小）。运行 id 支持前缀匹配。 |
+| `/research env` | 引擎环境体检：ATRI-X 版本、Python、研究目录、随包引擎与独立 venv 状态、`settings.json`、可选依赖（reportlab / pypdf）与工具入口。**引擎未装好时也能正常回答**。 |
+| `/research open` | 打开研究数据目录（仅超级管理员；避免在服务器上弹窗）。 |
+
+说明：
+
+- 研究数据在 `%APPDATA%\ATRI-X\research`（便携版在包内 `data\appdata\ATRI-X\research`），可用
+  `ATRIX_RESEARCH_HOME` 覆盖；桌面端「研究」选项卡浏览的是同一份目录。
+- 安装版/便携版**随包自带**研究引擎，首次启动自动装到配置目录；源码树用户按
+  [研究助理文档](research.md) 安装。
+- 完整体检（真实网络与缓存）用 `research_doctor` 工具，不是 `/research`；详见
+  [科研研究助理](research.md)。
+
 ## 文件回滚
 `edit_file` 每次成功写入前会在内存里保留该文件上一版内容（每个文件只保留最近一次），仅超级管理员可用 `/rollback` 与内置工具 `rollback_file` 撤销。
 

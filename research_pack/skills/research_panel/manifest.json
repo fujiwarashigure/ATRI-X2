@@ -1,0 +1,34 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "panel",
+  "skill": "research_panel",
+  "title": "",
+  "description": "评审聚合：按五维评分（创新/严谨/清晰/重要/伦理）计算加权总分、分歧与决定，并对同模型评审显式降级声明；不传 reviews 时返回空白评审模板。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "review"
+  ],
+  "timeout_seconds": 90,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "run"
+    ],
+    "properties": {
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。缺省时多数工具要求显式给出。"
+      },
+      "reviews": {
+        "type": "object",
+        "description": "评审数据：{reviews:[{reviewer,independence:'independent'|'same-model',confidence,scores:{originality,rigor,clarity,significance,ethics},comments,required_fixes,recommendation}]}。"
+      }
+    }
+  },
+  "args": {
+    "run": "--run",
+    "reviews": "--reviews"
+  }
+}

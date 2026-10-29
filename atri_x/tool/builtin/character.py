@@ -37,12 +37,19 @@ from atri_x.character import (
     Viewer,
     WriteRequest,
 )
+from atri_x.character.activation import (
+    activate_character,
+    restore_soul,
+    soul_status,
+)
+from atri_x.character.archive import import_text
 from atri_x.delivery import is_http_media_source
 from atri_x.errors import AtriXError, InvalidError
 from atri_x.llm.llm import MessageSegment, SegmentImage, SegmentText, ToolSchema
 from atri_x.media import ID_PREFIX
 from atri_x.media import Input as MediaInput
 from atri_x.media import ValidID, read_all
+from atri_x.memberprofile.persona import MemberPersona, MemberPersonaStore, PersonaDataError
 from atri_x.security import RoleSuperadmin, actor_from_context
 from atri_x.tool.builder import Builder, enum, required
 from atri_x.tool.builtin.common import decode_args, first_non_empty_string
@@ -55,6 +62,9 @@ CHARACTER_READ_NAME = "character_read"
 CHARACTER_SEARCH_NAME = "character_search"
 CHARACTER_MANAGE_NAME = "character_manage"
 CHARACTER_DELETE_NAME = "character_delete"
+#: Python 侧新增：一步导入粘贴文本、把人设卡设为全局 SOUL。
+CHARACTER_IMPORT_NAME = "character_import"
+CHARACTER_ACTIVATE_NAME = "character_activate"
 
 #: 单个角色图片的大小上限。对应 Go ``characterMaxImageBytes``。
 CHARACTER_MAX_IMAGE_BYTES = 10 << 20
@@ -73,21 +83,42 @@ class CharacterTools:
 
     store: Store | None = None
     media: Any = None
+    #: Python 侧新增：``SOUL.md`` 绝对路径（``character_activate`` 用）。
+    soul_path: str = ""
+    #: Python 侧新增：配置目录（``persona_control`` / 导入后按成员激活用）。
+    config_dir: str = ""
+    #: Python 侧新增：普通成员是否允许建卡（``[character_library].allow_user_create``）。
+    allow_user_create: bool = True
 
     def enabled(self) -> bool:
         checker = getattr(self.store, "enabled", None)
         return bool(checker()) if callable(checker) else self.store is not None
 
 
-def new_character_tools(store: Store | None, center: Any) -> list[Any]:
-    """对应 Go ``NewCharacterTools``。"""
-    tools = CharacterTools(store=store, media=center)
+def new_character_tools(
+    store: Store | None,
+    center: Any,
+    *,
+    soul_path: str = "",
+    config_dir: str = "",
+    allow_user_create: bool = True,
+) -> list[Any]:
+    """对应 Go ``NewCharacterTools``（外加 Python 侧新增的两个工具）。"""
+    tools = CharacterTools(
+        store=store,
+        media=center,
+        soul_path=soul_path,
+        config_dir=config_dir,
+        allow_user_create=allow_user_create,
+    )
     return [
         CharacterListTool(tools),
         CharacterReadTool(tools),
         CharacterSearchTool(tools),
         CharacterManageTool(tools),
         CharacterDeleteTool(tools),
+        CharacterImportTool(tools),
+        CharacterActivateTool(tools),
     ]
 
 
@@ -181,7 +212,7 @@ class CharacterListTool:
                 lines.append(f"...[已截断，还有 {len(filtered) - limit} 个]")
                 break
             lines.append("- " + format_character_summary(item))
-        lines.append("提示：发送 @char:<id> 可临时启用该角色。")
+        lines.append("提示：发送 @char:<id> 可临时启用该角色；长期启用用 persona_control。")
         return Result(content="\n".join(lines))
 
 
@@ -578,6 +609,18 @@ class CharacterManageTool:
                 return Result(content=character_write_error(args.id, exc))
             return Result(content=f"已删除角色 {args.id} 的图片 {args.image_name}。")
         if operation in ("create", "update"):
+            if (
+                operation == "create"
+                and not viewer.superadmin
+                and not self.deps.allow_user_create
+                and not _character_exists(self.deps.store, ctx, args.id)
+            ):
+                return Result(
+                    content=(
+                        "普通成员建卡功能已关闭（[character_library].allow_user_create=false），"
+                        "请联系超级管理员创建角色卡。"
+                    )
+                )
             write_req = WriteRequest(
                 id=args.id,
                 name=args.name,
@@ -766,6 +809,298 @@ class CharacterDeleteTool:
         except AtriXError as exc:
             return Result(content=character_write_error(args.id, exc))
         return Result(content=f"已删除角色 {args.id}。")
+
+
+# ---------------------------------------------------------------------------
+# import（Python 侧新增）：粘贴一段人设文本，一步建卡 / 启用
+# ---------------------------------------------------------------------------
+@dataclass
+class CharacterImportArgs:
+    """``character_import`` 参数（Python 侧新增，Go 无对应）。"""
+
+    text: str = ""
+    id: str = ""
+    name: str = ""
+    description: str = ""
+    tags: list[str] = field(default_factory=list)
+    visibility: str = ""
+    #: "none" / "soul"（全局系统人设，需超管）/ "member"（绑定当前成员）。
+    activate: str = ""
+    docs: dict[str, str] = field(default_factory=dict)
+
+
+class CharacterImportTool:
+    """把用户粘贴的人设文本直接建卡，可顺带启用。
+
+    1.1.3 的真实故障：用户贴长文说"加入人设卡并启用"，模型没有直接入口，改去翻
+    ``app.toml`` / ``SOUL.md``，10 轮工具上限烧完也没有建卡。这个工具就是为了让
+    这一类请求**一次调用**完成：建卡（``profile.md`` 写正文），再按 ``activate``
+    决定是否设为全局 SOUL 或绑定当前成员。
+    """
+
+    def __init__(self, deps: CharacterTools | None = None) -> None:
+        self.deps = deps if deps is not None else CharacterTools()
+
+    def name(self) -> str:
+        return CHARACTER_IMPORT_NAME
+
+    def info_value(self) -> Info:
+        return (
+            Builder(CHARACTER_IMPORT_NAME)
+            .description(
+                "一步导入：把一段人设文本保存成角色卡（profile.md），可选同时启用。"
+                "activate=none 只建卡；activate=member 绑定为当前成员的专属人设；"
+                "activate=soul 设为全局系统人设 SOUL.md（仅超级管理员）。"
+            )
+            .risk(RiskLow)
+            .owner_scoped()
+            .tags("character")
+            .depends_on(CHARACTER_MANAGE_NAME)
+            .build_info()
+        )
+
+    def info(self) -> Info:
+        return self.info_value()
+
+    def schema(self) -> ToolSchema:
+        return (
+            Builder(CHARACTER_IMPORT_NAME)
+            .description("把粘贴的人设文本一步保存成角色卡，可选同时启用。")
+            .string("text", "人设正文（会写进 profile.md）。", required())
+            .string("id", "可选：角色 id（小写字母/数字/-/_/.）；留空按名称自动生成。")
+            .string("name", "可选：角色名；留空取正文第一个标题。")
+            .string("description", "可选：一句话简介。")
+            .string_array("tags", "可选：分类 tag。")
+            .string("visibility", "public 或 private；普通用户恒为 private。")
+            .string(
+                "activate",
+                "可选：none（默认，只建卡）、member（绑定为当前成员的专属人设）、"
+                "soul（设为全局系统人设，仅超级管理员）。",
+                enum("none", "member", "soul"),
+            )
+            .object(
+                "docs",
+                "可选：额外文档，key 为 world / greeting / examples / notes/<name>。",
+            )
+            .build_schema()
+        )
+
+    async def call(self, ctx: Any, req: CallRequest) -> Result:
+        if not self.deps.enabled():
+            return Result(content="角色素材库未配置。")
+        args = decode_args(req.arguments, CharacterImportArgs, self.name())
+        viewer = character_viewer(ctx)
+        if not viewer.superadmin and not self.deps.allow_user_create:
+            return Result(
+                content=(
+                    "普通成员建卡功能已关闭（[character_library].allow_user_create=false）。"
+                    "可以先把正文发给超级管理员，或让他打开该开关。"
+                )
+            )
+        try:
+            result = import_text(
+                self.deps.store,
+                ctx,
+                args.text,
+                viewer,
+                character_id=args.id,
+                name=args.name,
+                description=args.description,
+                tags=list(args.tags or []),
+                docs=dict(args.docs or {}),
+                visibility=args.visibility,
+            )
+        except AtriXError as exc:
+            return Result(content=f"导入失败：{exc}")
+        item = result.character
+        lines = [
+            f"角色卡已{'创建' if result.created else '更新'}：{item.name}（id={item.id}，"
+            f"可见性 {item.visibility}，文档 {len(item.docs or {})} 个）。"
+        ]
+        lines.extend(result.warnings or [])
+        lines.extend(self._activate(ctx, viewer, item, args.activate or "none"))
+        lines.append(
+            "说明：@char:<id> 只对当前消息生效；长期启用请用 persona_control 或 "
+            "character_activate。"
+        )
+        return Result(content="\n".join(lines))
+
+    def _activate(
+        self, ctx: Any, viewer: Viewer, item: Character, activate: str
+    ) -> list[str]:
+        mode = (activate or "none").strip().lower()
+        if mode in ("", "none"):
+            if not viewer.superadmin:
+                return []
+            return ["如需设为全局人设：character_activate(operation=\"activate\", id=...)。"]
+        if mode == "soul":
+            if not viewer.superadmin:
+                return ["activate=soul 需要超级管理员权限，本次只建卡、未改 SOUL.md。"]
+            if not (self.deps.soul_path or "").strip():
+                return ["SOUL.md 路径未配置（[soul].path），未激活。"]
+            try:
+                result = activate_character(
+                    self.deps.store, ctx, item.id, self.deps.soul_path, viewer
+                )
+            except (AtriXError, OSError, ValueError) as exc:
+                return [f"设为全局人设失败：{exc}"]
+            lines = [
+                f"已把角色 {result.character.name}（{result.character.id}）设为全局系统人设"
+                f"（SOUL.md），下一轮对话生效。"
+            ]
+            if result.backup_path:
+                lines.append(f"旧 SOUL.md 备份：{result.backup_path}")
+            return lines
+        if mode == "member":
+            platform, user_id = _current_member(ctx)
+            if not platform or not user_id:
+                return ["activate=member 失败：取不到当前用户身份。"]
+            if not (self.deps.config_dir or "").strip():
+                return ["activate=member 失败：配置目录未知。"]
+            try:
+                store = MemberPersonaStore(self.deps.config_dir)
+                store.upsert(
+                    MemberPersona(
+                        platform=platform,
+                        user_id=user_id,
+                        character_id=item.id,
+                        enabled=True,
+                    )
+                )
+            except (PersonaDataError, OSError) as exc:
+                return [f"绑定专属人设失败：{exc}"]
+            return [
+                f"已把 {item.name}（{item.id}）绑定为 {user_id} 的专属人设，"
+                "之后与这个成员的对话都会按该角色进行；关闭用 "
+                "persona_control(operation=\"disable\")。"
+            ]
+        return ["activate 只能是 none、member 或 soul，本次只建卡。"]
+
+
+# ---------------------------------------------------------------------------
+# activate（Python 侧新增）：把人设卡设为全局系统人设 SOUL.md
+# ---------------------------------------------------------------------------
+@dataclass
+class CharacterActivateArgs:
+    """``character_activate`` 参数（Python 侧新增，Go 无对应）。"""
+
+    operation: str = ""
+    id: str = ""
+
+
+class CharacterActivateTool:
+    """全局系统人设（SOUL.md）的激活 / 回滚 / 状态。仅超级管理员。"""
+
+    def __init__(self, deps: CharacterTools | None = None) -> None:
+        self.deps = deps if deps is not None else CharacterTools()
+
+    def name(self) -> str:
+        return CHARACTER_ACTIVATE_NAME
+
+    def info_value(self) -> Info:
+        return (
+            Builder(CHARACTER_ACTIVATE_NAME)
+            .description(
+                "把某张人设卡设为**全局**系统人设（改写 SOUL.md，对所有没有专属人设的"
+                "用户生效），或回滚到上一次备份。仅超级管理员可用；改之前会自动备份。"
+            )
+            .risk(RiskHigh)
+            .tags("character")
+            .depends_on(CHARACTER_MANAGE_NAME)
+            .build_info()
+        )
+
+    def info(self) -> Info:
+        return self.info_value()
+
+    def schema(self) -> ToolSchema:
+        return (
+            Builder(CHARACTER_ACTIVATE_NAME)
+            .description("管理全局系统人设 SOUL.md（激活 / 回滚 / 状态）。")
+            .string(
+                "operation",
+                "activate（把角色卡写成 SOUL.md）、restore（回滚到上次备份）、status（查看状态）。",
+                required(),
+                enum("activate", "restore", "status"),
+            )
+            .string("id", "activate 用：角色卡 id。")
+            .build_schema()
+        )
+
+    async def call(self, ctx: Any, req: CallRequest) -> Result:
+        if not self.deps.enabled():
+            return Result(content="角色素材库未配置。")
+        viewer = character_viewer(ctx)
+        if not viewer.superadmin:
+            return Result(content="只有超级管理员可以修改全局系统人设（SOUL.md）。")
+        soul_path = (self.deps.soul_path or "").strip()
+        if not soul_path:
+            return Result(content="SOUL.md 路径未配置（app.toml 的 [soul].path）。")
+        args = decode_args(req.arguments, CharacterActivateArgs, self.name())
+        operation = (args.operation or "").strip().lower()
+        if operation == "activate":
+            character_id = (args.id or "").strip()
+            if not character_id:
+                return Result(content="activate 需要 id：先用 character_list 查角色 id。")
+            try:
+                result = activate_character(
+                    self.deps.store, ctx, character_id, soul_path, viewer
+                )
+            except AtriXError as exc:
+                return Result(content=character_write_error(character_id, exc))
+            except (OSError, ValueError) as exc:
+                return Result(content=f"写入 SOUL.md 失败：{exc}")
+            return Result(
+                content=(
+                    f"已把 {result.character.name}（{result.character.id}）设为全局系统人设"
+                    f"（SOUL.md）。\n旧内容备份：{result.backup_path}\n"
+                    "下一轮对话生效；回滚用 character_activate(operation=\"restore\")。"
+                )
+            )
+        if operation == "restore":
+            try:
+                restored = restore_soul(soul_path)
+            except OSError as exc:
+                return Result(content=f"回滚失败：{exc}")
+            if not restored:
+                return Result(content="没有可回滚的 SOUL.md 备份（SOUL.md.bak）。")
+            return Result(content="已把 SOUL.md 回滚到上一次备份，下一轮对话生效。")
+        if operation == "status":
+            status = soul_status(soul_path)
+            backup = "有" if status.backup_exists else "无"
+            return Result(
+                content=(
+                    f"SOUL.md：{status.soul_path}\n"
+                    f"存在：{'是' if status.exists else '否'}，大小 {status.size} bytes\n"
+                    f"备份：{backup}（{status.backup_size} bytes）"
+                )
+            )
+        return Result(content="operation 必须是 activate、restore 或 status。")
+
+
+def _current_member(ctx: Any) -> tuple[str, str]:
+    """当前发言人 ``(平台, 平台用户 id)``；取不到返回 ``("", "")``。"""
+    actor, ok = actor_from_context(ctx)
+    if not ok or actor is None:
+        return "", ""
+    platform = (getattr(actor, "platform", "") or "").strip().lower()
+    user_id = (getattr(actor, "platform_user_id", "") or "").strip()
+    if not user_id:
+        raw = str(getattr(actor, "id", "") or "").strip()
+        if ":" in raw:
+            prefix, rest = raw.split(":", 1)
+            platform = platform or prefix
+            user_id = rest
+    return platform, user_id
+
+
+def _character_exists(store: Store, ctx: Any, character_id: str) -> bool:
+    """角色 id 是否已存在（用来区分"新建"与"改自己的卡"）。"""
+    try:
+        store.get(ctx, character_id)
+    except AtriXError:
+        return False
+    return True
 
 
 def _as_int(value: Any) -> int:

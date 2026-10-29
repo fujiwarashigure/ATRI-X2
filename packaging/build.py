@@ -40,6 +40,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -640,6 +641,95 @@ def verify_tzdata_payload(artifact: Path, *, sample_zone: str = _TZ_SAMPLE_ZONE)
     return 0
 
 
+def _parse_json_output(result: dict) -> dict:
+    """从一次 ``run_exe`` 的标准输出里取 JSON（容忍前后有日志行）。"""
+    text = (result.get("stdout") or "").strip()
+    if not text:
+        return {}
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        payload = {}
+    if isinstance(payload, dict):
+        return payload
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            candidate = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(candidate, dict):
+            return candidate
+    return {}
+
+
+def verify_research_pack(artifact: Path) -> int:
+    """冻结产物里的随包研究引擎：装得进、技能生成得对、引擎真能跑。
+
+    三步都必须在**产物**上跑（源码测试证明不了 PyInstaller 是否把
+    ``research_pack/`` 和 ``-m`` 转发收全了）：
+
+    1. ``-m atri_x.research.bootstrap --check``：把引擎/技能装进临时配置目录；
+    2. 检查装出来的技能数（15）与 ``ATRIX_SKILL.toml``（12 个硬工具）；
+    3. ``-m atri_x.research.runner --home <home> version``：冻结进程从磁盘加载引擎并执行。
+    """
+    # 强制走"第一次启动"：清掉上次核验留下的配置，证明产物自己会装。
+    shutil.rmtree(Path(DEFAULT_WORK).parent / "pyinstaller-verify" / "appdata" / "ATRI-X", ignore_errors=True)
+    bootstrap = run_exe(
+        artifact,
+        ["-m", "atri_x.research.bootstrap", "--check"],
+        timeout=180,
+        scratch_home=True,
+    )
+    payload = _parse_json_output(bootstrap)
+    state = str(payload.get("state") or "")
+    if bootstrap["code"] != 0 or state not in ("installed", "up-to-date"):
+        _err("verify: 随包研究引擎安装失败（state=%r, exit=%d）" % (state, bootstrap["code"]))
+        _err(_snippet(bootstrap))
+        _err(
+            "hint: 检查 packaging/atri-x.spec 是否把 research_pack/ 收进 datas，"
+            "以及 atri_x/research/bootstrap.py 是否打进 PYZ（collect_submodules('atri_x')）"
+        )
+        return 1
+    skills = [str(item) for item in payload.get("skills") or []]
+    commands = payload.get("commands") or {}
+    commands = commands if isinstance(commands, dict) else {}
+    home = str(payload.get("home") or "")
+    engine_version = str(payload.get("engine_version") or "")
+    if len(skills) != 15 or len(commands) != 12:
+        _err(
+            "verify: 随包研究技能数量不对（skills=%d，期望 15；硬工具=%d，期望 12）"
+            % (len(skills), len(commands))
+        )
+        return 1
+    if not home or not (Path(home) / "engine" / "atrix_research" / "__init__.py").is_file():
+        _err("verify: 研究引擎没有落到配置目录（home=%r）" % home)
+        return 1
+
+    runner = run_exe(
+        artifact,
+        ["-m", "atri_x.research.runner", "--home", home, "version"],
+        timeout=120,
+        scratch_home=True,
+    )
+    engine_payload = _parse_json_output(runner)
+    if runner["code"] != 0 or not engine_payload.get("engine"):
+        _err("verify: 冻结进程跑不起来随包研究引擎（exit=%d）" % runner["code"])
+        _err(_snippet(runner))
+        _err(
+            "hint: 引擎是数据文件（research_pack/engine），由 sys.path 追加后导入；"
+            "报错信息会说明是缺 datas 还是依赖缺失"
+        )
+        return 1
+    _out(
+        "  research  : ok (随包引擎 %s / %d 技能 / %d 硬工具，-m 可执行)"
+        % (engine_version or engine_payload.get("engine"), len(skills), len(commands))
+    )
+    return 0
+
+
 def verify(
     artifact: Path,
     name: str,
@@ -647,6 +737,7 @@ def verify(
     with_kernel: bool = False,
     with_gui: bool = False,
     with_pillow: bool = False,
+    with_research: bool = True,
 ) -> int:
     """产物级核验：跑 exe 本身，而不是看构建退出码。
 
@@ -656,6 +747,7 @@ def verify(
     * ``config check``：证明 ``assets_data`` 真的进包了、冻结路径能解出默认配置
       （漏 ``--add-data`` 时这一步才会失败）；
     * ``-m <模块>``：证明 ``runpy`` 转发可用（诊断入口都靠它）；
+    * :func:`verify_research_pack`：随包研究引擎装得进、15 个技能生成得对、引擎真能跑；
     * ``-m atri_x.sidecar status``：内置运行时是否可解析（没内置时跳过）；
     * 窗口版 ``--selftest``：证明 tkinter 真的进包、Tk 能建窗口（只看退出码，
       窗口版没有控制台）；
@@ -726,6 +818,12 @@ def verify(
         _err(_snippet(module))
         return 1
     _out("  module    : ok (-m dispatch works)")
+
+    if with_research:
+        if verify_research_pack(artifact) != 0:
+            return 1
+    else:
+        _out("  research  : skipped (with_research=False)")
 
     sidecar = run_exe(artifact, ["-m", "atri_x.sidecar", "status", "--json"], timeout=180)
     sidecar_text = (sidecar["stdout"] or "").strip()

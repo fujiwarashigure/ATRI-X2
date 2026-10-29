@@ -317,10 +317,17 @@ class ToolRuntimeMixin:
         / ``set_tool_provider`` / ``set_tool_tag_config`` 都会调它），因此 Python 侧
         新增的提示词来源必须在这里再挂一次，否则它们只存在于
         ``atri_x/agent/prompt.py`` 的构造期装配里、真实运行期会被这里覆盖丢掉。
-        当前 Python 侧新增来源：群友档案（``member_profile_store``）与表情提示
+        当前 Python 侧新增来源：成员专属人设（``member_persona_store``，顶掉 SOUL）、
+        群友档案（``member_profile_store``）、人设卡操作指引（``characters``）与表情提示
         （``reactions_config``）。
         """
         try:  # 同僚模块可能尚未落地 —— 延迟导入
+            from atri_x.agent.character_guide_prompt import (
+                CharacterGuideSystemPromptSource,
+            )
+            from atri_x.agent.member_persona_prompt import (
+                MemberPersonaSystemPromptSource,
+            )
             from atri_x.agent.member_profile_prompt import (
                 MemberProfileSystemPromptSource,
             )
@@ -338,6 +345,13 @@ class ToolRuntimeMixin:
         state = tool_runtime_state(host)
         manager = SystemPromptManager()
         manager.add_source(SoulSystemPromptSource(getattr(host, "soul", None)))
+        # 成员专属人设必须紧跟 SOUL：它用 replaces=("soul",) 顶掉全局身份。
+        member_personas = getattr(host, "member_persona_store", None)
+        characters = getattr(host, "characters", None)
+        if member_personas is not None and characters is not None:
+            manager.add_source(
+                MemberPersonaSystemPromptSource(member_personas, characters)
+            )
         member_profiles = getattr(host, "member_profile_store", None)
         if member_profiles is not None:
             manager.add_source(MemberProfileSystemPromptSource(member_profiles))
@@ -352,6 +366,9 @@ class ToolRuntimeMixin:
         if reactions is not None and getattr(reactions, "enabled", False):
             manager.add_source(ReactionSystemPromptSource(reactions))
         manager.add_source(ConversationMetaSystemPromptSource())
+        # 人设卡操作指引：让"导入人设 / 切换人设"这类请求直接走工具，不再翻文件。
+        if characters is not None:
+            manager.add_source(CharacterGuideSystemPromptSource(characters))
         builder = getattr(host, "prompt_builder", None)
         if builder is not None:
             builder.system = manager

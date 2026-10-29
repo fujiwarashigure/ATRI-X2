@@ -209,8 +209,9 @@ class FullWiringTest(_TmpDirTest):
         self.assertEqual(sorted(names - expected), [], "extra tools")
         self.assertEqual(names, expected)
         # Go ``register.go`` 注册的全部工具数 + Python 新增（``fetch_message`` /
-        # ``get_current_time``）。1.0.10：条件组不变，无条件组多一个时间查询工具。
-        self.assertEqual(len(REGISTERED_TOOLS), 51)
+        # ``get_current_time`` / ``character_import`` / ``character_activate`` /
+        # ``persona_control``）。1.1.3 修订：角色库一组新增 3 个工具。
+        self.assertEqual(len(REGISTERED_TOOLS), 54)
         self.assertEqual(len(names), len(REGISTERED_TOOLS))
 
     def test_no_dependency_degraded_silently(self) -> None:

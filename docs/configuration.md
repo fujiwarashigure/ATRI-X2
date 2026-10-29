@@ -936,11 +936,21 @@ cli = ["local"]
 ```
 
 - 普通用户只能发现和调用允许风险范围内的工具；工具通过权限校验后，`high`/`critical` 风险调用还需要当前用户确认。
+- `[tools].max_rounds_per_turn`：单轮最多工具轮次（默认 `2`，模板值 `10`）。撞上限时这一轮会强制结束并让模型总结，不再执行后续工具调用；需要模型连续多步操作时可调大。桌面端「权限」页可直接改。
 - `OwnerScoped` 工具只能访问调用者自己的数据，因此普通用户可以调用；其中 `high`/`critical` 风险操作仍需本人确认。
 - 超级管理员的确认阈值由 `superadmin_confirm_risk` 配置。
 - 后台（cron / Atrinis）无人值守的 shell **默认拒绝**：只有"整条命令判为 `low` + 真实命令名都在白名单里"才会自动执行；`background_shell_allow` 不写时用内置只读表（`ls` / `cat` / `git status` 这类），需要跑脚本或构建命令时把它加进白名单。风险分级会解开 `env` / `command` / `nohup` / `timeout` / `nice` / `setsid` / `xargs` / `busybox` / `chroot` / `ssh` / `watch` 等包装器，并递归解析 `bash -c` / `eval` / `trap` / `find -exec` / `awk 'system(...)'` 里的脚本文本，因此包装器遮不住危险命令。Windows（PowerShell）主机没有 bash AST 可判，后台默认直接拒绝。
 - `background_shell_allow_all = true` 会恢复旧行为（只拦 `critical`，其余自动确认执行）。它等于把无人值守的 shell 交给模型自行决定，除非明确知情否则不要打开。
 - CLI 默认本地用户 `local` 是超级管理员。
+- 超级管理员按**平台 + 平台用户 id** 配置，只有 `[security.superadmins]` 里列出的身份才是超管；**平台群主 / 群管理员不会自动成为超管**。例如 QQ 群想让某人是超管：
+
+  ```toml
+  [security.superadmins]
+  cli = ["local"]
+  qqonebot = ["10001", "10002"]
+  ```
+
+  桌面端「权限」页有同样的名单编辑器（含各平台说明），保存后需要「服务 → 重启后台服务」生效。启动日志里出现 `qqonebot superadmins are not configured` 就说明该平台目前没有任何超管。
 - `tool_tags.toml` 用来配置 `@tool:<tag>` 可注入的工具组，以及 tag 激活后追加到 system prompt 的工具使用策略。
 - 如果向普通用户开放生图，建议保持 `services.toml` 的 `[image_generation] superadmin_only = true`，或在中转站按 Key 设置额度、限速和每日上限；详见[生图服务](image-generation.md#权限与费用)。
 
@@ -1314,6 +1324,15 @@ no_reply_streak_max = 3     # 连续"被叫到没回应"达该次数后进入冷
 - **不做**：`readThroughSeq` / 未读浏览 / `set_wake_condition` 工具（需要新增群聊协议与工具面，属于更大的改动）；也不做"追问提示抑制"（需要提示词侧配合，本版未接）。
 - 这是 `app.toml` 配置，改动需要重启后台服务；桌面端暂未提供该面板。
 
+### 私聊回声保护（1.1.3 修订，始终开启，无配置键）
+
+私聊消息默认**每条都唤醒**，但有两类"非真人输入"会被静默（只表示不叫醒模型，消息照常入库）：
+
+- **客户端自动应答**：消息以 `[自动回复]` / `[自动回覆]` / `[自動回覆]` / `[Auto-Reply]` / `[autoreply]` 等固定前缀开头；
+- **复读**：同一个人在同一私聊会话里连续发送**完全相同**的文本达到 3 次（120 秒窗口内）；对方发来不同内容后立即恢复。
+
+作用：避免"机器人回一条 → 对方 QQ 的离开/忙碌自动回复回一条 → 机器人再回一条"的死循环（真机事故：4 分钟互相刷了 20 轮）。CLI / 本地内核不算远端用户，不启用复读保护。这段逻辑与 `[participation]` 无关，**不受该段开关影响**。
+
 ## 群知识库
 
 `app.toml` 的 `[group_knowledge]` 控制本地确定性群知识库 / FAQ 的全局开关和写入上限：
@@ -1466,10 +1485,13 @@ GET /plugins/learning?platform=qqonebot&scope_id=group:123456
 [character_library]
 enabled = true
 root = "characters"
+# 普通成员是否允许建卡（默认 true）；关闭后只有超管能新建/导入，改自己的卡不受影响
+allow_user_create = true
 ```
 
 - `enabled`：默认 `true`；为 `false` 时不注册角色工具，`@char:` 也会被忽略。
 - `root`：角色库根目录。相对路径以 `app.toml` 所在目录为基准，默认 `characters`，即 `data/config/atri-x/characters/`。
+- `allow_user_create`：默认 `true`。设为 `false` 只限制**新建 / 导入**角色卡；成员修改自己已有的卡仍允许。桌面端「权限」页有同名开关，改完重启后台服务生效。
 
 目录结构、可见性、工具和 `@char:<id>` 用法见 [角色素材库](character-library.md)。
 
@@ -1968,6 +1990,29 @@ stream_edit_interval_milliseconds = 250
 - 高风险工具确认消息会附带 Telegram inline keyboard，点击按钮会转换为 `/confirm`、`/reject` 等现有确认命令。
 - `security.superadmins.telegram` 填 Telegram 用户 ID 或可直接发送的私聊 chat ID，用于超级管理员权限与通知投递。
 
+
+## 上线通知 connect_notice
+
+平台连上 OneBot 后发一条「上线提示」。**私聊与群聊是两个独立开关**，互不影响
+（1.1.3 修订新增；此前只有一条写在 `plugins/hooks.toml` 里的私聊规则，既不能单独关私聊、
+也发不到群里）。
+
+```toml
+[connect_notice]
+private = true          # 私聊：给 [security.superadmins].qqonebot 里的超管发一条
+group = true            # 群聊：给下面 groups 列出的每个 QQ 群发一条
+groups = ["123456789"]  # QQ 群号；开关打开但列表为空 = 不发群通知（不猜群、不群发）
+text = ""               # 文案；留空用内置「ATRI-X 已连接 QQ OneBot。」
+```
+
+- 目前只对 `qqonebot` 平台生效（`groups` 就是 QQ 群号）。群号写纯数字即可，
+  也接受从日志里复制的 `qqonebot:group:123` / `group:123`（会自动剥前缀、去重）。
+- `private = true` 但该平台没配超管时，私聊分支自动跳过，不影响群通知。
+- 通知只在**平台连接成功**时发一次（每次重连都会发，与旧行为一致）；不经过
+  `hooks.toml`。升级上来的旧配置如果还留着 `notify_qqonebot_connected` 规则，
+  请删掉/注释——那条规则和本段会重复发送。
+- 桌面端「在线」页的「上线通知」控件就是写这一段（两个复选框 + 群号输入框）。
+  改完需要**重启后台服务**生效。
 
 ## 工具调用进度提示 tool_preview
 

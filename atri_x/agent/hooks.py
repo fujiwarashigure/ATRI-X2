@@ -12,7 +12,8 @@ from __future__ import annotations
 import logging as std_logging
 from typing import Any, Protocol, runtime_checkable
 
-from atri_x.delivery import Notice, Output, Target, text as text_output
+from atri_x.delivery import Notice, Output, Target, split_outputs_by_target
+from atri_x.delivery import text as text_output
 from atri_x.hook import (
     ActorContext,
     Event,
@@ -266,16 +267,19 @@ async def handle_platform_connected(agent: Any, ctx: Any, platform_name: str) ->
     except BaseException:  # noqa: BLE001 - hook 管理器已经记过日志
         return
     if event.outputs:
-        try:
-            await agent.send_outputs(ctx, event.outputs)
-        except BaseException as exc:  # noqa: BLE001
-            logger = getattr(agent, "logger", None)
-            if logger is not None:
-                logger.warn(
-                    "hook notice send failed",
-                    point=str(PointPlatformConnected),
-                    error=str(exc),
-                )
+        # 一个 Hook 事件可能被多条规则追加不同落点的输出；一批输出只能有一个显式
+        # target，所以先按 target 拆批，再逐批发送（1.1.3 修订：上线通知私聊+群聊）。
+        for batch in split_outputs_by_target(event.outputs):
+            try:
+                await agent.send_outputs(ctx, batch)
+            except BaseException as exc:  # noqa: BLE001
+                logger = getattr(agent, "logger", None)
+                if logger is not None:
+                    logger.warn(
+                        "hook notice send failed",
+                        point=str(PointPlatformConnected),
+                        error=str(exc),
+                    )
 
 
 def hook_session(session: Session | None) -> SessionContext:

@@ -76,6 +76,10 @@ class ToolRuntimeOptions:
     resident_memory_policy: Any = None
     character_enabled: bool = False
     character_root: str = ""
+    #: 普通成员是否允许建卡（``[character_library].allow_user_create``，默认 true）。
+    character_allow_user_create: bool = True
+    #: ``SOUL.md`` 绝对路径（``character_activate`` 工具写全局人设用）。
+    soul_path: str = ""
     artist_library_enabled: bool = False
     artist_library_root: str = ""
     artist_metadata_store: Any = None
@@ -178,6 +182,9 @@ def build_tool_runtime(opts: ToolRuntimeOptions) -> ToolRuntime:
             runtime_info=info,
             resident_memory_store=resident_memory_store,
             character_store=character_store,
+            character_allow_user_create=opts.character_allow_user_create,
+            soul_path=opts.soul_path,
+            config_dir=opts.config_dir,
             image_profiles=image_profiles,
             default_image_profile=default_image_profile,
             image_limiter=image_limiter,

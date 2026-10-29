@@ -15,6 +15,10 @@
 
 状态只存在进程内存里（重启清空），不做持久化 —— 参与度是短周期信号，
 持久化反而会把"昨天没人理"带到今天。
+
+此外（1.1.3 修订）本模块还承载**私聊回声保护**：识别客户端自动应答前缀
+（``[自动回复]`` 等）与连续复读，避免机器人被对方客户端的自动回复带进
+"你回一条、它自动回一条"的死循环（见 :func:`suppress_private_echo`）。
 """
 
 from __future__ import annotations
@@ -203,6 +207,131 @@ def reset(agent: Any, ctx: Any = None) -> int:
     """清空参与状态（``ctx`` 为空时清全部）；返回清掉的条数。"""
     with _lock(agent):
         states = _states(agent)
+        if ctx is None:
+            count = len(states)
+            states.clear()
+            return count
+        key = scope_key(agent, ctx)
+        if key and states.pop(key, None) is not None:
+            return 1
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# 私聊回声保护（1.1.3 修订）：防止机器人和"自动回复"互相回成死循环
+# ---------------------------------------------------------------------------
+# 背景：QQ 等客户端在用户离开时可自动回复固定文案（如
+# ``[自动回复]你好，我现在有事不在，一会再和你联系。``）。私聊消息默认
+# 每条都唤醒模型，于是"机器人发一条 → 对方自动回一条 → 机器人再回一条"
+# 会无限循环，既刷屏也烧 token。这里只做两件事，且只作用于私聊：
+#
+# 1. 固定前缀识别：``[自动回复]`` / ``[Auto-Reply]`` 这类客户端自动应答
+#    一律不唤醒（消息照常入库）；
+# 2. 复读保护：同一个人在同一会话里连续发送**完全相同**的文本达到
+#    ``ECHO_REPEAT_LIMIT`` 次（``ECHO_WINDOW_SECONDS`` 窗口内）后进入静默，
+#    直到对方发来不同内容为止。CLI / 本地内核不算远端用户，不启用复读保护。
+
+#: 客户端自动应答的固定前缀（统一小写比较）。
+AUTO_REPLY_PREFIXES = (
+    "[自动回复]",
+    "[自动回覆]",
+    "[自動回覆]",
+    "[auto-reply]",
+    "[auto reply]",
+    "[autoreply]",
+)
+
+#: 连续多少条完全相同的私聊文本后开始静默。
+ECHO_REPEAT_LIMIT = 3
+
+#: 复读计数的有效窗口（秒）；超过窗口重新计数。
+ECHO_WINDOW_SECONDS = 120.0
+
+#: 不启用复读保护的平台（本地交互不算"远端有人在刷屏"）。
+_ECHO_REPEAT_EXEMPT_PLATFORMS = ("", "cli", "atrinis")
+
+
+@dataclass
+class EchoState:
+    """一个私聊会话的复读计数。"""
+
+    text: str = ""
+    count: int = 0
+    first_at: float = 0.0
+
+
+def looks_like_auto_reply(text: str) -> bool:
+    """文本是否以客户端自动应答的固定前缀开头。"""
+    value = (text or "").strip().lower()
+    if value == "":
+        return False
+    for prefix in AUTO_REPLY_PREFIXES:
+        if value.startswith(prefix):
+            return True
+    return False
+
+
+def _echo_lock(agent: Any) -> threading.Lock:
+    lock = getattr(agent, "echo_guard_mu", None)
+    if lock is None:
+        lock = threading.Lock()
+        agent.echo_guard_mu = lock
+    return lock
+
+
+def _echo_states(agent: Any) -> dict[str, EchoState]:
+    states = getattr(agent, "echo_guard_states", None)
+    if states is None:
+        states = {}
+        agent.echo_guard_states = states
+    return states
+
+
+def suppress_private_echo(
+    agent: Any, ctx: Any, text: str, now: float | None = None
+) -> bool:
+    """这条私聊消息是否应当被静默（不叫醒模型）。
+
+    * 客户端自动应答（``[自动回复]`` 前缀）→ 恒为 ``True``；
+    * 同一会话连续复读完全相同文本达到上限 → ``True``；
+    * 其余情况 → ``False``（保持原来的"私聊必回"行为）。
+    """
+    value = (text or "").strip()
+    if value == "":
+        return False
+    if looks_like_auto_reply(value):
+        return True
+    key = scope_key(agent, ctx)
+    if key == "":
+        return False
+    platform = ""
+    reader = getattr(agent, "scope", None)
+    if callable(reader):
+        try:
+            platform = str(getattr(reader(ctx), "platform", "") or "").strip().lower()
+        except Exception:  # noqa: BLE001 - 取不到平台就按普通平台处理
+            platform = ""
+    if platform in _ECHO_REPEAT_EXEMPT_PLATFORMS:
+        return False
+    now = time.monotonic() if now is None else now
+    with _echo_lock(agent):
+        states = _echo_states(agent)
+        state = states.get(key)
+        if (
+            state is None
+            or state.text != value
+            or now - state.first_at > ECHO_WINDOW_SECONDS
+        ):
+            states[key] = EchoState(text=value, count=1, first_at=now)
+            return False
+        state.count += 1
+        return state.count >= ECHO_REPEAT_LIMIT
+
+
+def reset_echo_guard(agent: Any, ctx: Any = None) -> int:
+    """清空复读计数（``ctx`` 为空时清全部）；返回清掉的条数。"""
+    with _echo_lock(agent):
+        states = _echo_states(agent)
         if ctx is None:
             count = len(states)
             states.clear()

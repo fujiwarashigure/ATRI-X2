@@ -266,6 +266,36 @@ def split_by_delivery_timing(outputs: Sequence[Output] | None) -> tuple[list[Out
     return immediate, deferred
 
 
+def split_outputs_by_target(outputs: Sequence[Output] | None) -> list[list[Output]]:
+    """按显式 target 把一批输出拆成若干批（同 target 内保持原顺序）。
+
+    为什么需要：:func:`validate_outputs_target` 规定**一批输出只能有一个显式
+    target**；而一个 Hook 事件可能由多条规则 / 内置 Hook 追加不同落点的输出
+    （1.1.3 修订的上线通知就是"超管私聊 + 指定群"两条）。直接整批发送会被拒绝，
+    历史上表现为"两个落点一条都没发出去"。发送方先按本函数拆批、再逐批发送即可。
+    """
+    if not outputs:
+        return []
+    batches: list[list[Output]] = []
+    index: dict[tuple[str, str, str, str, bool], int] = {}
+    for out in outputs:
+        target = out.target
+        key = (
+            (target.platform or "").strip(),
+            (target.scope_id or "").strip(),
+            (target.private_user_id or "").strip(),
+            (target.group_id or "").strip(),
+            bool(target.superadmins),
+        )
+        slot = index.get(key)
+        if slot is None:
+            slot = len(batches)
+            index[key] = slot
+            batches.append([])
+        batches[slot].append(out)
+    return batches
+
+
 def text(value: str) -> Output:
     return Output(kind=Kind.TEXT, text=value)
 

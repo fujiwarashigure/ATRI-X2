@@ -4,6 +4,8 @@
 
 - :func:`read_platform_config` / :func:`set_platform_enabled`：读写 ``app.toml`` 的
   ``[platform.qqonebot]``（走 :mod:`atri_x.gui.configedit`，保留注释与行序）；
+- :func:`set_connect_notice`：写 ``app.toml`` 的 ``[connect_notice]``（上线通知的私聊/
+  群聊独立开关与群号，1.1.3 修订）；
 - :func:`probe_endpoint`：对 OneBot 协议端（``ws://host:port/``）做 TCP 连通性探测；
 - :func:`fetch_health` / :func:`parse_health`：拉后台服务 ``/healthz`` 并转成结构化视图；
 - :func:`describe_*`：把状态转成人话（界面直接显示）。
@@ -54,6 +56,7 @@ __all__ = [
     "probe_endpoint",
     "read_platform_config",
     "secret_state",
+    "set_connect_notice",
     "set_platform_enabled",
 ]
 
@@ -361,7 +364,12 @@ def probe_endpoint(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> EndpointPro
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class PlatformConfig:
-    """``app.toml`` 里 ``[platform.qqonebot]`` 的只读视图。"""
+    """``app.toml`` 里 ``[platform.qqonebot]`` 的只读视图。
+
+    ``connect_*`` 三项来自旁边的 ``[connect_notice]``：上线通知的私聊/群聊开关与
+    群号列表（1.1.3 修订从 hooks.toml 规则搬过来，见
+    :func:`atri_x.app.platforms.register_connect_notice_hook`）。
+    """
 
     section_exists: bool = False
     enabled: bool = False
@@ -369,6 +377,9 @@ class PlatformConfig:
     token_env: str = ""
     trigger_keywords: tuple[str, ...] = ()
     send_file_mode: str = ""
+    connect_private: bool = True
+    connect_group: bool = True
+    connect_groups: tuple[str, ...] = ()
 
     @property
     def has_endpoint(self) -> bool:
@@ -388,12 +399,38 @@ def _string_list(value: Any) -> tuple[str, ...]:
     return ()
 
 
+#: 群号里允许带的作用域前缀（从日志 / 群策略里复制出来时常见）。
+_NOTICE_GROUP_PREFIXES = ("qqonebot:group:", "qqonebot:", "group:")
+
+
+def _normalize_notice_groups(values: Any) -> tuple[str, ...]:
+    """上线通知的群号：剥作用域前缀、去空白、去重、保序。"""
+    items: list[str] = []
+    for value in values or []:
+        text = str(value or "").strip()
+        for prefix in _NOTICE_GROUP_PREFIXES:
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+                break
+        if text and text not in items:
+            items.append(text)
+    return tuple(items)
+
+
+def _section_bool(entry: Mapping[str, Any], key: str, default: bool) -> bool:
+    """读一个布尔键：键不存在时用 ``default``（``[connect_notice]`` 整段缺省即全开）。"""
+    if key not in entry:
+        return default
+    return bool(entry.get(key))
+
+
 def read_platform_config(config_path: str) -> PlatformConfig:
-    """读 ``[platform.qqonebot]``；文件不存在时返回"未配置"（不抛错）。"""
+    """读 ``[platform.qqonebot]`` 与 ``[connect_notice]``；文件不存在时返回"未配置"（不抛错）。"""
     data = configedit.read_toml(config_path)
     platform = _mapping(data.get("platform"))
     entry = platform.get(DEFAULT_PLATFORM)
     entry = entry if isinstance(entry, Mapping) else {}
+    notice = _mapping(data.get("connect_notice"))
     return PlatformConfig(
         section_exists=isinstance(platform.get(DEFAULT_PLATFORM), Mapping),
         enabled=_bool(entry.get("enabled")),
@@ -401,6 +438,31 @@ def read_platform_config(config_path: str) -> PlatformConfig:
         token_env=_text(entry.get("access_token_env")),
         trigger_keywords=_string_list(entry.get("trigger_keywords")),
         send_file_mode=_text(entry.get("send_file_mode")),
+        connect_private=_section_bool(notice, "private", True),
+        connect_group=_section_bool(notice, "group", True),
+        connect_groups=_normalize_notice_groups(notice.get("groups")),
+    )
+
+
+def set_connect_notice(
+    config_path: str,
+    *,
+    private: bool,
+    group: bool,
+    groups: Any,
+) -> bool:
+    """写 ``[connect_notice]`` 的三个开关/落点；返回是否有改动。
+
+    只改这三项，``text`` 等其它键原样保留（行级补丁）。生效需要重启后台服务。
+    """
+    return configedit.patch_section(
+        config_path,
+        "connect_notice",
+        {
+            "private": bool(private),
+            "group": bool(group),
+            "groups": list(_normalize_notice_groups(groups)),
+        },
     )
 
 

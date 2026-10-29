@@ -368,6 +368,38 @@ class PlatformConfigCase(unittest.TestCase):
         self.assertEqual(cfg.trigger_keywords, ("atri", "阿特"))
         self.assertEqual(cfg.send_file_mode, "base64")
 
+    def test_connect_notice_defaults_and_roundtrip(self) -> None:
+        # 没有 [connect_notice] 段时默认两个开关都开（与内置 Hook 的默认一致），群列表为空。
+        cfg = linkstate.read_platform_config(str(self.config_path))
+        self.assertTrue(cfg.connect_private)
+        self.assertTrue(cfg.connect_group)
+        self.assertEqual(cfg.connect_groups, ())
+
+        changed = linkstate.set_connect_notice(
+            str(self.config_path),
+            private=False,
+            group=True,
+            groups=["123456789", "qqonebot:group:123456789", " group:2 "],
+        )
+        self.assertTrue(changed)
+        cfg = linkstate.read_platform_config(str(self.config_path))
+        self.assertFalse(cfg.connect_private)
+        self.assertTrue(cfg.connect_group)
+        self.assertEqual(cfg.connect_groups, ("123456789", "2"))
+        data = read_toml(str(self.config_path))
+        self.assertFalse(data["connect_notice"]["private"])
+        self.assertTrue(data["connect_notice"]["group"])
+
+    def test_set_connect_notice_keeps_custom_text(self) -> None:
+        text = self.config_path.read_text(encoding="utf-8")
+        text += '\n[connect_notice]\nprivate = true\ntext = "我醒了"\n'
+        self.config_path.write_text(text, encoding="utf-8", newline="\n")
+        linkstate.set_connect_notice(
+            str(self.config_path), private=True, group=False, groups=[]
+        )
+        data = read_toml(str(self.config_path))
+        self.assertEqual(data["connect_notice"]["text"], "我醒了")
+
     def test_secret_state_and_blocker(self) -> None:
         config_path = self.config_path
         text = config_path.read_text(encoding="utf-8")
@@ -588,6 +620,30 @@ class LinkTabCase(unittest.TestCase):
         data = read_toml(str(self.config_path))
         self.assertNotIn("qqonebot", data.get("platform", {}))
         self.assertIn("失败", self.tab._status.get())
+
+    def test_save_connect_notice_writes_config(self) -> None:
+        self.tab._notice_private_var.set(False)
+        self.tab._notice_group_var.set(True)
+        self.tab._notice_groups_var.set("123456789，group:123")
+        self.tab._save_connect_notice()
+        data = read_toml(str(self.config_path))
+        self.assertFalse(data["connect_notice"]["private"])
+        self.assertTrue(data["connect_notice"]["group"])
+        self.assertEqual(data["connect_notice"]["groups"], ["123456789", "123"])
+        self.assertEqual(self.tab._cfg.connect_groups, ("123456789", "123"))
+        self.assertIn("已保存上线通知设置", self.tab._status.get())
+
+    def test_reload_syncs_connect_notice_controls(self) -> None:
+        linkstate.set_connect_notice(
+            str(self.config_path),
+            private=False,
+            group=True,
+            groups=["123456789"],
+        )
+        self.tab.reload()
+        self.assertFalse(self.tab._notice_private_var.get())
+        self.assertTrue(self.tab._notice_group_var.get())
+        self.assertEqual(self.tab._notice_groups_var.get(), "123456789")
 
     def test_save_wake_words_roundtrip(self) -> None:
         self._set_platform(enabled=True)

@@ -52,9 +52,11 @@ from atri_x.gui.tabs import (
     LogsTab,
     MembersTab,
     ModelTab,
+    PermissionTab,
     PlatformTab,
     TimeTab,
     ToolPermTab,
+    ResearchTab,  # [atri-research]
 )
 from atri_x.gui.tray import TrayIcon
 from atri_x.platform.cli.protocol import (
@@ -84,6 +86,8 @@ _TABS = (
     "日志",
     "功能",
     "工具权限",
+    "研究",  # [atri-research]
+    "权限",
 )
 
 #: 选项卡名字 → 索引（供「功能」页双击跳转）。
@@ -102,9 +106,11 @@ _TAB_KEYS = {
     "toolperm": "工具权限",
     # 「工具权限」页的第三个子选项卡「工具参数（全局）」：内容安全等全局参数在这里。
     "toolperm_params": "工具权限",
-    # Python 版新增的两个子选项卡：工具进度预览（工具权限页）/ 表情图库（人设卡页）。
+    # Python 版新增的子选项卡：工具进度预览（工具权限页）/ 表情图库（人设卡页）。
     "toolperm_preview": "工具权限",
     "character_reactions": "人设卡",
+    # 超级管理员名单 / 风险阈值 / 工具轮次 / 成员建卡开关。
+    "permission": "权限",
 }
 
 
@@ -239,6 +245,10 @@ class GuiApp:
                 service_status=lambda: self._status_text,
             ),
             11: lambda parent: ToolPermTab(
+                parent, self.paths, on_restart=self._restart_backend
+            ),
+            12: lambda parent: ResearchTab(parent),  # [atri-research]
+            13: lambda parent: PermissionTab(
                 parent, self.paths, on_restart=self._restart_backend
             ),
         }

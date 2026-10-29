@@ -1,0 +1,51 @@
+{
+  "schema": "atrix-research/settings/1",
+  "contact_mailto": "",
+  "http": {
+    "timeout_seconds": 20,
+    "min_interval_seconds": 0.35,
+    "cache_ttl_days": 14,
+    "retries": 2
+  },
+  "search": {
+    "default_sources": [
+      "openalex",
+      "crossref",
+      "arxiv"
+    ],
+    "per_source_limit": 20,
+    "max_total_candidates": 240
+  },
+  "screen": {
+    "max_fulltext_bytes": 8388608
+  },
+  "verify": {
+    "title_similarity_pass": 0.9,
+    "title_similarity_warn": 0.75,
+    "min_verified_ratio": 0.9
+  },
+  "cite": {
+    "default_style": "gbt7714"
+  },
+  "panel": {
+    "scale": 5,
+    "weights": {
+      "originality": 0.22,
+      "rigor": 0.26,
+      "clarity": 0.16,
+      "significance": 0.22,
+      "ethics": 0.14
+    },
+    "thresholds": {
+      "accept": 4.2,
+      "minor_revision": 3.5,
+      "major_revision": 2.6
+    },
+    "disagreement_warn": 1.0
+  },
+  "limits": {
+    "max_runs": 200,
+    "max_run_bytes": 134217728,
+    "max_library_items": 500
+  }
+}

@@ -55,6 +55,9 @@ __all__ = [
     "register_platform_hooks",
     "registerCronPlatformHook",
     "register_cron_platform_hook",
+    "registerConnectNoticeHook",
+    "register_connect_notice_hook",
+    "CONNECT_NOTICE_PLATFORM",
     "platformStopsAppOnExit",
     "platform_stops_app_on_exit",
     "notifyPlatformFailure",
@@ -75,6 +78,9 @@ HEARTBEAT_INTERVAL_SECONDS = 10.0
 #: ``ERROR`` 级别的数值（``logging.ERROR``），用于告警消息的 level 字段。
 _LEVEL_WARNING = 30
 _LEVEL_ERROR = 40
+
+#: 上线通知的落点平台：群号按 QQ 群号解释，只对这个平台发。
+CONNECT_NOTICE_PLATFORM = "qqonebot"
 
 
 class DefaultPlatformFactory:
@@ -286,6 +292,82 @@ def register_cron_platform_hook(hooks: Any, service: Any) -> None:
             point=Point.PLATFORM_CONNECTED,
             name="builtin.cron.missed_once",
             description="平台连接时补投递 missed once cron",
+            match=always(),
+            handler=HandlerFunc(handle),
+        )
+    )
+
+
+def register_connect_notice_hook(hooks: Any, cfg: Any) -> None:
+    """注册内置「平台上线通知」：私聊与群聊按 ``[connect_notice]`` 各自独立开关。
+
+    1.1.3 修订：上线通知原先写在 ``plugins/hooks.toml`` 的 ``notify_qqonebot_connected``
+    规则里，而规则的 ``enabled`` 是静态的——只能整体开关，做不到"私聊关、群聊留"。
+    这里把它搬成内置 Hook，开关来自 ``app.toml`` 的 ``[connect_notice]``：
+
+    * ``private = true`` → 给 ``[security.superadmins].qqonebot`` 发一条私聊提醒；
+    * ``group = true`` → 给 ``groups`` 列出的每个 QQ 群发一条群提醒。
+
+    通知只往 ``event.outputs`` 追加输出，由
+    :func:`atri_x.agent.hooks.handle_platform_connected` 统一发送——与 hooks 规则的
+    ``send`` 动作走同一条出站路径（含失败告警与出站历史），不另造发送通道。
+    目前只对 ``qqonebot`` 平台生效（群号就是 QQ 群号）。
+    """
+    if hooks is None or cfg is None:
+        return
+    register = getattr(hooks, "register", None)
+    if not callable(register):
+        return
+    section = getattr(cfg, "connect_notice", None)
+    if section is None:
+        return
+    private = bool(getattr(section, "private", True))
+    group = bool(getattr(section, "group", True))
+    groups = [str(item).strip() for item in (getattr(section, "groups", None) or []) if str(item).strip()]
+    security = getattr(cfg, "security", None)
+    superadmins = getattr(security, "superadmins", None) or {}
+    has_superadmins = any(
+        str(item).strip() for item in (superadmins.get(CONNECT_NOTICE_PLATFORM) or [])
+    )
+    # 没有配超管时私聊分支必然失败，直接跳过（否则会连累同一批的群通知）。
+    private = private and has_superadmins
+    if not private and not (group and groups):
+        return
+    from atri_x.config.app_sections import CONNECT_NOTICE_DEFAULT_TEXT
+    from atri_x.hook.output import BuildOptions, Group, Segment, Target, build_group
+
+    text = (getattr(section, "text", "") or "").strip() or CONNECT_NOTICE_DEFAULT_TEXT
+
+    def _outputs(target: Any) -> list[Any]:
+        """把一条文本构造成交付层的 Output（带 target），与规则动作的 send 同一形态。"""
+        return build_group(
+            Group(outputs=[Segment(kind="text", text=text)], target=target),
+            BuildOptions(),
+        )
+
+    async def handle(ctx: Any, event: Event) -> Event:
+        platform_ctx = getattr(event, "platform", None)
+        name = str(getattr(platform_ctx, "name", "") or "")
+        if name != CONNECT_NOTICE_PLATFORM:
+            return event
+        if private:
+            event.outputs.extend(
+                _outputs(Target(platform=name, superadmins=True))
+            )
+        if group:
+            for group_id in groups:
+                event.outputs.extend(
+                    _outputs(Target(platform=name, group_id=group_id))
+                )
+        return event
+
+    register(
+        Registration(
+            point=Point.PLATFORM_CONNECTED,
+            priority=900,
+            plugin_id="builtin",
+            name="builtin.connect_notice",
+            description="平台上线通知（app.toml [connect_notice]：私聊/群聊独立开关）",
             match=always(),
             handler=HandlerFunc(handle),
         )
@@ -601,6 +683,7 @@ registerSessionBrowsers = register_session_browsers
 registerCommandCatalogs = register_command_catalogs
 registerPlatformHooks = register_platform_hooks
 registerCronPlatformHook = register_cron_platform_hook
+registerConnectNoticeHook = register_connect_notice_hook
 platformStopsAppOnExit = platform_stops_app_on_exit
 notifyPlatformFailure = notify_platform_failure
 hookNoticeTarget = hook_notice_target

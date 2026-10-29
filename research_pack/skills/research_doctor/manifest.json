@@ -1,0 +1,41 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "doctor",
+  "skill": "research_doctor",
+  "title": "",
+  "description": "环境与运行诊断：检查引擎/venv/可选依赖/网络/数据目录，列出全部研究运行，或跑离线自检（去重/筛选/引用/质检/评审的确定性用例）。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "diagnostics"
+  ],
+  "timeout_seconds": 120,
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "env",
+          "status",
+          "selftest",
+          "parity"
+        ],
+        "description": "env=环境体检；status=运行列表；selftest=离线自检；parity=模型无关性回归（好/敷衍/乱编三份样本，默认 env）。"
+      },
+      "network": {
+        "type": "string",
+        "enum": [
+          "true",
+          "false"
+        ],
+        "description": "env 是否探测网络，默认 true。"
+      }
+    }
+  },
+  "args": {
+    "action": "--action",
+    "network": "--network"
+  }
+}

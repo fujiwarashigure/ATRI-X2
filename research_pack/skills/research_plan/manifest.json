@@ -1,0 +1,87 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "plan",
+  "skill": "research_plan",
+  "title": "",
+  "description": "科研项目起步与大纲：新建一次研究运行（题目/研究问题/文体/语言/引用样式），查询状态与产物，或按文体生成逐节写作契约与证据池。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "plan"
+  ],
+  "timeout_seconds": 120,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "action"
+    ],
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "init",
+          "status",
+          "outline"
+        ],
+        "description": "init=新建运行；status=查看运行/产物；outline=生成大纲与写作契约。"
+      },
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。缺省时多数工具要求显式给出。"
+      },
+      "title": {
+        "type": "string",
+        "description": "题目（init 必填）。"
+      },
+      "question": {
+        "type": "string",
+        "description": "一句话研究问题（init 必填）。"
+      },
+      "language": {
+        "type": "string",
+        "enum": [
+          "zh",
+          "en"
+        ],
+        "description": "写作语言，默认 zh。"
+      },
+      "style": {
+        "type": "string",
+        "enum": [
+          "gbt7714",
+          "apa7"
+        ],
+        "description": "引用样式：gbt7714=GB/T 7714-2015，apa7=APA 第 7 版。"
+      },
+      "doc_type": {
+        "type": "string",
+        "enum": [
+          "review",
+          "empirical",
+          "proposal"
+        ],
+        "description": "文体：综述 / 实证 / 开题（默认 review）。"
+      },
+      "target_words": {
+        "type": "integer",
+        "description": "目标篇幅（字/词），默认 6000。"
+      },
+      "owner": {
+        "type": "string",
+        "description": "发起人标记（可选，写入运行记录）。"
+      }
+    }
+  },
+  "args": {
+    "action": "--action",
+    "run": "--run",
+    "title": "--title",
+    "question": "--question",
+    "language": "--language",
+    "style": "--style",
+    "doc_type": "--doc-type",
+    "target_words": "--target-words",
+    "owner": "--owner"
+  }
+}

@@ -84,6 +84,9 @@ class CharacterToolsTest(unittest.TestCase):
                 "character_search",
                 "character_manage",
                 "character_delete",
+                # Python 侧新增：一步导入 / 全局人设激活。
+                "character_import",
+                "character_activate",
             ],
         )
 

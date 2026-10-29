@@ -6,6 +6,185 @@
 
 ---
 
+## [1.1.3] - 2026-10-29（修订）— 人设卡「一步导入 / 启用」与成员专属人设
+
+> 版本号仍为 1.1.3（不发新版）。只加功能与配置键，**不迁移**现有数据：
+> `gui/members.json` 不变；新增可选文件 `gui/member_personas.json` 与
+> `SOUL.md.bak` 备份；`app.toml` 新增 `[character_library].allow_user_create`
+> （缺省 `true`，旧配置不用改）与 `[connect_notice]`（缺省私聊开、群聊开但群列表
+> 为空，旧配置不用改——要群提醒需自己填 `groups`）。
+
+旧状态（1.1.3 首次发布）：
+
+- 聊天里说"把人设加入人设卡并启用"没有对应工具路径：模型会去翻 `app.toml` /
+  `SOUL.md`，连翻 10 轮撞上 `max_rounds_per_turn` 后整轮无结果；`character_manage`
+  只能逐字段建卡，"导入"还得用户自己拆字段。
+- 群里能建卡（普通成员强制私有），但"切换 / 启用某个人设"没有机制：`SOUL.md`
+  是全局唯一身份，模型会以"没有切换功能"为由拒绝；`@char:<id>` 只对单轮生效。
+- 普通成员没有自助开关专属人设的入口；`[security.superadmins]` 只能在「平台」页
+  底部一小块里手填，QQ 平台没配时启动日志只有一条 WARN，界面上看不到。
+- 上线通知只有 `plugins/hooks.toml` 里的一条私聊规则（`target.superadmins = true`）：
+  发不到群里；规则的 `enabled` 只能整体开关，"只关私聊、保留群聊"做不到。
+
+新状态：
+
+- **新增工具 `character_import`**：把一段粘贴的人设文本一步建卡（写 `profile.md`，
+  自动生成 id / 名称），可顺带 `activate="member"`（绑为当前成员专属人设）或
+  `activate="soul"`（设为全局系统人设，需超管）。系统提示词新增「人设卡操作指引」，
+  明确这类请求直接走工具、不要翻文件。
+- **新增工具 `persona_control`（OwnerScoped）**：成员自助 `status` / `bind` /
+  `enable` / `disable` / `clear` 专属人设；超管可带 `target_user_id` 替别人设置。
+- **新增「成员专属人设」**：按「平台 + 用户 id」持久化在
+  `<配置目录>/gui/member_personas.json`（文件指纹热更新，下一轮生效、不重启）。
+  启用时在系统提示词拼接阶段**替换** `soul` 段（`SystemPromptPart.replaces`），
+  因此不再出现"全局 SOUL 与专属人设同时存在、模型拒绝切换"；关闭只停用绑定，
+  立即恢复默认 `SOUL.md`，且只影响该成员、不干扰其他人。
+- **新增工具 `character_activate`（仅超管）**：`activate` / `restore` / `status`，
+  把角色卡渲染成 `SOUL.md`（写前备份 `SOUL.md.bak`，可回滚）；返回的 id 与路径
+  可直接展示给用户。
+- **新增角色卡导入 / 导出**（`atri_x/character/archive.py`）：ZIP（含文档与图片字节）、
+  JSON（文档全文 + 图片元数据）、单个 `character.toml`、Markdown / 纯文本、整个角色
+  目录；桌面端「人设卡」页新增 导入文件 / 粘贴导入 / 导出 三个按钮。ZIP 解压限制
+  在 `characters/.imports/<uuid>/` 并拒绝路径穿越与超大压缩包。
+- **新增「权限」选项卡**（第 14 页，`gui/tabs/permission.py`）：超级管理员名单（每平台
+  一行，含 QQ 号示例与"群主/管理员不会自动成为超管"说明）+ 普通成员最高工具风险 +
+  超管确认阈值 + **单轮工具轮次**（`[tools].max_rounds_per_turn`）+ **允许普通成员
+  建卡**（`[character_library].allow_user_create`）开关；保存后重启后台服务生效。
+- **`[character_library].allow_user_create`**（默认 `true`）：关闭后 `character_manage`
+  的 `create` 与 `character_import` 都会拒绝普通成员新建/导入（改自己的已有卡不受
+  影响），错误文案说明原因与联系对象。
+- 桌面端「群友」页新增专属人设下拉 + 启用开关 + 提示词预览（预览会显示专属人设块与
+  群友档案两段）；表格新增「专属人设」列。
+- 桌面端「人设卡 → 系统人设 SOUL.md」新增「从当前人设卡载入…」与「恢复上次备份」。
+- 工具目录（`gui/toolcatalog.py`）补齐 3 个新工具的中文名与说明；`REGISTERED_TOOLS`
+  从 51 变 54。文档：`docs/character-library.md`（导入/导出、成员专属人设、SOUL 激活）、
+  `docs/configuration.md`（新键与超管名单）、`docs/windows-app.md`（第 14 页与两页改动）、
+  `devdocs/code-map.md`。
+- **私聊回声保护（1.1.3 修订，无新增配置键，始终开启）**：私聊默认每条都唤醒，
+  但两类"非真人输入"不再叫醒模型——①客户端自动应答（消息以 `[自动回复]` /
+  `[自動回覆]` / `[Auto-Reply]` 等固定前缀开头）；②同一私聊对象连续发送完全
+  相同的文本 3 次（120 秒窗口内）。只静默唤醒，消息照常入库；对方发来不同内容
+  立即恢复；CLI / 本地内核不启用复读保护。修复真机事故：上线通知发到超管私聊 →
+  对方 QQ「离开自动回复」逐条回应 → 机器人对每条自动回复各回一条 → 4 分钟互相
+  刷了 20 轮（每次调用都消耗 token）。
+- **上线通知改为 `[connect_notice]`，私聊与群聊各自独立开关（1.1.3 修订）**：新增内置
+  Hook `builtin.connect_notice`；`private` 控制给 `[security.superadmins].qqonebot`
+  的私聊提醒，`group` + `groups`（QQ 群号列表）控制群提醒，两个开关互不影响。
+  旧版 `plugins/hooks.toml` 的 `notify_qqonebot_connected` 规则从默认模板移除并注释
+  （保留会重复发送）。文案可用 `text` 覆盖（留空用内置「ATRI-X 已连接 QQ OneBot。」）；
+  未配超管时私聊分支自动跳过，不连累群通知；群开关打开但群列表为空时不猜群、不群发。
+  桌面端「在线」页 QQ 平台卡片新增「上线通知」一行：私聊 / 群聊两个复选框 + 群号
+  输入框 +「保存」（写 `app.toml [connect_notice]`，重启后台服务生效）。同批输出
+  若落在不同目标（超管私聊 + 群），发送侧按 target 拆批后再发——一批输出只允许
+  一个显式 target，整批直接发会被整批拒绝（这正是两个落点一条都发不出的原因）。
+- 验证：`check_syntax`（1012 文件，0 错）/ `check_imports`（`modules=777 imported=777`）/
+  `check_integration`（74 项，0 失败）/ `check_except`（与基线一致）/ `gen_stats --check` /
+  `check_secrets`（0 命中）全过。全量 `unittest`：`Ran 6888 tests in 1292.8s`，
+  `FAILED (failures=2, skipped=4)`——仅 `tests.test_gui_qqproto` 2 项因**本机正在运行
+  便携实例**、NapCat 占着 `3001` 使探测拿到 `3002` 而失败（`3002 != 3001`）；此前那批里
+  `32171` 一组的 4 项是后台服务在跑导致，本轮开测前已停掉 `atri-x` / `atri-x-gui`，
+  故不再出现。这两项在停掉 NapCat 后重跑即可通过（此前已验证），属环境冲突，与本改动无关。针对性 641 项
+  （delivery / app_platforms / gui_link / config / hook / safety / agent_core）全过，
+  含本次新增的上线通知、target 拆批、GUI 读写用例。冻结产物冒烟：`atri-x.exe --version`、
+  `config check`（warnings: none）、`atri-x-gui.exe --selftest` 全部 0 退出。便携版真机
+  验证（4 次重启）：连上 OneBot 后**超管私聊与群 123456789 各收到一条上线通知**；
+  `private=false` 重启后群仍收到、私聊不再收到；`group=false` 重启后私聊收到、群不再
+  收到；恢复两个开关后两者都收到——两个开关确实互不影响。私聊通知之后对方 QQ 的
+  「离开自动回复」只入库，**没有任何机器人回复**（旧行为会各回一条并循环 20 轮）。
+
+---
+
+## [1.1.3] - 2026-10-29 — 科研研究助理：随包硬工具引擎、`/research` 命令与「研究」页
+
+> 功能版（1.1.2 → 1.1.3）。**不改现有配置格式、不改内置工具 schema、不改会话/数据库格式**；
+> 新增的 `research_pack/` 与 `atri_x/research/` 只在首次启动时往用户配置目录补文件
+> （`research/` 与 `skills/agent/research_*`），已有配置不受影响，升级不需要迁移。
+
+旧状态（1.1.2）：ATRI-X 没有任何学术研究能力——没有文献检索/筛选/核验/写作/评审的
+结构化流程，模型只能靠通用工具临时拼；也没有一个"进程内不随模型漂移"的研究引擎。
+
+新状态：
+
+- **新增随包研究引擎 `research_pack/`**（仓库内是数据目录，冻结产物在 `_internal/research_pack/`）：
+  `engine/` 是 38 个模块、约 8.7k 行的纯标准库实现（多源检索、去重、PRISMA 筛选、DOI 反查
+  Crossref / DataCite、APA / GB-T 7714 引用、大纲与正文结构、QA、评审加权、六维评分、报告装配、
+  md/html/docx/pdf 导出），`skills/` 是 15 个原创 AgentSkill（12 个硬工具 + 3 个协议技能），
+  `pack.json` 记录引擎版本与内容摘要，`settings.json` 是引擎默认设置。
+- **新增 `atri_x/research/` 装配层**（`pack.py` / `bootstrap.py` / `runner.py` / `paths.py`）：
+  首次启动把引擎与技能装进 `<配置目录>/ATRI-X/research` 与 `skills/agent/research_*`，
+  幂等、按 `pack.json` 摘要自动升级、尊重 `atri-research/install.py` 的 venv 版外部安装、
+  失败只记 WARN 不阻断主程序。技能的 `command` 按运行形态生成：冻结产物是
+  `atri-x.exe -m atri_x.research.runner --home <研究目录> <tool>`（**不需要系统 Python**），
+  源码树是当前解释器跑 `<研究目录>/engine/run.py`。
+- **新增 `/research` 命令**（`atri_x/agent/commands/research.py`，`min_role=user`，只读）：
+  `status`（全部运行）/ `<运行id>`（摘要与产物清单）/ `env`（引擎、venv、依赖、随包引擎状态体检）/
+  `open`（仅超管）。命令层刻意不 import 引擎，引擎没装好也能回答。
+- **新增桌面端「研究」选项卡**（`atri_x/gui/tabs/research.py`，第 13 页，只读）：
+  运行列表（阶段/题目/更新时间）+ 运行摘要 + 产物树（`run.json` / `library.json` / `draft.md` /
+  `report.md` / `exports/` 等），双击运行打开目录，可打开报告与导出目录；不依赖引擎包。
+- **12 个硬工具全部 `risk="low"`、`superadmin_only=false`**（普通群成员可用，低于默认
+  `user_max_tool_risk="low"`）：`research_plan` / `search` / `screen` / `verify` / `cite` /
+  `write` / `panel` / `export` / `doctor` / `flow` / `compose` / `audit`。参数 JSON Schema 与
+  `[args]` 映射来自随包 `manifest.json`，**技能文档的「工具契约」附录由引擎生成并校验同源**
+  （`make_skills.py --check` / `run.py skills --check`），文档与实现不会漂移。
+- **确定性优先**：检索去重、PRISMA 计数、DOI 核验、引用格式化、正文结构校验、六维评分全部由
+  引擎代码完成，模型只负责"判断与表达"；因此换 LLM 时流程顺序、格式与判定标准不变。
+  `research_flow`（顺序状态机）/ `research_compose`（成稿契约 + 自动质检）/ `research_audit`
+  （固定公式评分）把最容易随模型漂移的三处也收进代码。
+- **依赖与降级**：引擎零第三方代码依赖；PDF 导出用可选 `reportlab`、PDF 全文抽取用可选
+  `pypdf`，冻结产物按构建机是否安装把它们收进 PYZ（发行版两个都带），源码树缺库时导出
+  降级为 md/html/docx 并在信封 `degraded` 里显式声明，绝不假装成功。
+- **原创性**：引擎与技能是本仓库的原创实现，**不包含**上游 `academic-research-skills`
+  （CC BY-NC 4.0）的任何文本或代码；相似度核查方法与结果随发行物留档（0 个逐字节重复文件、
+  CJK 8-gram 0、正文最长公共片段 9 词、上游内部标识符 0），见 `LEGAL.md` 与发行说明。
+- **接线**：`app/runtime_agent.build_agent`（服务进程装配 Agent 前安装引擎，保证 AgentSkill
+  扫盘时技能已就位）与 `gui/service.prepare_settings`（GUI 启动时提前安装，保证「研究」页有内容）；
+  `/research` 命令注册进 `agent/commands/deps.py` 与桌面端选项卡集合。
+
+### 发行
+
+- 版本号 `1.1.2` → `1.1.3`：`atri_x/__init__.py`（`__version__`）/ `pyproject.toml` /
+  `deploy/VERSION` / `deploy/pack/deploy_lighthouse.py` / 仓库 `README.md` 同步；产物名随之
+  变成 `ATRI-X-1.1.3-*`。不新增配置键、不改工具 schema、不改会话 / 数据库格式，配置与会话数据
+  **向后兼容**。
+- 打包：`packaging/atri-x.spec` 把 `research_pack/` 收进 `_internal`（缺失时**构建直接失败**）；
+  `packaging/build.py` 产物核验新增「随包引擎安装 + 15 技能 / 12 硬工具 + 引擎可执行」三步，
+  便携版核验新增 `research` / `research run` 两步；安装包与便携版都**开箱即用**（无需 Python）。
+- 文档：新增 `docs/research.md`（完整使用与排障）、`research_pack/README.md`（随包资源与
+  升级流程），`docs/commands.md` / `docs/windows-app.md`（13 个选项卡，§4.9 研究页）/
+  `docs/concepts.md` / `devdocs/code-map.md` / `README.md` 同步。
+- 发行产物（本机从工作树重建；按发布要求**未提交 git、未推送 GitHub**）：
+  - `ATRI-X-1.1.3-setup.exe` 477,667,625 字节（455.5 MB）—
+    `2d5ff2193358c6ba0872a2afc13e1574749ea748497c923c8606470c0439fd14`
+  - `ATRI-X-1.1.3-portable-win64.zip` 704,208,729 字节（671.6 MB）—
+    `ff518c5b9f0d86be1ae867fa931535c094861b8d1021ce65d3ec71a5d6257c94`
+  - `ATRI-X-1.1.3-repo.zip` / `ATRI-X-1.1.3-repo.tar.gz`：源码归档（工作树文件清单 1229 条目，
+    不含 `runtime`/`build`/`dist`/缓存）。归档自身尺寸与 SHA-256 见发行库
+    `SHA256SUMS-1.1.3.txt` 与 `ATRI-X-1.1.3-repo-entries.txt`（归档内文件不写自身哈希，避免自引用）。
+- 门禁 7 项 0 失败：`check_syntax`（1012 文件）/ `check_imports`（`modules=777 imported=777`）/
+  `check_integration`（74 项）/ `check_coverage`（`packages=72 covered=72 weighted=100.0%`）/
+  `check_except`（119 基线）/ `gen_stats --check`（README 数字一致）/ `check_secrets`（0 命中）。
+- 全量单测：`Ran 6,888 tests in 1292.8s`，`FAILED (failures=2, skipped=4)`（仅
+  `tests.test_gui_qqproto` 2 项因本机 NapCat 占用 `3001` 端口而失败，见上节「验证」）；
+  本版定向回归（随包引擎首启安装的
+  幂等 / 升级 / 尊重 venv 外部安装、技能清单与实现同源校验、子进程入口分发、`/research` 命令、
+  桌面端「研究」页、`build_agent()` 与 GUI 启动期接线）全部 OK；研究引擎另做过真实网络的
+  端到端冒烟（多源检索 → PRISMA 筛选 → DOI 核验 → 成稿 → 六维评分 → 导出），留档于发行库
+  `证据/1.1.3/research-smoke/`。
+- 产物级自检：onedir 24,686 文件 / 364.9 MB，加内置 DSH 内核（`0.2.0-rc.2` / Node v24.19.0，
+  277.6 MB）与脱敏后的内置 NapCat（2,516 文件 / 1202.7 MB）后构成便携输入 27,202 文件 /
+  1,567.6 MB → 便携包 671.6 MB / 27,207 条目解压自检全过（16.1 s）→ 安装包 455.5 MB
+  （ISCC 275.5 s、源文件 27,202；静默安装 65.1 s / 27,205 文件、卸载 8.9 s）；构建总耗时 579.4 s。
+- 脱敏：源码树 / 源码归档 / 内置内核 / onedir / 安装包（ASCII + UTF-16LE）/ 便携包文本条目 /
+  发行库文本各层扫描 **0 命中**；便携包全量扫描（含二进制）命中的只是 8 个上游二进制
+  （`cryptography` Rust 扩展与内置 QQ / NapCat）里的固有构建路径，经 SHA-256 与上游原样文件
+  逐字节核对一致，不含本机用户名与令牌。详见发行库 `自检报告.md` §三。
+- 原创性与独立复验：与上游 `academic-research-skills` 3.24.0 的相似度核查 **PASS**（逐字节重复
+  文件 0、CJK 8-gram 0、散文最长公共片段 9 词、代码最长公共片段 18 词、上游内部标识符 0、
+  版权声明头 0、技能名交集 0）；发行库独立复验 54 项检查 0 失败（`independent-verify-1.1.3.json`）。
+
+---
+
 ## [1.1.2] - 2026-10-28 — 群友人设真正接入对话（桌面端「群友」页 → 系统提示词）
 
 > 只加功能，不改配置格式、不改工具 schema；`gui/members.json` 向后兼容（新增
@@ -26,7 +205,7 @@
   - `prompt.py`：把一份档案渲染成 `<member_profile>` 边界内的系统提示词片段，附"这是
     用户数据、不改变自身身份、不授予权限"的信任声明，并转义正文尖括号防止伪造边界。
 - 新增 `atri_x/agent/member_profile_prompt.MemberProfileSystemPromptSource`：每轮只注入
-  **当前发言人**的档案；严格按 `平台 + 完整作用域（如 group:929911642） + user id` 匹配
+  **当前发言人**的档案；严格按 `平台 + 完整作用域（如 group:123456789） + user id` 匹配
   （不用去前缀的 `req.meta.id`，也不认昵称/正文里自报的号码）；私聊、频道、后台沙盒
   （cron / 外部事件）不注入。
 - 接线：`agent/options.py` 新增 `member_profile_store`；`app/runtime_agent.build_agent()`
@@ -59,7 +238,7 @@
   `deploy/VERSION` / `deploy/pack/deploy_lighthouse.py` / 仓库 `README.md` /
   `docs/snowluma.md` 同步；产物名随之变成 `ATRI-X-1.1.2-*`。本版是**功能版**（群友人设真正
   接入对话），不新增配置键、不改工具 schema、不改会话 / 数据库格式，配置与会话数据向后兼容。
-- 发行产物（本机从工作树重建；已提交并推送 GitHub，并作为 **GitHub Release v1.1.2**（11 个附件）发布——`main` 提交 `fe04c4e`、tag `v1.1.2`）：
+- 发行产物（本机从工作树重建；按发布要求**未提交 git、未推送 GitHub**）：
   - `ATRI-X-1.1.2-setup.exe` 461,092,957 字节 —
     `72e83967d35f31c423100a2952ae70d94d930d2a4c2e70777a895d3d5c6ed282`
   - `ATRI-X-1.1.2-portable-win64.zip` 683,825,959 字节 —

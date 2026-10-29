@@ -369,6 +369,8 @@ def new_prompt_builder(opts: Any) -> PromptBuilder:
     「对话元信息 → SOUL → 群友档案 → 常驻记忆 → 工具名清单 → 工具标签提示词」的顺序加来源。
     任何一项没配置就跳过（对应 Go 里传 ``nil`` 的写法）。
     """
+    from atri_x.agent.character_guide_prompt import CharacterGuideSystemPromptSource
+    from atri_x.agent.member_persona_prompt import MemberPersonaSystemPromptSource
     from atri_x.agent.member_profile_prompt import MemberProfileSystemPromptSource
     from atri_x.agent.system_prompt import SystemPromptManager
     from atri_x.agent.system_prompt_sources import (
@@ -387,6 +389,12 @@ def new_prompt_builder(opts: Any) -> PromptBuilder:
     sources: list[Any] = [ConversationMetaSystemPromptSource()]
     if soul is not None:
         sources.append(SoulSystemPromptSource(soul))
+    # 成员专属人设必须排在 SOUL 之后：它用 ``replaces=("soul",)`` 在拼接阶段顶掉
+    # 全局身份，这样同一个成员的所有对话都会按他的卡说话，其他人仍用 SOUL.md。
+    characters = getattr(opts, "character_store", None)
+    member_personas = getattr(opts, "member_persona_store", None)
+    if characters is not None and member_personas is not None:
+        sources.append(MemberPersonaSystemPromptSource(member_personas, characters))
     member_profiles = getattr(opts, "member_profile_store", None)
     if member_profiles is not None:
         sources.append(MemberProfileSystemPromptSource(member_profiles))
@@ -407,4 +415,7 @@ def new_prompt_builder(opts: Any) -> PromptBuilder:
     initial = tool_tag_source_of(getattr(opts, "tool_tags", None))
     if tag_path or initial.tags:
         sources.append(ToolTagConfigSource(tag_path, initial))
+    # 人设卡操作指引：只写"什么请求走哪个工具"，避免模型用文件工具瞎翻（见模块 docstring）。
+    if characters is not None:
+        sources.append(CharacterGuideSystemPromptSource(characters))
     return PromptBuilder(SystemPromptManager(sources))

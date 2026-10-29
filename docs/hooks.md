@@ -103,6 +103,12 @@ text = "你好呀"
 
 `platform.connected` 由平台适配器在连接成功后发布，但**执行不与连接回调同步**：Hook 侧把连接事实排进一条按平台的执行队列（同一平台串行、平台之间互不排队），因此连接回调不会等规则 Hook 和 cron 补投递跑完。关闭时先停止接纳新的连接事实，再在 30 秒关闭预算内排空队列；预算用尽会记入关闭错误，且该事实不会重放。
 
+> **1.1.3 修订：上线通知不再写在 `hooks.toml`。** 默认配置里的
+> `notify_qqonebot_connected` 规则已移到 `app.toml` 的 `[connect_notice]`：私聊（超管）
+> 与群聊（`groups`）是两个独立开关，由内置 Hook `builtin.connect_notice` 发送。
+> 如果在 `hooks.toml` 里再写一条 `platform.connected` 的 `send` 规则，会与内置通知
+> **重复发送**；要自定义上线通知请改 `[connect_notice]`（文案可用 `text` 覆盖）。
+
 最终 assistant 文本通常先经过 `agent.turn.output.prepared`，再经过 `agent.output.prepared`。不要在两个点配置同一 append/prepend 规则，否则文本会被处理两次。
 
 ### 匹配条件与角色

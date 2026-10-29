@@ -128,7 +128,10 @@ class ModuleInventoryTests(unittest.TestCase):
         mapped = {module for module in GO_TO_PYTHON.values() if module}
         # approval.py 是 Python 侧新增（借鉴 dsh-qq 的授权生命周期，无 Go 对应文件）。
         # time.py 同理（1.0.10 的 ``/time``，Go 侧没有时间服务）。
-        mapped.update({"__init__", "log_args", "log_format", "model_types", "approval", "time"})
+        # research.py 同理（1.1.3 的 ``/research``，Go 侧没有科研研究助理）。
+        mapped.update(
+            {"__init__", "log_args", "log_format", "model_types", "approval", "time", "research"}
+        )
         present = {info.name for info in pkgutil.iter_modules(commands_package.__path__)}
         self.assertEqual(present - mapped, set())
 

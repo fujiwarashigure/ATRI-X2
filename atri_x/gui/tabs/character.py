@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import os
 import tkinter as tk
-from tkinter import simpledialog, ttk
+from tkinter import filedialog, simpledialog, ttk
 from typing import Any
 
 from atri_x.character import (
@@ -30,6 +30,14 @@ from atri_x.character import (
     Store,
     Viewer,
     WriteRequest,
+    activate_character,
+    export_json,
+    export_markdown,
+    export_zip,
+    import_file,
+    import_text,
+    restore_soul,
+    soul_status,
 )
 from atri_x.gui.configedit import ConfigEditError, write_text_file
 from atri_x.gui.tabs.base import ConfigTab, confirm, message
@@ -101,6 +109,17 @@ class CharacterTab(ConfigTab):
             side=tk.LEFT, padx=(4, 0)
         )
         ttk.Button(buttons, text="刷新", width=7, command=self.reload).pack(side=tk.LEFT, padx=(4, 0))
+        more = ttk.Frame(left)
+        more.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(more, text="导入文件", width=7, command=self._import_character).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(more, text="粘贴导入", width=7, command=self._paste_import).pack(
+            side=tk.LEFT, padx=(4, 0)
+        )
+        ttk.Button(more, text="导出", width=7, command=self._export_character).pack(
+            side=tk.LEFT, padx=(4, 0)
+        )
 
         self.notebook = ttk.Notebook(self.body)
         self.notebook.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -212,6 +231,14 @@ class CharacterTab(ConfigTab):
         actions.pack(fill=tk.X, pady=(6, 0))
         ttk.Button(actions, text="保存 SOUL.md", command=self._save_soul).pack(side=tk.LEFT)
         ttk.Button(actions, text="重新载入", command=self._load_soul).pack(side=tk.LEFT, padx=(6, 0))
+        ttk.Button(
+            actions, text="从当前人设卡载入…", command=self._activate_soul_from_card
+        ).pack(side=tk.LEFT, padx=(12, 0))
+        ttk.Button(
+            actions, text="恢复上次备份", command=self._restore_soul_backup
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        self.soul_backup_label = ttk.Label(page, text="", foreground="#8a8a8a")
+        self.soul_backup_label.pack(anchor="w", pady=(4, 0))
 
     def _build_reaction_page(self) -> None:
         """第四个子选项卡：本地表情图库（发送策略 + catalog.json 条目管理）。"""
@@ -374,6 +401,23 @@ class CharacterTab(ConfigTab):
             return
         self.soul_text.delete("1.0", tk.END)
         self.soul_text.insert("1.0", text)
+        self._refresh_soul_status()
+
+    def _refresh_soul_status(self) -> None:
+        """刷新 SOUL.md 大小与备份状态（不读正文，避免重复渲染）。"""
+        try:
+            status = soul_status(self.require_paths().soul_path)
+        except (ConfigEditError, OSError):
+            self.soul_backup_label.configure(text="")
+            return
+        backup = (
+            f"有备份（{status.backup_size} bytes）"
+            if status.backup_exists
+            else "还没有激活备份"
+        )
+        self.soul_backup_label.configure(
+            text=f"当前 {status.size} bytes；{backup}"
+        )
 
     # -- 动作 ---------------------------------------------------------------
     def _new_character(self) -> None:
@@ -488,9 +532,238 @@ class CharacterTab(ConfigTab):
         except ConfigEditError as exc:
             self.fail(exc)
             return
+        self._refresh_soul_status()
         self.notify(f"已保存 {os.path.basename(path)}（下一轮对话生效）")
+
+    # -- 导入 / 导出 ---------------------------------------------------------
+    def _import_character(self) -> None:
+        """从文件导入人设卡（zip / json / toml / md / txt）。"""
+        path = filedialog.askopenfilename(
+            parent=self.frame,
+            title="导入人设卡",
+            filetypes=[
+                ("人设卡（zip / json / toml / md）", "*.zip *.json *.toml *.md *.txt"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        self._run_import(
+            lambda: import_file(self._open_store(), None, path, VIEWER),
+            os.path.basename(path),
+        )
+
+    def _paste_import(self) -> None:
+        """打开「粘贴文本导入」对话框：一步建卡，可顺带设为全局人设。"""
+        dialog = _PasteImportDialog(self)
+        self.frame.wait_window(dialog.window)
+
+    def _run_import(self, action: Any, label: str) -> None:
+        try:
+            result = action()
+        except (ConfigEditError, CharacterError, OSError, ValueError) as exc:
+            self.fail(exc)
+            return
+        item = result.character
+        self.reload()
+        self._select(item.id)
+        summary = (
+            f"已导入 {label} → 角色 {item.id}（{'新建' if result.created else '更新'}）"
+        )
+        self.journal(summary)
+        self.notify(summary)
+        if result.warnings:
+            message(self.frame, "导入完成（有提示）", summary + "\n\n" + "\n".join(result.warnings))
+
+    def _export_character(self) -> None:
+        """导出当前角色：ZIP（含图片）/ JSON / Markdown（只含 profile）。"""
+        if self._current is None:
+            message(self.frame, "导出人设卡", "先在左边选中一个角色。")
+            return
+        character_id = self._current.id
+        path = filedialog.asksaveasfilename(
+            parent=self.frame,
+            title="导出人设卡",
+            initialfile=character_id + ".zip",
+            defaultextension=".zip",
+            filetypes=[
+                ("ZIP（含文档与图片）", "*.zip"),
+                ("JSON（文档全文，不含图片字节）", "*.json"),
+                ("Markdown（仅 profile.md）", "*.md"),
+            ],
+        )
+        if not path:
+            return
+        lower = path.lower()
+        store = self._open_store()
+        try:
+            if lower.endswith(".json"):
+                export_json(store, None, character_id, path, VIEWER)
+            elif lower.endswith(".md") or lower.endswith(".txt"):
+                export_markdown(store, None, character_id, path, VIEWER)
+            else:
+                export_zip(store, None, character_id, path, VIEWER)
+        except (ConfigEditError, CharacterError, OSError, ValueError) as exc:
+            self.fail(exc)
+            return
+        self.journal(f"导出人设卡：{character_id} → {path}")
+        self.notify(f"已导出 {character_id} → {path}")
+
+    # -- SOUL 激活 / 回滚 ----------------------------------------------------
+    def _activate_soul_from_card(self) -> None:
+        """把当前选中的人设卡写成全局系统人设 SOUL.md。"""
+        if self._current is None:
+            message(self.frame, "设为全局系统人设", "先在左边选中一个角色。")
+            return
+        item = self._current
+        try:
+            soul_path = self.require_paths().soul_path
+        except ConfigEditError as exc:
+            self.fail(exc)
+            return
+        if not confirm(
+            self.frame,
+            "设为全局系统人设",
+            f"把 {item.name}（{item.id}）写成 SOUL.md？\n\n"
+            "之后所有**没有专属人设**的用户都会使用该人设；其他人的专属人设不受影响。\n"
+            f"当前 SOUL.md 会备份到 {soul_path}.bak，可在这里点「恢复上次备份」。\n"
+            "下一轮对话生效。",
+        ):
+            return
+        try:
+            result = activate_character(self._open_store(), None, item.id, soul_path, VIEWER)
+        except (ConfigEditError, CharacterError, OSError, ValueError) as exc:
+            self.fail(exc)
+            return
+        self._load_soul()
+        self.journal(f"把人设卡 {result.character.id} 设为全局系统人设")
+        self.notify(f"已把 {result.character.name} 设为全局系统人设（备份：{result.backup_path}）")
+
+    def _restore_soul_backup(self) -> None:
+        """恢复激活前的 SOUL.md 备份。"""
+        try:
+            soul_path = self.require_paths().soul_path
+        except ConfigEditError as exc:
+            self.fail(exc)
+            return
+        status = soul_status(soul_path)
+        if not status.backup_exists:
+            message(self.frame, "恢复 SOUL 备份", "还没有可恢复的备份（SOUL.md.bak 不存在）。")
+            return
+        if not confirm(
+            self.frame,
+            "恢复 SOUL 备份",
+            "把 SOUL.md 回滚到上一次激活前的版本？\n\n当前内容会另存为 SOUL.md.restore.bak。",
+        ):
+            return
+        try:
+            restore_soul(soul_path)
+        except OSError as exc:
+            self.fail(exc)
+            return
+        self._load_soul()
+        self.journal("恢复 SOUL.md 备份")
+        self.notify("已恢复 SOUL.md 备份（下一轮对话生效）")
 
 
 def _split(text: str) -> list[str]:
     """逗号分隔的输入 → 去空白、去空值的列表（中英文逗号都接受）。"""
     return [item.strip() for item in text.replace("，", ",").split(",") if item.strip()]
+
+
+class _PasteImportDialog:
+    """「粘贴导入」对话框：一段文本 → 一张角色卡（可顺带设为全局人设）。
+
+    这是"客户端里一步完成"的桌面端入口：用户把聊天里/网页上复制的人设全文贴进来，
+    点一次导入即可建卡；勾选「同时设为全局系统人设」时直接写 SOUL.md（旧内容自动
+    备份）。不需要先手工创建目录、也不需要去对话里让模型翻文件。
+    """
+
+    def __init__(self, tab: "CharacterTab") -> None:
+        self.tab = tab
+        self.window = tk.Toplevel(tab.frame)
+        self.window.title("粘贴文本导入人设卡")
+        self.window.transient(tab.frame)
+        self.window.geometry("760x560")
+        body = ttk.Frame(self.window, padding=10)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        form = ttk.Frame(body)
+        form.pack(fill=tk.X)
+        form.columnconfigure(1, weight=1)
+        self.id_var = tk.StringVar()
+        self.name_var = tk.StringVar()
+        ttk.Label(form, text="角色 id（可留空，自动生成）").grid(
+            row=0, column=0, sticky="w", pady=2
+        )
+        ttk.Entry(form, textvariable=self.id_var).grid(row=0, column=1, sticky="ew", pady=2)
+        ttk.Label(form, text="角色名（可留空，取正文第一个标题）").grid(
+            row=1, column=0, sticky="w", pady=2
+        )
+        ttk.Entry(form, textvariable=self.name_var).grid(row=1, column=1, sticky="ew", pady=2)
+
+        ttk.Label(body, text="人设正文（会写入 profile.md）").pack(anchor="w", pady=(8, 2))
+        wrap = ttk.Frame(body)
+        wrap.pack(fill=tk.BOTH, expand=True)
+        self.text = tk.Text(wrap, wrap=tk.WORD, font=("Microsoft YaHei UI", 9))
+        scroll = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=self.text.yview)
+        self.text.configure(yscrollcommand=scroll.set)
+        self.text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.LEFT, fill=tk.Y)
+        self.activate_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            body,
+            text="同时设为全局系统人设（写 SOUL.md，旧内容自动备份，可回滚）",
+            variable=self.activate_var,
+        ).pack(anchor="w", pady=(6, 0))
+        ttk.Label(
+            body,
+            text="导入后可在本页继续编辑；角色库 3 秒内自动重扫，无需重启。",
+            foreground="#8a8a8a",
+        ).pack(anchor="w")
+        actions = ttk.Frame(body)
+        actions.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(actions, text="导入", command=self._submit).pack(side=tk.RIGHT)
+        ttk.Button(actions, text="取消", command=self.window.destroy).pack(
+            side=tk.RIGHT, padx=(0, 6)
+        )
+        self.text.focus_set()
+
+    def _submit(self) -> None:
+        text = self.text.get("1.0", "end-1c")
+        if not text.strip():
+            message(self.window, "粘贴导入", "人设正文是空的。")
+            return
+        try:
+            store = self.tab._open_store()
+            result = import_text(
+                store,
+                None,
+                text,
+                VIEWER,
+                character_id=self.id_var.get().strip(),
+                name=self.name_var.get().strip(),
+            )
+            activated = False
+            if self.activate_var.get():
+                paths = self.tab.require_paths()
+                activate_character(store, None, result.character.id, paths.soul_path, VIEWER)
+                activated = True
+        except (ConfigEditError, CharacterError, OSError, ValueError) as exc:
+            self.tab.fail(exc)
+            return
+        self.window.destroy()
+        self.tab.reload()
+        self.tab._select(result.character.id)
+        item = result.character
+        summary = f"已导入角色 {item.name}（id={item.id}）"
+        if activated:
+            summary += "，并设为全局系统人设"
+        self.tab.journal(summary)
+        self.tab.notify(summary)
+        if result.warnings:
+            message(
+                self.tab.frame,
+                "导入完成（有提示）",
+                summary + "\n\n" + "\n".join(result.warnings),
+            )

@@ -1,0 +1,38 @@
+{
+  "schema": "atrix-research/manifest/1",
+  "tool": "cite",
+  "skill": "research_cite",
+  "title": "",
+  "description": "生成参考文献：把纳入文献按 APA 7 或 GB/T 7714-2015 格式化，分配唯一引用键（正文用 [@key] 标注），输出参考文献表与键映射。",
+  "risk": "low",
+  "tags": [
+    "research",
+    "academic",
+    "reference"
+  ],
+  "timeout_seconds": 120,
+  "parameters": {
+    "type": "object",
+    "required": [
+      "run"
+    ],
+    "properties": {
+      "run": {
+        "type": "string",
+        "description": "运行 id；'latest' 表示最近一次。缺省时多数工具要求显式给出。"
+      },
+      "style": {
+        "type": "string",
+        "enum": [
+          "gbt7714",
+          "apa7"
+        ],
+        "description": "引用样式，缺省用运行记录的样式。"
+      }
+    }
+  },
+  "args": {
+    "run": "--run",
+    "style": "--style"
+  }
+}

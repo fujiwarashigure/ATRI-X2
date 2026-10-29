@@ -61,6 +61,8 @@ class Options:
     resident_memory_store: Any = None
     #: Python 版新增：群友档案存储（``atri_x.memberprofile``）。``None`` = 不注入。
     member_profile_store: Any = None
+    #: Python 版新增：成员专属人设绑定（``atri_x.memberprofile.persona``）。``None`` = 不注入。
+    member_persona_store: Any = None
     angel_memory: Any = None
     angel_memory_config: Any = None
     self_learning: Any = None
