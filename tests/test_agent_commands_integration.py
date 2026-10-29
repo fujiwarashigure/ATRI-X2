@@ -130,7 +130,17 @@ class ModuleInventoryTests(unittest.TestCase):
         # time.py 同理（1.0.10 的 ``/time``，Go 侧没有时间服务）。
         # research.py 同理（1.1.3 的 ``/research``，Go 侧没有科研研究助理）。
         mapped.update(
-            {"__init__", "log_args", "log_format", "model_types", "approval", "time", "research"}
+            {
+                "__init__",
+                "log_args",
+                "log_format",
+                "model_types",
+                "approval",
+                "time",
+                "research",
+                # 1.1.4 的 ``/resources``：Go 侧没有硬件资源查询命令。
+                "resources",
+            }
         )
         present = {info.name for info in pkgutil.iter_modules(commands_package.__path__)}
         self.assertEqual(present - mapped, set())
@@ -453,6 +463,9 @@ class DepsSlotCoverageTests(unittest.TestCase):
                 # （生产接线见 atri_x/app/foundation.py + runner.py）。
                 "time_service",
                 "time_verifier",
+                # 1.1.4：``/resources`` 的渲染器默认就指向 ``sysinfo.collect_resources``，
+                # 注入只是为了测试替换，缺省不会静默降级。
+                "resources",
             ):
                 continue  # 这些由 app 层的业务存储提供
             with self.subTest(slot=field_name):

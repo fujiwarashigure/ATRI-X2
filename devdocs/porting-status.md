@@ -174,7 +174,7 @@
 
 ## 5. 相对链接约定
 
-- `README.md`（仓库根）：链接写 `docs/xxx.md`、`devdocs/xxx.md`、`PORTING.md`、`deploy/README.md`、`AGENTS.md`、`CHANGELOG.md`。
+- `README.md`（仓库根）：链接直接写仓库相对路径（`docs/`、`devdocs/`、`PORTING.md`、`deploy/README.md`、`AGENTS.md`、`CHANGELOG.md`）。
 - `docs/*.md`：同目录直接写 `xxx.md`；跨目录写 `../devdocs/xxx.md`、`../PORTING.md`、`../deploy/*`。
 - `devdocs/*.md`：同目录直接写 `xxx.md`；跨目录写 `../docs/xxx.md`、`../PORTING.md`、`../README.md`、`../deploy/*`。
 - **源码模块一律用行内代码**（如 `atri_x/agent/core.py`），不做 Markdown 链接：72 个包已全量落地，模块路径按 [PORTING.md](../PORTING.md) §4 的映射表核对即可，链到某个具体文件既容易随重构失效，也不是读者需要的粒度。

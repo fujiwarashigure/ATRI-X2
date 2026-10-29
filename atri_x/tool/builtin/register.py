@@ -69,6 +69,7 @@ from atri_x.tool.builtin.persona import new_persona_control_tool
 from atri_x.tool.builtin.prompt_library import PromptLibrarySearchTool
 from atri_x.tool.builtin.resident_memory import new_resident_memory_tools
 from atri_x.tool.builtin.runtimeinfo import RuntimeInfo
+from atri_x.tool.builtin.runtime_resources import new_runtime_resources_tool
 from atri_x.tool.builtin.self_learning import new_self_learning_review_tool
 from atri_x.tool.builtin.send_file import new_send_file_tool
 from atri_x.tool.builtin.shell import new_shell_tool_with_environment
@@ -121,6 +122,9 @@ ALWAYS_REGISTERED_TOOLS: tuple[str, ...] = (
     # Python 侧新增（1.0.10）：只读的当前时间查询（``get_current_time``）。时间服务
     # 未装配时工具回退到进程级默认实例，因此同样没有守卫。
     "get_current_time",
+    # Python 侧新增（1.1.4）：超管专属的只读资源占用查询（``runtime_resources``）。
+    # 采集失败只在结果里降级、配置目录缺失时退回"不统计磁盘"，因此无守卫。
+    "runtime_resources",
 )
 
 #: 需要 ``RegisterOptions`` 里对应字段才注册的工具：键 = Go ``RegisterAll`` 的守卫字段，
@@ -391,6 +395,10 @@ def register_all(registry: Registry, opts: RegisterOptions) -> None:
     shell.media = media_runtime
     registry.register(shell)
     registry.register(new_atriwisp_creator_tool(info))
+
+    # Python 侧新增（1.1.4）：超管专属只读资源占用。复用现有的 ``opts.runtime_info``
+    # （``.config_dir`` 作为默认磁盘路径），不需要新增 ``RegisterOptions`` 字段。
+    registry.register(new_runtime_resources_tool(info))
 
     # skill 一族（Go ``register.go:225-250``）。注册顺序与守卫都逐条对齐：
     # catalog 只在 manager 存在时取（Go 里是 ``(*skill.Catalog)(nil)``），

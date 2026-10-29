@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "generated_by": "python scripts/check_complexity.py --update",
+  "note": "结构指标棘轮：只降不升。放宽预算必须改这个文件（review 可见）。口径见 atri_x/devtools/astindex.py 与 boundaries.py。",
+  "long_file_lines": 600,
+  "budget": {
+    "modules": 787,
+    "long_files": 79,
+    "max_file_lines": 1225,
+    "cross_domain_edges": 1468,
+    "max_fan_in": 250,
+    "untested_modules": 310,
+    "boundary_violations": 26
+  },
+  "context": {
+    "longest_file": "atri_x/config/app_sections.py",
+    "top_hub": "atri_x.errors"
+  }
+}

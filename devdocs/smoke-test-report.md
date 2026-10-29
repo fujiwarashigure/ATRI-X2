@@ -264,6 +264,6 @@ atri-x.exe service run
 - 没有用真实平台（OneBot / Telegram / QQ 官方）做端到端消息冒烟：这些需要外部服务与
   密钥，本次没有条件。
 - 没有跑 `-race`：本机 Go 报 `-race requires cgo`，本机未启用 cgo。
-- 没有跑 `deploy/tests` 之外的运维脚本（`deploy/*.sh` 的备份/升级/回滚主脚本），
+- 没有跑 `deploy/` 下除测试脚本之外的运维脚本（`deploy/*.sh` 的备份/升级/回滚主脚本），
   只跑了它们对应的测试脚本。
 - 没有验证 QQ OneBot 的 3000 rune 合并转发、媒体入库到 S3 等需要真实依赖的路径。

@@ -1,0 +1,63 @@
+# 质量门禁：每次 push / PR 都跑代码门禁 + 文档门禁。
+#
+# 为什么需要它：仓库原来只有 release-image.yml（发镜像），**7 道质量门禁从来没在
+# CI 跑过**，全靠人记得。7 道门禁 + 文档门禁全部可执行，没理由不自动化。
+#
+# 本工作流不需要第三方依赖（纯标准库 + 自带脚本），因此不装 requirements，
+# 只用 ubuntu-latest 自带的 python3。
+name: quality
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: code + docs gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 选择 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 语法 / 编码 / BOM / CRLF（check_syntax）
+        run: python scripts/check_syntax.py
+
+      - name: 逐模块导入（check_imports）
+        run: python scripts/check_imports.py
+
+      - name: 跨模块契约（check_integration）
+        run: python scripts/check_integration.py
+
+      - name: 秘密扫描（check_secrets）
+        run: python scripts/check_secrets.py
+
+      - name: 异常处理棘轮（check_except）
+        run: python scripts/check_except.py
+
+      - name: PORTING 覆盖（check_coverage）
+        run: python scripts/check_coverage.py
+
+      - name: 生成索引不漂移（gen_index --check）
+        run: python scripts/gen_index.py --check
+
+      - name: README 数字与实测一致（gen_stats --check）
+        run: python scripts/gen_stats.py --check
+
+      - name: 文档门禁（check_docs）
+        run: python scripts/check_docs.py
+
+      - name: 全量单测
+        run: python -m unittest discover -s tests -t . -v
+
+      - name: 复杂度预算（complexity_budget.json）
+        run: python scripts/check_complexity.py

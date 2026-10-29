@@ -12,6 +12,13 @@ segments 解不开、或引用了不存在的媒体（外键失败）时整条�
 
 from __future__ import annotations
 
+
+from atri_x.storage.times import order_time_expr
+
+#: 时间列排序表达式：去掉结尾的 ``Z`` 再比较，避免同一秒内小数位长度不同导致的乱序
+#: （见 :func:`atri_x.storage.times.order_time_expr`）。
+_ORDER_TIME = order_time_expr("created_at")
+
 import json
 from typing import TYPE_CHECKING
 
@@ -99,7 +106,7 @@ WHERE id = ?""",
 SELECT {MESSAGE_COLUMNS}
 FROM messages
 WHERE session_id = ?
-ORDER BY created_at ASC, rowid ASC""",
+ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
             (session_id,),
         )
         return [_scan_message(row) for row in rows]
@@ -112,7 +119,7 @@ ORDER BY created_at ASC, rowid ASC""",
 SELECT {MESSAGE_COLUMNS}
 FROM messages
 WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND rowid <= ?))
-ORDER BY created_at ASC, rowid ASC""",
+ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
             (session_id, to_created_at, to_created_at, to_row_id),
         )
         return [_scan_message(row) for row in rows]
@@ -125,7 +132,7 @@ ORDER BY created_at ASC, rowid ASC""",
 SELECT {MESSAGE_COLUMNS}
 FROM messages
 WHERE session_id = ? AND (created_at > ? OR (created_at = ? AND rowid > ?))
-ORDER BY created_at ASC, rowid ASC""",
+ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
             (session_id, after_created_at, after_created_at, after_row_id),
         )
         return [_scan_message(row) for row in rows]
@@ -143,7 +150,7 @@ FROM messages
 WHERE session_id = ?
   AND (created_at > ? OR (created_at = ? AND rowid > ?))
   AND (created_at < ? OR (created_at = ? AND rowid <= ?))
-ORDER BY created_at ASC, rowid ASC""",
+ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
             (
                 session_id,
                 after_created_at,

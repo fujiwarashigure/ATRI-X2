@@ -1,6 +1,9 @@
 # ATRI-X 文档
 
-这里是面向用户的 ATRI-X（Python 重写版）文档。开发计划、任务拆分和内部设计资料已移到 [`../devdocs/`](../devdocs/)；包级 Go → Python 映射见 [`PORTING.md`](../PORTING.md) §4。
+这里是面向用户的 ATRI-X（Python 重写版）文档。**维护者**请从
+[`dev/START-HERE.md`](dev/START-HERE.md)（30 分钟上手）与 [`dev/find-it.md`](dev/find-it.md)
+（按任务找入口）开始；架构与生成索引在 [`../devdocs/`](../devdocs/)；包级 Go → Python 映射见
+[`PORTING.md`](../PORTING.md) §4。
 
 ## 推荐阅读顺序
 

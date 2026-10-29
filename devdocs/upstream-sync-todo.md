@@ -253,7 +253,7 @@
     - `6fd1d1c` **`fix: sync foreground takeover via local signals and isolate platform failures with cross-platform admin notifications`**（38 文件 / +770 / −89）：前台接管由"注入回调 `SetForegroundActivation`"改为**局部信号** `session.ForegroundActivated`；工具边界刷新由**重读数据库**改为**只合并内存快照**；平台异常退出改为**隔离 + 跨平台超管通知**；服务模式不再随全部消息平台退出而结束；`delivery` 抽出 `LogSendResult` 并让失败日志用 `context.WithoutCancel`。
     - `a0304ad` **`fix bug`**：把 `runCtx.Err() == err` 修成 `errors.Is(err, runCtx.Err())`（`internal/platform/module/module.go` 的 `runPlatforms`，1 行）。
     - `8ae5f6f` / `549287e` / `132e930`：`docs: auto-translate …`（`CHANGELOG.md`、`docs/getting-started.md`、`docs/commands.md` 的英文镜像）——本 fork 不手改英文镜像，**不跟**。
-    - **判定**：这 5 个提交里没有"可整段照抄"的东西（都长在上游 `atri_x/session` + `atri_x/turn` + `atri_x/platform/module` 骨架上），但**有两项行为值得在 fork 的等价落点改造**（平台失败隔离 / 服务模式保活 / 超管通知，以及启动插件告警的投递时机）。逐项结论见 §10，§9 剩余项的结论见 §9.1。
+    - **判定**：这 5 个提交里没有"可整段照抄"的东西（都长在上游 `internal/session` + `internal/turn` + `internal/platform/module` 骨架上），但**有两项行为值得在 fork 的等价落点改造**（平台失败隔离 / 服务模式保活 / 超管通知，以及启动插件告警的投递时机）。逐项结论见 §10，§9 剩余项的结论见 §9.1。
   - **注意**：本仓库**没有配置 `upstream` remote**（只有 `origin`）。`refs/remotes/upstream/main` 是手工 fetch 留下的 ref（会被 `git fetch --prune` 清掉）；每次增量盘点前先 `git fetch https://github.com/Elflare/elbot.git main:refs/remotes/upstream/main`，否则会拿到过期结论。
 
 ## 8. 上游借鉴项（本轮计划，按序落地）
@@ -369,7 +369,7 @@
 | 项 | 上游落点 | 判定 | fork 落点 |
 | --- | --- | --- | --- |
 | 平台异常退出隔离 + 服务模式保活 + 跨平台超管通知 | `atri_x/platform/module/{module.go,notifications.go}` | **改造（本轮第一优先）** | `atri_x/app/platforms.py` + `PlatformRunRequest` |
-| 前台接管局部信号 / `Execution` 内存快照 / 发送时改道 | `atri_x/session` + `atri_x/turn` + `atri_x/agent/dialogue` | **不搬机制**；但**要跟**"查不到就停下"的口径与跑完复核 | `atri_x/agent/{cron.go,chat.go}` |
+| 前台接管局部信号 / `Execution` 内存快照 / 发送时改道 | `atri_x/session` + `atri_x/turn` + 上游 `internal/agent/dialogue` | **不搬机制**；但**要跟**"查不到就停下"的口径与跑完复核 | `atri_x/agent/{cron.go,chat.go}` |
 | `delivery.LogSendResult` + 失败日志 `context.WithoutCancel` | `atri_x/delivery/delivery.py` | **不搬** | — |
 | `a0304ad` 的 `errors.Is(err, runCtx.Err())` 口径 | `internal/platform/module/module.go` | **随平台项一起对齐（1 行）** | `atri_x/app/platforms.py:149` |
 

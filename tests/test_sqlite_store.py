@@ -45,7 +45,7 @@ from atri_x.storage.repositories import (
     ToolCallRepository,
 )
 from atri_x.storage.sqlite import SQLiteError, new
-from atri_x.storage.times import now
+from atri_x.storage.times import parse_time, now
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _TMP_ROOT = os.path.join(_REPO_ROOT, "tmp_sqlite_test")
@@ -466,6 +466,31 @@ class TestMessageRepository(SqliteStoreTestCase):
         self.assertEqual("", loaded.segments)
         self.assertEqual("", loaded.metadata)
         self.assertEqual([first.id, second.id], [m.id for m in self.store.messages().list_by_session(session.id)])
+
+    def test_list_by_session_orders_same_second_variable_precision(self) -> None:
+        """同一秒内、小数位长度不同的 ``created_at`` 必须按真实时间排序（1.1.4 回归）。
+
+        历史 bug：``format_time`` 按 Go ``RFC3339Nano`` 去掉小数秒末尾的 0，于是
+        ``…:45.7835Z``（783500µs）与 ``…:45.783545Z``（783545µs）按**字符串**比较时，
+        前者的 ``Z``（U+005A）大于后者的 ``4``，导致较早的消息排到后面——
+        1.1.4 稳定性测试里实测到同一会话的 user/assistant 次序偶发颠倒。
+        修复方式：查询侧用 ``rtrim(created_at, 'Z')`` 归一化比较。
+        """
+        session = self.new_session()
+        earlier = self.append_message(
+            session.id,
+            "earlier",
+            created_at=parse_time("2026-10-29T16:38:45.783500Z"),
+        )
+        later = self.append_message(
+            session.id,
+            "later",
+            RoleAssistant,
+            created_at=parse_time("2026-10-29T16:38:45.783545Z"),
+        )
+        # 直接按字符串比会得到 [later, earlier]；修复后必须是真实时间顺序。
+        ordered = self.store.messages().list_by_session(session.id)
+        self.assertEqual([earlier.id, later.id], [m.id for m in ordered])
 
     def test_segments_round_trip_and_empty_segments_are_null(self) -> None:
         session = self.new_session()

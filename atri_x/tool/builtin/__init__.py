@@ -50,14 +50,15 @@ Python 模块                    对应 Go 文件
 ``group_analysis``            ``group_analysis.go``
 ``self_learning``             ``self_learning.go``
 ``runtime``                   ``runtime.go``（只保留名字转发与 ``imageConfigFrom``）
+``runtime_resources``         Python 侧新增（1.1.4）：超管专属只读资源占用查询
 ``register``                  ``register.go``
 ============================  =====================================================
 
-**装配状态**：43 个 builtin 工具 + ``internal/tool/skill`` 一族的 6 个工具
+**装配状态**：``builtin`` 包里的内置工具、``internal/tool/skill`` 一族的 6 个工具
 （``agent_skill`` / ``go_skill_run`` / ``create_atrix_skill`` / ``read_atrix_skill`` /
-``modify_atrix_skill`` / ``finalize_atrix_skill``）全部已接线，真实装配
-（:func:`atri_x.app.tool_runtime.build_tool_runtime`）在依赖齐全时注册
-``REGISTERED_TOOLS`` 里的全部 49 个名字，``UNPORTED_TOOLS`` 为空。
+``modify_atrix_skill`` / ``finalize_atrix_skill``）与工具发现入口 ``discover_tool``
+全部已接线，真实装配（:func:`atri_x.app.tool_runtime.build_tool_runtime`）在依赖
+齐全时注册 ``REGISTERED_TOOLS`` 里的全部 55 个名字，``UNPORTED_TOOLS`` 为空。
 ``angel_forget`` 由 ``angel_memory_allow_forget`` 控制，属条件注册（见
 ``CONDITIONAL_TOOLS``）。``runtime.go`` 的 ``Runtime`` / ``RuntimeOptions`` /
 ``NewRuntime`` 已经在 app 层落地（:mod:`atri_x.app.tool_runtime`），本包不再重复装配。
@@ -591,6 +592,17 @@ from atri_x.tool.builtin.runtimeinfo import (  # noqa: F401
     RuntimeInfo,
     atriyph_rule_card,
     first,
+)
+from atri_x.tool.builtin.runtime_resources import (  # noqa: F401
+    DEFAULT_SAMPLE_MS,
+    MAX_SAMPLE_MS,
+    MIN_SAMPLE_MS,
+    RUNTIME_RESOURCES_NAME,
+    RuntimeResourcesArgs,
+    RuntimeResourcesTool,
+    new_runtime_resources_tool,
+    parse_runtime_resources_args,
+    runtime_resources_builder,
 )
 from atri_x.tool.builtin.runtime import (  # noqa: F401
     ImageGenConfig,

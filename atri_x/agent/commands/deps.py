@@ -365,6 +365,9 @@ class Deps:
     time_service: Any = None
     #: Python 版新增：网络时间校验器（``/time verify`` 用）；``None`` = 未装配。
     time_verifier: Any = None
+    #: Python 版新增（1.1.4）：资源占用快照渲染器（``/resources`` 用）。返回文本；
+    #: ``None`` = 未装配，命令回退成"未启用"。同步可调用（命令侧已在线程里跑）。
+    resources: Callable[[], Any] | None = None
 
 
 def register_factories(
@@ -399,6 +402,7 @@ def default_modules() -> list[Module]:
     from atri_x.agent.commands.model import ModelModule
     from atri_x.agent.commands.request import RequestModule
     from atri_x.agent.commands.research import ResearchModule  # [atri-research]
+    from atri_x.agent.commands.resources import ResourcesModule
     from atri_x.agent.commands.rollback import FileModule
     from atri_x.agent.commands.session_module import SessionModule
     from atri_x.agent.commands.state import StateModule
@@ -427,6 +431,7 @@ def default_modules() -> list[Module]:
         MemoryLearningModule(),
         TimeModule(),
         ResearchModule(),  # [atri-research]
+        ResourcesModule(),  # 1.1.4：超管只读资源占用
     ]
 
 

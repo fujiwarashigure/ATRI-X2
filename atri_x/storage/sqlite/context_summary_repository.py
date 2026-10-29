@@ -1,5 +1,4 @@
 """上下文摘要仓储。对应 Go：``internal/storage/sqlite/context_summary_repository.go``。
-
 ``latest_by_session_up_to`` 的排序与 Go 一致：先按**目标消息**的
 ``(created_at, id)`` 取"截至检查点"，再按摘要自身的 ``(created_at, id)`` 取最新一条。
 注意 Go 用的是 ``m.id`` 而不是 ``rowid``（``message_repository`` 用的是 rowid），
@@ -7,6 +6,14 @@
 """
 
 from __future__ import annotations
+
+
+from atri_x.storage.times import order_time_expr
+
+#: 时间列排序表达式（见 :func:`atri_x.storage.times.order_time_expr`）。
+_ORDER_TIME = order_time_expr("created_at")
+_MT = order_time_expr("m.created_at")
+_CT = order_time_expr("cs.created_at")
 
 from typing import TYPE_CHECKING
 
@@ -70,7 +77,7 @@ INSERT INTO context_summaries (
 SELECT {SUMMARY_COLUMNS}
 FROM context_summaries
 WHERE session_id = ?
-ORDER BY created_at DESC, id DESC
+ORDER BY {_ORDER_TIME} DESC, id DESC
 LIMIT 1""",
             (session_id,),
         )
@@ -82,14 +89,14 @@ LIMIT 1""",
         """取会话里截至 ``to_message_id``（含）的最新摘要；不存在抛 ErrNotFound。"""
         position = self._message_position(session_id, to_message_id)
         row = self._db.query_row(
-            """
+            f"""
 SELECT cs.id, cs.session_id, cs.from_message_id, cs.to_message_id, cs.summary, cs.provider, cs.model,
        cs.source_tokens, cs.summary_tokens, cs.total_tokens, cs.cache_hit_tokens,
        cs.trigger_reason, cs.metadata, cs.created_at
 FROM context_summaries cs
 JOIN messages m ON m.id = cs.to_message_id AND m.session_id = cs.session_id
 WHERE cs.session_id = ? AND (m.created_at < ? OR (m.created_at = ? AND m.id <= ?))
-ORDER BY m.created_at DESC, m.id DESC, cs.created_at DESC, cs.id DESC
+ORDER BY {_MT} DESC, m.id DESC, {_CT} DESC, cs.id DESC
 LIMIT 1""",
             (session_id, position[0], position[0], position[1]),
         )

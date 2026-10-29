@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "generated_by": "python scripts/check_docs.py --update",
+  "note": "checks 是防止「静默删检查项」的指纹；inline_path_refs_max 是手写路径引用棘轮。",
+  "checks": [
+    "relative_links",
+    "inline_paths",
+    "index_coverage",
+    "locators",
+    "line_budget",
+    "numbers"
+  ],
+  "inline_path_refs_max": 1108,
+  "line_limit": 600
+}

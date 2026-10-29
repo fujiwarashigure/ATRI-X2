@@ -125,12 +125,32 @@ def parse_optional_time(text: str) -> datetime | None:
     return parse_time(text)
 
 
+def order_time_expr(column: str = "created_at") -> str:
+    """``ORDER BY`` 里用来排时间列的安全表达式（去掉结尾的 ``Z`` 再比较）。
+
+    为什么需要：:func:`format_time` 按 Go ``RFC3339Nano`` 的规则**去掉小数秒末尾的 0**，
+    于是同一秒内的两个值可能是 ``…:45.7835Z``（783500µs）与 ``…:45.783545Z``（783545µs）。
+    直接按字符串比较时，前者的 ``Z``（U+005A）大于后者的 ``4``（U+0034），
+    结果**较早的时间排到了后面**——1.1.4 的稳定性测试里实测到过
+    （同一会话内 user/assistant 两条消息次序偶发颠倒）。
+
+    去掉结尾的 ``Z`` 后变成 ``…:45.7835`` 与 ``…:45.783545``，短串排在前，
+    与时间顺序一致；整秒值 ``…:45`` 依然排在 ``…:45.7835`` 之前。
+    存储格式不变（仍是 RFC3339Nano，与 Go 一致），只在查询侧做比较归一化。
+
+    用法：``f"ORDER BY {order_time_expr('created_at')} ASC, rowid ASC"``。
+    """
+    name = (column or "").strip() or "created_at"
+    return f"rtrim({name}, 'Z')"
+
+
 __all__ = [
     "ZERO_TIME",
     "ensure_utc",
     "format_time",
     "is_zero_time",
     "now",
+    "order_time_expr",
     "parse_optional_time",
     "parse_time",
 ]

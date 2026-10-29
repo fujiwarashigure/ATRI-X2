@@ -210,8 +210,9 @@ class FullWiringTest(_TmpDirTest):
         self.assertEqual(names, expected)
         # Go ``register.go`` 注册的全部工具数 + Python 新增（``fetch_message`` /
         # ``get_current_time`` / ``character_import`` / ``character_activate`` /
-        # ``persona_control``）。1.1.3 修订：角色库一组新增 3 个工具。
-        self.assertEqual(len(REGISTERED_TOOLS), 54)
+        # ``persona_control`` / ``runtime_resources``）。1.1.3 修订：角色库一组新增
+        # 3 个工具；1.1.4 新增超管专属只读资源查询 ``runtime_resources``。
+        self.assertEqual(len(REGISTERED_TOOLS), 55)
         self.assertEqual(len(names), len(REGISTERED_TOOLS))
 
     def test_no_dependency_degraded_silently(self) -> None:
@@ -328,9 +329,9 @@ class MinimalWiringTest(_TmpDirTest):
             expected |= set(CONDITIONAL_TOOLS[option])
         self.assertEqual(sorted(names - expected), [], "extra tools")
         self.assertEqual(sorted(expected - names), [], "missing tools")
-        # 计数：14 无条件（含 fetch_message）+ 4 resident + 3 long_memory + 1
-        # send_file + 4 skill = 26。
-        self.assertEqual(len(names), 27)
+        # 计数：15 无条件（含 fetch_message）+ 4 resident + 3 long_memory + 1
+        # send_file + 4 skill = 27；1.1.4 无条件新增 runtime_resources → 28。
+        self.assertEqual(len(names), 28)
 
     def test_every_config_dependent_guard_stays_closed(self) -> None:
         runtime = self._build()
@@ -342,11 +343,11 @@ class MinimalWiringTest(_TmpDirTest):
                 self.assertNotIn(name, names, f"{name}（守卫 {option}）")
 
     def test_register_all_minimal_is_exactly_the_unconditional_set(self) -> None:
-        """``RegisterOptions()`` 一个依赖都不给：恰好是无条件那 14 个。"""
+        """``RegisterOptions()`` 一个依赖都不给：恰好是无条件那 16 个。"""
         registry = new_registry_with_builtin(RegisterOptions())
         names = {info.name for info in registry.list()}
         self.assertEqual(names, set(ALWAYS_REGISTERED_TOOLS))
-        self.assertEqual(len(ALWAYS_REGISTERED_TOOLS), 15)
+        self.assertEqual(len(ALWAYS_REGISTERED_TOOLS), 16)
 
 
 class SkillWiringTest(_TmpDirTest):

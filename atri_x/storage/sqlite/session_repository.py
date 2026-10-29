@@ -7,6 +7,13 @@
 
 from __future__ import annotations
 
+
+from atri_x.storage.times import order_time_expr
+
+#: 时间列排序表达式：去掉结尾的 ``Z`` 再比较，避免同一秒内小数位长度不同导致的乱序
+#: （见 :func:`atri_x.storage.times.order_time_expr`）。
+_ORDER_TIME = order_time_expr("created_at")
+
 from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -44,7 +51,6 @@ WHERE id = ?"""
 
 class SessionRepository:
     """会话仓储。对应 Go ``sqlite.SessionRepository``。"""
-
     def __init__(self, database: "SQLiteDatabase") -> None:
         self._db = database
 
@@ -185,8 +191,8 @@ WHERE archived_at IS NULL
 SELECT s.id, s.owner_id, s.platform, s.platform_scope_id, s.title, s.mode, s.status,
        s.created_at, s.updated_at, s.archived_at, s.pinned_at,
        COUNT(m.id) AS message_count,
-       COALESCE((SELECT content FROM messages WHERE session_id = s.id AND role = 'user' ORDER BY created_at DESC, rowid DESC LIMIT 1), '') AS last_user_preview,
-       COALESCE((SELECT content FROM messages WHERE session_id = s.id AND role = 'assistant' ORDER BY created_at DESC, rowid DESC LIMIT 1), '') AS last_bot_preview
+       COALESCE((SELECT content FROM messages WHERE session_id = s.id AND role = 'user' ORDER BY {_ORDER_TIME} DESC, rowid DESC LIMIT 1), '') AS last_user_preview,
+       COALESCE((SELECT content FROM messages WHERE session_id = s.id AND role = 'assistant' ORDER BY {_ORDER_TIME} DESC, rowid DESC LIMIT 1), '') AS last_bot_preview
 FROM sessions s
 LEFT JOIN messages m ON m.session_id = s.id
 WHERE {" AND ".join(where)}
@@ -224,11 +230,11 @@ LIMIT ? OFFSET ?"""
         """一段短预览（Go ``messagePreview``）。预览是装饰性的：查不动就当没有。"""
         try:
             rows = self._db.query(
-                """
+                f"""
 SELECT role, content
 FROM messages
 WHERE session_id = ? AND role IN ('user', 'assistant')
-ORDER BY created_at ASC, rowid ASC
+ORDER BY {_ORDER_TIME} ASC, rowid ASC
 LIMIT 4""",
                 (session_id,),
             )

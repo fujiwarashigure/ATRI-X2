@@ -6,6 +6,69 @@
 
 ---
 
+## [1.1.4] - 2026-10-30 — 超管资源占用工具 + 可维护性/导航体系
+
+> 只加功能与工程设施，**不改**配置格式、工具 schema、会话与数据库格式；配置与会话数据向后兼容。
+> 发行说明（面向用户）见 [`docs/release-notes/1.1.4.md`](docs/release-notes/1.1.4.md)。
+
+旧状态（1.1.3）：
+
+- 超管想知道"现在占多少内存 / CPU / 磁盘还剩多少"没有工具可用：只能让模型用 `shell` 跑
+  `Get-Process` / `wmic`——Windows 上 shell 恒判高风险、每次要确认、群里确认还看不到命令，
+  且要解析文本。群里成员也无法自证"是不是机器卡"。
+- `atri_x/sysinfo.py` 的 `process_rss()` 只实现了 Linux 的 `/proc` 分支，**Windows 上恒返回 0**，
+  于是 `/metrics` 的 `resources` 段与定时日报在 Windows 上一直显示进程内存 0；也没有系统级内存 /
+  CPU 采样。
+- 文档面只有 `gen_stats.py --check` 一道门禁（只验 README 数字）。`devdocs/code-map.md` 635 行、
+  257 处手写路径引用，`AGENTS.md` 10.7 KB 的 locator 任务表全靠人维护；`code-map` 覆盖 598/777
+  模块（77%），测试只直接 import 了 388/777 模块（49.9%）。**文档是软副本，漂移只能靠人记得改。**
+- `AGENTS.md` 写着"单文件 ≤600 行"，但实测 78 个文件超线（16 个 ≥800，最长 1225 行）——**规则没有牙**。
+- CI 只有 `release-image.yml`（发镜像），7 道质量门禁**从未在 CI 跑过**。
+
+新状态：
+
+- **新增超管专属只读工具 `runtime_resources`**（`superadmin_only` + `risk=safe`）：进程内存
+  （RSS / 峰值 / 私有提交）、进程 CPU（单核基准）、线程 / 句柄 / 读写字节、系统内存与整机 CPU、
+  逻辑核数、运行时长、指定卷磁盘剩余；采样窗口默认 500ms（100–2000ms 可调），目录大小递归统计默认关。
+  `call` 内走 `asyncio.to_thread`，500ms 采样不会阻塞事件循环。
+- **新增 `/resources` 斜杠命令**（仅超管，`Info.min_role` 留空）：与工具共用
+  `atri_x/sysinfo.py:format_resources` 的同一份渲染，单一出处。
+- **`atri_x/sysinfo.py` 补齐 Windows 采样**（纯标准库 `ctypes`）：`K32GetProcessMemoryInfo` /
+  `GetProcessTimes` / `GetProcessHandleCount` / `GetProcessIoCounters` / `GlobalMemoryStatusEx` /
+  `GetSystemTimes`；`process_rss()` 在 Windows 不再恒为 0，`/metrics` 与日报的进程内存随之正确。
+  新增可注入的 `PlatformCollector` 与 `collect_resources()`，`collect()` / `Snapshot` 语义不变。
+- **新增生成式索引体系**：`atri_x/devtools/`（`astindex` / `render` / `entrypoints` / `domaindocs` /
+  `boundaries` / `markdown`，零第三方依赖、不 import `atri_x`）+ `scripts/gen_index.py`，产出 16 个
+  生成物：`devdocs/generated/{module-map.md,deps.mmd,entrypoints.md,test-map.md,go-map.md}`、
+  10 个 `atri_x/<域>/README.md`、`docs/dev/glossary.md`。`--check` 在 CI 判漂移。
+- **新增文档门禁 `scripts/check_docs.py`**：相对链接、内联路径、索引覆盖、locator 锚点、行数棘轮、
+  数字一致性共 6 条断言，配 `scripts/line_budget_baseline.json` 与 `scripts/doc_link_baseline.json`
+  两个棘轮基线；支持 `--list` / `--update`。
+- **新增结构预算 `scripts/check_complexity.py` + `scripts/complexity_budget.json`**：模块数、
+  超 600 行文件数、最长文件行数、跨一级域 import 边、最大 fan-in、无测试触达模块数、
+  跨域绕开枢纽 facade 次数，全部**只降不升**；`atri_x/devtools/boundaries.py` 声明 7 个枢纽的公开面，
+  现状 26 处违规（全部在 `atri_x.config` 子模块）冻结成基线。
+- **新增 CI `.github/workflows/quality.yml`**：7 道代码门禁 + `gen_index --check` +
+  `gen_stats --check` + `check_docs` + `check_complexity` + 全量测试；另加
+  `.github/pull_request_template.md` 三条勾选。
+- **文档分层收缩**：`README.md` 489 → ~300 行（发行说明历史迁到 `docs/release-notes/`）；
+  `AGENTS.md` 10.7 KB → ~6 KB（只留操作规则，locator 任务表被生成物替代）；
+  `devdocs/code-map.md` 635 → ~140 行（"读的顺序 + 为什么这样分"，逐文件职责交给 `module-map.md`）；
+  新增 `docs/dev/START-HERE.md`（30 分钟上手 + 3 个练习）、`docs/dev/find-it.md`（10 类任务入口）、
+  `devdocs/adr/0001-flat-layout.md`、`0002-six-hundred-lines.md`、`0003-zero-runtime-deps.md`、
+  `0004-structural-convergence.md`。
+- **测试**：新增 `tests/test_builtin_runtime_resources.py`（26 例：声明 / 参数解析 / 换算 / 降级 /
+  工具 call / 命令 handler）；注册表与命令计数断言同步（工具 54 → 55、命令 49 → 50、最小装配 27 → 28）。
+- **修掉一个存储层真 bug（稳定性测试发现）**：`format_time` 按 Go `RFC3339Nano` 去掉小数秒
+  末尾的 0，同一秒内可能同时出现 `…:45.7835Z` 与 `…:45.783545Z`；直接按字符串比较时前者的
+  `Z` 大于后者的数字，导致**较早的消息排到后面**（实测：同一会话 user/assistant 次序偶发颠倒，
+  约 0.5%）。修复不动存储格式，只在查询侧用 `rtrim(created_at, 'Z')` 归一化比较
+  （`atri_x/storage/times.py:order_time_expr`，应用到消息 / 会话预览 / 上下文摘要三处查询），
+  并加了一条确定性回归用例。
+- **修正口径**：早期文档里的"3,476 条 import 边 / 80% 跨域 / `errors` fan-in 645"是错误算法
+  （包前缀当模块名匹配，重复计数）。1.1.4 起以 `atri_x/devtools` 口径为准：3,611 条边、
+  跨一级域 40.6%、最大 fan-in 250。
+
 ## [1.1.3] - 2026-10-29（修订）— 人设卡「一步导入 / 启用」与成员专属人设
 
 > 版本号仍为 1.1.3（不发新版）。只加功能与配置键，**不迁移**现有数据：
@@ -153,7 +216,7 @@
 - 文档：新增 `docs/research.md`（完整使用与排障）、`research_pack/README.md`（随包资源与
   升级流程），`docs/commands.md` / `docs/windows-app.md`（13 个选项卡，§4.9 研究页）/
   `docs/concepts.md` / `devdocs/code-map.md` / `README.md` 同步。
-- 发行产物（本机从工作树重建；已提交并推送 GitHub，并作为 **GitHub Release v1.1.3**（11 个附件）发布——`main` 提交 `139aaf2`、tag `v1.1.3`）：
+- 发行产物（本机从工作树重建；按发布要求**未提交 git、未推送 GitHub**）：
   - `ATRI-X-1.1.3-setup.exe` 477,667,625 字节（455.5 MB）—
     `2d5ff2193358c6ba0872a2afc13e1574749ea748497c923c8606470c0439fd14`
   - `ATRI-X-1.1.3-portable-win64.zip` 704,208,729 字节（671.6 MB）—
