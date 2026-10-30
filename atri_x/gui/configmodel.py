@@ -47,6 +47,7 @@ __all__ = [
     "load_providers",
     "mask_secret",
     "provider_key_state",
+    "resolve_fetch_key",
     "save_model_selection",
     "save_provider",
     "secret_state",
@@ -191,6 +192,26 @@ def secret_value(paths: ConfigPaths, env_name: str) -> str:
     except ConfigEditError:
         return ""
     return (dotenv.get(name) or "").strip()
+
+
+def resolve_fetch_key(typed: str, paths: ConfigPaths, env_name: str) -> tuple[str, str]:
+    """「获取可用模型」这类即时请求该用哪个密钥。
+
+    界面输入框里刚填、**还没保存**的密钥优先：用户填完直接点「获取可用模型」
+    是最常见的路径，可这条路径以前只读 ``.env`` / 进程环境，于是刚填的密钥
+    根本没被用上，上游只看到一次匿名请求（401）——提示又把原因说成"密钥不对"。
+    其次才回落到 :func:`secret_value`（进程环境 → ``.env``）。
+
+    返回 ``(明文密钥, 来源说明)``；来源是 ``"输入框（尚未保存）"`` /
+    ``"环境变量或 .env"`` / ``""``（三处都没有）。
+    """
+    text = (typed or "").strip()
+    if text:
+        return text, "输入框（尚未保存）"
+    value = secret_value(paths, env_name)
+    if value:
+        return value, "环境变量或 .env"
+    return "", ""
 
 
 def save_provider(paths: ConfigPaths, view: ProviderView, *, original: str = "") -> str:

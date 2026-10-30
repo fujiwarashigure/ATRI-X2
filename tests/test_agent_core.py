@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from atri_x.config import ProviderConfig, ToolsConfig, TurnDirectivesConfig
 from atri_x.errors import InvalidError, NotFoundError
-from atri_x.llm import MessageSegment
+from atri_x.llm import MessageSegment, Usage
 from atri_x.platform import MessageContext, with_message_context
 from atri_x.runtime import PhaseDone, PhaseError, PhaseIdle, Snapshot
 from atri_x.security import default_policy
@@ -26,6 +26,7 @@ from atri_x.agent.options import Options, validate_options
 from atri_x.agent.session_metadata import (
     ContextCompactState,
     LLMOriginState,
+    SessionMetadata,
     decode_session_metadata,
     encode_session_metadata,
     encode_session_metadata_into,
@@ -221,6 +222,82 @@ class AgentConstructionTest(unittest.TestCase):
     def test_encode_session_metadata_omits_empty_fields(self) -> None:
         raw = encode_session_metadata(decode_session_metadata(""))
         self.assertIn(raw, ("", "{}"))
+
+    def test_last_usage_cache_reported_roundtrip(self) -> None:
+        """``命中=0`` 的两种含义必须能跨持久化保留（/status 重启后不能误报）。"""
+        unreported = SessionMetadata(
+            last_usage=Usage(prompt_tokens=5, total_tokens=5, cache_hit_reported=False)
+        )
+        decoded = decode_session_metadata(encode_session_metadata(unreported)).last_usage
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded.cache_hit_tokens, 0)
+        self.assertFalse(decoded.cache_hit_reported)
+
+        reported_zero = SessionMetadata(
+            last_usage=Usage(prompt_tokens=5, total_tokens=5, cache_hit_reported=True)
+        )
+        decoded = decode_session_metadata(encode_session_metadata(reported_zero)).last_usage
+        self.assertTrue(decoded.cache_hit_reported)
+
+    def test_legacy_last_usage_without_flag_is_treated_as_reported(self) -> None:
+        """旧记录没有 ``cache_hit_reported`` 键：保持 1.1.5 之前的显示口径。"""
+        raw = encode_session_metadata(decode_session_metadata(""))
+        legacy = '{"last_usage":{"prompt_tokens":5,"total_tokens":5}}'
+        self.assertTrue(raw in ("", "{}"))
+        decoded = decode_session_metadata(legacy).last_usage
+        self.assertIsNotNone(decoded)
+        self.assertTrue(decoded.cache_hit_reported)
+
+
+class LogChannelWiringTest(unittest.TestCase):
+    """生产装配只给 ``Options.logs``：构造时必须把 logger / audit_logger 挂上。
+
+    不挂的话 ``agent.audit("llm_usage", ...)`` 全程静默丢弃，``/usage`` 永远空，
+    这也是 1.1.5 里「/status 命中恒 0」查不到现场的原因之一。
+    """
+
+    class _Logger:
+        def __init__(self) -> None:
+            self.records: list[tuple[str, str, tuple]] = []
+
+        def log(self, level: str, message: str, *args: object) -> None:
+            self.records.append((level, message, args))
+
+    class _Logs:
+        def __init__(self) -> None:
+            self.runtime_logger = LogChannelWiringTest._Logger()
+            self.audit_logger = LogChannelWiringTest._Logger()
+
+        def runtime(self) -> object:
+            return self.runtime_logger
+
+        def audit(self) -> object:
+            return self.audit_logger
+
+        def log_dir(self) -> str:
+            return "."
+
+    def test_options_logs_mounts_channels(self) -> None:
+        logs = self._Logs()
+        agent = make_agent(logs=logs)
+        self.assertIs(agent.logger, logs.runtime_logger)
+        self.assertIs(agent.audit_logger, logs.audit_logger)
+        agent.audit("probe", "k", "v")
+        level, message, args = logs.audit_logger.records[0]
+        self.assertEqual((level, message), ("info", "audit event"))
+        self.assertEqual(args[args.index("event") + 1], "probe")
+        self.assertEqual(args[args.index("module") + 1], "agent")
+
+    def test_incomplete_logs_stub_does_not_break_construction(self) -> None:
+        from types import SimpleNamespace
+
+        agent = make_agent(logs=SimpleNamespace(runtime=lambda: None, audit=lambda: None))
+        self.assertIsNone(agent.log_reader)
+
+    def test_without_logs_channels_stay_none(self) -> None:
+        agent = make_agent()
+        self.assertIsNone(agent.logger)
+        self.assertIsNone(agent.audit_logger)
 
 
 class IdentityAndPrefixTest(unittest.TestCase):

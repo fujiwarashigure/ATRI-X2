@@ -34,7 +34,7 @@
 | `atri_x.gui.avatars` | 群友头像：拼平台头像 URL、下载、解码缩放成统一的本地 PNG 缓存。 | 164 | `test_gui_members.py`、`test_gui_tabs.py` |
 | `atri_x.gui.client` | GUI 的 WS 客户端：连 ``ws://…/cli/v1/ws``、握手、收发帧、断线重连。 | 301 | `test_gui_client.py` |
 | `atri_x.gui.configedit` | 桌面端的配置读写底座：路径解析、TOML 行级补丁、``.env``、文本文件。 | 672 | `test_gui_configedit.py`、`test_gui_extractconfig.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_modelcatalog.py`、`test_gui_proto_manager.py`、`test_gui_qqproto.py`、`test_gui_searchconfig.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
-| `atri_x.gui.configmodel` | 桌面端「模型」页的数据模型：LLM Provider 与模型分配。 | 461 | `test_gui_configedit.py`、`test_gui_modelcatalog.py` |
+| `atri_x.gui.configmodel` | 桌面端「模型」页的数据模型：LLM Provider 与模型分配。 | 482 | `test_gui_configedit.py`、`test_gui_modelcatalog.py` |
 | `atri_x.gui.cronschedule` | 界面上的 cron 小工具：「每天 / 每周 / 每月」结构 ↔ 5 段表达式。 | 227 | `test_gui_maintenance.py` |
 | `atri_x.gui.dialogs` | 「进阶」页的二级设置窗口（自学习 / HOOK 插件 / 定时维护任务）。 | 55 | `test_gui_maintenance.py`、`test_gui_tabs.py` |
 | `atri_x.gui.dialogs.common` | 子设置弹窗的公共骨架：独立窗口 + 底部状态行 + 保存/重载/关闭按钮。 | 122 | — |
@@ -49,7 +49,7 @@
 | `atri_x.gui.journal` | 界面操作日志：把桌面端"点了什么、改了哪个文件"记进 ``<配置目录>/gui/gui.log``。 | 91 | `test_gui_diagnostics.py`、`test_gui_tabs.py` |
 | `atri_x.gui.linkstate` | 「在线」选项卡的数据层：平台配置、协议端探测、后台服务健康快照。 | 573 | `test_gui_link.py`、`test_gui_qqproto.py` |
 | `atri_x.gui.memberdata` | 群友角色数据：成员档案的 GUI 适配层 + 群友发现。 | 222 | `test_gui_members.py`、`test_gui_tabs.py` |
-| `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型，并把「备注名」缓存在本地。 | 418 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
+| `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型，并把「备注名」缓存在本地。 | 437 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
 | `atri_x.gui.process` | 进程与路径助手：程序目录、状态目录、后台服务的 pid 记录与终止、单实例。 | 363 | `test_gui_diagnostics.py` |
 | `atri_x.gui.proto_manager` | 协议端管理层：按配置选后端（NapCat / SnowLuma），统一 prepare/launch/stop/status。 | 190 | `test_gui_proto_manager.py` |
 | `atri_x.gui.proto_process` | 协议端进程托管：启动、停止、PID 归属校验。 | 259 | `test_gui_proto_manager.py` |
@@ -64,7 +64,7 @@
 | `atri_x.gui.sessions` | 会话侧边栏：会话列表 + 新建/刷新（GUI 的"会话列表/历史"入口）。 | 156 | `test_cli_sessions.py` |
 | `atri_x.gui.snowluma_proto` | SnowLuma 协议端环境的探测与托管（可选的备用协议端，外置，**不内置分发**）。 | 261 | `test_gui_proto_manager.py` |
 | `atri_x.gui.tabs` | 桌面端的选项卡集合。 | 56 | `test_gui_link.py`、`test_gui_qqproto.py`、`test_gui_tabs.py`、`test_gui_timepanel.py` |
-| `atri_x.gui.tabs.advanced` | 「进阶」选项卡：生图/视觉/语音、记忆与群功能开关、日志级别。 | 530 | `test_gui_tabs.py` |
+| `atri_x.gui.tabs.advanced` | 「进阶」选项卡：生图/视觉/语音、记忆与群功能开关、日志级别。 | 544 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.base` | 配置选项卡的公共骨架：底部状态行、错误弹窗、"需要重启"提示。 | 136 | — |
 | `atri_x.gui.tabs.character` | 「人设卡」选项卡：角色库编辑 + 系统人设（SOUL.md）。 | 769 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.chat` | 「对话」选项卡：会话列表 + 聊天记录 + 输入框。 | 165 | — |
@@ -75,7 +75,7 @@
 | `atri_x.gui.tabs.logs` | 「日志」选项卡：把后台服务写的日志和界面操作日志放到一个可筛选的窗口里。 | 478 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.members` | 「群友」选项卡：按群管理群友的角色数据（备注名 / 标签 / 角色数据 / 头像）。 | 787 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.model` | 「模型」选项卡：LLM Provider（含 API Key）、模型分配、搜索服务与抓取服务。 | 820 | `test_gui_tabs.py` |
-| `atri_x.gui.tabs.mountpanel` | 「进阶」页生图区的本地挂载面板（:class:`MountPanelMixin`）。 | 223 | — |
+| `atri_x.gui.tabs.mountpanel` | 「进阶」页生图区的本地挂载面板（:class:`MountPanelMixin`）。 | 238 | — |
 | `atri_x.gui.tabs.permission` | 「权限」选项卡：超级管理员名单 + 风险等级 / 工具轮次 / 成员建卡开关。 | 227 | — |
 | `atri_x.gui.tabs.platform` | 「平台」选项卡：QQ / Telegram / 本地 CLI 服务端 / 超级管理员。 | 500 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.research` | 「研究」选项卡：查看科研助理的运行与产物（只读）。 | 326 | — |
@@ -102,4 +102,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 787 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 796 个 / 超线文件 79 个）。

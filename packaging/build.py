@@ -72,6 +72,13 @@ RUNTIME_DIR = REPO_ROOT / "runtime"
 #: 判断「运行时确实组装过」的标记文件。
 RUNTIME_MARKER = RUNTIME_DIR / "dsh-kernel" / "kernel.json"
 
+#: 内置 draw.io 渲染器（解包目录）：默认从 ``packaging/vendor/drawio`` 取，
+#: 也可以用 ``--with-drawio <解包目录>`` 显式指定。``vendor/`` 不入库（400 MB）。
+DRAWIO_VENDOR_DIR = PACKAGING_DIR / "vendor" / "drawio"
+
+#: draw.io 官方解包目录里的可执行文件名（带点，不要改）。
+DRAWIO_EXE_NAME = "draw.io.exe"
+
 #: 品牌图标（exe / 窗口 / 托盘 / 安装包共用同一份；由 ``packaging/make_assets.py`` 生成）。
 #: 没显式给 ``--icon`` 时用它——否则 PyInstaller 会嵌**它自己的**默认图标。
 DEFAULT_ICON = REPO_ROOT / "atri_x" / "gui" / "brand" / "app.ico"
@@ -133,7 +140,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return code
 
     if args.verify_only:
-        return verify(artifact, name, with_kernel=with_kernel, with_gui=with_gui, with_pillow=with_pillow)
+        return verify(
+            artifact,
+            name,
+            with_kernel=with_kernel,
+            with_gui=with_gui,
+            with_pillow=with_pillow,
+            with_drawio=True,
+        )
+
+    # 只有真正构建时才要求 draw.io 渲染器（--check-env / --verify-only 不需要）。
+    drawio_dir = resolve_drawio_dir(args)
+    if drawio_dir is None:
+        return 2
 
     version = pyinstaller_version()
     if version is None:
@@ -147,6 +166,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     _out("work        : %s" % args.work)
     _out("gui exe     : %s" % ("yes" if with_gui else "no"))
     _out("dsh kernel  : %s" % ("yes" if with_kernel else "no"))
+    _out("drawio      : %s" % drawio_dir)
     _out(
         "qqproto     : %s"
         % (
@@ -170,7 +190,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if code != 0:
         return code
 
-    code = run_build(args, name, with_kernel=with_kernel, with_gui=with_gui, plan=plan)
+    code = run_build(
+        args,
+        name,
+        with_kernel=with_kernel,
+        with_gui=with_gui,
+        plan=plan,
+        drawio_dir=drawio_dir,
+    )
     if code != 0:
         _err("PyInstaller failed with exit code %d" % code)
         return code
@@ -184,7 +211,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         _out("verify      : skipped (--no-verify)")
         code = 0
     else:
-        code = verify(artifact, name, with_kernel=with_kernel, with_gui=with_gui, with_pillow=with_pillow)
+        code = verify(
+            artifact,
+            name,
+            with_kernel=with_kernel,
+            with_gui=with_gui,
+            with_pillow=with_pillow,
+            with_drawio=True,
+        )
     if code != 0:
         return code
     if args.with_qqproto is not None:
@@ -352,6 +386,16 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--with-drawio",
+        type=Path,
+        default=None,
+        metavar="RUNTIME_DIR",
+        help=(
+            "内置 draw.io 桌面版解包目录（含 draw.io.exe，本版用 32.6.1）；"
+            "默认找 packaging/vendor/drawio。图表能力必需，缺失时构建失败"
+        ),
+    )
+    parser.add_argument(
         "--with-installer",
         action="store_true",
         help="build an Inno Setup installer from the verified onedir artifact",
@@ -402,6 +446,52 @@ def artifact_path(dist: Path, name: str, onefile: bool) -> Path:
     return Path(dist) / name / f"{name}.exe"
 
 
+def clean_drawio_pack() -> None:
+    """删掉随包 ``drawio_pack`` 里的本地运行产物（``__pycache__`` / ``out`` 等）。
+
+    这些目录是开发/测试时产生的：``pack.json`` 的摘要清单不收它们，但 PyInstaller
+    的 ``datas`` 是**整目录复制**，不清理就会把导出图、renderer profile、字节码
+    一起打进产物（也会让"产物里多出文件"难以解释）。
+    """
+    pack_dir = REPO_ROOT / "drawio_pack"
+    if not pack_dir.is_dir():
+        return
+    removed = 0
+    for name in ("__pycache__", "out", ".tmp", ".drawio-profile"):
+        for path in sorted(pack_dir.rglob(name), key=lambda item: len(item.parts), reverse=True):
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+                removed += 1
+    for path in pack_dir.rglob("*.pyc"):
+        path.unlink(missing_ok=True)
+        removed += 1
+    if removed:
+        _out("drawio      : 清理了 %d 个本地运行产物" % removed)
+
+
+def resolve_drawio_dir(args: argparse.Namespace) -> Path | None:
+    """确认内置 draw.io 解包目录（``--with-drawio`` 或 ``packaging/vendor/drawio``）。
+
+    返回 ``None`` 表示构建应当中止：1.1.5 起图表能力是产品能力，缺渲染器的包
+    只能交付 ``.drawio`` 源文件，不能出 PNG/SVG/PDF，不应悄悄发出去。
+    """
+    candidate = Path(args.with_drawio).expanduser() if args.with_drawio else DRAWIO_VENDOR_DIR
+    try:
+        candidate = candidate.resolve()
+    except OSError as exc:
+        _err("draw.io 目录不可用：%s" % exc)
+        return None
+    exe = candidate / DRAWIO_EXE_NAME
+    if not exe.is_file():
+        _err("draw.io 渲染器缺失：%s 下没有 %s" % (candidate, DRAWIO_EXE_NAME))
+        _err(
+            "用 --with-drawio <draw.io 32.6.1 解包目录> 指定，"
+            "或把解包目录放到 %s" % DRAWIO_VENDOR_DIR
+        )
+        return None
+    return candidate
+
+
 def pyinstaller_version() -> str | None:
     """取本解释器可见的 PyInstaller 版本；没装返回 ``None``。
 
@@ -430,6 +520,7 @@ def run_build(
     with_kernel: bool,
     with_gui: bool,
     plan: dict[str, Any],
+    drawio_dir: Path | None = None,
 ) -> int:
     """调用 PyInstaller 构建；返回退出码。
 
@@ -438,6 +529,7 @@ def run_build(
     """
     dist = Path(args.dist).resolve()
     work = Path(args.work).resolve()
+    clean_drawio_pack()
     # 先删目标产物目录：上一次的残留文件混进来，会让"产物级核验"核验到旧文件。
     target = artifact_path(dist, name, args.onefile)
     stale = target.parent if not args.onefile else target
@@ -455,6 +547,8 @@ def run_build(
     env[optional_deps.KEEP_OPTIONAL_ENV] = "1" if plan["legacy_all"] else "0"
     env["ATRIX_PKG_GUI"] = "1" if with_gui else "0"
     env["ATRIX_PKG_RUNTIME_DIR"] = str(RUNTIME_DIR) if (with_kernel and RUNTIME_DIR.is_dir()) else ""
+    if drawio_dir is not None:
+        env["ATRIX_PKG_DRAWIO_DIR"] = str(drawio_dir)
 
     _out("excludes    : %s" % (", ".join(plan["excludes"]) or "<none>"))
     _out("  keep      : pillow=%s numpy/PyYAML=%s" % (plan["keep_pillow"], plan["keep_extras"]))
@@ -730,6 +824,147 @@ def verify_research_pack(artifact: Path) -> int:
     return 0
 
 
+#: 渲染核验用的小图（一张两节点图；不依赖 drawio_pack 里的任何示例文件）。
+_DRAWIO_VERIFY_DIAGRAM = (
+    '<mxfile host="app"><diagram name="verify" id="verify-1"><mxGraphModel><root>'
+    '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+    '<mxCell id="2" value="ATRI-X" style="rounded=1;fillColor=#dae8fc;" vertex="1" parent="1">'
+    '<mxGeometry x="40" y="40" width="160" height="60" as="geometry"/></mxCell>'
+    '<mxCell id="3" value="draw.io" style="shape=cylinder3;fillColor=#d5e8d4;" vertex="1" parent="1">'
+    '<mxGeometry x="40" y="200" width="160" height="60" as="geometry"/></mxCell>'
+    '<mxCell id="4" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="2" target="3">'
+    '<mxGeometry relative="1" as="geometry"/></mxCell>'
+    '</root></mxGraphModel></diagram></mxfile>'
+)
+
+
+def verify_drawio_pack(artifact: Path) -> int:
+    """冻结产物里的随包 draw.io：技能装得进、渲染器在、**真的能出 PNG**。
+
+    四步都在产物上跑（源码测试证明不了 PyInstaller 把 ``drawio_pack/``、
+    ``drawio_runtime/`` 和 ``-m`` 转发收全了）：
+
+    1. ``-m atri_x.diagram.bootstrap --check``：把技能装进临时配置目录；
+    2. 检查 ``_internal/drawio_runtime/draw.io.exe`` 与 ``_internal/drawio_pack/pack.json``
+       真的在产物里（体积大，漏 datas 时最容易只绿一半）；
+    3. ``-m atri_x.diagram.runner --skill-dir <skill> --action doctor``：冻结进程里
+       定位到渲染器并读到版本号；
+    4. 用一张两节点图跑一次 ``export png``：拿到图片段且文件非空，才算无头渲染可用。
+    """
+    verify_home = Path(DEFAULT_WORK).parent / "pyinstaller-verify"
+    shutil.rmtree(verify_home / "appdata" / "ATRI-X", ignore_errors=True)
+    bootstrap = run_exe(
+        artifact,
+        ["-m", "atri_x.diagram.bootstrap", "--check"],
+        timeout=180,
+        scratch_home=True,
+    )
+    payload = _parse_json_output(bootstrap)
+    state = str(payload.get("state") or "")
+    if bootstrap["code"] != 0 or state not in ("installed", "up-to-date"):
+        _err("verify: 随包 draw.io 技能安装失败（state=%r, exit=%d）" % (state, bootstrap["code"]))
+        _err(_snippet(bootstrap))
+        _err(
+            "hint: 检查 packaging/atri-x.spec 是否把 drawio_pack/ 收进 datas，"
+            "以及 atri_x/diagram/ 是否打进 PYZ（collect_submodules('atri_x')）"
+        )
+        return 1
+    skill_dir = str(payload.get("skill_dir") or "")
+    commands = payload.get("commands") or {}
+    if not skill_dir or "drawio" not in commands:
+        _err("verify: draw.io 技能没有落到配置目录（skill_dir=%r）" % skill_dir)
+        return 1
+    for name in ("SKILL.md", "atrix_cli.py", "ATRIX_SKILL.toml"):
+        if not (Path(skill_dir) / name).is_file():
+            _err("verify: 技能目录缺少 %s（%s）" % (name, skill_dir))
+            return 1
+
+    internal = artifact.parent / "_internal"
+    runtime_exe = internal / "drawio_runtime" / DRAWIO_EXE_NAME
+    if not runtime_exe.is_file():
+        _err("verify: 产物里没有内置 draw.io 渲染器：%s" % runtime_exe)
+        _err("hint: 检查 packaging/atri-x.spec 的 DRAWIO_RUNTIME_DIR 段与 --with-drawio")
+        return 1
+    if not (internal / "drawio_pack" / "pack.json").is_file():
+        _err("verify: 产物里没有 drawio_pack/pack.json")
+        return 1
+
+    doctor = run_exe(
+        artifact,
+        ["-m", "atri_x.diagram.runner", "--skill-dir", skill_dir, "--action", "doctor"],
+        timeout=180,
+        scratch_home=True,
+    )
+    report = _json_in_content(_parse_json_output(doctor))
+    if doctor["code"] != 0 or not report.get("render_available"):
+        _err("verify: 冻结进程里 draw.io 自检失败（exit=%d）" % doctor["code"])
+        _err(_snippet(doctor))
+        _err('hint: 跑 "%s" -m atri_x.diagram.runner --skill-dir %s --action doctor' % (artifact, skill_dir))
+        return 1
+
+    scratch = verify_home / "drawio"
+    shutil.rmtree(scratch, ignore_errors=True)
+    scratch.mkdir(parents=True, exist_ok=True)
+    source = scratch / "verify.drawio"
+    source.write_text(_DRAWIO_VERIFY_DIAGRAM, encoding="utf-8", newline="\n")
+    render = run_exe(
+        artifact,
+        [
+            "-m",
+            "atri_x.diagram.runner",
+            "--skill-dir",
+            skill_dir,
+            "--action",
+            "export",
+            "--source",
+            str(source),
+            "--output",
+            "verify",
+            "--format",
+            "png",
+        ],
+        timeout=300,
+        scratch_home=True,
+    )
+    rendered = _parse_json_output(render)
+    image = next(
+        (item for item in rendered.get("segments") or [] if item.get("type") == "image"),
+        None,
+    )
+    image_path = Path(skill_dir) / str(image.get("path") or "") if image else None
+    if render["code"] != 0 or not image or image_path is None or not image_path.is_file():
+        _err("verify: 内置 draw.io 无头渲染失败（exit=%d）" % render["code"])
+        _err(_snippet(render))
+        _err("hint: 渲染器需要在交互式 Windows 会话里运行；检查 drawio_runtime 是否完整（ffmpeg.dll 不能删）")
+        return 1
+    if image_path.stat().st_size < 1024:
+        _err("verify: 渲染出的 PNG 过小（%d 字节）" % image_path.stat().st_size)
+        return 1
+    _out(
+        "  drawio    : ok (draw.io %s / 技能 %s / 无头导出 PNG %d KB)"
+        % (
+            report.get("drawio_version") or "?",
+            payload.get("skill_version") or "?",
+            image_path.stat().st_size // 1024,
+        )
+    )
+    return 0
+
+
+def _json_in_content(payload: dict) -> dict:
+    """从适配器的 ``content`` 里取内嵌 JSON（doctor 把报告写在正文里）。"""
+    text = str(payload.get("content") or "")
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return {}
+    try:
+        value = json.loads(text[start : end + 1])
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def verify(
     artifact: Path,
     name: str,
@@ -738,6 +973,7 @@ def verify(
     with_gui: bool = False,
     with_pillow: bool = False,
     with_research: bool = True,
+    with_drawio: bool = False,
 ) -> int:
     """产物级核验：跑 exe 本身，而不是看构建退出码。
 
@@ -824,6 +1060,12 @@ def verify(
             return 1
     else:
         _out("  research  : skipped (with_research=False)")
+
+    if with_drawio:
+        if verify_drawio_pack(artifact) != 0:
+            return 1
+    else:
+        _out("  drawio    : skipped (with_drawio=False)")
 
     sidecar = run_exe(artifact, ["-m", "atri_x.sidecar", "status", "--json"], timeout=180)
     sidecar_text = (sidecar["stdout"] or "").strip()

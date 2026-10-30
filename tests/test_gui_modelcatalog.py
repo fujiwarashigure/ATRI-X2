@@ -201,6 +201,17 @@ class FetchCase(CatalogCase):
                 modelcatalog.fetch_models(server.base_url, "bad", timeout=5)
         text = str(caught.exception)
         self.assertIn("鉴权失败", text)
+        # 带了密钥就是"密钥不对"，不能再说成"没带密钥"。
+        self.assertNotIn("没有携带密钥", text)
+
+    def test_auth_error_without_key_says_key_was_not_sent(self) -> None:
+        with _Server({"/models": (401, b"{}")}) as server:
+            with self.assertRaises(modelcatalog.CatalogError) as caught:
+                modelcatalog.fetch_models(server.base_url, timeout=5)
+        text = str(caught.exception)
+        self.assertIn("鉴权失败", text)
+        self.assertIn("没有携带密钥", text)
+        self.assertIn(modelcatalog.NO_KEY_HINT, text)
 
     def test_404_mentions_v1(self) -> None:
         with _Server({"/models": (404, b"{}")}) as server:
@@ -248,6 +259,33 @@ class SecretValueCase(CatalogCase):
     def test_missing_returns_empty(self) -> None:
         self.assertEqual(configmodel.secret_value(self.paths, ""), "")
         self.assertEqual(configmodel.secret_value(self.paths, "NOPE"), "")
+
+
+class ResolveFetchKeyCase(CatalogCase):
+    """``resolve_fetch_key``：输入框里还没保存的密钥优先，其次 .env / 进程环境。"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.app = self.config_dir / "app.toml"
+        self.app.write_text("[config_files]\n", encoding="utf-8")
+        self.paths = configedit.ConfigPaths.from_config(str(self.app))
+
+    def test_typed_key_wins_and_is_marked_unsaved(self) -> None:
+        configedit.set_env_value(self.paths.env_path, "MY_KEY", "sk-dotenv")
+        key, source = configmodel.resolve_fetch_key(" sk-typed ", self.paths, "MY_KEY")
+        self.assertEqual(key, "sk-typed")
+        self.assertIn("输入框", source)
+
+    def test_falls_back_to_dotenv(self) -> None:
+        configedit.set_env_value(self.paths.env_path, "MY_KEY", "sk-dotenv")
+        key, source = configmodel.resolve_fetch_key("", self.paths, "MY_KEY")
+        self.assertEqual(key, "sk-dotenv")
+        self.assertIn(".env", source)
+
+    def test_nothing_configured(self) -> None:
+        key, source = configmodel.resolve_fetch_key("  ", self.paths, "NOPE")
+        self.assertEqual(key, "")
+        self.assertEqual(source, "")
 
 
 if __name__ == "__main__":  # pragma: no cover - 手工运行入口

@@ -116,10 +116,38 @@ def audit_usage(
                 usage.total_tokens,
                 "cache_hit_tokens",
                 usage.cache_hit_tokens,
+                "cache_hit_reported",
+                bool(getattr(usage, "cache_hit_reported", True)),
             ]
         )
     attrs.extend(["result", ResultSucceeded])
     agent.audit("llm_usage", *attrs)
+
+
+def log_usage_observed(
+    agent: Any, session_id: str, selection: Any, usage: Usage | None
+) -> None:
+    """记一行上游**实际返回**的用量（含"这次到底有没有上报缓存"）。
+
+    这是排查「``/status`` 命中恒 0」的现场证据：debug 级，只有把
+    ``[runtime].log_level`` 调到 ``debug`` 才出现；``llm_usage`` 审计事件另走
+    :func:`audit_usage`，不受日志级别影响。
+    """
+    logger = getattr(agent, "logger", None)
+    if logger is None or usage is None:
+        return
+    logger.log(
+        "debug",
+        "llm usage",
+        "session_id", session_id,
+        "provider", selection.provider,
+        "model", selection.model,
+        "prompt_tokens", usage.prompt_tokens,
+        "completion_tokens", usage.completion_tokens,
+        "total_tokens", usage.total_tokens,
+        "cache_hit_tokens", usage.cache_hit_tokens,
+        "cache_hit_reported", bool(getattr(usage, "cache_hit_reported", True)),
+    )
 
 
 def price_known_for(agent: Any, model: str) -> bool:

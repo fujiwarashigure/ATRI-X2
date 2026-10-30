@@ -6,6 +6,92 @@
 
 ---
 
+## [1.1.5] - 2026-10-30 — 内置 draw.io 图表能力（超管专属）
+
+> 只加功能：**不改**配置格式、既有工具 schema（新增一个工具）、会话与数据库格式；配置与会话数据向后兼容。
+> 发行说明（面向用户）见 [`docs/release-notes/1.1.5.md`](docs/release-notes/1.1.5.md)。
+
+旧状态（1.1.4）：
+
+- 没有任何"画图"能力。要架构图只能让模型输出 Mermaid / PlantUML 文本，或者让用户自己
+  打开 draw.io 手工画；群里问"画个部署图"没有确定性交付物。
+- 即使本机装了 draw.io 桌面版，也没有工具知道怎么调用它；超管想批量出图只能写脚本。
+- 上游 drawio-skill（MIT，Agent Skills 格式）是纯 Python 脚本 + 参考文档 + shape 索引，
+  但它假设"Agent 能直接跑 python"，而 ATRI-X 的 AgentSkill 契约是**一条命令 + stdout JSON**，
+  且发行版没有系统 Python——直接塞进去跑不起来。
+
+新状态：
+
+- **新工具 `drawio`（`superadmin_only = true`，`risk=low`）**：一个工具 + `action` 参数覆盖
+  9 个动作——`build`（代码目录 / Terraform / SQL / OpenAPI / AsyncAPI / Proto / GraphQL /
+  K8s / Compose / CI 共 15 种来源）、`create`（Diagram IR / graph JSON / 手写 XML）、
+  `export`（PNG / SVG / PDF）、`validate`、`inspect`、`query`、`shapes`（官方形状检索）、
+  `docs`（20 篇参考文档）、`doctor`（自检）。
+- **随包 drawio-skill 3.4.2**（`drawio_pack/`，约 1.2 MB）：上游 47 个纯标准库脚本、
+  20 篇 references、shape 索引原样随包，**上游 247 个回归测试**作为一致性门禁
+  （`tests/test_drawio_pack_upstream.py`）。只打一处补丁：`diagramctl.py` 起导入器子进程时，
+  冻结形态改走 `atri-x.exe -m atri_x.diagram.runner --script <绝对路径>`。
+- **内置 draw.io 32.6.1 无头渲染器**（`_internal/drawio_runtime/`，约 382 MB）：
+  便携版 / 安装版**不需要用户装 draw.io**；渲染无可见窗口、约 3 秒/页，`APPDATA` /
+  `LOCALAPPDATA` / `TEMP` / `TMP` 收容到技能目录私有 profile，不读写宿主用户配置。
+  构建缺渲染器时**直接失败**（`--with-drawio` 指定解包目录），产物级核验会真跑一次
+  无头导出 PNG（两节点图），而不是只看文件在不在。
+- **媒体闭环**：渲染结果以 `out/*.png` 媒体段回到聊天（媒体中心统一入库），模型也能看到
+  图做视觉自检；SVG / PDF / `.drawio` 以文件段交付。产物路径全部限定在技能目录内，
+  只保留最近 60 个文件。
+- **安装引导**：`atri_x/diagram/`（`pack` 定位 / `bootstrap` 安装 / `runner` 冻结入口 /
+  `paths` 目录规则）；技能装进 `<配置目录>/ATRI-X/skills/agent/drawio_skill`，
+  清单按运行形态生成（冻结 = `atri-x.exe -m atri_x.diagram.runner`，源码 = `python <skill>/atrix_cli.py`）。
+  源码树默认不自动装，`python -m atri_x.diagram.bootstrap --source` 显式启用。
+- **新增生成/门禁**：`scripts/gen_drawio_pack.py`（`pack.json` 摘要，`--check` 进 CI）、
+  `tests/test_diagram_pack.py` / `tests/test_diagram_skill.py` / `tests/test_drawio_pack_upstream.py`；
+  文档门禁对 `drawio_pack/`（上游技能文档，路径相对技能根）做整目录豁免。
+- **体积影响**：便携 zip 增加约 181 MB、安装包增加约 133 MB（压缩后实测）；
+  源码归档只增加约 1.2 MB（渲染器是构建材料，不入库）。
+
+### 兼容性与注意
+
+- 默认配置不变；`drawio` 工具**只对超级管理员可见**，普通成员连 schema 都拿不到。
+- 安装版 / 便携版首次启动自动装技能（失败只记 WARN，不影响机器人启动）；源码树需显式
+  `--source` 安装，且渲染需要 `packaging/vendor/`（子目录 drawio）或 `ATRIX_DRAWIO`。
+- 无窗口渲染依赖交互式 Windows 会话：Session 0 / 无桌面的服务环境里导出会失败并**降级**
+  为交付 `.drawio`，其余动作（生成/校验/检索/文档）不受影响。
+- 一期未注册 `sync` / `reconcile` / `views` / `test` / `review` / `whatif` / `story` /
+  `transform` 等上游动作；脚本随包，可由超管在服务器上直接运行。
+
+### 1.1.5 修订（同日，版本号不变）
+
+旧状态（1.1.5 首次构建）：
+
+- **生图「获取可用模型」返回 HTTP 401**：该按钮只从 `.env` / 进程环境取密钥，界面「密钥值」
+  里刚填、**还没保存**的密钥不参与请求；匿名请求被中转站拒绝后，报错文案又写成"检查密钥
+  环境变量与 .env"，让人以为是密钥填错。
+- **`/status` 的 token 行「命中」恒为 0**：`Usage.cache_hit_tokens` 的 0 既可能是上游明确
+  上报 0，也可能是上游响应里根本没有缓存字段，展示层无法区分；同时 `llm_usage` 审计事件
+  在**生产装配**里被静默丢弃（`Agent` 只拿到 `Options.logs`，从未调用 `set_log_manager`，
+  `agent.logger` / `agent.audit_logger` 全程为 `None`），`/usage` 因此也没有数据可查。
+
+新状态：
+
+- **取密钥优先用界面输入框**：新增 `atri_x.gui.configmodel.resolve_fetch_key()`，生图 / LLM
+  Provider / 本地生图服务探测三条「获取可用模型」路径都先取界面里刚填的密钥（标注来源
+  `输入框（尚未保存）`），其次才回落 `.env` / 环境变量。
+- **401 文案区分"没带密钥"与"密钥不对"**：`modelcatalog` 在 401/403 且本次请求没带密钥时
+  追加 `NO_KEY_HINT`（提示"先保存进阶配置再获取"）；界面操作日志同时打印本次用的密钥来源。
+- **缓存命中三态**：`Usage` 新增 `cache_hit_reported`（默认 `True`）；HTTP 适配器解析响应时
+  只要发现缓存字段（值可以为 0）就标记为已上报，否则标为未上报并随会话 metadata 一起持久化
+  （键 `cache_hit_reported`，旧记录按已上报兼容）。`/status` 因此显示 `命中：0`（上游明确
+  上报 0）或 `命中：未上报`（上游没给），不再把"未知"说成 0。
+- **审计通道接线**：`Agent.__init__` 在给了 `Options.logs` 时自动 `set_log_manager()`，
+  `agent.logger` / `agent.audit_logger` / `log_reader` 真正挂上；`/usage`、`/log`、安全审计、
+  `llm_usage` 事件从此有数据（`data/logs/audit-*.log` 不再为空）。
+- **现场打点**：每轮记一条 `usage recorded`（info，含 prompt/completion/total/cache 与
+  `cache_hit_reported`），每次模型调用另有 debug 级 `llm usage`；`llm_usage` 审计事件增加
+  `cache_hit_reported` 字段。
+- **日志格式 bug**：`RequestLog` 原来把 `%s` 占位符和参数一起当 `key=value` 传给日志器，
+  实际输出成 `... %s %s =!BADKEY`；改为标准 `key=value` 后请求摘要与首个 system prompt
+  都能正常检索。
+
 ## [1.1.4] - 2026-10-30 — 超管资源占用工具 + 可维护性/导航体系
 
 > 只加功能与工程设施，**不改**配置格式、工具 schema、会话与数据库格式；配置与会话数据向后兼容。
@@ -68,6 +154,32 @@
 - **修正口径**：早期文档里的"3,476 条 import 边 / 80% 跨域 / `errors` fan-in 645"是错误算法
   （包前缀当模块名匹配，重复计数）。1.1.4 起以 `atri_x/devtools` 口径为准：3,611 条边、
   跨一级域 40.6%、最大 fan-in 250。
+
+### 1.1.4 修订（同日）— `/resources` 隐私加固 + 硬件/显卡段
+
+旧状态：`/resources`（与 `runtime_resources`）为了报"磁盘剩余"，把**配置目录的真实路径**原样
+渲染出来（例如 `C:\Users\<用户名>\AppData\Local\...\ATRI-X`），等于把用户名、安装位置与目录结构
+一起发给群聊；输出里也没有显卡占用与硬件型号。
+
+新状态：
+
+- **隐私边界落在渲染层**：磁盘只报**卷标签**（`系统盘` / `数据盘 N` / `指定卷 N`）与容量，
+  CPU / GPU 只报型号与占用，**不出现任何本机路径、用户名、主机名**；采集失败只保留异常类型名
+  （异常原文可能带路径）。命令与工具共用同一份渲染（`atri_x/sysinfo_format.py`），单一出处。
+- **新增硬件 / 显卡 / 软件段**：CPU 型号与线程数、系统版本与架构、GPU 型号与显存；
+  显卡占用按 `nvidia-smi`（NVIDIA：利用率 / 显存 / 温度 / 功耗）→ PDH 性能计数器
+  （AMD / Intel / 无 nvidia-smi：整机 3D 引擎占用）→ "占用不可得"三级降级；进程段补
+  "已运行多久"（`GetProcessTimes` / `/proc/<pid>/stat`），即软件进程状态。
+- **结构调整（行数棘轮）**：`atri_x/sysinfo.py` 919 行已到预算上限，因此拆出
+  `atri_x/sysinfo_platform.py`（平台采集器）、`atri_x/sysinfo_format.py`（渲染 / JSON）、
+  `atri_x/hardware.py`（硬件身份）、`atri_x/gpu_usage.py`（显卡占用）；`sysinfo.py` 降到 667 行。
+  复杂度预算显式放宽：模块 787 → 791、跨一级域 1468 → 1473（review 可见），
+  无测试触达模块与跨域违规数不变或下降。
+- **测试**：`tests/test_builtin_runtime_resources.py` 26 → 52 例（新增隐私断言、卷标签、
+  nvidia-smi CSV / PDH 计数器解析、硬件降级、进程运行时长）。
+- **兼容**：`runtime_resources` 的入参（`sample_ms` / `paths` / `include_dir_size`）、工具名、
+  `/resources` 的权限与 `Deps.resources` 注入点都不变；`paths` 只影响"统计哪个卷"，不再回显路径。
+  磁盘快照类型从 `(path, total, free)` 改为 `DiskUsage(label, total_bytes, free_bytes)`。
 
 ## [1.1.3] - 2026-10-29（修订）— 人设卡「一步导入 / 启用」与成员专属人设
 

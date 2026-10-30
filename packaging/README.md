@@ -30,6 +30,7 @@ Desktop 一键运维时用 [`deploy/windows/`](../deploy/windows/README.md)。
 | PyInstaller | `python -m pip install pyinstaller`（6.22 已在 Python 3.14 上验证） |
 | **tzdata** | `python -m pip install tzdata`（**1.0.10 起是硬依赖**：Windows 没有系统时区库，`[time].timezone` 的 IANA 名只能靠它；构建时 `packaging/atri-x.spec` 会显式收集并断言 `tzdata/zoneinfo/Asia/Shanghai` 存在，**缺了直接让构建失败**，不再依赖 `pyinstaller-hooks-contrib` 的偶然收集） |
 | 内置内核（可选） | 一台装好 DSH 的机器（DSH 桌面端/CLI 的 `node_modules`）+ `node.exe` |
+| **draw.io 渲染器** | draw.io 桌面版 32.6.1 的 **Windows 解包目录**（含 `draw.io.exe`）。1.1.5 起**硬依赖**：图表能力要随包出 PNG/SVG/PDF；用 `--with-drawio <目录>` 指定，或放到 `packaging/vendor/` 下名为 drawio 的子目录。缺了直接让构建失败 |
 
 > 探测 PyInstaller 一律用 `python -m PyInstaller --version`。它的 console script 装在
 > user-site 的 `Scripts/` 下，那个目录经常不在 `PATH` 上，
@@ -50,6 +51,7 @@ python packaging/build.py --no-gui           # 只出控制台版
 python packaging/build.py --with-kernel      # 强制把 runtime/dsh-kernel 打进去
 python packaging/build.py --no-kernel        # 即使 runtime/ 存在也不打
 python packaging/build.py --with-qqproto "D:\napcat\NapCat.52230.Shell"   # 内置 QQ 协议端（见 §3.5）
+python packaging/build.py --with-drawio "D:\draw.io-32.6.1-windows"       # 内置 draw.io 渲染器（见 §3.7；默认找 packaging/vendor 下的 drawio 子目录）
 python packaging/build.py --verify-only      # 只核验已有产物
 python packaging/build.py --no-verify        # 只构建
 ```
@@ -62,6 +64,7 @@ python packaging/build.py --no-verify        # 只构建
 | `--no-gui` | 关 | 不生成窗口版 exe |
 | `--with-kernel` / `--no-kernel` | 自动 | 默认看 `runtime/dsh-kernel/kernel.json` 是否存在；`--with-kernel` 时缺文件会直接报错 |
 | `--with-qqproto` | 无 | 把 NapCat/便携 QQ 协议端环境**脱敏后**放进 `<dist>/atri-x/qqproto`（便携版与安装版都会带上，见 §3.5）；只支持 onedir |
+| `--with-drawio` | `packaging/vendor/` 下的 drawio 子目录 | 内置 draw.io 桌面版解包目录（含 `draw.io.exe`）：整目录放进 `_internal/drawio_runtime/`**只读**使用，不复制到用户目录（见 §3.7）；**缺失直接失败** |
 | `--with-installer` | 关 | 核验通过后再打 Inno Setup 安装包（见 §7；只支持 onedir） |
 | `--installer-verify` | 关 | 打安装包并静默安装/卸载自检（隐含 `--with-installer`） |
 | `--installer-output` | `dist/installer` | 安装包输出目录 |
@@ -90,7 +93,8 @@ dist/windows/atri-x/
 ├── atri-x-gui.exe        ~10 MB 窗口版：桌面端（Tk + 托盘）
 ├── qqproto/              可选：内置 QQ 协议端环境（NapCat + 便携 QQ，配置/令牌不含，见 §3.5）
 └── _internal/            python314.dll、标准库扩展、atri_x 模块、tkinter、数据资产
-    └── runtime/          可选：内置 DSH 内核（node.exe + node_modules + kernel.json）
+    ├── runtime/          可选：内置 DSH 内核（node.exe + node_modules + kernel.json）
+    └── drawio_runtime/   1.1.5 起默认：draw.io 32.6.1 解包目录，无头渲染用（见 §3.7）
 
 dist/portable/ATRI-X-<版本>-portable-win64.zip     # --with-portable / --release
 dist/installer/ATRI-X-<版本>-setup.exe             # --with-installer / --release
@@ -214,6 +218,40 @@ python packaging/make_assets.py --icon-variant full        # 小尺寸也用整�
 
 ---
 
+## 3.7 内置 draw.io 渲染器（`--with-drawio`，1.1.5 起）
+
+图表能力（`drawio` 工具）要出 PNG/SVG/PDF，必须有 draw.io 桌面版。1.1.5 起**默认随包**，
+用户不需要自己装：
+
+1. 下载 draw.io 桌面版 **32.6.1** 的 Windows x64 发行包并解压（官网 / GitHub Releases 的
+   `draw.io-<版本>-windows.zip`，解压后目录里是 `draw.io.exe` + `resources/app.asar` + DLL）；
+2. 解压目录放到 `packaging/vendor/` 下名为 drawio 的子目录（不入库，见 `.gitignore`），或构建时显式指定：
+   ```bash
+   python packaging/build.py --with-kernel --with-drawio "D:\draw.io-32.6.1-windows" --release
+   ```
+3. 构建脚本把它整目录收进 `_internal/drawio_runtime/`（**只读、不复制到用户配置目录**），
+   并在产物级核验里真跑一次无头导出 PNG；缺目录/缺 `draw.io.exe` 时**构建直接失败**。
+
+体积与裁剪（实测 32.6.1）：
+
+| 项 | 大小 |
+|---|---|
+| 官方解包目录 | 449.9 MB / 72 个文件 |
+| 随包目录（删 53 个语言包，留 `en-US` / `zh-CN`） | 约 382 MB |
+| 便携 zip / 安装包 | 压缩后：便携 zip 约 +181 MB、安装包约 +133 MB（对照 1.1.4） |
+
+- **必须保留 `ffmpeg.dll`**：删了渲染进程直接崩（实测 `Renderer process gone (crashed)`）。
+  其余 DLL 可删但只省约 38 MB，不建议为这点体积冒渲染兼容风险。
+- 渲染隔离：适配器每次导出把 `APPDATA` / `LOCALAPPDATA` / `TEMP` / `TMP` 指到技能目录
+  私有 profile，并设置 `DRAWIO_DISABLE_UPDATE=true` + `--disable-update`；实测不写宿主
+  draw.io 配置、不联网检查更新。
+- **源码树不内置**：把解包目录放到 `packaging/vendor/` 下的 drawio 子目录，或设 `ATRIX_DRAWIO` 指向
+  `draw.io.exe` / 解包目录；冻结产物自动用 `_internal/drawio_runtime/`。
+- Electron 需要**交互式 Windows 会话**：服务运行在 Session 0 / 无桌面时导出会失败并降级为
+  交付 `.drawio`，生成/校验/检索/文档动作不受影响（见 [docs/diagram.md](../docs/diagram.md)）。
+
+---
+
 ## 4. 产物级核验（`build.py` 自动做）
 
 构建退出码为 0 **不代表**产物可用。脚本会跑 exe 本体：
@@ -226,6 +264,7 @@ python packaging/make_assets.py --icon-variant full        # 小尺寸也用整�
 | `atri-x.exe -m atri_x.app.time_check --json` | **冻结进程自己**能加载 IANA 数据并解析 DST 规则（只检查文件不算证据） |
 | `atri-x.exe -m atri_x.platform.qq_onebot.smoke --help` | `-m` 转发可用（诊断入口都靠它） |
 | `atri-x.exe -m atri_x.sidecar status --json` | 内置运行时是否可解析（打了内核时要求 `found: true`） |
+| `atri-x.exe -m atri_x.diagram.bootstrap --check` + `-m atri_x.diagram.runner --skill-dir <技能目录> --action doctor/export` | 随包 draw.io 技能装得进、`_internal/drawio_runtime/draw.io.exe` 在、冻结进程读到版本号、**真跑一次无头导出 PNG**（见 §3.7） |
 | `atri-x-gui.exe --selftest` | tkinter 进包了、Tk 能建窗口、中文能渲染（只看退出码——窗口版没有控制台） |
 
 说明：1.0.10 起 **tzdata 是硬依赖**，上面两项任一步失败都会让构建以非 0 退出（不会"先出个包再说"）。

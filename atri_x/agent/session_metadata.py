@@ -278,11 +278,14 @@ def _usage_nonzero(usage: Usage) -> bool:
 def _usage_from_json(raw: Any) -> Usage | None:
     if not isinstance(raw, dict):
         return None
+    reported = raw.get("cache_hit_reported")
     return Usage(
         prompt_tokens=int(raw.get("prompt_tokens") or 0),
         completion_tokens=int(raw.get("completion_tokens") or 0),
         total_tokens=int(raw.get("total_tokens") or 0),
         cache_hit_tokens=int(raw.get("cache_hit_tokens") or 0),
+        # 旧记录没有这个键：按"上报过"处理，保持 1.1.5 之前的显示口径。
+        cache_hit_reported=True if reported is None else bool(reported),
     )
 
 
@@ -294,6 +297,10 @@ def _usage_to_json(usage: Usage | None) -> dict[str, Any] | None:
     set_metadata_field(out, "completion_tokens", usage.completion_tokens)
     set_metadata_field(out, "total_tokens", usage.total_tokens)
     set_metadata_field(out, "cache_hit_tokens", usage.cache_hit_tokens)
+    if usage.cache_hit_tokens <= 0:
+        # 0 有两种含义（没上报 / 确实没命中），必须把标志一起落库，
+        # 否则重启后 /status 又会把"没上报"显示成 0。
+        out["cache_hit_reported"] = bool(getattr(usage, "cache_hit_reported", True))
     return out or None
 
 

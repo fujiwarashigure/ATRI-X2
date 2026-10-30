@@ -229,6 +229,13 @@ Atriyph Task Notation 是 ATRI-X 用来描述可复用任务的结构化表示�
 > 装进 `<配置目录>/skills/agent/research_*`，清单里的 `command` 指向随包引擎
 > （`atri-x.exe -m atri_x.research.runner`），因此冻结产物也不需要系统 Python。详见
 > [科研研究助理](research.md)。
+>
+> **随包 AgentSkill（1.1.5 起，图表）**：draw.io 图表能力走同一个模式——上游
+> drawio-skill 3.4.2 随包放在 `drawio_pack/`，首启装进
+> `<配置目录>/skills/agent/drawio_skill`，工具名 `drawio`（**仅超级管理员**），
+> `command` 指向 `atri-x.exe -m atri_x.diagram.runner --skill-dir <技能目录>`；
+> 渲染用的 draw.io 桌面版放在产物 `_internal/drawio_runtime/`，只读、不复制到用户目录。
+> 详见 [draw.io 图表能力](diagram.md)。
 
 ### Skill 使用媒体
 

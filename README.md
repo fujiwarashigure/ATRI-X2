@@ -12,7 +12,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.1.4`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
+| 版本 | `1.1.5`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -33,7 +33,8 @@
   请用独立小号，不要把真实 Key / 令牌 / 登录态提交到公开仓库、Issue 或群聊。AI 生成内容可能不准确
   或有偏见，发布时应按适用法律做深度合成标识；内置内容安全模块只是辅助，**不构成合规保证**。
 - **第三方组件与商标**：Apache-2.0 只覆盖本项目代码，**不覆盖** NapCat、便携 QQ、Node.js / DSH 内核、
-  CPython、Pillow、SnowLuma 等第三方组件；相关名称归各自权利人，本项目仅作事实性指称。
+  draw.io 桌面版 / Electron / Chromium、drawio-skill、CPython、Pillow、SnowLuma 等第三方组件；
+  相关名称归各自权利人，本项目仅作事实性指称。
 - **免责**：按 **“现状”（AS IS）** 提供，不附带任何担保；作者与贡献者不对账号封禁、数据丢失、
   业务中断、第三方索赔、行政处罚等任何直接或间接损失负责。
 - **举报**：发现违规使用或仓库内不应公开的敏感信息，请通过 GitHub Issue 联系维护者。
@@ -43,12 +44,13 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行 |
-| 本仓库 | 平铺布局的 `atri_x/`：788 个 `.py` 模块，约 23.2 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.1 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：797 个 `.py` 模块，约 23.4 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.1 万行） |
 | 研究引擎 | 随包 `research_pack/`：38 个模块、约 8.7k 行纯标准库引擎 + 15 个原创 AgentSkill；安装版 / 便携版首启自动装进配置目录 |
+| 图表能力 | 随包 `drawio_pack/`（drawio-skill 3.4.2，47 个纯标准库脚本 + 20 篇参考 + shape 索引）+ 内置 draw.io 32.6.1 无头渲染器；工具 `drawio` 仅超管可用，安装版 / 便携版开箱出 PNG/SVG/PDF |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 226 个 Python 文件（其中 217 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
+| 测试 | `tests/` 229 个 Python 文件（其中 220 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
 | 门禁 | 代码 7 道 + 文档 1 道（`check_docs`）+ 索引 1 道（`gen_index --check`）+ 复杂度预算，全部可在 CI 跑 |
 | 规模 | 1280 个受版本控制文件（不含 `runtime`/`build`/`dist`/缓存/本机私有配置） |
 
@@ -58,7 +60,7 @@
 
 - **Chat / Work 双模式**：两种模式可分别配置模型，让低成本模型负责闲聊、强模型专注复杂任务；两种模式都支持工具调用。
 - **按需工具发现**：默认只暴露 `discover_tool` 与可用工具名，模型按需发现后再注入具体 schema；另可用 `@tool:` / `@skill:` 内联预载。
-- **内置工具 55 个**（16 个无条件注册，其余按依赖条件注册）：文件、Shell、Web、Cron、Skill、媒体、记忆、时间、人设卡，以及 1.1.4 新增的**超管专属只读资源查询** `runtime_resources`。
+- **内置工具 55 个**（16 个无条件注册，其余按依赖条件注册）：文件、Shell、Web、Cron、Skill、媒体、记忆、时间、人设卡，以及 1.1.4 新增的**超管专属只读资源查询** `runtime_resources`（CPU / 内存 / 磁盘 / 显卡占用与 CPU/GPU 型号；只报型号与数值，不回显本机路径）。
 - **联网搜索与网页抓取**：`web_search` 支持 DeepSeek 官方搜索 / Tavily / Firecrawl / Keenable / Exa / SearXNG / Antigravity / Grok 多通道自动降级；`web_extract` 支持 DeepSeek 官方抓取 / Jina Reader / 直接抓取。见 [配置说明](docs/configuration.md)。
 - **风险与确认**：工具带风险等级，按角色/权限判断可用范围；高风险调用逐次确认。
 - **单轮声明与命令前缀**：`@model:` / `@image:` / `@use:` 只对当前轮生效（仅超管）。
@@ -90,6 +92,10 @@
 ### 科研研究助理
 
 把「查文献 → 筛文献 → 核验引文 → 写稿 → 评审 → 导出」做成可复用硬工具：12 个确定性硬工具 + 3 个协议技能，检索去重、PRISMA 计数、DOI 反查、引用格式化、六维评分**全部由 Python 引擎完成**，换模型时流程与判定标准不变。随安装包分发、首启自动安装、普通成员可用。见 [docs/research.md](docs/research.md)。
+
+### 图表能力（draw.io）
+
+把代码目录、Terraform、SQL、OpenAPI、AsyncAPI、Proto、GraphQL、K8s、Compose、CI 配置，或模型手写的 Diagram IR / draw.io XML 转成**可编辑** `.drawio`，并用**随包内置的 draw.io 32.6.1** 无头渲染成 PNG / SVG / PDF 直接发到聊天。工具 `drawio`（`superadmin_only`）一个入口覆盖生成 / 校验 / 导出 / 摘要 / 查询 / 形状检索 / 参考文档 / 自检；渲染在无窗口模式下运行，用户不需要安装 draw.io，也不读写宿主机 draw.io 配置。**仅超级管理员可用**。见 [docs/diagram.md](docs/diagram.md)。
 
 ### 角色、生图与多模态
 
@@ -167,11 +173,13 @@ python -m atri_x --config path/to/app.toml   # 指定主配置
 
 ## 发行版、容器镜像与部署
 
-当前版本 **`1.1.4`**（正式发行版）：新增**超管专属硬件资源查询**（工具 `runtime_resources` +
-斜杠命令 `/resources`，并在 Windows 上补齐了进程 RSS / CPU / 内存采样，修好 `/metrics` 与日报
-长期显示 RSS=0 的问题）；把**可维护性**做成系统——生成式索引（模块地图 / 依赖图 / 入口 /
-测试地图 / Go 映射）、文档漂移门禁、复杂度预算棘轮与 CI，详见
-[`docs/release-notes/1.1.4.md`](docs/release-notes/1.1.4.md) 与 [CHANGELOG.md](CHANGELOG.md)。
+当前版本 **`1.1.5`**（正式发行版）：新增**内置 draw.io 图表能力**——超管专属工具 `drawio`
+把代码目录 / Terraform / SQL / OpenAPI / AsyncAPI / Proto / GraphQL / K8s / Compose / CI
+配置或 Diagram IR 转成**可编辑** `.drawio`，并用随包内置的 draw.io 32.6.1 无头渲染成
+PNG / SVG / PDF 直接发到聊天；安装版 / 便携版开箱即用，**不需要用户安装 draw.io**。
+详见 [`docs/release-notes/1.1.5.md`](docs/release-notes/1.1.5.md)、[docs/diagram.md](docs/diagram.md)
+与 [CHANGELOG.md](CHANGELOG.md)；上一版（超管资源查询 + 可维护性/导航体系）见
+[`docs/release-notes/1.1.4.md`](docs/release-notes/1.1.4.md)。
 历史版发行说明见 [`docs/release-notes/`](docs/release-notes/)。
 
 | 产物 | 位置 |
@@ -250,6 +258,7 @@ atri_x/                  Python 包（平铺在仓库根下，不安装）
   net/ shellparse/ utils/                           补齐 Python 标准库缺口
   devtools/              开发期索引工具（AST 扫描 / 渲染 / 复杂度与边界），只被 scripts/ 使用
 research_pack/           随包研究引擎与 15 个 AgentSkill
+drawio_pack/             随包 draw.io 技能（上游 drawio-skill 3.4.2 快照 + ATRI-X 动作适配器）与上游一致性测试
 deploy/                  部署套件（Docker、systemd、Windows、离线包、备份升级、watchdog）
 tests/  scripts/         unittest 用例；门禁与生成脚本
 docs/                    用户文档 + 开发者入口（docs/dev/）
@@ -259,6 +268,7 @@ verification/            对抗性验证报告与已知局限
 
 - 布局是**平铺**的：仓库根下直接是 `atri_x/`，不安装、不做 src-layout；在别的目录调用需先 `cd` 到仓库根或设置 `PYTHONPATH`。
 - `pyproject.toml` 只承载项目元数据；推荐运行方式始终是仓库根目录下的 `python -m atri_x`。
+- 内置 draw.io 渲染器是**构建材料**（`packaging/vendor/`，约 382 MB）：不入库，构建时用 `--with-drawio` 指定；`drawio_pack/` 只含技能本体（约 1.2 MB）。详见 [packaging/README.md](packaging/README.md)。
 - 逐模块职责不在本文件维护——看 [`devdocs/generated/module-map.md`](devdocs/generated/module-map.md)（由代码生成）。
 
 ## 开发与验证
@@ -276,6 +286,7 @@ python scripts/gen_index.py --check   # 生成索引是否漂移（模块地图 
 python scripts/check_docs.py          # 文档门禁：链接 / 内联路径 / 索引覆盖 / 锚点 / 行数棘轮 / 数字
 python scripts/check_complexity.py    # 结构指标预算（模块数 / 超线文件 / 跨域边 / fan-in / 边界）
 python scripts/gen_stats.py --check   # README 静态数字与工作树一致
+python scripts/gen_drawio_pack.py --check   # drawio_pack/pack.json 摘要与技能文件一致（防随包脚本漂移）
 python -m unittest discover -s tests -t .             # 全量测试
 ```
 
@@ -286,8 +297,8 @@ CI 会在每次 push / PR 跑完整套（[`.github/workflows/quality.yml`](.gith
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 1027 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=788 imported=788`，0 失败 |
+| `check_syntax` | 1040 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=797 imported=797`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径，不衡量行为正确性） |
 | `check_except` | 与位置级基线一致（0 个新增位置） |
@@ -295,6 +306,7 @@ CI 会在每次 push / PR 跑完整套（[`.github/workflows/quality.yml`](.gith
 | `check_docs` | 6 条断言全绿 |
 | `check_complexity` | 结构指标在预算内 |
 | `check_secrets` | 0 命中（扫描范围含未跟踪文件） |
+| `gen_drawio_pack --check` | 随包 draw.io 技能摘要与清单一致（0 漂移） |
 | 全量 `unittest` | 用例数不硬编码；现场跑 `python -m unittest discover -s tests -t .`，以本机输出或 CI 记录为准 |
 
 > **数字口径**：上表的文件/模块计数由 `python scripts/gen_stats.py` 只读扫描工作树得出（与
@@ -316,7 +328,7 @@ CI 会在每次 push / PR 跑完整套（[`.github/workflows/quality.yml`](.gith
 python -m atri_x --version
 python -m atri_x config check                 # 配置加载耗时
 python -m atri_x doctor --json                # 部署自检
-# Windows 上随时问超管：/resources（进程与整机内存 / CPU / 磁盘，只读、不碰系统）
+# Windows 上随时问超管：/resources（CPU / 内存 / 磁盘 / 显卡 + 型号，不报本机路径）
 ```
 
 ### 开发约定

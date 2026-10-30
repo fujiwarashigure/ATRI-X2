@@ -26,7 +26,7 @@
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
-| `atri_x.tool` | Tool Runtime：工具契约、注册表、发现、风险准入与执行适配。 | 191 | `agent_fakes.py`、`test_agent_assembly.py`、`test_agent_chat.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_background.py`、`test_builtin_character_artist.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_command_router.py`、`test_completion.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_research_bootstrap.py`、`test_safety_integration.py`、`test_tool_core.py`、`test_tool_discover.py`、`test_tool_media_runtime.py`、`test_tool_runtimeinfo.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
+| `atri_x.tool` | Tool Runtime：工具契约、注册表、发现、风险准入与执行适配。 | 191 | `agent_fakes.py`、`test_agent_assembly.py`、`test_agent_chat.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_background.py`、`test_builtin_character_artist.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_command_router.py`、`test_completion.py`、`test_diagram_pack.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_research_bootstrap.py`、`test_safety_integration.py`、`test_tool_core.py`、`test_tool_discover.py`、`test_tool_media_runtime.py`、`test_tool_runtimeinfo.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
 | `atri_x.tool.availability` | 工具"为什么没被采用"的机器可读原因，以及产出它的唯一判定入口。 | 114 | — |
 | `atri_x.tool.builder` | 工具 schema 与元信息的声明式构造器。 | 249 | `test_tool_discover.py` |
 | `atri_x.tool.builtin` | 内置工具包：ATRI-X 自带的全部工具实现与注册入口。 | 748 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
@@ -63,7 +63,7 @@
 | `atri_x.tool.builtin.register` | 把所有已落地的内置工具装进 :class:`atri_x.tool.Registry`。 | 458 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_imagegen.py`、`test_builtin_tools2.py`、`test_builtin_tools4.py`、`test_member_profile.py`、`test_qq_slowfetch.py` |
 | `atri_x.tool.builtin.resident_memory` | 常驻记忆工具族：入口 + 读取 + 普通记忆 + 核心记忆。 | 388 | `test_builtin_tools2.py`、`test_memory_notes.py` |
 | `atri_x.tool.builtin.runtime` | ``runtime.go`` 对应的入口名与配置换算。 | 151 | `test_builtin_tools4.py` |
-| `atri_x.tool.builtin.runtime_resources` | ``runtime_resources``：超管专属的只读硬件资源占用查询。 | 182 | `test_builtin_runtime_resources.py` |
+| `atri_x.tool.builtin.runtime_resources` | ``runtime_resources``：超管专属的只读硬件资源占用查询。 | 196 | `test_builtin_runtime_resources.py` |
 | `atri_x.tool.builtin.runtimeinfo` | 内置工具共享的运行时信息 —— 现在只是 :mod:`atri_x.tool.runtimeinfo` 的再导出。 | 32 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
 | `atri_x.tool.builtin.self_learning` | ``self_learning_review``：管理 clean-room 表达/黑话候选。 | 218 | `test_builtin_tools3.py` |
 | `atri_x.tool.builtin.send_file` | ``send_file``：把本地文件 / file URI / HTTP(S) URL / 媒体 ID 作为产物发出。 | 264 | `test_builtin_tools3.py`、`test_safety_integration.py` |
@@ -89,8 +89,8 @@
 | `atri_x.tool.provider` | Agent 提示用的工具/skill 名单与 schema 提供者。 | 145 | — |
 | `atri_x.tool.runtimeinfo` | ``internal/tool/runtimeinfo`` 的 Python 移植。 | 105 | `test_builtin_cron.py`、`test_tool_runtimeinfo.py` |
 | `atri_x.tool.sandbox` | 工具执行的轻量沙盒运行态、后台上下文与相对路径解析。 | 150 | `test_agent_cron.py`、`test_agent_cron_background.py`、`test_background.py`、`test_builtin_files.py`、`test_builtin_shell.py`、`test_builtin_tools3.py`、`test_toolrun.py`、`test_usage_attribution.py` |
-| `atri_x.tool.skill` | Skill 工具包：AgentSkill / Go skill 的发现、运行与创建。 | 186 | `test_app_tool_runtime_wiring.py`、`test_builtin_tools4.py`、`test_research_bootstrap.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py` |
-| `atri_x.tool.skill.agent_manifest` | AgentSkill 清单（``ATRIX_SKILL.toml``）的读取、校验与 schema 投影。 | 349 | `test_research_bootstrap.py` |
+| `atri_x.tool.skill` | Skill 工具包：AgentSkill / Go skill 的发现、运行与创建。 | 186 | `test_app_tool_runtime_wiring.py`、`test_builtin_tools4.py`、`test_diagram_pack.py`、`test_research_bootstrap.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py` |
+| `atri_x.tool.skill.agent_manifest` | AgentSkill 清单（``ATRIX_SKILL.toml``）的读取、校验与 schema 投影。 | 349 | `test_diagram_pack.py`、`test_research_bootstrap.py` |
 | `atri_x.tool.skill.agent_skill_tool` | ``agent_skill`` 工具：读写 AgentSkill 的 ``ATRIX_SKILL.toml``。 | 274 | — |
 | `atri_x.tool.skill.atriyph_warnings` | 把 Atriyph 诊断拼进工具输出。 | 23 | — |
 | `atri_x.tool.skill.catalog` | Skill 目录：种类、记录与线程安全目录。 | 128 | — |
@@ -117,4 +117,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 787 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 796 个 / 超线文件 79 个）。

@@ -50,7 +50,7 @@ Python 模块                    对应 Go 文件
 ``group_analysis``            ``group_analysis.go``
 ``self_learning``             ``self_learning.go``
 ``runtime``                   ``runtime.go``（只保留名字转发与 ``imageConfigFrom``）
-``runtime_resources``         Python 侧新增（1.1.4）：超管专属只读资源占用查询
+``runtime_resources``         Python 侧新增（1.1.4）：超管专属只读资源占用查询（修订后含硬件/显卡，不带路径）
 ``register``                  ``register.go``
 ============================  =====================================================
 

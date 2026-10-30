@@ -430,6 +430,23 @@ class TestChatStreamBasic(_StreamCase):
                 self.assertEqual(usage.prompt_tokens, 3)
                 self.assertEqual(usage.completion_tokens, 4)
 
+    def test_usage_without_cache_fields_is_marked_unreported(self) -> None:
+        """上游没给缓存字段时不能把 0 当成"确实没命中"。"""
+        usage = to_usage({"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7})
+        self.assertEqual(usage.cache_hit_tokens, 0)
+        self.assertFalse(usage.cache_hit_reported)
+
+    def test_usage_explicit_zero_cache_is_reported(self) -> None:
+        cases = [
+            {"prompt_tokens": 3, "total_tokens": 7, "cached_tokens": 0},
+            {"input_tokens": 3, "total_tokens": 7, "input_tokens_details": {"cached_tokens": 0}},
+        ]
+        for raw_usage in cases:
+            with self.subTest(raw=raw_usage):
+                usage = to_usage(raw_usage)
+                self.assertEqual(usage.cache_hit_tokens, 0)
+                self.assertTrue(usage.cache_hit_reported)
+
 
 # ---------------------------------------------------------------------------
 # 超时
@@ -1469,19 +1486,36 @@ class TestModelsAndPlainChat(_StreamCase):
 
 
 class _LogCapture:
-    """最小 logger：记录 `message % args`。"""
+    """最小 logger：printf 风格与 key/value 成对风格都记录成一行文本。
+
+    真实 :class:`atri_x.logging.logging.Logger` 只支持 ``key, value`` 成对参数
+    （不支持 printf），这里两种都兼容，测试才能同时断言老的 ``%s`` 书写与新写法。
+    """
 
     def __init__(self) -> None:
         self.records: list[tuple[str, str]] = []
 
+    def _record(self, level: str, message: str, args: tuple[Any, ...]) -> None:
+        if not args:
+            self.records.append((level, message))
+            return
+        try:
+            rendered = message % args
+        except TypeError:
+            if len(args) % 2 == 0:
+                rendered = " ".join(f"{key}={value}" for key, value in zip(args[::2], args[1::2]))
+            else:
+                rendered = " ".join([message, *[str(item) for item in args]])
+        self.records.append((level, rendered))
+
     def debug(self, message: str, *args: Any) -> None:
-        self.records.append(("debug", message % args))
+        self._record("debug", message, args)
 
     def info(self, message: str, *args: Any) -> None:
-        self.records.append(("info", message % args))
+        self._record("info", message, args)
 
     def warning(self, message: str, *args: Any) -> None:
-        self.records.append(("warning", message % args))
+        self._record("warning", message, args)
 
     def text(self) -> str:
         return "\n".join(f"{level} {message}" for level, message in self.records)

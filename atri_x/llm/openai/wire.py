@@ -1,9 +1,8 @@
 """OpenAI-compatible 线上格式：请求信封构造、响应字段解析与日志摘要。
 
 对应 Go：``internal/llm/openai/openai.go`` 的 const 块、``RequestOptions``、
-``toOpenAIMessages`` 一族与 ``chatRequestLogSummary`` 一族。从
-:mod:`atri_x.llm.openai.openai` 拆出（单文件 ≤ 600 行的移植约定），
-Responses 适配器复用其中的消息转换 helper。
+``toOpenAIMessages`` 一族与 ``chatRequestLogSummary`` 一族；Responses 适配器
+复用其中的消息转换 helper。
 """
 
 from __future__ import annotations
@@ -26,6 +25,8 @@ from atri_x.llm.llm import (
 )
 
 __all__ = [
+    "CACHE_HIT_FIELDS",
+    "CACHE_HIT_PATHS",
     "CHAT_RESERVED_REQUEST_FIELDS",
     "DATA_DONE",
     "DATA_PREFIX",
@@ -36,6 +37,7 @@ __all__ = [
     "MAX_STREAM_LINE_BYTES",
     "STREAM_PREFIX_BYTES",
     "RequestOptions",
+    "cache_hit_reported",
     "first_json_int",
     "first_nested_json_int",
     "header_of",
@@ -68,10 +70,8 @@ MAX_STREAM_LINE_BYTES = 8 * 1024 * 1024
 DATA_PREFIX = "data: "
 DATA_DONE = "data: [DONE]"
 
-#: 适配器独占的 chat-completions 字段（对应 Go ``chatReservedRequestFields``）。
-#: 适配器永远在流式、信封必须描述调用方真正发来的 model/messages，因此 extra
-#: payload 只能加厂商特有参数，不能替换这些：静默生效会让 hook 关掉 stream
-#: （读端随后等一个永远不会来的 SSE body），或背着调用方换 model/messages。
+#: 适配器独占的 chat-completions 字段：extra payload 不能替换它们（否则会静默关掉
+#: stream 或背着调用方换 model/messages）。
 CHAT_RESERVED_REQUEST_FIELDS = frozenset({"model", "messages", "stream", "stream_options"})
 
 
@@ -88,11 +88,7 @@ class RequestOptions:
     proxy: str = ""
 
     def with_defaults(self) -> "RequestOptions":
-        """对应 Go ``withDefaults``：非正数一律回落到默认值。
-
-        注意 ``max_retries <= 0`` 会变成 3，也就是说**无法**用 0 表示「不重试」，
-        与 Go 一致。
-        """
+        """对应 Go ``withDefaults``：非正数一律回落到默认值（``max_retries`` 的 0 也不表示不重试）。"""
         if self.first_chunk_timeout <= 0:
             self.first_chunk_timeout = DEFAULT_FIRST_CHUNK_TIMEOUT
         if self.stream_idle_timeout <= 0:
@@ -153,30 +149,42 @@ def first_nested_json_int(raw: Mapping[str, Any], *paths: Sequence[str]) -> int:
     return 0
 
 
+#: 缓存命中 token 的平铺别名。**字段存在**才代表上游上报过（值可以是 0）。
+CACHE_HIT_FIELDS = (
+    "prompt_cache_hit_tokens",
+    "cache_hit_tokens",
+    "cached_tokens",
+    "input_cache_hit_tokens",
+    "prompt_cache_read_tokens",
+    "cache_read_input_tokens",
+)
+CACHE_HIT_PATHS = (  # 缓存命中 token 的嵌套路径（chat 与 responses 两种信封）。
+    ("prompt_tokens_details", "cached_tokens"),
+    ("prompt_tokens_details", "cache_hit_tokens"),
+    ("input_tokens_details", "cached_tokens"),
+    ("input_tokens_details", "cache_hit_tokens"),
+)
+
+
+def cache_hit_reported(raw: Mapping[str, Any]) -> bool:
+    """上游这次是否上报了缓存命中信息（字段存在即算，值为 0 也算）。"""
+    return any(name in raw for name in CACHE_HIT_FIELDS) or any(
+        isinstance(raw.get(path[0]), Mapping) and path[1] in raw[path[0]]
+        for path in CACHE_HIT_PATHS
+    )
+
+
 def to_usage(raw: Mapping[str, Any]) -> Usage:
     """对应 Go ``openAIUsage.UnmarshalJSON`` + ``toUsage``（含缓存命中别名）。"""
-    cache_hit = first_json_int(
-        raw,
-        "prompt_cache_hit_tokens",
-        "cache_hit_tokens",
-        "cached_tokens",
-        "input_cache_hit_tokens",
-        "prompt_cache_read_tokens",
-        "cache_read_input_tokens",
-    )
+    cache_hit = first_json_int(raw, *CACHE_HIT_FIELDS)
     if cache_hit == 0:
-        cache_hit = first_nested_json_int(
-            raw,
-            ("prompt_tokens_details", "cached_tokens"),
-            ("prompt_tokens_details", "cache_hit_tokens"),
-            ("input_tokens_details", "cached_tokens"),
-            ("input_tokens_details", "cache_hit_tokens"),
-        )
+        cache_hit = first_nested_json_int(raw, *CACHE_HIT_PATHS)
     return Usage(
         prompt_tokens=first_json_int(raw, "prompt_tokens", "input_tokens"),
         completion_tokens=first_json_int(raw, "completion_tokens", "output_tokens"),
         total_tokens=first_json_int(raw, "total_tokens"),
         cache_hit_tokens=cache_hit,
+        cache_hit_reported=cache_hit_reported(raw),
     )
 
 
@@ -217,8 +225,7 @@ def resolve_segments(
 ) -> list[MessageSegment]:
     """把 url 为空的图片段交给注入的解析器补全 URL（返回新列表，不改入参）。
 
-    Go 侧这一步由调用方完成（``agent.chat_llm`` 的 ``media.ResolveForLLM``），
-    因此不注入解析器时的行为与 Go 完全一致：原样用 ``segment.url``。
+    Go 侧由调用方完成（``media.ResolveForLLM``）；不注入解析器时原样用 ``segment.url``。
     """
     if resolve_image is None:
         return list(segments)
@@ -254,9 +261,8 @@ def with_image_references(segments: Sequence[MessageSegment]) -> list[MessageSeg
 def openai_image_url(segment: MessageSegment) -> dict[str, Any]:
     """把图片段组装成 ``image_url`` 对象（非空 ``detail`` 才带上）。
 
-    ``detail`` 是供应商侧的降采样档位。**不写**这个键时由上游按默认策略
-    （通常是 ``auto``/``low``）处理；``view_image`` 与视觉服务因此显式写
-    ``"original"``，避免原图被默认降采样成看不清文字与纹样的小图。
+    ``detail`` 是供应商侧降采样档位；``view_image`` / 视觉服务显式写
+    ``original``，避免原图被默认降采样成看不清文字与纹样的小图。
     """
     image_url: dict[str, Any] = {"url": segment.url}
     detail = str(getattr(segment, "detail", "") or "").strip()
@@ -310,9 +316,8 @@ def openai_tool_content(
 def uses_reasoning_protocol(provider: str, model: str) -> bool:
     """provider/model 是否属于 DeepSeek 系思考模式协议族。
 
-    ``reasoning_content`` 是 DeepSeek 的扩展字段；官方 provider 名是 ``deepseek``，
-    第三方中转站通常沿用 ``deepseek-*`` 模型名。只有这类目标才写该字段（含空串），
-    避免 OpenAI 等厂商拒收未知字段。
+    ``reasoning_content`` 是 DeepSeek 扩展字段（官方 provider 与沿用 deepseek-* 模型名
+    的中转站），只有这类目标才写，避免 OpenAI 等厂商拒收未知字段。
     """
     return "deepseek" in (str(provider or "") + " " + str(model or "")).lower()
 
@@ -538,12 +543,10 @@ def hash_bytes(data: bytes) -> str:
 
 
 class RequestLog:
-    """请求日志摘要。对应 Go ``Adapter.logRequest`` / ``logFirstSystemMessage`` /
-    ``logDroppedExtraFields``。
+    """请求日志摘要（对应 Go ``logRequest`` 一族）。
 
-    只记字段名与摘要，绝不记凭据或完整 body：``Authorization``、api key 永远
-    不进日志，``data:`` URL 只留前缀（``log_safe_messages`` 会先克隆再脱敏，
-    因此真正发出的请求体仍是完整内容）。
+    只记字段名与摘要，绝不记凭据或完整 body：Authorization / api key 永不进日志，
+    ``data:`` URL 只留前缀。
     """
 
     def __init__(self, logger: Any = None, resolve_image: Any = None) -> None:
@@ -584,13 +587,11 @@ class RequestLog:
             "latest_message": roles[-1] if roles else "",
             "tool_count": len(req.tools),
             "system_hash": hash_text(first_system_text(req.messages)),
-            # Go 的 ``req.Tools`` 是可直接 json.Marshal 的结构体；Python 侧是
-            # :class:`ToolSchema` 数据类，必须先转成线上 dict，否则 json.dumps 会抛
-            # ``Object of type ToolSchema is not JSON serializable``。
+            # Go 的 req.Tools 可直接 json.Marshal；Python 侧 ToolSchema 要先转成线上 dict。
             "tools_hash": hash_json(to_openai_tools(req.tools)),
             "body_hash": hash_bytes(json_compact(body).encode("utf-8")),
         }
-        self.logger.debug("%s %s", message, " ".join(f"{k}={v}" for k, v in attrs.items()))
+        self.logger.debug(f"{message} " + " ".join(f"{k}={v}" for k, v in attrs.items()))
 
     def log_first_system_message(self, req: Any) -> None:
         if not req.session_id or first_system_text(req.messages) == "":
@@ -599,8 +600,7 @@ class RequestLog:
             return
         self.logged_system.add(req.session_id)
         self.logger.info(
-            "system prompt event=system_message session_id=%s model=%s first_system_message_json=%s",
-            req.session_id,
-            req.model,
-            first_system_message_json(req.messages, self.resolve_image),
+            "system prompt event=system_message",
+            "session_id", req.session_id, "model", req.model,
+            "first_system_message_json", first_system_message_json(req.messages, self.resolve_image),
         )

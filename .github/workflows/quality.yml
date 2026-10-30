@@ -53,6 +53,9 @@ jobs:
       - name: README 数字与实测一致（gen_stats --check）
         run: python scripts/gen_stats.py --check
 
+      - name: 随包 draw.io 技能摘要（gen_drawio_pack --check）
+        run: python scripts/gen_drawio_pack.py --check
+
       - name: 文档门禁（check_docs）
         run: python scripts/check_docs.py
 

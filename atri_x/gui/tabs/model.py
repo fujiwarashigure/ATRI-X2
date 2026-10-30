@@ -51,9 +51,9 @@ from atri_x.gui.configmodel import (
     load_model_selection,
     load_providers,
     provider_key_state,
+    resolve_fetch_key,
     save_model_selection,
     save_provider,
-    secret_value,
 )
 from atri_x.gui.tabs.base import ConfigTab, confirm, message
 from atri_x.gui.tabs.extractpanel import ExtractServicePanel
@@ -483,9 +483,9 @@ class ModelTab(ConfigTab):
             self.fail("先填 Base URL（例如 https://api.deepseek.com）")
             return
         env_name = self.key_env_var.get().strip()
-        api_key = secret_value(self.require_paths(), env_name)
+        api_key, key_source = resolve_fetch_key(self.key_entry.get(), self.require_paths(), env_name)
         self.notify(f"正在获取 {label} 的可用模型…")
-        self.journal(f"获取模型目录：{label} ← {base_url}{'' if api_key else '（无密钥）'}")
+        self.journal(f"获取模型目录：{label} ← {base_url}（密钥：{key_source or '未配置'}）")
         widgets.run_async(
             self.frame,
             lambda: modelcatalog.fetch_models(base_url, api_key),

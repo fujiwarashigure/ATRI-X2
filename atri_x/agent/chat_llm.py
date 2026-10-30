@@ -464,6 +464,7 @@ async def _stream_chat(
             ),
         )
         usage = event.llm.usage
+        log_usage_observed(agent, session_id, selection, usage)
         tool_calls = list(event.llm.tool_calls or []) if tools_enabled else []
         # safety-guard: 模型输出文本（PointLLMResponseReceived 之后）过一遍安全闸门。
         # 结果写回 event.llm.text，后续落库 / 展示 / 发送看到的是同一份文本。
@@ -563,31 +564,6 @@ def _accumulated(
     )
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # 这些名字的实现搬到了 atri_x.agent.chat_request_options，这里保持导入路径。
 from atri_x.agent.chat_request_options import (  # noqa: E402,F401
     LLMRequestOptions,
@@ -603,6 +579,7 @@ from atri_x.agent.chat_observe import (  # noqa: E402,F401
     elapsed_millis,
     is_cli_context,
     log_llm_output,
+    log_usage_observed,
     price_known_for,
     send_cli_reasoning,
     should_show_cli_reasoning,

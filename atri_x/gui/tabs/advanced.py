@@ -34,7 +34,7 @@ from atri_x.gui.configedit import (
     read_toml,
     set_env_value,
 )
-from atri_x.gui.configmodel import secret_state, secret_value
+from atri_x.gui.configmodel import resolve_fetch_key, secret_state
 from atri_x.gui.tabs.base import ConfigTab
 from atri_x.gui.tabs.mountpanel import MountPanelMixin
 
@@ -332,16 +332,30 @@ class AdvancedTab(ConfigTab, MountPanelMixin):
         self.image_alias.set(self._catalog.alias_of(modelcatalog.IMAGE_KEY, model))
 
     def _fetch_image_models(self) -> None:
-        """后台拉取生图 API 的 ``/models``（用生图自己的 Base URL 与密钥）。"""
+        """后台拉取生图 API 的 ``/models``（用生图自己的 Base URL 与密钥）。
+
+        密钥来源：输入框里刚填、还没保存的优先，其次进程环境 / ``.env``。
+        「获取可用模型」是保存配置之前就会点的按钮，只读 ``.env`` 的话用户
+        刚填的密钥等于没填——上游只会看到一次匿名请求并回 401。
+        """
         if not self.is_ready():
             return
         base_url = self.image_base_url.get().strip()
         if not base_url:
             self.fail("先在生图区填 Base URL（例如 https://relay.example.com/v1）")
             return
-        api_key = secret_value(self.require_paths(), self.image_api_env.get().strip())
+        env_name = self.image_api_env.get().strip()
+        api_key, key_source = resolve_fetch_key(
+            self.image_key_entry.get(), self.require_paths(), env_name
+        )
         self.notify("正在获取生图 API 的可用模型…")
-        self.journal(f"获取生图模型目录 ← {base_url}")
+        self.journal(f"获取生图模型目录 ← {base_url}（密钥：{key_source or '未配置'}）")
+        if not api_key:
+            self.journal(
+                "生图密钥未配置：本次请求不带 Authorization；需要鉴权的中转站会返回 401。"
+                f"先填「密钥值」再点「保存进阶配置」（写入 .env），或设置环境变量 "
+                f"{env_name or 'IMAGE_API_KEY'}"
+            )
         widgets.run_async(
             self.frame,
             lambda: modelcatalog.fetch_models(base_url, api_key),

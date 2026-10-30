@@ -68,7 +68,7 @@ import**，不要深 import 它的子模块（`atri_x/devtools/boundaries.py` �
 | 主题 | 位置 | 注意 |
 | --- | --- | --- |
 | 时间 | `atri_x/time_service.py`、`atri_x/timezones.py`、`atri_x/timesync/` | 业务时间只有一个来源与一个时区口径；网络校验只做观测，**绝不改系统时钟** |
-| 资源采样 | `atri_x/sysinfo.py` | Linux 读 `/proc`，Windows 用 `ctypes` 调 kernel32；超管工具 `runtime_resources` 与 `/resources` 共用它 |
+| 资源采样 | `atri_x/sysinfo.py`、`atri_x/sysinfo_platform.py`、`atri_x/hardware.py`、`atri_x/gpu_usage.py` | 采集/换算在 `sysinfo`（平台采集器在 `sysinfo_platform`），硬件型号与显卡占用在外围模块；**输出只允许经 `atri_x/sysinfo_format.py`**：磁盘只出卷标签，绝不输出本机路径 |
 | 安全策略 | `atri_x/security/`、`atri_x/safety/` | 风险分级与角色权限在核心；内容安全是独立可关的模块 |
 | 脱敏 | `atri_x/redact/` | 日志与审计出口统一走它 |
 | 日志与信号 | `atri_x/logging/`、`atri_x/signal/` | 运行 / 审计 / Atriwisp 日志分离 |

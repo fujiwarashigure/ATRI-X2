@@ -27,7 +27,9 @@
 18. [Windows 桌面端与原生应用](windows-app.md)：把 ATRI-X 打成免安装 Python/Docker 的 exe（窗口版 + 控制台版），带托盘常驻/开机自启/安装卸载/会话列表，可选内置 DSH 内核并启用**深度路由**，还能出 Inno Setup 安装包，并接上 QQ OneBot 协议端当机器人；「在线」页可看后台服务/协议端/QQ 平台三段状态并一键上下线。
 19. [SnowLuma 使用与配置教程](snowluma.md)：**可选的备用 QQ 协议端**（默认协议端是随包内置的 NapCat）——安装、首次启动、WebUI、进程注入、OneBot 正向 WS 配置、`ATRIX_SNOWLUMA_DIR` 探测、ATRI-X 桌面端切换与排障。独立成篇，可单独转发。
 20. [文档移植状态](../devdocs/porting-status.md)：哪些内容是从 Go 上游改写而来、哪些命令行接口需要逐条核对。
-21. [法务与合规注意事项](../LEGAL.md)：使用边界、法律法规与平台协议义务、第三方许可、免责与责任限制；使用前请先读。
+21. [draw.io 图表能力（概览）](diagram.md)：超管专属工具 `drawio`——把代码 / Terraform / SQL / OpenAPI 等生成可编辑 `.drawio`，并用随包内置的 draw.io 32.6.1 无头渲染 PNG/SVG/PDF；含权限、隔离、体积与排障。
+22. [draw.io 使用说明（实操）](drawio-usage.md)：怎么用一句话出图、9 个动作与参数速查、代码目录 / Terraform / SQL / OpenAPI 等导入示例、产物位置、常见需求对照与排障，以及源码树启用和手工调用。
+23. [法务与合规注意事项](../LEGAL.md)：使用边界、法律法规与平台协议义务、第三方许可、免责与责任限制；使用前请先读。
 
 ## 文档维护约定
 

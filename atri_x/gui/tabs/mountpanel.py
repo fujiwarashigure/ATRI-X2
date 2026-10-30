@@ -20,7 +20,7 @@ from tkinter import ttk
 from typing import Any
 
 from atri_x.gui import imagemount, modelcatalog, widgets
-from atri_x.gui.configmodel import secret_value
+from atri_x.gui.configmodel import resolve_fetch_key
 
 __all__ = ["MountPanelMixin"]
 
@@ -177,8 +177,12 @@ class MountPanelMixin:
             return
         self.image_base_url.set(base)
         self.mount_state.configure(text="正在检测…")
-        api_key = secret_value(self.require_paths(), self.image_api_env.get().strip())
-        self.journal(f"检测生图服务：{base}")
+        api_key, key_source = resolve_fetch_key(
+            _typed_image_key(self),
+            self.require_paths(),
+            self.image_api_env.get().strip(),
+        )
+        self.journal(f"检测生图服务：{base}（密钥：{key_source or '未配置'}）")
         widgets.run_async(
             self.frame, lambda: imagemount.probe(base, api_key), self._mount_probed
         )
@@ -211,8 +215,19 @@ class MountPanelMixin:
 
     # 宿主能力（由 ConfigTab / AdvancedTab 提供）：``require_paths`` / ``fail`` /
     # ``notify`` / ``journal`` / ``is_ready`` / ``frame`` / ``image_base_url`` /
-    # ``image_model`` / ``image_api_env`` / ``_stored_image_model`` / ``_catalog`` /
-    # ``_image_label`` / ``_refresh_image_models``。本 mixin 不覆盖这些成员。
+    # ``image_model`` / ``image_api_env`` / ``image_key_entry`` / ``_stored_image_model``
+    # / ``_catalog`` / ``_image_label`` / ``_refresh_image_models``。本 mixin 不覆盖这些成员。
+
+
+def _typed_image_key(host: Any) -> str:
+    """生图区「密钥值」输入框里刚填、可能还没保存的明文密钥。
+
+    探测本地服务通常不需要密钥，这里只是与「获取可用模型」保持同一套取值顺序：
+    输入框优先，其次 ``.env`` / 进程环境。宿主没建这个控件时按空串处理。
+    """
+    entry = getattr(host, "image_key_entry", None)
+    getter = getattr(entry, "get", None)
+    return str(getter() or "").strip() if callable(getter) else ""
 
 
 def _int_or(text: str, fallback: int) -> int:

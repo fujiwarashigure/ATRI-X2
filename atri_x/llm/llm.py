@@ -190,12 +190,20 @@ class ToolCallDelta:
 
 @dataclass
 class Usage:
-    """token 用量。对应 Go ``Usage``。"""
+    """token 用量。对应 Go ``Usage``。
+
+    ``cache_hit_tokens`` 的 0 有两种含义，靠 ``cache_hit_reported`` 区分：
+    上游响应里根本没有缓存命中字段（``False``，此时 0 只是"没上报"，不等于"没命中"），
+    或上游明确上报了 0（``True``）。默认 ``True`` 保持旧行为：手工构造的 usage
+    一律按"0 就是 0"解释，只有线上解析器才会把它标成未上报。
+    """
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
     cache_hit_tokens: int = 0
+    #: 上游是否上报过缓存命中字段（值可以是 0）。
+    cache_hit_reported: bool = True
 
 
 @dataclass

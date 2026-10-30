@@ -75,3 +75,9 @@ tmp_sqlite_test/
 
 # 打包用的内置运行时（由 packaging/assemble_kernel.py 从本机 DSH 安装组装，体积大，不入库）
 /runtime/
+
+# 内置 draw.io 渲染器解包目录（约 400 MB 的构建材料，不入库；构建用 --with-drawio 指定）
+/packaging/vendor/drawio/
+
+# 随包 draw.io 技能的本地运行产物（导出图/渲染 profile/临时输入；pack.json 摘要不收它们）
+/drawio_pack/skills/drawio-skill/out/

@@ -1,4 +1,4 @@
-"""可移植的运行时资源快照。
+"""可移植的运行时资源快照（进程 / 系统 / 磁盘 / 硬件）。
 
 对应 Go：``internal/sysinfo/sysinfo.go`` + ``disk_linux.go`` / ``disk_other.go``
 / ``rss_linux.go`` / ``rss_other.go``。
@@ -24,6 +24,15 @@ Go 的 ``HeapAllocBytes`` / ``HeapSysBytes`` / ``Goroutines`` 是 Go runtime 的
 - **可注入**：``platform_impl`` 允许测试塞入假采集器，避免用例依赖真实 Windows
   API 或真实计时；
 - **失败降级**：任何一项采集失败只写进 ``errors``，不抛异常、不整条失败。
+
+1.1.4 修订（隐私边界）
+----------------------
+``/resources`` 曾把"配置目录所在卷"的**真实路径**（如 ``C:\\Users\\<用户名>\\...``）
+渲染出来。现在磁盘段一律用**卷标签**（``系统盘`` / ``数据盘 N`` / ``指定卷 N``），
+任何路径、用户名、主机名都不出现在快照与渲染里；采集失败的描述也只保留异常类型名
+（异常原文可能带路径）。渲染因此拆到 :mod:`atri_x.sysinfo_format`，硬件型号与
+显卡占用拆到 :mod:`atri_x.hardware` / :mod:`atri_x.gpu_usage`，本模块只负责采集与
+数值换算。
 """
 
 from __future__ import annotations
@@ -35,9 +44,18 @@ import threading
 import time
 import tracemalloc
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
+
+from atri_x.hardware import HardwareInfo, collect_hardware
+from atri_x.sysinfo_format import (
+    format_bytes,
+    format_resources,
+    format_uint_bytes,
+    format_uptime,
+)
 
 __all__ = [
+    "DiskUsage",
     "ProcessResources",
     "ProcessSample",
     "ResourceSnapshot",
@@ -58,7 +76,6 @@ __all__ = [
 
 _IS_WINDOWS = sys.platform == "win32"
 _IS_LINUX = sys.platform.startswith("linux")
-_UNITS = ("KB", "MB", "GB", "TB", "PB")
 
 #: CPU 采样窗口的默认值（秒）与允许区间（秒）。下限避免除以极小的 Δt 放大噪声。
 DEFAULT_SAMPLE_INTERVAL = 0.5
@@ -100,6 +117,8 @@ class ProcessSample:
     handles: int = 0
     io_read_bytes: int = 0
     io_write_bytes: int = 0
+    #: 进程启动的 Unix 时间戳（秒）；拿不到时为 0（渲染层就不报"已运行"）。
+    start_unix_seconds: float = 0.0
 
 
 @dataclass
@@ -130,6 +149,21 @@ class ProcessResources:
     handles: int = 0
     io_read_bytes: int = 0
     io_write_bytes: int = 0
+    #: 进程已运行秒数（"软件进程状态"用）；拿不到启动时间时为 0。
+    uptime_seconds: int = 0
+
+
+@dataclass(frozen=True)
+class DiskUsage:
+    """一个卷的容量读数。
+
+    ``label`` 是**展示名**（``系统盘`` / ``数据盘 N`` / ``指定卷 N``），刻意不是路径：
+    快照与渲染都不得携带本机真实路径（1.1.4 隐私修订）。
+    """
+
+    label: str = ""
+    total_bytes: int = 0
+    free_bytes: int = 0
 
 
 @dataclass
@@ -148,13 +182,15 @@ class SystemResources:
 class ResourceSnapshot:
     """:func:`collect_resources` 的结果。
 
-    ``disks`` 是 ``(路径, 总字节, 可用字节)`` 三元组列表，顺序与入参一致；
-    采集失败的路径不出现在这里，原因写进 ``errors``。
+    ``disks`` 是 :class:`DiskUsage` 列表（按展示顺序）；采集失败的卷不出现在
+    这里，原因写进 ``errors``（只写异常类型名，不写路径）。
     """
 
     process: ProcessResources = field(default_factory=ProcessResources)
     system: SystemResources = field(default_factory=SystemResources)
-    disks: list[tuple[str, int, int]] = field(default_factory=list)
+    disks: list[DiskUsage] = field(default_factory=list)
+    #: 硬件身份与显卡占用（CPU/GPU 型号、系统版本、显存/3D 占用）。
+    hardware: HardwareInfo = field(default_factory=HardwareInfo)
     dir_bytes: int = 0
     sample_interval: float = DEFAULT_SAMPLE_INTERVAL
     errors: list[str] = field(default_factory=list)
@@ -171,26 +207,36 @@ class PlatformCollector(Protocol):
     def sample_system(self) -> SystemSample: ...
 
 
+#: 硬件采集最多等多久（秒）：``nvidia-smi`` 与 PDH 都可能慢，但命令不能被拖死。
+HARDWARE_JOIN_TIMEOUT_SECONDS = 4.0
+
+
 def collect_resources(
     paths: Any = None,
     *,
     sample_interval: float = DEFAULT_SAMPLE_INTERVAL,
     include_dir_size: bool = False,
     platform_impl: PlatformCollector | None = None,
+    hardware_provider: Callable[[], HardwareInfo] | None = None,
 ) -> ResourceSnapshot:
-    """采集进程 / 系统 / 磁盘资源。
+    """采集进程 / 系统 / 磁盘 / 硬件资源。
 
     参数
     ----
     paths:
-        要统计磁盘用量的路径（``str`` 或可迭代对象）。空表示不统计磁盘。
+        要统计磁盘用量的路径（``str`` 或可迭代对象）。空表示自动枚举本机固定磁盘
+        （卷标签，不带路径）；给了路径也只会渲染成"指定卷 N"。
     sample_interval:
         CPU 占用率的采样窗口（秒），会被夹到
         ``[MIN_SAMPLE_INTERVAL, MAX_SAMPLE_INTERVAL]``。
     include_dir_size:
-        是否递归统计 ``paths`` 的目录大小（``os.walk`` 很慢，默认关）。
+        是否递归统计 ``paths`` 的目录大小（``os.walk`` 很慢，默认关；自动枚举
+        磁盘时忽略——不会去遍历整个卷）。
     platform_impl:
         注入的采集器；``None`` 时按当前平台自动选择。
+    hardware_provider:
+        注入的硬件采集器；``None`` 时用 :func:`atri_x.hardware.collect_hardware`。
+        硬件采集与 CPU 采样窗口**并行**跑，多出来的等待时间被采样窗口吸收。
 
     **这是同步函数**：内部含 ``time.sleep``，调用方必须丢进线程
     （工具侧用 ``asyncio.to_thread``），否则会阻塞事件循环。
@@ -199,6 +245,25 @@ def collect_resources(
     snapshot = ResourceSnapshot(sample_interval=interval)
     collector = platform_impl if platform_impl is not None else _default_collector()
     targets = _normalize_paths(paths)
+    explicit_targets = bool(targets)
+    if not targets:
+        targets = _local_volume_roots()
+
+    hardware_box: list[HardwareInfo] = []
+    hardware_errors: list[str] = []
+
+    def _run_hardware() -> None:
+        try:
+            provider = hardware_provider if hardware_provider is not None else collect_hardware
+            hardware_box.append(provider())
+        except Exception as exc:  # noqa: BLE001 - 硬件采集失败只降级
+            hardware_errors.append(f"硬件采集失败（{type(exc).__name__}）")
+
+    # 硬件采集（注册表 / nvidia-smi / PDH）与下面的 CPU 采样窗口并行，避免叠加延迟。
+    hardware_thread = threading.Thread(
+        target=_run_hardware, name="atri-x-hardware", daemon=True
+    )
+    hardware_thread.start()
 
     first_process: ProcessSample | None = None
     first_system: SystemSample | None = None
@@ -206,11 +271,11 @@ def collect_resources(
     try:
         first_process = collector.sample_process()
     except Exception as exc:  # noqa: BLE001 - 采集失败只降级，不炸调用方
-        snapshot.errors.append(f"进程采样失败：{exc}")
+        snapshot.errors.append(f"进程采样失败（{type(exc).__name__}）")
     try:
         first_system = collector.sample_system()
     except Exception as exc:  # noqa: BLE001
-        snapshot.errors.append(f"系统采样失败：{exc}")
+        snapshot.errors.append(f"系统采样失败（{type(exc).__name__}）")
 
     # 采样窗口：要拿到 CPU 占用率必须有两个时间点的计数器。
     time.sleep(interval)
@@ -221,19 +286,24 @@ def collect_resources(
     try:
         second_process = collector.sample_process()
     except Exception as exc:  # noqa: BLE001
-        snapshot.errors.append(f"进程二次采样失败：{exc}")
+        snapshot.errors.append(f"进程二次采样失败（{type(exc).__name__}）")
+    # 硬件线程是采集器自己起的 Python 线程：线程数指标要把这一根减掉，
+    # 否则"软件进程状态"会平白多 1 个线程。
+    extra_threads = 1 if hardware_thread.is_alive() else 0
     try:
         second_system = collector.sample_system()
     except Exception as exc:  # noqa: BLE001
-        snapshot.errors.append(f"系统二次采样失败：{exc}")
+        snapshot.errors.append(f"系统二次采样失败（{type(exc).__name__}）")
 
     if first_process is not None and second_process is not None:
         snapshot.process = _build_process_resources(
-            first_process, second_process, elapsed
+            first_process, second_process, elapsed, extra_threads=extra_threads
         )
     elif second_process is not None:
         # 只能采到一次：内存类指标仍然有价值，CPU% 留 0。
-        snapshot.process = _build_process_resources(None, second_process, 0.0)
+        snapshot.process = _build_process_resources(
+            None, second_process, 0.0, extra_threads=extra_threads
+        )
     elif first_process is not None:
         snapshot.process = _build_process_resources(None, first_process, 0.0)
 
@@ -244,26 +314,53 @@ def collect_resources(
     elif first_system is not None:
         snapshot.system = _build_system_resources(None, first_system)
 
+    disk_index = 0
+    seen_volumes: set[str] = set()
     for target in targets:
+        volume = _volume_key(target)
+        if volume and volume in seen_volumes:
+            continue
+        if volume:
+            seen_volumes.add(volume)
         try:
             total, free = disk_usage(target)
         except (OSError, ValueError) as exc:
-            snapshot.errors.append(f"磁盘用量采集失败（{target}）：{exc}")
+            # 异常原文可能带真实路径：只保留类型名。
+            snapshot.errors.append(f"磁盘用量采集失败（{type(exc).__name__}）")
             continue
-        snapshot.disks.append((target, total, free))
+        if _is_system_volume(target):
+            label = "系统盘"
+        else:
+            disk_index += 1
+            label = f"指定卷 {disk_index}" if explicit_targets else f"数据盘 {disk_index}"
+        snapshot.disks.append(
+            DiskUsage(label=label, total_bytes=total, free_bytes=free)
+        )
 
-    if include_dir_size:
+    if include_dir_size and explicit_targets:
         for target in targets:
             try:
                 snapshot.dir_bytes += directory_size(target)
             except Exception as exc:  # noqa: BLE001 - os.walk 的 onerror 已吞掉多数错误
-                snapshot.errors.append(f"目录大小统计失败（{target}）：{exc}")
+                snapshot.errors.append(f"目录大小统计失败（{type(exc).__name__}）")
 
+    hardware_thread.join(timeout=HARDWARE_JOIN_TIMEOUT_SECONDS)
+    if hardware_thread.is_alive():
+        snapshot.errors.append("硬件采集超时")
+    snapshot.errors.extend(hardware_errors)
+    if hardware_box:
+        snapshot.hardware = hardware_box[0]
+        snapshot.errors.extend(snapshot.hardware.errors)
     return snapshot
 
 
 def resources_to_dict(snapshot: ResourceSnapshot) -> dict[str, Any]:
-    """把快照渲染成 JSON 友好的 dict（工具结果的 ``data`` 字段用）。"""
+    """把快照渲染成 JSON 友好的 dict（工具结果的 ``data`` 字段用）。
+
+    与文本渲染同一条隐私边界：磁盘只有 ``label``（``系统盘`` / ``数据盘 N``），
+    **没有**任何本机路径。
+    """
+    hardware = snapshot.hardware
     return {
         "sample_interval_seconds": round(snapshot.sample_interval, 3),
         "process": {
@@ -277,6 +374,7 @@ def resources_to_dict(snapshot: ResourceSnapshot) -> dict[str, Any]:
             "handles": snapshot.process.handles,
             "io_read_bytes": snapshot.process.io_read_bytes,
             "io_write_bytes": snapshot.process.io_write_bytes,
+            "uptime_seconds": snapshot.process.uptime_seconds,
         },
         "system": {
             "cpu_percent": round(snapshot.system.cpu_percent, 2),
@@ -286,9 +384,37 @@ def resources_to_dict(snapshot: ResourceSnapshot) -> dict[str, Any]:
             "mem_percent": round(snapshot.system.mem_percent, 2),
             "uptime_seconds": snapshot.system.uptime_seconds,
         },
+        "hardware": {
+            "cpu_model": hardware.cpu_model,
+            "cpu_threads": hardware.cpu_threads,
+            "os": hardware.os_name,
+            "arch": hardware.arch,
+            "gpus": [
+                {
+                    "name": gpu.name,
+                    "vendor": gpu.vendor,
+                    "memory_total_bytes": gpu.memory_total_bytes,
+                    "memory_used_bytes": gpu.memory_used_bytes,
+                    "utilization_percent": gpu.utilization_percent,
+                    "temperature_c": gpu.temperature_c,
+                    "power_watts": gpu.power_watts,
+                    "power_limit_watts": gpu.power_limit_watts,
+                    "integrated": gpu.integrated,
+                    "source": gpu.source,
+                }
+                for gpu in hardware.gpus
+            ],
+            "gpu_utilization_percent": hardware.gpu_utilization_percent,
+            "gpu_memory_used_bytes": hardware.gpu_memory_used_bytes,
+            "gpu_source": hardware.gpu_source,
+        },
         "disks": [
-            {"path": path, "total_bytes": total, "free_bytes": free}
-            for path, total, free in snapshot.disks
+            {
+                "label": disk.label,
+                "total_bytes": disk.total_bytes,
+                "free_bytes": disk.free_bytes,
+            }
+            for disk in snapshot.disks
         ],
         "dir_bytes": snapshot.dir_bytes,
         "errors": list(snapshot.errors),
@@ -321,18 +447,94 @@ def _normalize_paths(paths: Any) -> list[str]:
     return out
 
 
+def _system_volume_root() -> str:
+    """系统盘根（``C:\\`` / ``/``）；只用于判断"哪个卷是系统盘"，不参与渲染。"""
+    if not _IS_WINDOWS:
+        return "/"
+    try:
+        import ctypes
+
+        buffer = ctypes.create_unicode_buffer(260)
+        if not ctypes.windll.kernel32.GetWindowsDirectoryW(buffer, 260):
+            return ""
+        drive = os.path.splitdrive(buffer.value)[0]
+        return drive + "\\" if drive else ""
+    except Exception:  # noqa: BLE001 - 拿不到就退化成"没有系统盘标签"
+        return ""
+
+
+def _local_volume_roots() -> list[str]:
+    """本机**固定磁盘**的根（Windows）或 ``/``（其它平台）。
+
+    只统计 ``DRIVE_FIXED``：网络盘、可移动盘、光驱不碰 —— 它们既不属于本机，
+    容量读数还容易卡住。
+    """
+    if not _IS_WINDOWS:
+        return ["/"]
+    try:
+        import ctypes
+
+        mask = int(ctypes.windll.kernel32.GetLogicalDrives())
+    except Exception:  # noqa: BLE001
+        return []
+    roots: list[str] = []
+    for index in range(26):
+        if not mask & (1 << index):
+            continue
+        root = f"{chr(ord('A') + index)}:\\"
+        try:
+            drive_type = int(
+                ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(root))
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        if drive_type == 3:  # DRIVE_FIXED
+            roots.append(root)
+    return roots
+
+
+def _volume_key(target: str) -> str:
+    """卷级去重键：同一个卷上的多个路径只报一次。"""
+    try:
+        absolute = os.path.abspath(target)
+    except (OSError, ValueError):
+        return ""
+    drive = os.path.splitdrive(absolute)[0]
+    return (drive or absolute).casefold()
+
+
+def _is_system_volume(target: str) -> bool:
+    system_root = _system_volume_root()
+    if not system_root:
+        return False
+    try:
+        absolute = os.path.abspath(target)
+    except (OSError, ValueError):
+        return False
+    drive = os.path.splitdrive(absolute)[0]
+    if not drive:
+        return False
+    return drive.casefold() == os.path.splitdrive(system_root)[0].casefold()
+
+
 def _build_process_resources(
-    first: ProcessSample | None, second: ProcessSample, elapsed: float
+    first: ProcessSample | None,
+    second: ProcessSample,
+    elapsed: float,
+    *,
+    extra_threads: int = 0,
 ) -> ProcessResources:
     process = ProcessResources(
         rss_bytes=second.rss_bytes,
         peak_rss_bytes=second.peak_rss_bytes or second.rss_bytes,
         private_bytes=second.private_bytes,
-        threads=second.threads,
+        threads=max(second.threads - max(extra_threads, 0), 0),
         handles=second.handles,
         io_read_bytes=second.io_read_bytes,
         io_write_bytes=second.io_write_bytes,
     )
+    if second.start_unix_seconds > 0:
+        process.uptime_seconds = int(max(time.time() - second.start_unix_seconds, 0.0))
     if first is None:
         process.cpu_user_seconds = second.cpu_user_seconds
         process.cpu_sys_seconds = second.cpu_sys_seconds
@@ -377,366 +579,11 @@ def _ratio_percent(part: float, whole: float) -> float:
 
 
 def _default_collector() -> PlatformCollector:
-    if _IS_WINDOWS:
-        return WindowsCollector()
-    if _IS_LINUX:
-        return LinuxCollector()
-    return FallbackCollector()
+    """按平台选择采集器；实现已拆到 :mod:`atri_x.sysinfo_platform`（1.1.4 拆分）。"""
+    from atri_x.sysinfo_platform import default_collector as select_collector
 
+    return select_collector()
 
-# --- Windows：ctypes 调 kernel32 / psapi -----------------------------------
-
-if _IS_WINDOWS:  # pragma: no branch - 平台判定
-    import ctypes
-    import ctypes.wintypes as _wt
-
-    class _FILETIME(ctypes.Structure):
-        _fields_ = [
-            ("dwLowDateTime", _wt.DWORD),
-            ("dwHighDateTime", _wt.DWORD),
-        ]
-
-    class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
-        _fields_ = [
-            ("cb", _wt.DWORD),
-            ("PageFaultCount", _wt.DWORD),
-            ("PeakWorkingSetSize", ctypes.c_size_t),
-            ("WorkingSetSize", ctypes.c_size_t),
-            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-            ("PagefileUsage", ctypes.c_size_t),
-            ("PeakPagefileUsage", ctypes.c_size_t),
-        ]
-
-    class _IO_COUNTERS(ctypes.Structure):
-        _fields_ = [
-            ("ReadOperationCount", ctypes.c_ulonglong),
-            ("WriteOperationCount", ctypes.c_ulonglong),
-            ("OtherOperationCount", ctypes.c_ulonglong),
-            ("ReadTransferCount", ctypes.c_ulonglong),
-            ("WriteTransferCount", ctypes.c_ulonglong),
-            ("OtherTransferCount", ctypes.c_ulonglong),
-        ]
-
-    class _MEMORYSTATUSEX(ctypes.Structure):
-        _fields_ = [
-            ("dwLength", _wt.DWORD),
-            ("dwMemoryLoad", _wt.DWORD),
-            ("ullTotalPhys", ctypes.c_ulonglong),
-            ("ullAvailPhys", ctypes.c_ulonglong),
-            ("ullTotalPageFile", ctypes.c_ulonglong),
-            ("ullAvailPageFile", ctypes.c_ulonglong),
-            ("ullTotalVirtual", ctypes.c_ulonglong),
-            ("ullAvailVirtual", ctypes.c_ulonglong),
-            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-        ]
-
-    def _filetime_seconds(value: Any) -> float:
-        ticks = (int(value.dwHighDateTime) << 32) | int(value.dwLowDateTime)
-        return ticks / 10_000_000.0
-
-    class WindowsApi:
-        """kernel32 / psapi 的最小封装：只有本模块用到的 7 个调用。
-
-        单独成类是为了让测试能把整个对象换成假实现，而不必 monkeypatch
-        ``ctypes`` 本身。
-        """
-
-        def __init__(self) -> None:
-            self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            # 句柄是 64 位：restype 不设 c_void_p 会被截断成 int32；argtypes 不声明
-            # HANDLE 为 c_void_p 时，回传的伪句柄（-1 → 0xFFFFFFFFFFFFFFFF）会触发
-            # "int too long to convert"。两处都必须显式声明。
-            self.kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-            self.kernel32.GetCurrentProcess.argtypes = []
-            # Win7+ 走 K32GetProcessMemoryInfo；老系统回退 psapi 的同名导出。
-            get_memory_info = getattr(self.kernel32, "K32GetProcessMemoryInfo", None)
-            if get_memory_info is None:  # pragma: no cover - 古董系统
-                psapi = ctypes.WinDLL("psapi", use_last_error=True)
-                get_memory_info = psapi.GetProcessMemoryInfo
-            get_memory_info.restype = ctypes.c_int
-            get_memory_info.argtypes = [
-                ctypes.c_void_p,
-                ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
-                _wt.DWORD,
-            ]
-            self._get_process_memory_info = get_memory_info
-            self.kernel32.GetProcessTimes.restype = ctypes.c_int
-            self.kernel32.GetProcessTimes.argtypes = [
-                ctypes.c_void_p,
-                ctypes.POINTER(_FILETIME),
-                ctypes.POINTER(_FILETIME),
-                ctypes.POINTER(_FILETIME),
-                ctypes.POINTER(_FILETIME),
-            ]
-            self.kernel32.GetProcessHandleCount.restype = ctypes.c_int
-            self.kernel32.GetProcessHandleCount.argtypes = [
-                ctypes.c_void_p,
-                ctypes.POINTER(_wt.DWORD),
-            ]
-            self.kernel32.GetProcessIoCounters.restype = ctypes.c_int
-            self.kernel32.GetProcessIoCounters.argtypes = [
-                ctypes.c_void_p,
-                ctypes.POINTER(_IO_COUNTERS),
-            ]
-            self.kernel32.GlobalMemoryStatusEx.restype = ctypes.c_int
-            self.kernel32.GlobalMemoryStatusEx.argtypes = [
-                ctypes.POINTER(_MEMORYSTATUSEX)
-            ]
-            self.kernel32.GetSystemTimes.restype = ctypes.c_int
-            self.kernel32.GetSystemTimes.argtypes = [
-                ctypes.POINTER(_FILETIME),
-                ctypes.POINTER(_FILETIME),
-                ctypes.POINTER(_FILETIME),
-            ]
-            try:
-                self.kernel32.GetTickCount64.restype = ctypes.c_ulonglong
-                self.kernel32.GetTickCount64.argtypes = []
-            except AttributeError:  # pragma: no cover - 古董系统
-                self.kernel32.GetTickCount64 = None
-
-        def current_process(self) -> Any:
-            # 再包一层 c_void_p：即使调用方拿到的 restype 退化成 int 也仍然安全。
-            return ctypes.c_void_p(self.kernel32.GetCurrentProcess())
-
-        def process_memory(self) -> _PROCESS_MEMORY_COUNTERS:
-            counters = _PROCESS_MEMORY_COUNTERS()
-            counters.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS)
-            handle = self.current_process()
-            ok = self._get_process_memory_info(
-                handle, ctypes.byref(counters), counters.cb
-            )
-            if not ok:
-                raise ctypes.WinError(ctypes.get_last_error())
-            return counters
-
-        def process_times(self) -> tuple[float, float]:
-            handle = self.current_process()
-            creation = _FILETIME()
-            exited = _FILETIME()
-            kernel = _FILETIME()
-            user = _FILETIME()
-            ok = self.kernel32.GetProcessTimes(
-                handle,
-                ctypes.byref(creation),
-                ctypes.byref(exited),
-                ctypes.byref(kernel),
-                ctypes.byref(user),
-            )
-            if not ok:
-                raise ctypes.WinError(ctypes.get_last_error())
-            return _filetime_seconds(user), _filetime_seconds(kernel)
-
-        def process_handle_count(self) -> int:
-            handle = self.current_process()
-            count = _wt.DWORD(0)
-            ok = self.kernel32.GetProcessHandleCount(handle, ctypes.byref(count))
-            if not ok:
-                raise ctypes.WinError(ctypes.get_last_error())
-            return int(count.value)
-
-        def process_io(self) -> tuple[int, int]:
-            handle = self.current_process()
-            counters = _IO_COUNTERS()
-            ok = self.kernel32.GetProcessIoCounters(handle, ctypes.byref(counters))
-            if not ok:
-                raise ctypes.WinError(ctypes.get_last_error())
-            return int(counters.ReadTransferCount), int(counters.WriteTransferCount)
-
-        def memory_status(self) -> _MEMORYSTATUSEX:
-            status = _MEMORYSTATUSEX()
-            status.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
-            ok = self.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
-            if not ok:
-                raise ctypes.WinError(ctypes.get_last_error())
-            return status
-
-        def system_times(self) -> tuple[float, float, float]:
-            idle = _FILETIME()
-            kernel = _FILETIME()
-            user = _FILETIME()
-            ok = self.kernel32.GetSystemTimes(
-                ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)
-            )
-            if not ok:
-                raise ctypes.WinError(ctypes.get_last_error())
-            return (
-                _filetime_seconds(idle),
-                _filetime_seconds(kernel),
-                _filetime_seconds(user),
-            )
-
-        def tick_count_seconds(self) -> int:
-            getter = getattr(self.kernel32, "GetTickCount64", None)
-            if getter is None:  # pragma: no cover - 古董系统
-                return 0
-            return int(getter() / 1000)
-
-
-class WindowsCollector:
-    """Windows 采集器：kernel32 / psapi，纯标准库。"""
-
-    def __init__(self, api: Any = None) -> None:
-        self.api = api if api is not None else WindowsApi()
-
-    def sample_process(self) -> ProcessSample:
-        memory = self.api.process_memory()
-        user, kernel = self.api.process_times()
-        try:
-            handles = self.api.process_handle_count()
-        except OSError:
-            handles = 0
-        try:
-            io_read, io_write = self.api.process_io()
-        except OSError:
-            io_read = io_write = 0
-        return ProcessSample(
-            rss_bytes=int(memory.WorkingSetSize),
-            peak_rss_bytes=int(memory.PeakWorkingSetSize),
-            private_bytes=int(memory.PagefileUsage),
-            cpu_user_seconds=user,
-            cpu_sys_seconds=kernel,
-            threads=threading.active_count(),
-            handles=handles,
-            io_read_bytes=io_read,
-            io_write_bytes=io_write,
-        )
-
-    def sample_system(self) -> SystemSample:
-        idle, kernel, user = self.api.system_times()
-        # GetSystemTimes 的 kernel 时间**含 idle**，所以总时间 = kernel + user。
-        status = self.api.memory_status()
-        return SystemSample(
-            cpu_total_seconds=kernel + user,
-            cpu_idle_seconds=idle,
-            mem_total_bytes=int(status.ullTotalPhys),
-            mem_avail_bytes=int(status.ullAvailPhys),
-            uptime_seconds=self.api.tick_count_seconds(),
-        )
-
-
-# --- Linux：/proc ----------------------------------------------------------
-
-
-class LinuxCollector:
-    """Linux 采集器：只读 ``/proc``。"""
-
-    def __init__(self, proc_root: str = "/proc") -> None:
-        self.proc_root = proc_root
-
-    def sample_process(self) -> ProcessSample:
-        statm = _read_text(os.path.join(self.proc_root, "self", "statm")).split()
-        page_size = os.sysconf("SC_PAGE_SIZE")
-        rss = int(statm[1]) * page_size if len(statm) > 1 else 0
-        status = _parse_key_values(
-            _read_text(os.path.join(self.proc_root, "self", "status"))
-        )
-        stat = _read_text(os.path.join(self.proc_root, "self", "stat")).split(")")[-1].split()
-        # /proc/self/stat 去掉 comm 字段后，utime/stime 落在下标 11/12。
-        ticks = os.sysconf("SC_CLK_TCK")
-        user = int(stat[11]) / ticks if len(stat) > 12 else 0.0
-        system = int(stat[12]) / ticks if len(stat) > 12 else 0.0
-        io_read, io_write = self._read_io()
-        return ProcessSample(
-            rss_bytes=rss,
-            peak_rss_bytes=_kb(status.get("VmHWM", "0 kB")),
-            private_bytes=_kb(status.get("VmData", "0 kB")),
-            cpu_user_seconds=user,
-            cpu_sys_seconds=system,
-            threads=int(status.get("Threads", "0") or 0),
-            handles=_count_dir_entries(os.path.join(self.proc_root, "self", "fd")),
-            io_read_bytes=io_read,
-            io_write_bytes=io_write,
-        )
-
-    def _read_io(self) -> tuple[int, int]:
-        try:
-            io = _parse_key_values(_read_text(os.path.join(self.proc_root, "self", "io")))
-        except OSError:
-            return 0, 0
-        return int(io.get("read_bytes", "0") or 0), int(io.get("write_bytes", "0") or 0)
-
-    def sample_system(self) -> SystemSample:
-        cpu_line = _read_text(os.path.join(self.proc_root, "stat")).splitlines()[0].split()
-        values = [float(item) for item in cpu_line[1:]]
-        total = sum(values)
-        idle = values[3] + (values[4] if len(values) > 4 else 0.0)
-        meminfo = _parse_key_values(_read_text(os.path.join(self.proc_root, "meminfo")))
-        try:
-            uptime = int(float(_read_text(os.path.join(self.proc_root, "uptime")).split()[0]))
-        except (OSError, IndexError, ValueError):
-            uptime = 0
-        return SystemSample(
-            cpu_total_seconds=total / os.sysconf("SC_CLK_TCK"),
-            cpu_idle_seconds=idle / os.sysconf("SC_CLK_TCK"),
-            mem_total_bytes=_kb(meminfo.get("MemTotal", "0 kB")),
-            mem_avail_bytes=_kb(
-                meminfo.get("MemAvailable", meminfo.get("MemFree", "0 kB"))
-            ),
-            uptime_seconds=uptime,
-        )
-
-
-def _read_text(path: str) -> str:
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        return handle.read()
-
-
-def _parse_key_values(text: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for line in text.splitlines():
-        key, sep, value = line.partition(":")
-        if sep:
-            out[key.strip()] = value.strip()
-    return out
-
-
-def _kb(value: str) -> int:
-    try:
-        return int(str(value).split()[0]) * 1024
-    except (IndexError, ValueError):
-        return 0
-
-
-def _count_dir_entries(path: str) -> int:
-    try:
-        return len(os.listdir(path))
-    except OSError:
-        return 0
-
-
-# --- 其它平台：尽力而为 -----------------------------------------------------
-
-
-class FallbackCollector:
-    """POSIX 兜底采集器：进程内存走 ``resource``，系统指标留 0。
-
-    不是 Linux、也不是 Windows 的平台（macOS / BSD）不抛异常，系统级指标为 0
-    并在结果里显式表明不支持 —— 与 Go ``rss_other.go`` 的"返回 0"同义。
-    """
-
-    def sample_process(self) -> ProcessSample:
-        usage = None
-        try:
-            import resource
-
-            usage = resource.getrusage(resource.RUSAGE_SELF)
-        except Exception:  # pragma: no cover - 平台无 resource 模块
-            usage = None
-        peak = int(getattr(usage, "ru_maxrss", 0) or 0)
-        # ru_maxrss 在 macOS 是字节，在其余 POSIX 是 KiB。
-        if sys.platform != "darwin":  # pragma: no cover - 其它 POSIX
-            peak *= 1024
-        return ProcessSample(
-            rss_bytes=peak,
-            peak_rss_bytes=peak,
-            threads=threading.active_count(),
-        )
-
-    def sample_system(self) -> SystemSample:
-        return SystemSample(cpu_total_seconds=0.0, cpu_idle_seconds=0.0)
 
 
 # --- 旧接口（兼容保留） ----------------------------------------------------
@@ -827,93 +674,3 @@ def _current_process_sample() -> ProcessSample | None:
         return collector.sample_process()
     except Exception:  # noqa: BLE001 - 旧接口必须保持"失败返回 0"的语义
         return None
-
-
-def format_bytes(value: int) -> str:
-    """人类可读的字节数（与 Go ``FormatBytes`` 逐字一致）。"""
-    unit = 1024
-    if value < unit:
-        return f"{value} B"
-    size = float(value)
-    index = -1
-    while size >= unit and index < len(_UNITS) - 1:
-        size /= unit
-        index += 1
-    if size >= 100:
-        return f"{size:.0f} {_UNITS[index]}"
-    return f"{size:.1f} {_UNITS[index]}"
-
-
-def format_uint_bytes(value: int) -> str:
-    """无符号字节数的可读渲染。"""
-    return format_bytes(int(value))
-
-
-def format_uptime(seconds: int) -> str:
-    """把秒数渲染成 ``2天3小时`` / ``3小时12分`` / ``12分34秒``。"""
-    seconds = max(int(seconds), 0)
-    days, rest = divmod(seconds, 86400)
-    hours, rest = divmod(rest, 3600)
-    minutes, secs = divmod(rest, 60)
-    if days:
-        return f"{days}天{hours}小时"
-    if hours:
-        return f"{hours}小时{minutes}分"
-    if minutes:
-        return f"{minutes}分{secs}秒"
-    return f"{secs}秒"
-
-
-def format_resources(snapshot: ResourceSnapshot) -> str:
-    """把 :class:`ResourceSnapshot` 渲染成给模型 / 操作者看的紧凑中文。
-
-    工具 ``runtime_resources`` 与 ``/resources`` 命令共用这一处实现
-    （单一出处），避免两套格式在后续改动里漂移。
-    """
-    interval_ms = int(round(snapshot.sample_interval * 1000))
-    process = snapshot.process
-    system = snapshot.system
-    lines = [f"ATRI-X 资源占用（采样 {interval_ms}ms）"]
-
-    process_parts = [
-        f"内存 {format_bytes(process.rss_bytes)}"
-        f"（峰值 {format_bytes(process.peak_rss_bytes)}"
-        f"，私有提交 {format_bytes(process.private_bytes)}）",
-        f"CPU {process.cpu_percent:.1f}%（单核基准，{system.cpu_count} 核）",
-        f"线程 {process.threads}",
-    ]
-    if process.handles:
-        process_parts.append(f"句柄 {process.handles}")
-    if process.io_read_bytes or process.io_write_bytes:
-        process_parts.append(
-            f"读写 {format_bytes(process.io_read_bytes)} / "
-            f"{format_bytes(process.io_write_bytes)}"
-        )
-    lines.append("【进程】" + "｜".join(process_parts))
-
-    system_parts = [
-        f"内存 {format_bytes(system.mem_avail_bytes)} 可用 / "
-        f"{format_bytes(system.mem_total_bytes)}"
-        f"（已用 {system.mem_percent:.1f}%）",
-        f"CPU {system.cpu_percent:.1f}%",
-        f"逻辑核 {system.cpu_count}",
-    ]
-    if system.uptime_seconds:
-        system_parts.append(f"运行 {format_uptime(system.uptime_seconds)}")
-    lines.append("【系统】" + "｜".join(system_parts))
-
-    for path, total, free in snapshot.disks:
-        used_percent = 0.0 if total <= 0 else (total - free) / total * 100.0
-        lines.append(
-            f"【磁盘】{path} 可用 {format_bytes(free)} / {format_bytes(total)}"
-            f"（已用 {used_percent:.1f}%）"
-        )
-    if snapshot.dir_bytes:
-        lines.append(f"【目录】{format_bytes(snapshot.dir_bytes)}（含子目录）")
-    if snapshot.errors:
-        lines.append("【降级】" + "；".join(snapshot.errors))
-    lines.append(
-        f"【说明】进程 CPU 为单核基准，忙时可超过 100%；采样窗口 {interval_ms}ms。"
-    )
-    return "\n".join(lines)
-

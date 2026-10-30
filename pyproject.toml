@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atri-x"
-version = "1.1.4"
+version = "1.1.5"
 description = "ATRI-X 的 Python 全量重写：多平台 LLM Agent 守护进程"
 readme = "README.md"
 requires-python = ">=3.11"

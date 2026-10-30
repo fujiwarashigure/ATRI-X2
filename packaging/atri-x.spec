@@ -173,6 +173,57 @@ print("[atri-x.spec] research_pack: engine=%s deps=%s" % (
     ",".join(_research_deps) or "<none: PDF degrades>",
 ))
 
+# ===========================================================================
+# 随包 draw.io 技能 + 内置无头渲染器（图表能力，1.1.5 起）
+#
+# 技能本体（约 1.2 MB 的纯标准库脚本/参考文档/shape 索引）收进 ``drawio_pack/``，
+# 首次启动由 ``atri_x.diagram.bootstrap`` 复制到用户配置目录；渲染器（draw.io 桌面版
+# 32.6.1 解包目录，约 400 MB）**不进用户目录**、也不重命名，放在
+# ``_internal/drawio_runtime/``，由适配器以无窗口模式直接调用。
+#
+# 体积取舍（实测 32.6.1）：官方解包 449.9 MB；删掉 53 个语言包（留 en-US/zh-CN）
+# 省约 49 MB。``ffmpeg.dll`` 必须保留——缺了渲染进程直接崩，所以整目录随包而不是
+# 挑文件。构建机没有 draw.io 解包目录时构建应当失败：本版起图表能力是产品能力。
+# ===========================================================================
+DRAWIO_PACK_DIR = os.path.join(REPO_ROOT, "drawio_pack")
+_drawio_meta = os.path.join(DRAWIO_PACK_DIR, "pack.json")
+if not os.path.isfile(_drawio_meta):
+    raise SystemExit(
+        "drawio_pack/ is required to build ATRI-X (missing %s).\n"
+        "它是 1.1.5 起的随包 draw.io 技能（上游 drawio-skill 3.4.2）；"
+        "被误删时构建应当失败，而不是出一个没有图表能力的包。" % _drawio_meta
+    )
+datas.append((DRAWIO_PACK_DIR, "drawio_pack"))
+
+DRAWIO_RUNTIME_DIR = (os.environ.get("ATRIX_PKG_DRAWIO_DIR") or "").strip()
+if not DRAWIO_RUNTIME_DIR or not os.path.isdir(DRAWIO_RUNTIME_DIR):
+    raise SystemExit(
+        "drawio runtime is required to build ATRI-X (got %r).\n"
+        "用 packaging/build.py --with-drawio <draw.io 32.6.1 解包目录> 指定，"
+        "或把解包目录放到 packaging/vendor/drawio/。渲染器缺失时图表工具只能交付 "
+        ".drawio 源文件，不能出 PNG/SVG/PDF。" % DRAWIO_RUNTIME_DIR
+    )
+if not os.path.isfile(os.path.join(DRAWIO_RUNTIME_DIR, "draw.io.exe")):
+    raise SystemExit(
+        "drawio runtime directory has no draw.io.exe: %s" % DRAWIO_RUNTIME_DIR
+    )
+datas.append((DRAWIO_RUNTIME_DIR, "drawio_runtime"))
+_drawio_files = 0
+_drawio_bytes = 0
+for _root, _dirs, _names in os.walk(DRAWIO_RUNTIME_DIR):
+    for _name in _names:
+        _drawio_files += 1
+        try:
+            _drawio_bytes += os.path.getsize(os.path.join(_root, _name))
+        except OSError:
+            pass
+print("[atri-x.spec] drawio: pack=%s runtime=%s (%.1f MB, %d files)" % (
+    "yes",
+    os.path.basename(DRAWIO_RUNTIME_DIR.rstrip("\\/")) or "drawio",
+    _drawio_bytes / (1024 * 1024),
+    _drawio_files,
+))
+
 a = Analysis(
     [os.path.join(SPECPATH, "entry.py")],
     pathex=[REPO_ROOT],

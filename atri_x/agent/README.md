@@ -38,15 +38,15 @@
 | `atri_x.agent.character_guide_prompt` | 人设卡操作指引（系统提示词来源）。 | 55 | — |
 | `atri_x.agent.chat` | 回合主流程：从入站文本到助手消息落库。 | 412 | `test_agent_chat.py`、`test_agent_core.py` |
 | `atri_x.agent.chat_anomaly` | 上游把工具调用写成正文时的补救与清洗。 | 157 | `test_agent_chat_anomaly.py` |
-| `atri_x.agent.chat_llm` | 单次 LLM 调用：请求构造、流式读取、用量与错误审计。 | 634 | `test_agent_chat.py`、`test_agent_chat_anomaly.py` |
-| `atri_x.agent.chat_observe` | 模型调用的日志、审计与上下文助手。 | 232 | `test_usage_attribution.py` |
+| `atri_x.agent.chat_llm` | 单次 LLM 调用：请求构造、流式读取、用量与错误审计。 | 611 | `test_agent_chat.py`、`test_agent_chat_anomaly.py` |
+| `atri_x.agent.chat_observe` | 模型调用的日志、审计与上下文助手。 | 260 | `test_usage_attribution.py` |
 | `atri_x.agent.chat_request_options` | LLM 请求的临时参数（``LLMRequestOptions``）与其合并/解析。 | 79 | — |
 | `atri_x.agent.chat_stream` | 模型流式调用的叶子助手（打开流、并发槽、记账结算、媒体补全）。 | 154 | — |
 | `atri_x.agent.chat_tools` | 回合里的工具批次：待发用户消息、工具执行、自动确认与 schema 过滤。 | 747 | `test_agent_chat.py`、`test_agent_core.py`、`test_security_grants.py` |
 | `atri_x.agent.chat_turn` | 一轮对话的主体循环。 | 625 | `test_agent_chat.py` |
 | `atri_x.agent.chat_vision` | 图片不受支持时的透明兜底。 | 86 | — |
 | `atri_x.agent.command_runtime` | Slash 命令的执行与权限裁决。 | 243 | — |
-| `atri_x.agent.commands` | ``internal/agent/commands`` 的 Python 移植：slash 命令族与注册入口。 | 541 | `agent_commands_fakes.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_builtin_runtime_resources.py`、`test_security_grants.py`、`test_usage_attribution.py` |
+| `atri_x.agent.commands` | ``internal/agent/commands`` 的 Python 移植：slash 命令族与注册入口。 | 539 | `agent_commands_fakes.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_builtin_runtime_resources.py`、`test_security_grants.py`、`test_usage_attribution.py` |
 | `atri_x.agent.commands.approval` | ``/grant`` 与 ``/panic``：授权生命周期的手动入口。 | 186 | `test_security_grants.py` |
 | `atri_x.agent.commands.character` | ``/chars``：列出角色素材库，或重建角色索引。 | 118 | — |
 | `atri_x.agent.commands.compact` | ``/compact``：手动压缩当前会话上下文。 | 50 | — |
@@ -70,7 +70,7 @@
 | `atri_x.agent.commands.model_types` | 模型服务的共享数据类型与形状。 | 147 | `test_agent_bootstrap.py`、`test_agent_commands_integration.py` |
 | `atri_x.agent.commands.request` | ``/requests``、``/stop``、``/stopall`` 与请求树渲染。 | 375 | — |
 | `atri_x.agent.commands.research` | ``/research``：科研研究助理的只读操作面板命令。 | 308 | — |
-| `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 | 76 | `test_builtin_runtime_resources.py` |
+| `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 | 74 | `test_builtin_runtime_resources.py` |
 | `atri_x.agent.commands.rollback` | ``/rollback``：列出并撤销 ATRI-X 自己对文件的最新一次编辑。 | 109 | — |
 | `atri_x.agent.commands.session_core` | ``/new``、``/status``、``/work``、``/chat``。 | 266 | — |
 | `atri_x.agent.commands.session_format` | Session 列表/消息的查询与文本渲染。 | 366 | — |
@@ -86,7 +86,7 @@
 | `atri_x.agent.context_policy` | 长消息保护（上下文溢出策略）：判定、截断/摘要/拒绝与群级覆盖。 | 532 | `test_agent_context_policy.py`、`test_agent_group_policy.py` |
 | `atri_x.agent.context_runtime` | 上下文运行态：窗口/预算解析、压缩后端选择、加载器与最近用量。 | 557 | `test_agent_context_policy.py`、`test_agent_context_runtime.py` |
 | `atri_x.agent.context_seed` | 压缩种子（``context_compact``）的消费。 | 113 | `test_agent_context_runtime.py` |
-| `atri_x.agent.context_usage` | 上下文用量：``/context`` 状态文本、最近用量持久化、协议归属记录、压缩触发判定。 | 315 | `test_agent_context_policy.py` |
+| `atri_x.agent.context_usage` | 上下文用量：``/context`` 状态文本、最近用量持久化、协议归属记录、压缩触发判定。 | 340 | `test_agent_context_policy.py` |
 | `atri_x.agent.core` | Agent 核心：状态、构造与跨模块方法的薄转发。 | 995 | `test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_core.py`、`test_request_manager.py` |
 | `atri_x.agent.core_build` | Agent 构造期的支撑件：默认配置、模型运行态、构造入口。 | 225 | — |
 | `atri_x.agent.core_forward` | ``Agent`` 的薄转发方法（唤醒 / 消息 / 聊天 / 模型 / 工具 / 完成）。 | 283 | — |
@@ -148,7 +148,7 @@
 | `atri_x.agent.risk_confirmation` | 高风险工具确认的文案与指令识别。对应 Go：``internal/agent/risk_confirmation.go``。 | 366 | `test_agent_risk.py` |
 | `atri_x.agent.seams` | Agent 的可选能力接缝（seam）。 | 595 | `test_agent_bootstrap.py` |
 | `atri_x.agent.segments` | 入站消息段在 ctx / LLM / 平台三种表示之间的搬运。 | 299 | `test_agent_segments.py`、`test_platform_cli_remote.py` |
-| `atri_x.agent.session_metadata` | Session metadata 的编解码。 | 332 | `test_agent_core.py` |
+| `atri_x.agent.session_metadata` | Session metadata 的编解码。 | 339 | `test_agent_core.py` |
 | `atri_x.agent.state_watch` | ``state.toml`` 的外部编辑热加载与状态查询。 | 223 | — |
 | `atri_x.agent.status` | 运行状态快照的记录与发布。 | 192 | `test_agent_assembly.py`、`test_platform_cli.py`、`test_platform_cli_remote.py` |
 | `atri_x.agent.system_prompt` | 系统提示词管理器：按来源收集分段内容并拼接。 | 112 | `test_agent_prompt.py`、`test_member_persona.py`、`test_member_profile.py` |
@@ -181,4 +181,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 787 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 796 个 / 超线文件 79 个）。

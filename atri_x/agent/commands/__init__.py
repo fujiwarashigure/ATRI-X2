@@ -33,7 +33,7 @@ Python 模块                     对应 Go 文件
 ``state.py``                    ``state.go``
 ``tool.py``                     ``tool.go``
 ``rollback.py``                 ``rollback.go``
-``resources.py``                Python 侧新增（1.1.4）：超管只读资源占用
+``resources.py``                Python 侧新增（1.1.4）：超管只读资源占用（修订后含硬件/显卡，不带路径）
 ``member_panel.py``             ``member_panel.go``
 ``memory_common.py``            ``memory_common.go``
 ``memory_forget.py``            ``memory_forget.go``
@@ -214,7 +214,6 @@ from atri_x.agent.commands.request import (
 )
 from atri_x.agent.commands.resources import (
     ResourcesModule,
-    default_resource_paths,
     new_resources,
     render_resources,
 )
@@ -388,7 +387,6 @@ __all__ = [
     "format_runtime_state_status",
     "format_time",
     "format_tool_usage",
-    "default_resource_paths",
     "format_tools",
     "format_usage_summary",
     "is_first_arg",

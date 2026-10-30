@@ -57,7 +57,7 @@
 | `atri_x.app.service_types` | app 内部使用的服务侧数据类型。 | 94 | `test_app_platforms.py` |
 | `atri_x.app.support` | 装配层的叶子级共享助手。 | 71 | `test_app_runner.py` |
 | `atri_x.app.time_check` | ``python -m atri_x.app.time_check``：时区数据与解析探针。 | 113 | `test_packaging_tzdata.py` |
-| `atri_x.app.tool_runtime` | 内置工具运行时的 app 侧装配。 | 537 | `test_app_runtime_agent.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
+| `atri_x.app.tool_runtime` | 内置工具运行时的 app 侧装配。 | 560 | `test_app_runtime_agent.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
 | `atri_x.app.vision` | 视觉服务装配：把共享 ``vision.Service`` 接到 Agent 的聊天视觉兜底接口。 | 261 | — |
 
 ## 对应上游 Go（自动生成）
@@ -68,4 +68,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 787 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 796 个 / 超线文件 79 个）。

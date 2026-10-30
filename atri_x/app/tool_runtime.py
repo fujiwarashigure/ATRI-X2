@@ -489,9 +489,32 @@ def _build_image_limiter(opts: ToolRuntimeOptions, warnings: list[str]) -> Any:
     )
 
 
+def _ensure_drawio_skill(config_dir: str, warnings: list[str]) -> None:
+    """随包 draw.io 技能在 ``FilesystemScanner`` 扫盘之前落地（失败只记 warning）。
+
+    为什么挂在这里：技能根目录就是 ``<config_dir>/skills``，本函数是**唯一**创建
+    SkillManager 的地方——GUI、无界面 ``service run``、TUI 都会走到。只有冻结产物
+    会真的安装（源码树见 ``python -m atri_x.diagram.bootstrap --source``），幂等与
+    升级判断由 :mod:`atri_x.diagram.bootstrap` 负责；渲染器 ``drawio_runtime`` 是
+    随产物的只读数据，不在这里复制。
+    """
+    if not config_dir:
+        return
+    try:
+        from atri_x.diagram import bootstrap as drawio_bootstrap
+
+        result = drawio_bootstrap.ensure_installed(config_dir)
+    except Exception as exc:  # noqa: BLE001 - 图表技能不可用不能拖垮装配
+        warnings.append(f"drawio skill bootstrap failed: {type(exc).__name__}: {exc}")
+        return
+    if result.state in ("failed", "unavailable"):
+        warnings.append(f"drawio skill {result.state}: {result.message}")
+
+
 def _build_skill_manager(
     opts: ToolRuntimeOptions, registry: Any, environment: Any, warnings: list[str]
 ) -> Any:
+    _ensure_drawio_skill(opts.config_dir, warnings)
     try:
         from atri_x.tool.skill import new_manager
     except Exception as exc:  # noqa: BLE001

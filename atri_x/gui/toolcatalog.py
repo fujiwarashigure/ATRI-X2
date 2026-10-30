@@ -461,8 +461,8 @@ TOOL_CATALOG: tuple[ToolMeta, ...] = (
     ToolMeta(
         "runtime_resources",
         "资源占用",
-        "查看 ATRI-X 进程与机器的内存、CPU、线程、句柄和磁盘剩余；"
-        "只读、仅超级管理员可见。",
+        "查看 ATRI-X 进程与机器的 CPU、内存、磁盘、显卡占用与硬件型号；"
+        "只报型号与数值、不回显本机路径，只读、仅超级管理员可见。",
         "时间与运行",
         "safe",
     ),

@@ -35,6 +35,7 @@ __all__ = [
     "IMAGE_KEY",
     "MAX_ALIAS_RUNES",
     "MAX_MODELS",
+    "NO_KEY_HINT",
     "Catalog",
     "CatalogEntry",
     "CatalogError",
@@ -68,6 +69,16 @@ FETCH_TIMEOUT = 15.0
 
 #: 响应体上限（正常模型清单远小于它）。
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+
+#: 上游 401/403 但本次请求**没带**密钥时补的说明。
+#:
+#: 必须与"密钥不对"区分开：旧文案只说"检查密钥环境变量与 .env"，而用户刚在
+#: 界面填的密钥还没保存时，这条路径压根没发 Authorization —— 照文案去查只会
+#: 白找一圈（1.1.5 实机反馈）。
+NO_KEY_HINT = (
+    "本次请求没有携带密钥（界面上刚填的密钥要先保存才会写进 .env，"
+    "或设置 api_key_env 指定的环境变量）"
+)
 
 
 class CatalogError(Exception):
@@ -324,15 +335,23 @@ def fetch_models(base_url: str, api_key: str = "", *, timeout: float = FETCH_TIM
     if key:
         headers["Authorization"] = f"Bearer {key}"
     errors: list[str] = []
+    auth_failed = False
     for url in _candidate_urls(base):
         try:
             models = parse_models(_get_json(url, headers, timeout))
         except CatalogError as exc:
-            errors.append(str(exc))
+            text = str(exc)
+            if "鉴权失败" in text:
+                auth_failed = True
+            errors.append(text)
             continue
         if models:
             return models
         errors.append(f"{url} 没有返回模型清单")
+    if auth_failed and not key:
+        # 401/403 + 没带密钥：这不是"密钥不对"，是根本没发密钥。把话说清楚，
+        # 否则用户会在"密钥环境变量与 .env"里找一个其实从没写进去的 key。
+        errors.append(NO_KEY_HINT)
     raise CatalogError("；".join(errors) or "获取模型目录失败")
 
 

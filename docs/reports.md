@@ -147,7 +147,7 @@ ATRI-X 定时报告
 | 指标 | 来源 |
 | --- | --- |
 | 生图量 | audit 日志 `event=tool_call tool=image_generate` 的 `success` 字段 |
-| Token | audit 日志 `event=llm_usage` 的 `prompt_tokens/completion_tokens/total_tokens/cache_hit_tokens` |
+| Token | audit 日志 `event=llm_usage` 的 `prompt_tokens/completion_tokens/total_tokens/cache_hit_tokens`；`cache_hit_reported=false` 表示上游这次没返回缓存字段（此时 `cache_hit_tokens=0` 只是"未上报"，不是"没命中"） |
 | 费用 | 上面 token × `prices.<model>` 单价；缓存命中按 `cache_input_per_million` 单独计价 |
 | 磁盘 | `data_root` 目录递归大小 + `statfs` 文件系统总量/可用量 |
 | 内存 | `/proc/self/statm` RSS + `runtime.MemStats` |

@@ -88,8 +88,11 @@ ALLOWED_MISSING: tuple[str, ...] = (
 
 #: 被排除在"内联路径存在性"之外的文档：CHANGELOG 是**补丁式历史记录**，
 #: 它写的是"当时代码长什么样"，引用过的临时目录/已删除文件不该被判成漂移；
-#: ``verification/`` 是逐轮验收的历史存档，同理。
-INLINE_PATH_EXEMPT: tuple[str, ...] = ("CHANGELOG.md", "verification/")
+#: ``verification/`` 是逐轮验收的历史存档，同理；``drawio_pack/`` 是**上游
+#: drawio-skill 原样随包的技能文档**（含 20 篇 references），里面的 ``scripts/...``
+#: 路径是相对**技能根**写的，按仓库根解析必然不存在；改写会偏离上游、也过不了
+#: 上游一致性门禁，因此整目录豁免。
+INLINE_PATH_EXEMPT: tuple[str, ...] = ("CHANGELOG.md", "verification/", "drawio_pack/")
 
 #: 不参与 locator **引用**收集的文档（历史记录里的旧锚点名不算失效引用）。
 LOCATOR_REF_EXEMPT: tuple[str, ...] = ("CHANGELOG.md",)

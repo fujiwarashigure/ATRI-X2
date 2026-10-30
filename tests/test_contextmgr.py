@@ -200,6 +200,12 @@ class TestUsageState(unittest.TestCase):
         self.assertEqual("tokens：unknown（命中：unknown）", us.format_tokens(None))
         self.assertEqual("tokens：unknown（命中：unknown）", us.format_tokens(Usage()))
         self.assertEqual("tokens：12（命中：3）", us.format_tokens(Usage(total_tokens=12, cache_hit_tokens=3)))
+        # 上游明确上报 0 与"根本没上报"必须显示成两种文本：前者是事实，后者是未知。
+        self.assertEqual("tokens：12（命中：0）", us.format_tokens(Usage(total_tokens=12)))
+        self.assertEqual(
+            "tokens：12（命中：未上报）",
+            us.format_tokens(Usage(total_tokens=12, cache_hit_reported=False)),
+        )
 
 
 class TestWindowResolver(unittest.TestCase):

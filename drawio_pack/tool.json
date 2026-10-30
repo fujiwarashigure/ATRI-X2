@@ -1,0 +1,113 @@
+{
+  "schema": "atrix-drawio/tool/1",
+  "tool": "drawio",
+  "skill": "drawio_skill",
+  "risk": "low",
+  "superadmin_only": true,
+  "expose_root": false,
+  "timeout_seconds": 300,
+  "tags": ["diagram", "drawio", "architecture", "visualization"],
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "create",
+          "build",
+          "export",
+          "validate",
+          "inspect",
+          "query",
+          "shapes",
+          "docs",
+          "doctor"
+        ],
+        "description": "动作：create=内联 IR/XML 生成；build=从代码/Terraform/SQL/OpenAPI 等源生成；export=.drawio 导出 PNG/SVG/PDF；validate=结构校验；inspect=结构摘要；query=语义查询/路径；shapes=官方形状检索；docs=读参考文档；doctor=自检"
+      },
+      "source": {
+        "type": "string",
+        "description": "源路径：build 可给文件或目录（绝对路径或相对技能目录）；export/validate/inspect/query 给 .drawio 或 IR JSON 路径"
+      },
+      "content": {
+        "type": "string",
+        "description": "内联内容：create 给 .drawio XML 或 Diagram IR/graph JSON；build 给 SQL/OpenAPI/Terraform/AsyncAPI/Proto/GraphQL 等文本（代码目录导入请用 source）"
+      },
+      "source_type": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "ir",
+          "graph",
+          "drawio",
+          "terraform",
+          "sql",
+          "openapi",
+          "asyncapi",
+          "proto",
+          "graphql",
+          "kubernetes",
+          "compose",
+          "ci",
+          "python",
+          "javascript",
+          "js",
+          "go",
+          "rust",
+          "pyclasses"
+        ],
+        "description": "build 的源类型（默认 auto 按扩展名/文件头猜；代码目录导入用 python/javascript/go/rust/pyclasses）"
+      },
+      "format": {
+        "type": "string",
+        "enum": ["drawio", "png", "svg", "pdf"],
+        "description": "输出版式：create/build 默认 png（同时给 .drawio）；export 支持 png/svg/pdf；drawio 表示只给可编辑源文件"
+      },
+      "output": {
+        "type": "string",
+        "description": "输出文件名（不含扩展名），默认 diagram；产物落在技能目录 out/ 下"
+      },
+      "title": {"type": "string", "description": "图标题（写入 .drawio 页面名/元数据）"},
+      "scale": {"type": "number", "description": "导出缩放倍数，例如 2 表示 2x（PNG 更清晰）"},
+      "width": {"type": "integer", "description": "导出宽度（像素），与 height 配合"},
+      "height": {"type": "integer", "description": "导出高度（像素）"},
+      "border": {"type": "integer", "description": "导出图四周留白（像素）"},
+      "transparent": {"type": "boolean", "description": "PNG 透明背景"},
+      "pages": {"type": "string", "description": "多页图的页码：all=全部、3=第 3 页、1-3=页码范围"},
+      "group": {"type": "boolean", "description": "build 时按目录/模块分组聚合节点"},
+      "direction": {"type": "string", "enum": ["TB", "LR"], "description": "自动布局方向：TB 纵向、LR 横向"},
+      "views": {"type": "string", "description": "额外多视图：executive,system,deployment,dataflow,security 的逗号分隔子集"},
+      "keyword": {"type": "string", "description": "shapes 动作的检索词，如 aws lambda / uml actor"},
+      "doc": {"type": "string", "description": "docs 动作要读的参考文档文件名（不带 doc 时列出全部）"},
+      "query_kind": {"type": "string", "description": "query 动作：按节点 kind 过滤"},
+      "query_owner": {"type": "string", "description": "query 动作：按 owner 过滤"},
+      "from_node": {"type": "string", "description": "query 动作：路径起点节点 id"},
+      "to_node": {"type": "string", "description": "query 动作：路径终点节点 id"}
+    },
+    "required": ["action"]
+  },
+  "args": {
+    "action": "--action",
+    "source": "--source",
+    "content": "--content",
+    "source_type": "--source-type",
+    "format": "--format",
+    "output": "--output",
+    "title": "--title",
+    "scale": "--scale",
+    "width": "--width",
+    "height": "--height",
+    "border": "--border",
+    "transparent": "--transparent",
+    "pages": "--pages",
+    "group": "--group",
+    "direction": "--direction",
+    "views": "--views",
+    "keyword": "--keyword",
+    "doc": "--doc",
+    "query_kind": "--query-kind",
+    "query_owner": "--query-owner",
+    "from_node": "--from-node",
+    "to_node": "--to-node"
+  }
+}

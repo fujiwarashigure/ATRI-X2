@@ -113,6 +113,7 @@ class ContextUsageMixin:
 
         ensure_context_runtime(self).record_usage(session_id, usage)
         self.persist_usage(None, session_id, usage)
+        _log_usage_recorded(self, session_id, usage)
 
     def usage_for_session(self, session: Session | None) -> Usage | None:
         """会话最近一次用量。对应 Go ``usageForSession``。"""
@@ -275,6 +276,30 @@ def _same_origin(
         and str(getattr(existing, "provider", "") or "") == provider
         and str(getattr(existing, "model", "") or "") == model
     )
+
+
+def _log_usage_recorded(host: Any, session_id: str, usage: Usage) -> None:
+    """记一行「本轮到底记了什么用量」（含缓存是否上报）。
+
+    排查「``/status`` 命中恒 0」时，这行给出落库前的现场值；info 级所以默认配置下
+    就能看到（每轮一条，不随工具轮次放大）。
+    """
+    logger = getattr(host, "logger", None)
+    if logger is None:
+        return
+    try:
+        logger.log(
+            "info",
+            "usage recorded",
+            "session_id", session_id,
+            "prompt_tokens", usage.prompt_tokens,
+            "completion_tokens", usage.completion_tokens,
+            "total_tokens", usage.total_tokens,
+            "cache_hit_tokens", usage.cache_hit_tokens,
+            "cache_hit_reported", bool(getattr(usage, "cache_hit_reported", True)),
+        )
+    except Exception:  # noqa: BLE001 - 日志不能影响主流程
+        pass
 
 
 def _warn(host: Any, message: str, **attrs: Any) -> None:

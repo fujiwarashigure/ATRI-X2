@@ -1,10 +1,14 @@
 """``runtime_resources``：超管专属的只读硬件资源占用查询。
 
-Python 侧新增（上游 Go 没有对应工具）。数据来源见 :mod:`atri_x.sysinfo`：
+Python 侧新增（上游 Go 没有对应工具）。数据来源见 :mod:`atri_x.sysinfo` 与
+:mod:`atri_x.hardware` / :mod:`atri_x.gpu_usage`：
 
-- 进程：RSS / 峰值 RSS / 私有提交 / CPU%（单核基准）/ 线程 / 句柄 / 读写字节；
-- 系统：内存总量与可用量、全机 CPU%、逻辑核数、运行时长；
-- 磁盘：给定路径所在卷的总量与可用量（可选递归统计目录大小）。
+- 硬件：CPU 型号、逻辑核数、系统版本、架构、显卡型号与显存容量；
+- 进程：RSS / 峰值 RSS / 私有提交 / CPU%（单核基准）/ 线程 / 句柄 / 读写字节 /
+  已运行时长（"软件进程状态"）；
+- 系统：内存总量与可用量、全机 CPU%、逻辑核数、开机时长；
+- 显卡：每卡利用率 / 显存 / 温度 / 功耗（``nvidia-smi``），或整机 3D 占用（PDH）；
+- 磁盘：本机固定磁盘或指定路径所在卷的容量（**只报卷标签，不报真实路径**）。
 
 三条硬约束：
 
@@ -14,6 +18,12 @@ Python 侧新增（上游 Go 没有对应工具）。数据来源见 :mod:`atri_
    :mod:`atri_x.toolrun.runner`）；
 3. **不阻塞事件循环** —— :func:`atri_x.sysinfo.collect_resources` 为了算 CPU% 会
    ``time.sleep(采样窗口)``，所以 ``call`` 里必须走 ``asyncio.to_thread``。
+
+隐私（1.1.4 修订）
+------------------
+工具结果会被模型转述到群聊，因此与 ``/resources`` 同一条边界：**不返回任何本机
+真实路径、用户名、主机名**。``paths`` 参数只用于"选哪个卷统计容量"，渲染成
+``指定卷 N``；磁盘采集失败也只写异常类型名。
 """
 
 from __future__ import annotations
@@ -24,8 +34,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from atri_x.errors import InvalidError
-# format_resources / format_uptime 的**实现**在 sysinfo（/resources 命令也用它），
-# 这里只做再导出，保证工具与命令共用同一份渲染。
+# format_resources / format_uptime 的**实现**在 sysinfo_format（/resources 命令也用它），
+# sysinfo 只是再导出；这里从 sysinfo 取，保证工具与命令共用同一份渲染。
 from atri_x.sysinfo import (
     collect_resources,
     format_resources,
@@ -60,7 +70,8 @@ class RuntimeResourcesTool:
     """超管专属的只读资源查询工具。"""
 
     def __init__(self, runtime_info: Any = None) -> None:
-        # 提供配置目录（默认统计哪个卷 / 哪个目录的大小）。
+        # 保留构造参数以兼容既有装配（``opts.runtime_info``）；1.1.4 修订后
+        # 不再需要"配置目录"来选卷 —— 默认自动枚举本机固定磁盘。
         self.runtime_info = runtime_info
 
     def name(self) -> str:
@@ -74,21 +85,16 @@ class RuntimeResourcesTool:
 
     async def call(self, ctx: Any, req: CallRequest) -> Result:
         args = parse_runtime_resources_args(req.arguments)
-        paths = list(args.paths or [])
-        if not paths:
-            config_dir = str(getattr(self.runtime_info, "config_dir", "") or "")
-            if config_dir:
-                paths = [config_dir]
         try:
             # 同步采集 + time.sleep：必须离开事件循环，否则整条消息流水线卡住。
             snapshot = await asyncio.to_thread(
                 collect_resources,
-                paths,
+                args.paths,
                 sample_interval=args.sample_ms / 1000.0,
                 include_dir_size=args.include_dir_size,
             )
         except Exception as exc:  # noqa: BLE001 - 采集失败要回文本，不炸 turn
-            return Result(content=f"资源采集失败：{exc}")
+            return Result(content=f"资源采集失败：{type(exc).__name__}")
         return Result(
             content=format_resources(snapshot),
             data=json.dumps(resources_to_dict(snapshot), ensure_ascii=False),
@@ -100,9 +106,10 @@ def runtime_resources_builder() -> Builder:
     return (
         Builder(RUNTIME_RESOURCES_NAME)
         .description(
-            "查看当前 ATRI-X 进程与所在机器的硬件资源占用：进程内存 / CPU / 线程 / 句柄、"
-            "系统内存与 CPU、磁盘剩余。只读、无副作用、仅超级管理员可用。"
-            "用户问“现在占多少内存 / CPU / 磁盘还剩多少”时调用。"
+            "查看当前 ATRI-X 进程与所在机器的硬件资源占用：CPU / 内存 / 磁盘容量、"
+            "显卡占用与显存、CPU/GPU 型号、软件进程状态（内存 / CPU / 线程 / 句柄 / 运行时长）。"
+            "只读、无副作用、仅超级管理员可用；只返回型号与占用，不返回本机文件路径。"
+            "用户问“现在占多少内存 / CPU / 显卡 / 磁盘还剩多少”时调用。"
         )
         .superadmin_only()
         .risk(RiskSafe)
@@ -112,8 +119,15 @@ def runtime_resources_builder() -> Builder:
             f"CPU 采样窗口毫秒数，默认 {DEFAULT_SAMPLE_MS}，"
             f"范围 {MIN_SAMPLE_MS}-{MAX_SAMPLE_MS}。",
         )
-        .string_array("paths", "要统计磁盘剩余 / 目录大小的路径列表；默认配置目录。")
-        .boolean("include_dir_size", "是否递归统计目录大小（较慢，默认 false）。")
+        .string_array(
+            "paths",
+            "仅用于选择要统计容量的卷；缺省自动枚举本机固定磁盘。"
+            "结果只回卷标签（系统盘 / 指定卷 N），不回显路径。",
+        )
+        .boolean(
+            "include_dir_size",
+            "是否递归统计 paths 的目录大小（较慢，默认 false；未给 paths 时忽略）。",
+        )
     )
 
 

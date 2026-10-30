@@ -113,11 +113,27 @@ ATRI-X（本仓库）是 Go 项目 [ATRI-X](https://github.com/fujiwarashigure/A
 - **生成内容的责任**：研究产物（综述、报告、评审意见等）由你审阅、修改并承担最终责任；
   直接以 AI 生成内容投稿可能构成学术不端，请自行判断并披露。
 
+### 图表能力（1.1.5）的额外说明
+
+- **随包组件**：图表能力基于上游 [drawio-skill](https://github.com/Agents365-ai/drawio-skill)
+  3.4.2（**MIT**，作者 Agents365-ai）与 draw.io 桌面版 32.6.1（**Apache-2.0**，JGraph）。
+  draw.io 桌面版是 Electron 应用，随包还包含 Electron / Chromium 及其第三方组件，
+  其许可证文本随产物放在 `_internal/drawio_runtime/`（`LICENSES.chromium.html`、
+  `LICENSE.electron.txt`）；shape 索引来自 jgraph/drawio-mcp 的官方 shape 检索索引
+  （Apache-2.0，见 `drawio_pack/.../data/SHAPE-INDEX-NOTICE.md`）。
+- **图表内容会外发**：生成的 PNG / SVG / PDF / `.drawio` 会随聊天消息发出（图片进媒体
+  中心）。`build` 动作会把源码目录 / IaC / SQL / API schema 里的名称、标签、属性写进图，
+  **导入前请确认这些内容可以外发**；不要把密钥、真实内网地址、个人信息写进节点标签或
+  properties。仅超级管理员可调用，但这不改变"内容会离开本机"的事实。
+- **生成结果的责任**：图的结构来自源码解析或模型推断，可能不完整或有误；作为架构评审
+  材料时应由人复核，不要把自动生成的图当作运行事实。
+
 ## 六、第三方组件、商标与许可
 
 - 本项目以 **Apache-2.0** 发布（见 [LICENSE](LICENSE)），**不覆盖**随包分发或可选的第三方组件
-  （NapCat、便携 QQ、Node.js / DSH 内核、CPython、Pillow、SnowLuma 等）。第三方组件的版权与许可
-  归各自权利人，使用前请阅读其许可证与 EULA（详见发行包内的 `第三方组件说明.md`）。
+  （NapCat、便携 QQ、Node.js / DSH 内核、CPython、Pillow、SnowLuma、draw.io 桌面版 / Electron /
+  Chromium、drawio-skill 等）。第三方组件的版权与许可归各自权利人，使用前请阅读其许可证与
+  EULA（详见发行包内的 `第三方组件说明.md`）。
 - **商标**：ATRI-X、QQ、腾讯、NapCat、SnowLuma、DeepSeek、Telegram、OpenAI 等名称与标识归各自
   权利人所有；本项目仅作事实性指称，不表示任何授权、赞助或关联。
 - 本项目不包含破解、去广告、绕过授权或规避数字版权管理（DRM）的功能；如你自行修改用于此类目的，

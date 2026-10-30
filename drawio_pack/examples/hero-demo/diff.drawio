@@ -1,0 +1,76 @@
+<mxfile>
+  <diagram id="autolayout" name="Page-1">
+    <mxGraphModel dx="800" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="aws_db_instance.orders" value="orders" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="0" y="30" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws_db_subnet_group.main" value="main" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="200" y="0" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws_instance.web" value="web" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;" vertex="1" parent="1">
+          <mxGeometry x="200" y="120" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws_lambda_event_source_mapping.orders" value="orders" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="0" y="230" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws_lambda_function.fulfil" value="fulfil" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="200" y="270" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws_security_group.app" value="app" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="390" y="110" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws_sqs_queue.order_events" value="order_events" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="200" y="190" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws_subnet.app" value="app&#xa;aws_subnet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="390" y="180" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws_subnet.data" value="data&#xa;aws_subnet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="390" y="10" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="aws_vpc.main" value="main" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="590" y="110" width="160" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="e0" value="" style="endArrow=classic;html=1;strokeColor=#999999;" edge="1" parent="1" source="aws_db_instance.orders" target="aws_db_subnet_group.main">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="160" y="40"/><mxPoint x="180" y="40"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e1" value="" style="endArrow=classic;html=1;strokeColor=#999999;" edge="1" parent="1" source="aws_db_instance.orders" target="aws_security_group.app">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="80" y="100"/><mxPoint x="80" y="110"/><mxPoint x="80" y="110"/><mxPoint x="80" y="110"/><mxPoint x="380" y="110"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e2" value="" style="endArrow=classic;html=1;strokeColor=#999999;" edge="1" parent="1" source="aws_db_subnet_group.main" target="aws_subnet.data">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="360" y="30"/><mxPoint x="380" y="30"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e3" value="" style="endArrow=classic;html=1;strokeColor=#999999;" edge="1" parent="1" source="aws_instance.web" target="aws_security_group.app">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="360" y="130"/><mxPoint x="380" y="130"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e4" value="" style="endArrow=classic;html=1;strokeColor=#999999;" edge="1" parent="1" source="aws_instance.web" target="aws_subnet.app">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="280" y="180"/><mxPoint x="280" y="190"/><mxPoint x="280" y="190"/><mxPoint x="280" y="190"/><mxPoint x="380" y="190"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e5" value="" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="aws_lambda_event_source_mapping.orders" target="aws_lambda_function.fulfil">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="160" y="280"/><mxPoint x="180" y="280"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e6" value="" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="aws_lambda_event_source_mapping.orders" target="aws_sqs_queue.order_events">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="160" y="240"/><mxPoint x="180" y="240"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e7" value="" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="aws_lambda_function.fulfil" target="aws_security_group.app">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="370" y="310"/><mxPoint x="370" y="310"/><mxPoint x="370" y="310"/><mxPoint x="370" y="310"/><mxPoint x="370" y="150"/><mxPoint x="370" y="150"/><mxPoint x="370" y="150"/><mxPoint x="380" y="150"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e8" value="" style="endArrow=classic;html=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="aws_lambda_function.fulfil" target="aws_subnet.app">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="410" y="290"/><mxPoint x="470" y="290"/><mxPoint x="470" y="290"/><mxPoint x="470" y="290"/><mxPoint x="470" y="260"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e9" value="" style="endArrow=classic;html=1;strokeColor=#999999;" edge="1" parent="1" source="aws_security_group.app" target="aws_vpc.main">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="550" y="140"/><mxPoint x="580" y="140"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e10" value="" style="endArrow=classic;html=1;strokeColor=#999999;" edge="1" parent="1" source="aws_subnet.app" target="aws_vpc.main">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="610" y="210"/><mxPoint x="670" y="210"/><mxPoint x="670" y="210"/><mxPoint x="670" y="210"/><mxPoint x="670" y="180"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e11" value="" style="endArrow=classic;html=1;strokeColor=#999999;" edge="1" parent="1" source="aws_subnet.data" target="aws_vpc.main">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="610" y="40"/><mxPoint x="670" y="40"/><mxPoint x="670" y="40"/><mxPoint x="670" y="40"/><mxPoint x="670" y="100"/></Array></mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

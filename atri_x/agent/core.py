@@ -202,12 +202,9 @@ class Agent(
 ):
     """最小可用的 Agent 核心。对应 Go ``Agent``。
 
-    字段刻意保持与 Go 同名（snake_case），并发原语按 PORTING.md §1.6 选择：
-    ``asyncio.Lock`` 用于异步路径，``threading.Lock`` 用于只在同步短临界区里用到的
-    状态（与 Go 的 ``sync.Mutex`` 语义最接近）。
-
-    基类列表里的同僚 mixin 按 PORTING.md §3.1 组合；:class:`AgentSeams` **必须在最后**
-    —— 它只提供"未装配时的保守降级"，真实实现必须优先命中。
+    字段与 Go 同名（snake_case）；并发原语按 PORTING.md §1.6 选择（异步用
+    ``asyncio.Lock``，只在同步短临界区用的状态用 ``threading.Lock``）。
+    基类里的同僚 mixin 按 PORTING.md §3.1 组合；:class:`AgentSeams` **必须在最后**。
     """
 
     def __init__(self, opts: Options) -> None:
@@ -317,8 +314,7 @@ class Agent(
         self.group_knowledge: dict[str, list[Any]] = {}
         self.session_commands: Any = None
         self.turn_directives = opts.turn_directives or _default_turn_directives()
-        # Python 版新增：``[agent.dsh]`` 深度路由配置。路由状态（熔断器、子进程）
-        # 在首次真正需要路由时才创建，见 ``atri_x.agent.dsh.route_call``。
+        # Python 版新增：``[agent.dsh]`` 深度路由配置（状态在首次路由时才建）。
         self.dsh_config = opts.dsh_config
         # Python 版新增：``[tool_preview]`` / ``[reactions]``。
         # ``tool_preview_texts`` 是工具运行器认识的数据对象（见
@@ -343,9 +339,8 @@ class Agent(
         self.context_config = opts.context_config
         self.llm_request_config = opts.llm_request_config
         self.ops = opts.ops
-        # 预算与定价是 BudgetMixin（agent-model 组）的宿主字段：Go 里它们是
-        # ``Options`` 的直接映射，缺了会让 ``begin_chat_budget`` 抛 AttributeError。
-        # ``budget_limits`` 未配置时给默认值（零限额），等价于"不设预算上限"。
+        # 预算与定价是 BudgetMixin 的宿主字段：Go 里是 ``Options`` 的直接映射，
+        # 缺了会让 ``begin_chat_budget`` 抛 AttributeError；未配置时给零限额默认值。
         self.budget_limits = opts.budget_limits or _default_budget_limits()
         self.pricing = opts.pricing
         self.model_metadata = opts.model_metadata
@@ -366,9 +361,7 @@ class Agent(
         set_security_policy(self, opts.security_policy)
         _install_command_state(self, opts)
         _install_runtime_services(self, opts)
-        # 旁路 LLM 用量统一入口：压缩摘要 / 群分析 / 视觉 / 标题 / 图片提示词重写
-        # 都只调 ``record_side_usage``，由这里订阅成同一种 ``llm_usage`` 审计事件，
-        # ``/usage`` 才能把它们统计进来。
+        # 旁路 LLM 用量统一入口：压缩/群分析/视觉/标题/图片重写都只调 record_side_usage。
         from atri_x.agent.chat_observe import audit_side_usage
         from atri_x.llm.usage_sink import set_usage_sink
 
@@ -377,6 +370,13 @@ class Agent(
         self.completion = _build_completion(self)
         self.prompt_builder = _lazy_prompt_builder(opts)
         _install_tool_runtime(self, opts)
+        if opts.logs is not None:
+            # 生产装配只把 logs 存进 opts。不在这里补挂通道的话 logger/audit_logger
+            # 全程是 None：LLM 输出日志、llm_usage 审计（/usage）、异常 WARN 全静默丢。
+            try:
+                logging_module.set_log_manager(self, opts.logs)
+            except Exception:  # noqa: BLE001 - 旧装配/测试桩的 logs 可能不完整
+                pass
 
     # -- 构造后装配 ---------------------------------------------------------
 

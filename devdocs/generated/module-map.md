@@ -3,7 +3,7 @@
 
 # 模块索引（自动生成）
 
-共 **787** 个模块 / **231563** 物理行 / **64** 个一级域。被测试直接覆盖 **477** 个（60.6%）。
+共 **796** 个模块 / **234008** 物理行 / **69** 个一级域。被测试直接覆盖 **486** 个（61.1%）。
 
 查模块：`rg -n "atri_x\.tool\.builtin" devdocs/generated/module-map.md`。
 
@@ -23,15 +23,15 @@
 | `atri_x.agent.character_guide_prompt` | 人设卡操作指引（系统提示词来源）。 | CHARACTER_GUIDE_TEXT, CharacterGuideSystemPromptSource | 55 | — |
 | `atri_x.agent.chat` | 回合主流程：从入站文本到助手消息落库。 | audit_partial_platform_send, handle_chat, handle_turn_conte… | 412 | `test_agent_chat.py`、`test_agent_core.py` |
 | `atri_x.agent.chat_anomaly` | 上游把工具调用写成正文时的补救与清洗。 | apply_text_tool_recovery | 157 | `test_agent_chat_anomaly.py` |
-| `atri_x.agent.chat_llm` | 单次 LLM 调用：请求构造、流式读取、用量与错误审计。 | LEVEL_ERROR, LEVEL_WARN, LLMCallResult, LLMRequestOptions, … | 634 | `test_agent_chat.py`、`test_agent_chat_anomaly.py` |
-| `atri_x.agent.chat_observe` | 模型调用的日志、审计与上下文助手。 | audit_side_usage, audit_usage, elapsed_millis, is_cli_conte… | 232 | `test_usage_attribution.py` |
+| `atri_x.agent.chat_llm` | 单次 LLM 调用：请求构造、流式读取、用量与错误审计。 | LEVEL_ERROR, LEVEL_WARN, LLMCallResult, LLMRequestOptions, … | 611 | `test_agent_chat.py`、`test_agent_chat_anomaly.py` |
+| `atri_x.agent.chat_observe` | 模型调用的日志、审计与上下文助手。 | audit_side_usage, audit_usage, elapsed_millis, is_cli_conte… | 260 | `test_usage_attribution.py` |
 | `atri_x.agent.chat_request_options` | LLM 请求的临时参数（``LLMRequestOptions``）与其合并/解析。 | LLMRequestOptions, llm_request_options_from_payload, merge_… | 79 | — |
 | `atri_x.agent.chat_stream` | 模型流式调用的叶子助手（打开流、并发槽、记账结算、媒体补全）。 | — | 154 | — |
 | `atri_x.agent.chat_tools` | 回合里的工具批次：待发用户消息、工具执行、自动确认与 schema 过滤。 | PREVIEW_TEXT_RUNES, PendingUserMessage, TOOL_LOG_ACTION_LIM… | 747 | `test_agent_chat.py`、`test_agent_core.py`、`test_security_grants.py` |
 | `atri_x.agent.chat_turn` | 一轮对话的主体循环。 | — | 625 | `test_agent_chat.py` |
 | `atri_x.agent.chat_vision` | 图片不受支持时的透明兜底。 | fallback_vision_messages, should_fallback_vision, vision_fa… | 86 | — |
 | `atri_x.agent.command_runtime` | Slash 命令的执行与权限裁决。 | CommandExecutor, blocks_during_active_turn, blocks_during_c… | 243 | — |
-| `atri_x.agent.commands` | ``internal/agent/commands`` 的 Python 移植：slash 命令族与注册入口。 | ApprovalModule, CharacterModule, CommandGroup, CompactModul… | 541 | `agent_commands_fakes.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_builtin_runtime_resources.py`、`test_security_grants.py`、`test_usage_attribution.py` |
+| `atri_x.agent.commands` | ``internal/agent/commands`` 的 Python 移植：slash 命令族与注册入口。 | ApprovalModule, CharacterModule, CommandGroup, CompactModul… | 539 | `agent_commands_fakes.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_builtin_runtime_resources.py`、`test_security_grants.py`、`test_usage_attribution.py` |
 | `atri_x.agent.commands.approval` | ``/grant`` 与 ``/panic``：授权生命周期的手动入口。 | ApprovalModule, new_grant, new_panic | 186 | `test_security_grants.py` |
 | `atri_x.agent.commands.character` | ``/chars``：列出角色素材库，或重建角色索引。 | CharacterModule, character_matches_query, character_viewer_… | 118 | — |
 | `atri_x.agent.commands.compact` | ``/compact``：手动压缩当前会话上下文。 | CompactModule, new_compact | 50 | — |
@@ -55,7 +55,7 @@
 | `atri_x.agent.commands.model_types` | 模型服务的共享数据类型与形状。 | ModelListOptions, ModelListResult, ModelOption, ModelProfil… | 147 | `test_agent_bootstrap.py`、`test_agent_commands_integration.py` |
 | `atri_x.agent.commands.request` | ``/requests``、``/stop``、``/stopall`` 与请求树渲染。 | RequestInfo, RequestModule, RequestNode, RequestTree, build… | 375 | — |
 | `atri_x.agent.commands.research` | ``/research``：科研研究助理的只读操作面板命令。 | ResearchModule, new_research, research_home | 308 | — |
-| `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 | ResourcesModule, default_resource_paths, new_resources, ren… | 76 | `test_builtin_runtime_resources.py` |
+| `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 | ResourcesModule, new_resources, render_resources | 74 | `test_builtin_runtime_resources.py` |
 | `atri_x.agent.commands.rollback` | ``/rollback``：列出并撤销 ATRI-X 自己对文件的最新一次编辑。 | FileModule, format_rollback_list, new_rollback | 109 | — |
 | `atri_x.agent.commands.session_core` | ``/new``、``/status``、``/work``、``/chat``。 | format_empty_status, format_tool_usage, new_chat, new_new, … | 266 | — |
 | `atri_x.agent.commands.session_format` | Session 列表/消息的查询与文本渲染。 | DEFAULT_SESSION_LIST_PAGE_SIZE, HISTORY_PREVIEW_RUNES, MESS… | 366 | — |
@@ -71,7 +71,7 @@
 | `atri_x.agent.context_policy` | 长消息保护（上下文溢出策略）：判定、截断/摘要/拒绝与群级覆盖。 | ContextOverflowState, ContextPolicyMixin, ErrPromptOverflow… | 532 | `test_agent_context_policy.py`、`test_agent_group_policy.py` |
 | `atri_x.agent.context_runtime` | 上下文运行态：窗口/预算解析、压缩后端选择、加载器与最近用量。 | CONTEXT_METHODS, ContextRuntimeMixin, ContextRuntimeService… | 557 | `test_agent_context_policy.py`、`test_agent_context_runtime.py` |
 | `atri_x.agent.context_seed` | 压缩种子（``context_compact``）的消费。 | ContextSeedMixin, consume_context_compact_seed, pending_con… | 113 | `test_agent_context_runtime.py` |
-| `atri_x.agent.context_usage` | 上下文用量：``/context`` 状态文本、最近用量持久化、协议归属记录、压缩触发判定。 | ContextUsageMixin, LLMOriginState, render_context_status | 315 | `test_agent_context_policy.py` |
+| `atri_x.agent.context_usage` | 上下文用量：``/context`` 状态文本、最近用量持久化、协议归属记录、压缩触发判定。 | ContextUsageMixin, LLMOriginState, render_context_status | 340 | `test_agent_context_policy.py` |
 | `atri_x.agent.core` | Agent 核心：状态、构造与跨模块方法的薄转发。 | Agent, FileSoulProvider, SoulProvider, StaticSoulProvider, … | 995 | `test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_core.py`、`test_request_manager.py` |
 | `atri_x.agent.core_build` | Agent 构造期的支撑件：默认配置、模型运行态、构造入口。 | FileSoulProvider, new, new_options, new_with_prefixes | 225 | — |
 | `atri_x.agent.core_forward` | ``Agent`` 的薄转发方法（唤醒 / 消息 / 聊天 / 模型 / 工具 / 完成）。 | CoreForwardMixin | 283 | — |
@@ -133,7 +133,7 @@
 | `atri_x.agent.risk_confirmation` | 高风险工具确认的文案与指令识别。对应 Go：``internal/agent/risk_confirmation.go``。 | REDACTED_ARGUMENTS_TEXT, RiskConfirmationCommand, confirmat… | 366 | `test_agent_risk.py` |
 | `atri_x.agent.seams` | Agent 的可选能力接缝（seam）。 | AgentSeams, DirectiveOutcome | 595 | `test_agent_bootstrap.py` |
 | `atri_x.agent.segments` | 入站消息段在 ctx / LLM / 平台三种表示之间的搬运。 | InboundTurnInput, file_segment_text, has_inbound_non_text_s… | 299 | `test_agent_segments.py`、`test_platform_cli_remote.py` |
-| `atri_x.agent.session_metadata` | Session metadata 的编解码。 | ContextCompactState, LLMOriginState, SessionMetadata, decod… | 332 | `test_agent_core.py` |
+| `atri_x.agent.session_metadata` | Session metadata 的编解码。 | ContextCompactState, LLMOriginState, SessionMetadata, decod… | 339 | `test_agent_core.py` |
 | `atri_x.agent.state_watch` | ``state.toml`` 的外部编辑热加载与状态查询。 | RUNTIME_STATE_WATCH_EVERY, RuntimeStateReload, poll_runtime… | 223 | — |
 | `atri_x.agent.status` | 运行状态快照的记录与发布。 | merge_runtime_status, publish_runtime_status, record_runtim… | 192 | `test_agent_assembly.py`、`test_platform_cli.py`、`test_platform_cli_remote.py` |
 | `atri_x.agent.system_prompt` | 系统提示词管理器：按来源收集分段内容并拼接。 | ConversationMeta, SystemPromptManager, SystemPromptPart, Sy… | 112 | `test_agent_prompt.py`、`test_member_persona.py`、`test_member_profile.py` |
@@ -194,7 +194,7 @@
 | `atri_x.app.service_types` | app 内部使用的服务侧数据类型。 | AudioTranscriptionRequest, AudioTranscriptionResult, ImageP… | 94 | `test_app_platforms.py` |
 | `atri_x.app.support` | 装配层的叶子级共享助手。 | call_bool, log_error, log_info, log_warn, maybe_await, mayb… | 71 | `test_app_runner.py` |
 | `atri_x.app.time_check` | ``python -m atri_x.app.time_check``：时区数据与解析探针。 | check_time_data, main | 113 | `test_packaging_tzdata.py` |
-| `atri_x.app.tool_runtime` | 内置工具运行时的 app 侧装配。 | ToolRuntime, ToolRuntimeOptions, build_tool_runtime | 537 | `test_app_runtime_agent.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
+| `atri_x.app.tool_runtime` | 内置工具运行时的 app 侧装配。 | ToolRuntime, ToolRuntimeOptions, build_tool_runtime | 560 | `test_app_runtime_agent.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
 | `atri_x.app.vision` | 视觉服务装配：把共享 ``vision.Service`` 接到 Agent 的聊天视觉兜底接口。 | VisionChatDescriber, buildVisionDescriber, build_vision_des… | 261 | — |
 | `atri_x.artist` | 画师串领域包。 | Artist, ArtistConflictError, ArtistRef, Compiled, DEFAULT_S… | 258 | `test_app_tool_runtime_wiring.py`、`test_artist_metadata.py`、`test_artist_service.py`、`test_builtin_character_artist.py`、`test_builtin_imagegen.py`、`test_media_manager.py` |
 | `atri_x.artist.metadata` | 图片容器里的生成参数恢复（只读）：PNG / JPEG / WebP 与 EXIF、XMP。 | extract_metadata, parse_metadata, parse_metadata_with_origi… | 618 | `test_artist_metadata.py`、`test_media_manager.py` |
@@ -272,7 +272,7 @@
 | `atri_x.contextmgr.compact_prompt` | 压缩与摘要的系统提示词、prompt 组装与摘要拼装。 | COMPACT_SYSTEM_PROMPT, TEXT_SUMMARIZER_SYSTEM_PROMPT, assem… | 129 | `test_contextmgr.py` |
 | `atri_x.contextmgr.compressor` | 客户端摘要压缩后端。 | CapCompactRequest, CompactMessage, CompactRequest, CompactR… | 392 | `test_contextmgr.py` |
 | `atri_x.contextmgr.loader` | 上下文加载与 Fork 回溯。 | LoadedContext, Loader, MAX_FORK_DEPTH, STORE_REQUIRED | 172 | `test_contextmgr.py` |
-| `atri_x.contextmgr.usage` | 用量状态与厂商 usage 的展示格式。 | FormatTokens, UsageState, format_tokens | 54 | `test_contextmgr.py` |
+| `atri_x.contextmgr.usage` | 用量状态与厂商 usage 的展示格式。 | FormatTokens, UsageState, format_tokens | 59 | `test_contextmgr.py` |
 | `atri_x.contextmgr.window` | 上下文窗口解析与缓存。 | ClientProvider, WindowResolver, new_window_resolver | 259 | `test_contextmgr.py`、`test_contextmgr_window_metadata.py` |
 | `atri_x.cron` | 中央 Cron Runtime：持久化 job 的调度、注册、upsert、禁用、删除、运行状态与执行日志。 | AuditFunc, CronActor, CronDeliveryOutputState, CronDelivery… | 230 | `test_agent_admission.py`、`test_agent_cron.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_cron.py`、`test_cron.py`、`test_cron_delivery.py`、`test_cron_dst.py`、`test_maintenance.py` |
 | `atri_x.cron.delivery` | 逐目标逐输出的投递、状态持久化、降级与 receipt 映射。对应 Go：``internal/cron/delivery.go``。 | DeliveryMixin, ResolvedCronTarget, cron_sandbox, cron_targe… | 688 | — |
@@ -295,6 +295,11 @@
 | `atri_x.devtools.entrypoints` | 入口索引的渲染：进程入口 / 装配层 / 命令 / 工具 / 平台 / Hook / GUI / 任务入口。 | TASK_ENTRIES, TaskEntry, locator_definitions, render_entryp… | 268 | — |
 | `atri_x.devtools.markdown` | 生成物用到的 Markdown 小工具（无模板引擎）。 | HEADER, artifact, cell, code | 41 | — |
 | `atri_x.devtools.render` | 把 :class:`atri_x.devtools.astindex.RepoIndex` 渲染成可提交的索引产物。 | ARTIFACTS, HEADER, TASK_ENTRIES, TaskEntry, all_artifacts, … | 399 | — |
+| `atri_x.diagram` | draw.io 图表能力：随包技能、安装引导与渲染入口。 | PACK_DIR_NAME, PACK_META_FILE, SKILL_INSTALL_NAME, load_pac… | 42 | `test_diagram_pack.py`、`test_diagram_skill.py` |
+| `atri_x.diagram.bootstrap` | 把随包 draw.io 技能装进用户配置目录（首次启动自动执行，幂等、可升级、失败不阻断主程序）。 | BootstrapResult, INSTALL_SCHEMA, MODE_BUNDLED, ensure_insta… | 511 | `test_diagram_pack.py`、`test_diagram_skill.py` |
+| `atri_x.diagram.pack` | 随包 draw.io 技能资源（``drawio_pack/``）与内置渲染器的定位。 | BUNDLED_DRAWIO_NAME, PACK_DIR_NAME, PACK_META_FILE, PACK_SC… | 251 | `test_diagram_pack.py` |
+| `atri_x.diagram.paths` | draw.io 数据目录的解析规则（安装清单 / 技能目录 / 渲染 profile 共用唯一出处）。 | APP_DIR_NAME, ENV_HOME, XDG_APP_DIR_NAME, default_config_di… | 61 | `test_diagram_pack.py` |
+| `atri_x.diagram.runner` | draw.io 技能的子进程入口（技能 ``ATRIX_SKILL.toml`` 的 ``command`` 指向这里）。 | main, parse_target | 155 | `test_diagram_pack.py` |
 | `atri_x.directive` | 指令前缀识别与补全 token 解析。 | — | 11 | `test_completion.py`、`test_directive.py` |
 | `atri_x.directive.tool` | 指令前缀识别与补全 token 解析。 | ToolCompletionToken, ToolMatch, character_matches, image_pr… | 210 | `test_completion.py` |
 | `atri_x.dist` | ``atri_x.dist``：Windows 分发件（安装器 + 快捷方式）。 | APP_NAME, INSTALL_MARKER, InstallError, InstallReport, UNIN… | 70 | — |
@@ -304,6 +309,7 @@
 | `atri_x.dist.registry` | 安装器的注册表后端（只写 ``HKCU``，不需要管理员权限）。 | UNINSTALL_KEY, WindowsRegistry, update_user_path | 87 | — |
 | `atri_x.dist.shell_link` | 创建/读取 Windows 快捷方式（``.lnk``），纯 ``ctypes`` 调 COM。 | ShortcutError, create_shortcut, read_shortcut_target, short… | 229 | — |
 | `atri_x.errors` | 全仓哨兵异常。 | AmbiguousIDError, AtriXError, BackgroundTakenOverError, CLI… | 279 | `_atrinis_support.py`、`agent_commands_fakes.py`、`agent_fakes.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_budget.py`、`test_agent_chat.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_session.py`、`test_agent_context_policy.py`、`test_agent_core.py`、`test_agent_cron.py`、`test_agent_group_policy.py`、`test_agent_inbound_media.py`、`test_agent_model.py`、`test_agent_prompt.py`、`test_angelmemory.py`、`test_app_bootstrap.py`、`test_app_health.py`、`test_app_llm_adapters.py`、`test_app_platforms.py`、`test_app_runner.py`、`test_artist_service.py`、`test_atriena.py`、`test_atrinis.py`、`test_atrinis_helpers.py`、`test_atrinis_http.py`、`test_atrinis_llm.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_character.py`、`test_character_archive.py`、`test_contextmgr.py`、`test_cron.py`、`test_cron_dst.py`、`test_dsh_route.py`、`test_fileops.py`、`test_groupanalysis.py`、`test_historygate.py`、`test_launcher_cli.py`、`test_llm_breaker.py`、`test_logging.py`、`test_long_memory_scope.py`、`test_main.py`、`test_maintenance.py`、`test_maintenance_report.py`、`test_media_lifecycle.py`、`test_media_manager.py`、`test_media_resolver.py`、`test_memory_notes.py`、`test_ops.py`、`test_platform_builtin.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_platform_cli_tui.py`、`test_platform_headless.py`、`test_platform_qq_onebot.py`、`test_platform_qqofficial.py`、`test_qq_onebot_backend.py`、`test_qq_onebot_snowluma.py`、`test_qq_slowfetch.py`、`test_request_manager.py`、`test_resident_memory.py`、`test_selflearning.py`、`test_session.py`、`test_session_lifecycle.py`、`test_signal.py`、`test_sqlite_media.py`、`test_sqlite_migrations.py`、`test_sqlite_repositories.py`、`test_sqlite_store.py`、`test_storage_models.py`、`test_time_service.py`、`test_timesync_sntp.py`、`test_timezones.py`、`test_tool_discover.py`、`test_tool_media_runtime.py`、`test_tool_runtimeinfo.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun_denied.py`、`test_vision.py`、`test_vision_attributes.py`、`test_vision_prechat.py`、`test_vision_privacy.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
+| `atri_x.gpu_usage` | 显卡占用与型号读数（Windows PDH + nvidia-smi；零第三方依赖）。 | GpuInfo, NVIDIA_SMI_TIMEOUT_SECONDS, PDH_SAMPLE_INTERVAL_SE… | 407 | `test_builtin_runtime_resources.py` |
 | `atri_x.groupanalysis` | 群聊天统计与可选摘要。对应 Go：``internal/groupanalysis/``。 | DEFAULT_RANGE_LIMIT, DEFAULT_SUMMARY_INPUT_RUNES, DEFAULT_S… | 60 | `test_groupanalysis.py` |
 | `atri_x.groupanalysis.service` | 群聊统计（clean-room），只依赖 ``chat_history`` / ``outbound_messages``。 | DEFAULT_RANGE_LIMIT, MAX_RANGE_LIMIT, MAX_SENDER_NAME_RUNES… | 446 | — |
 | `atri_x.groupanalysis.summarizer` | 群分析的可选摘要器。 | DEFAULT_SUMMARY_INPUT_RUNES, DEFAULT_SUMMARY_MAX_RUNES, DEF… | 160 | `test_groupanalysis.py` |
@@ -318,7 +324,7 @@
 | `atri_x.gui.avatars` | 群友头像：拼平台头像 URL、下载、解码缩放成统一的本地 PNG 缓存。 | AVATAR_DIR, AVATAR_SIZE, AvatarError, avatar_file, avatar_u… | 164 | `test_gui_members.py`、`test_gui_tabs.py` |
 | `atri_x.gui.client` | GUI 的 WS 客户端：连 ``ws://…/cli/v1/ws``、握手、收发帧、断线重连。 | REMOTE_MSG_COMPLETE, RemoteClient, STATE_AUTH_FAILED, STATE… | 301 | `test_gui_client.py` |
 | `atri_x.gui.configedit` | 桌面端的配置读写底座：路径解析、TOML 行级补丁、``.env``、文本文件。 | ConfigEditError, ConfigPaths, default_config_path, load_pat… | 672 | `test_gui_configedit.py`、`test_gui_extractconfig.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_modelcatalog.py`、`test_gui_proto_manager.py`、`test_gui_qqproto.py`、`test_gui_searchconfig.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
-| `atri_x.gui.configmodel` | 桌面端「模型」页的数据模型：LLM Provider 与模型分配。 | KeyState, MODEL_SLOTS, ModelSlot, ProviderView, REQUIRED_MO… | 461 | `test_gui_configedit.py`、`test_gui_modelcatalog.py` |
+| `atri_x.gui.configmodel` | 桌面端「模型」页的数据模型：LLM Provider 与模型分配。 | KeyState, MODEL_SLOTS, ModelSlot, ProviderView, REQUIRED_MO… | 482 | `test_gui_configedit.py`、`test_gui_modelcatalog.py` |
 | `atri_x.gui.cronschedule` | 界面上的 cron 小工具：「每天 / 每周 / 每月」结构 ↔ 5 段表达式。 | KIND_CUSTOM, KIND_DAILY, KIND_LABELS, KIND_MONTHLY, KIND_WE… | 227 | `test_gui_maintenance.py` |
 | `atri_x.gui.dialogs` | 「进阶」页的二级设置窗口（自学习 / HOOK 插件 / 定时维护任务）。 | Dialog, HooksDialog, MaintenanceDialog, SelfLearningDialog,… | 55 | `test_gui_maintenance.py`、`test_gui_tabs.py` |
 | `atri_x.gui.dialogs.common` | 子设置弹窗的公共骨架：独立窗口 + 底部状态行 + 保存/重载/关闭按钮。 | Dialog | 122 | — |
@@ -333,7 +339,7 @@
 | `atri_x.gui.journal` | 界面操作日志：把桌面端"点了什么、改了哪个文件"记进 ``<配置目录>/gui/gui.log``。 | JOURNAL_NAME, MAX_JOURNAL_BYTES, journal_path, read_lines, … | 91 | `test_gui_diagnostics.py`、`test_gui_tabs.py` |
 | `atri_x.gui.linkstate` | 「在线」选项卡的数据层：平台配置、协议端探测、后台服务健康快照。 | DEFAULT_PLATFORM, EndpointProbe, HEALTH_PATH, HealthReport,… | 573 | `test_gui_link.py`、`test_gui_qqproto.py` |
 | `atri_x.gui.memberdata` | 群友角色数据：成员档案的 GUI 适配层 + 群友发现。 | GroupScope, MAX_PROFILE_RUNES, MAX_TAGS, MEMBERS_FILE, Memb… | 222 | `test_gui_members.py`、`test_gui_tabs.py` |
-| `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型，并把「备注名」缓存在本地。 | CATALOG_FILE, CATALOG_VERSION, Catalog, CatalogEntry, Catal… | 418 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
+| `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型，并把「备注名」缓存在本地。 | CATALOG_FILE, CATALOG_VERSION, Catalog, CatalogEntry, Catal… | 437 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
 | `atri_x.gui.process` | 进程与路径助手：程序目录、状态目录、后台服务的 pid 记录与终止、单实例。 | app_dir, application_paths, cleanup_service_pid, focus_exis… | 363 | `test_gui_diagnostics.py` |
 | `atri_x.gui.proto_manager` | 协议端管理层：按配置选后端（NapCat / SnowLuma），统一 prepare/launch/stop/status。 | apply_connection, configured_backend, launch, prepare, stat… | 190 | `test_gui_proto_manager.py` |
 | `atri_x.gui.proto_process` | 协议端进程托管：启动、停止、PID 归属校验。 | STATE_NAME, clear_state, launch_console, managed_status, re… | 259 | `test_gui_proto_manager.py` |
@@ -348,7 +354,7 @@
 | `atri_x.gui.sessions` | 会话侧边栏：会话列表 + 新建/刷新（GUI 的"会话列表/历史"入口）。 | SessionSidebar, load_history_into | 156 | `test_cli_sessions.py` |
 | `atri_x.gui.snowluma_proto` | SnowLuma 协议端环境的探测与托管（可选的备用协议端，外置，**不内置分发**）。 | CONSENT_NAME, DEFAULT_WEBUI_PORT, ENV_VAR, ONEBOT_CONFIG_PR… | 261 | `test_gui_proto_manager.py` |
 | `atri_x.gui.tabs` | 桌面端的选项卡集合。 | AdvancedTab, CharacterTab, ChatTab, ConfigTab, FeaturesTab,… | 56 | `test_gui_link.py`、`test_gui_qqproto.py`、`test_gui_tabs.py`、`test_gui_timepanel.py` |
-| `atri_x.gui.tabs.advanced` | 「进阶」选项卡：生图/视觉/语音、记忆与群功能开关、日志级别。 | AdvancedTab | 530 | `test_gui_tabs.py` |
+| `atri_x.gui.tabs.advanced` | 「进阶」选项卡：生图/视觉/语音、记忆与群功能开关、日志级别。 | AdvancedTab | 544 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.base` | 配置选项卡的公共骨架：底部状态行、错误弹窗、"需要重启"提示。 | ConfigTab, confirm, message | 136 | — |
 | `atri_x.gui.tabs.character` | 「人设卡」选项卡：角色库编辑 + 系统人设（SOUL.md）。 | CharacterTab | 769 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.chat` | 「对话」选项卡：会话列表 + 聊天记录 + 输入框。 | ChatTab | 165 | — |
@@ -359,7 +365,7 @@
 | `atri_x.gui.tabs.logs` | 「日志」选项卡：把后台服务写的日志和界面操作日志放到一个可筛选的窗口里。 | LogsTab | 478 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.members` | 「群友」选项卡：按群管理群友的角色数据（备注名 / 标签 / 角色数据 / 头像）。 | MembersTab | 787 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.model` | 「模型」选项卡：LLM Provider（含 API Key）、模型分配、搜索服务与抓取服务。 | ModelTab | 820 | `test_gui_tabs.py` |
-| `atri_x.gui.tabs.mountpanel` | 「进阶」页生图区的本地挂载面板（:class:`MountPanelMixin`）。 | MountPanelMixin | 223 | — |
+| `atri_x.gui.tabs.mountpanel` | 「进阶」页生图区的本地挂载面板（:class:`MountPanelMixin`）。 | MountPanelMixin | 238 | — |
 | `atri_x.gui.tabs.permission` | 「权限」选项卡：超级管理员名单 + 风险等级 / 工具轮次 / 成员建卡开关。 | PermissionTab | 227 | — |
 | `atri_x.gui.tabs.platform` | 「平台」选项卡：QQ / Telegram / 本地 CLI 服务端 / 超级管理员。 | PlatformTab | 500 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.research` | 「研究」选项卡：查看科研助理的运行与产物（只读）。 | ResearchTab | 326 | — |
@@ -381,6 +387,7 @@
 | `atri_x.gui.toolsettings_media` | 工具参数定义：「图片 / 画师串 / 视觉」类工具。 | MEDIA_GROUPS | 367 | — |
 | `atri_x.gui.tray` | Windows 托盘图标（纯 ``ctypes``，零第三方依赖）。 | MENU_SEPARATOR, TrayIcon, available, command_line | 523 | — |
 | `atri_x.gui.widgets` | 桌面端小部件：密钥输入框、可滚动下拉框、可滚动表单区、后台任务回主线程的小工具。 | MASK_CHAR, ScrollFrame, SecretEntry, dropdown, run_async | 282 | `test_gui_tabs.py` |
+| `atri_x.hardware` | 硬件身份与显卡型号的只读采集（Windows / Linux，零第三方依赖）。 | GpuInfo, HardwareInfo, arch_name, collect_hardware, cpu_mod… | 446 | `test_builtin_runtime_resources.py` |
 | `atri_x.health` | 健康状态、readiness 检查与独立健康 HTTP 服务端。 | Checker, CheckerFunc, DEFAULT_LIVE_STALE_SECONDS, DEFAULT_R… | 57 | `test_app_ops_plugins.py`、`test_health.py` |
 | `atri_x.health.checker` | 外部 readiness 检查。 | Checker, CheckerFunc, DirWritable | 102 | `test_health.py` |
 | `atri_x.health.server` | 独立的健康 HTTP 服务端。 | DEFAULT_READ_HEADER_TIMEOUT_SECONDS, GO_ZERO_TIME, HTTPResp… | 624 | `test_app_ops_plugins.py`、`test_health.py` |
@@ -439,13 +446,13 @@
 | `atri_x.llm` | LLM 抽象层。 | — | 11 | `_vision_fakes.py`、`agent_fakes.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_budget.py`、`test_agent_chat.py`、`test_agent_chat_anomaly.py`、`test_agent_context_policy.py`、`test_agent_context_runtime.py`、`test_agent_core.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_risk.py`、`test_agent_segments.py`、`test_agent_title.py`、`test_agent_tools.py`、`test_app_llm_adapters.py`、`test_app_platforms.py`、`test_background.py`、`test_builtin_tools3.py`、`test_completion.py`、`test_contextmgr.py`、`test_contextmgr_window_metadata.py`、`test_cron.py`、`test_cron_delivery.py`、`test_dsh_route.py`、`test_groupanalysis.py`、`test_gui_protocol.py`、`test_hook_builtin_control.py`、`test_hook_event.py`、`test_hook_match.py`、`test_hook_protocol.py`、`test_hook_rules.py`、`test_hook_runtime.py`、`test_llm_breaker.py`、`test_llm_errors.py`、`test_llm_headers.py`、`test_llm_protocol.py`、`test_llm_tooltext.py`、`test_media_resolver.py`、`test_memory_notes.py`、`test_openai_adapter.py`、`test_openai_responses.py`、`test_platform_cli.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_sqlite_media.py`、`test_sqlite_repositories.py`、`test_sqlite_store.py`、`test_storage_models.py`、`test_time_context.py`、`test_tool_core.py`、`test_toolrun.py`、`test_toolrun_atriwisp_args.py`、`test_turn_manager.py`、`test_usage_attribution.py`、`test_vision.py`、`test_vision_attributes.py`、`test_vision_prechat.py`、`test_vision_privacy.py`、`test_vision_threading.py` |
 | `atri_x.llm.breaker` | Provider 级熔断器。 | Breaker, Config, ErrOpen, OpenError, ProviderBreakers, STAT… | 270 | `test_app_llm_adapters.py`、`test_llm_breaker.py` |
 | `atri_x.llm.errors` | 结构化上游 API 失败与确定性失败分类。 | APIError, ErrorCategory, ErrorCategoryAuth, ErrorCategoryIn… | 348 | `test_agent_chat.py`、`test_llm_errors.py`、`test_openai_adapter.py`、`test_openai_responses.py`、`test_vision.py`、`test_vision_privacy.py` |
-| `atri_x.llm.llm` | LLM 抽象层类型。 | ChatRequest, ChatResponse, LLM, LLMMessage, MessageSegment,… | 559 | `_vision_fakes.py`、`test_agent_budget.py`、`test_agent_context_policy.py`、`test_agent_context_runtime.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_title.py`、`test_background.py`、`test_builtin_tools3.py`、`test_completion.py`、`test_contextmgr.py`、`test_contextmgr_window_metadata.py`、`test_cron.py`、`test_cron_delivery.py`、`test_groupanalysis.py`、`test_gui_protocol.py`、`test_hook_builtin_control.py`、`test_hook_event.py`、`test_hook_match.py`、`test_hook_protocol.py`、`test_hook_rules.py`、`test_hook_runtime.py`、`test_media_resolver.py`、`test_openai_adapter.py`、`test_openai_responses.py`、`test_platform_cli.py`、`test_sqlite_media.py`、`test_sqlite_repositories.py`、`test_sqlite_store.py`、`test_storage_models.py`、`test_tool_core.py`、`test_toolrun.py`、`test_toolrun_atriwisp_args.py`、`test_turn_manager.py`、`test_vision.py`、`test_vision_attributes.py`、`test_vision_prechat.py`、`test_vision_privacy.py`、`test_vision_threading.py` |
+| `atri_x.llm.llm` | LLM 抽象层类型。 | ChatRequest, ChatResponse, LLM, LLMMessage, MessageSegment,… | 567 | `_vision_fakes.py`、`test_agent_budget.py`、`test_agent_context_policy.py`、`test_agent_context_runtime.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_title.py`、`test_background.py`、`test_builtin_tools3.py`、`test_completion.py`、`test_contextmgr.py`、`test_contextmgr_window_metadata.py`、`test_cron.py`、`test_cron_delivery.py`、`test_groupanalysis.py`、`test_gui_protocol.py`、`test_hook_builtin_control.py`、`test_hook_event.py`、`test_hook_match.py`、`test_hook_protocol.py`、`test_hook_rules.py`、`test_hook_runtime.py`、`test_media_resolver.py`、`test_openai_adapter.py`、`test_openai_responses.py`、`test_platform_cli.py`、`test_sqlite_media.py`、`test_sqlite_repositories.py`、`test_sqlite_store.py`、`test_storage_models.py`、`test_tool_core.py`、`test_toolrun.py`、`test_toolrun_atriwisp_args.py`、`test_turn_manager.py`、`test_vision.py`、`test_vision_attributes.py`、`test_vision_prechat.py`、`test_vision_privacy.py`、`test_vision_threading.py` |
 | `atri_x.llm.openai` | OpenAI-compatible 适配器包。 | Adapter, AwaitableStream, CHAT_RESERVED_REQUEST_FIELDS, DAT… | 80 | `test_app_llm_adapters.py`、`test_llm_headers.py`、`test_openai_adapter.py`、`test_openai_responses.py`、`test_vision_attributes.py` |
 | `atri_x.llm.openai.errors` | 上游失败响应 → ``APIError`` 的错误分类。 | APIError, ErrorCategory, HTML_RESPONSE_HINT, classify, look… | 133 | — |
 | `atri_x.llm.openai.openai` | OpenAI-compatible 适配器（Chat Completions）。 | Adapter, CHAT_RESERVED_REQUEST_FIELDS, DEFAULT_FIRST_CHUNK_… | 636 | `test_llm_headers.py`、`test_openai_adapter.py` |
 | `atri_x.llm.openai.responses` | OpenAI Responses 协议适配器。 | OpenAIResponsesClient, RESPONSES_RESERVED_REQUEST_FIELDS, R… | 511 | `test_llm_headers.py`、`test_openai_responses.py`、`test_vision_attributes.py` |
 | `atri_x.llm.openai.stream` | SSE 行扫描与首包/空闲超时。 | AwaitableStream, StreamLineReader, duration_text, first_chu… | 212 | `test_openai_adapter.py` |
-| `atri_x.llm.openai.wire` | OpenAI-compatible 线上格式：请求信封构造、响应字段解析与日志摘要。 | CHAT_RESERVED_REQUEST_FIELDS, DATA_DONE, DATA_PREFIX, DEFAU… | 606 | `test_llm_headers.py`、`test_openai_adapter.py`、`test_openai_responses.py`、`test_vision_attributes.py` |
+| `atri_x.llm.openai.wire` | OpenAI-compatible 线上格式：请求信封构造、响应字段解析与日志摘要。 | CACHE_HIT_FIELDS, CACHE_HIT_PATHS, CHAT_RESERVED_REQUEST_FI… | 606 | `test_llm_headers.py`、`test_openai_adapter.py`、`test_openai_responses.py`、`test_vision_attributes.py` |
 | `atri_x.llm.origin` | 「这段已有历史能不能交给目标模型」的唯一入口。 | Origin, OriginError, can_switch | 81 | `test_llm_protocol.py` |
 | `atri_x.llm.protocol` | 协议能力矩阵的唯一入口。 | Protocol, ProtocolCapabilities, ProtocolCapabilityReporter,… | 91 | `test_agent_context_runtime.py`、`test_llm_protocol.py`、`test_openai_adapter.py` |
 | `atri_x.llm.segment` | 消息段 helper。 | — | 41 | — |
@@ -668,7 +675,9 @@
 | `atri_x.storage.sqlite.tool_call_repository` | 工具调用审计仓储。对应 Go：``internal/storage/sqlite/tool_call_repository.go``。 | ToolCallRepository | 102 | — |
 | `atri_x.storage.storage` | 存储领域模型与 repository 抽象（对外统一出口）。对应 Go：``internal/storage/storage.go``。 | AtrinisEvent, AtrinisEventRepository, AtrinisReportDelivery… | 161 | `test_storage_models.py` |
 | `atri_x.storage.times` | 通用时间 helper。对应 Go：``internal/storage/time.go``。 | ZERO_TIME, ensure_utc, format_time, is_zero_time, now, orde… | 156 | `test_angelmemory.py`、`test_builtin_cron.py`、`test_cron.py`、`test_cron_delivery.py`、`test_groupanalysis.py`、`test_media_lifecycle.py`、`test_media_manager.py`、`test_platform_qq_onebot.py`、`test_selflearning.py`、`test_session.py`、`test_session_lifecycle.py`、`test_sqlite_media.py`、`test_sqlite_repositories.py`、`test_sqlite_store.py`、`test_storage_models.py` |
-| `atri_x.sysinfo` | 可移植的运行时资源快照。 | ProcessResources, ProcessSample, ResourceSnapshot, Snapshot… | 919 | `test_builtin_runtime_resources.py`、`test_maintenance_report.py`、`test_ops.py` |
+| `atri_x.sysinfo` | 可移植的运行时资源快照（进程 / 系统 / 磁盘 / 硬件）。 | DiskUsage, ProcessResources, ProcessSample, ResourceSnapsho… | 676 | `test_builtin_runtime_resources.py`、`test_maintenance_report.py`、`test_ops.py` |
+| `atri_x.sysinfo_format` | 资源快照的文本渲染：``/resources`` 命令与 ``runtime_resources`` 工具的唯一出处。 | format_bytes, format_resources, format_uint_bytes, format_u… | 232 | `test_builtin_runtime_resources.py` |
+| `atri_x.sysinfo_platform` | 平台采集器实现：Windows（kernel32 / psapi）、Linux（/proc）与 POSIX 兜底。 | FallbackCollector, LinuxCollector, WindowsApi, WindowsColle… | 431 | `test_builtin_runtime_resources.py` |
 | `atri_x.textmatch` | 确定性的关键词抽取与 LIKE 转义助手。 | Keywords, LikePattern, keywords, like_pattern | 228 | `test_redact.py` |
 | `atri_x.time_service` | 统一时间服务：业务时间的**唯一**读取点（Python 侧新增模块）。 | CLOCK_JUMP_THRESHOLD_SECONDS, DEFAULT_TIME_SOURCE, TimeServ… | 354 | `test_time_context.py`、`test_time_service.py`、`test_timesync_verifier.py` |
 | `atri_x.timesync` | 网络时间校验子系统（首版 ``verify_only``）。 | OutboundPolicy, ROUND_TRIGGER_MANUAL, ROUND_TRIGGER_SCHEDUL… | 45 | `test_timesync_https.py`、`test_timesync_sntp.py`、`test_timesync_verifier.py` |
@@ -679,7 +688,7 @@
 | `atri_x.timesync.sntp` | 受限 SNTP 客户端（只做单播查询，不做服务端/转发/NTS）。 | MAX_ROUND_TRIP_MS, NTP_PACKET_SIZE, NTP_UNIX_EPOCH_DELTA, N… | 351 | `test_timesync_sntp.py`、`test_timesync_verifier.py` |
 | `atri_x.timesync.verifier` | 间歇性多来源时间校验器（首版 ``verify_only``：只观测，不接管业务时间）。 | ALERT_HISTORY, MAX_SAMPLE_HISTORY, Verifier, VerifierOptions | 637 | `test_timesync_verifier.py` |
 | `atri_x.timezones` | 时区解析与 tzdata 数据探测（Python 侧新增模块）。 | DEFAULT_TIMEZONE, FIXED_PREFIX, SYSTEM_TIMEZONE_NAME, Timez… | 264 | `test_timezones.py` |
-| `atri_x.tool` | Tool Runtime：工具契约、注册表、发现、风险准入与执行适配。 | — | 191 | `agent_fakes.py`、`test_agent_assembly.py`、`test_agent_chat.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_background.py`、`test_builtin_character_artist.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_command_router.py`、`test_completion.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_research_bootstrap.py`、`test_safety_integration.py`、`test_tool_core.py`、`test_tool_discover.py`、`test_tool_media_runtime.py`、`test_tool_runtimeinfo.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
+| `atri_x.tool` | Tool Runtime：工具契约、注册表、发现、风险准入与执行适配。 | — | 191 | `agent_fakes.py`、`test_agent_assembly.py`、`test_agent_chat.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_background.py`、`test_builtin_character_artist.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_command_router.py`、`test_completion.py`、`test_diagram_pack.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_research_bootstrap.py`、`test_safety_integration.py`、`test_tool_core.py`、`test_tool_discover.py`、`test_tool_media_runtime.py`、`test_tool_runtimeinfo.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
 | `atri_x.tool.availability` | 工具"为什么没被采用"的机器可读原因，以及产出它的唯一判定入口。 | registry_tool_availability_reason, tool_access_reason, tool… | 114 | — |
 | `atri_x.tool.builder` | 工具 schema 与元信息的声明式构造器。 | Builder, ParamConfig, enum, items, new_builder, required | 249 | `test_tool_discover.py` |
 | `atri_x.tool.builtin` | 内置工具包：ATRI-X 自带的全部工具实现与注册入口。 | — | 748 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
@@ -716,7 +725,7 @@
 | `atri_x.tool.builtin.register` | 把所有已落地的内置工具装进 :class:`atri_x.tool.Registry`。 | RegisterOptions, new_registry_with_builtin, register_all, w… | 458 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_imagegen.py`、`test_builtin_tools2.py`、`test_builtin_tools4.py`、`test_member_profile.py`、`test_qq_slowfetch.py` |
 | `atri_x.tool.builtin.resident_memory` | 常驻记忆工具族：入口 + 读取 + 普通记忆 + 核心记忆。 | MemoryCoreArgs, MemoryNormalArgs, MemoryReadArgs, MemoryRea… | 388 | `test_builtin_tools2.py`、`test_memory_notes.py` |
 | `atri_x.tool.builtin.runtime` | ``runtime.go`` 对应的入口名与配置换算。 | ImageGenConfig, ImagePromptRewriteRequest, ImagePromptRewri… | 151 | `test_builtin_tools4.py` |
-| `atri_x.tool.builtin.runtime_resources` | ``runtime_resources``：超管专属的只读硬件资源占用查询。 | RuntimeResourcesArgs, RuntimeResourcesTool, new_runtime_res… | 182 | `test_builtin_runtime_resources.py` |
+| `atri_x.tool.builtin.runtime_resources` | ``runtime_resources``：超管专属的只读硬件资源占用查询。 | RuntimeResourcesArgs, RuntimeResourcesTool, new_runtime_res… | 196 | `test_builtin_runtime_resources.py` |
 | `atri_x.tool.builtin.runtimeinfo` | 内置工具共享的运行时信息 —— 现在只是 :mod:`atri_x.tool.runtimeinfo` 的再导出。 | Info, RuntimeInfo, atriyph_rule_card, first | 32 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
 | `atri_x.tool.builtin.self_learning` | ``self_learning_review``：管理 clean-room 表达/黑话候选。 | SelfLearningReviewArgs, SelfLearningReviewTool, new_self_le… | 218 | `test_builtin_tools3.py` |
 | `atri_x.tool.builtin.send_file` | ``send_file``：把本地文件 / file URI / HTTP(S) URL / 媒体 ID 作为产物发出。 | SendFileArgs, SendFileTool, args_source, file_name_from_url… | 264 | `test_builtin_tools3.py`、`test_safety_integration.py` |
@@ -742,8 +751,8 @@
 | `atri_x.tool.provider` | Agent 提示用的工具/skill 名单与 schema 提供者。 | PromptNames, SchemaProvider, actor_from_scope, prompt_names… | 145 | — |
 | `atri_x.tool.runtimeinfo` | ``internal/tool/runtimeinfo`` 的 Python 移植。 | Info, atriyph_rule_card, first | 105 | `test_builtin_cron.py`、`test_tool_runtimeinfo.py` |
 | `atri_x.tool.sandbox` | 工具执行的轻量沙盒运行态、后台上下文与相对路径解析。 | BackgroundKind, SandboxContext, background_context, backgro… | 150 | `test_agent_cron.py`、`test_agent_cron_background.py`、`test_background.py`、`test_builtin_files.py`、`test_builtin_shell.py`、`test_builtin_tools3.py`、`test_toolrun.py`、`test_usage_attribution.py` |
-| `atri_x.tool.skill` | Skill 工具包：AgentSkill / Go skill 的发现、运行与创建。 | AGENT_SKILL_CONFIG_FILE, AgentSkillManagerName, AgentSkillM… | 186 | `test_app_tool_runtime_wiring.py`、`test_builtin_tools4.py`、`test_research_bootstrap.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py` |
-| `atri_x.tool.skill.agent_manifest` | AgentSkill 清单（``ATRIX_SKILL.toml``）的读取、校验与 schema 投影。 | AGENT_SKILL_CONFIG_FILE, AgentSkillManifest, AgentSkillMani… | 349 | `test_research_bootstrap.py` |
+| `atri_x.tool.skill` | Skill 工具包：AgentSkill / Go skill 的发现、运行与创建。 | AGENT_SKILL_CONFIG_FILE, AgentSkillManagerName, AgentSkillM… | 186 | `test_app_tool_runtime_wiring.py`、`test_builtin_tools4.py`、`test_diagram_pack.py`、`test_research_bootstrap.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py` |
+| `atri_x.tool.skill.agent_manifest` | AgentSkill 清单（``ATRIX_SKILL.toml``）的读取、校验与 schema 投影。 | AGENT_SKILL_CONFIG_FILE, AgentSkillManifest, AgentSkillMani… | 349 | `test_diagram_pack.py`、`test_research_bootstrap.py` |
 | `atri_x.tool.skill.agent_skill_tool` | ``agent_skill`` 工具：读写 AgentSkill 的 ``ATRIX_SKILL.toml``。 | AgentSkillArgs, AgentSkillPreview, AgentSkillTool, agent_sk… | 274 | — |
 | `atri_x.tool.skill.atriyph_warnings` | 把 Atriyph 诊断拼进工具输出。 | append_atriyph_warnings | 23 | — |
 | `atri_x.tool.skill.catalog` | Skill 目录：种类、记录与线程安全目录。 | Catalog, Kind, KindAgent, KindGo, Record, SourceForKind, ne… | 128 | — |

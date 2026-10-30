@@ -6,7 +6,12 @@ import unittest
 from datetime import datetime, timezone
 
 from atri_x.agent import call_reason
-from atri_x.agent.chat_observe import audit_side_usage, audit_usage, price_known_for
+from atri_x.agent.chat_observe import (
+    audit_side_usage,
+    audit_usage,
+    log_usage_observed,
+    price_known_for,
+)
 from atri_x.agent.commands.usage import (
     UsageGroupKey,
     format_usage_summary,
@@ -107,6 +112,9 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(pairs["price_known"], False)
         self.assertEqual(pairs["total_tokens"], 15)
         self.assertEqual(pairs["session_id"], "s1")
+        # 缓存命中值要带上"上游是否上报过"，否则 /usage 里 0 的含义无法解释。
+        self.assertIn("cache_hit_reported", pairs)
+        self.assertTrue(pairs["cache_hit_reported"])
 
     def test_audit_usage_without_reason_keeps_old_shape(self) -> None:
         agent = _FakeAgent()
@@ -117,6 +125,34 @@ class AuditTests(unittest.TestCase):
         self.assertNotIn("reason", pairs)
         self.assertNotIn("price_known", pairs)
         self.assertNotIn("total_tokens", pairs)
+
+    def test_log_usage_observed_records_cache_reported(self) -> None:
+        """debug 现场打点：上游到底报了多少 token、有没有缓存字段。"""
+
+        class _Logger:
+            def __init__(self) -> None:
+                self.records: list[tuple] = []
+
+            def log(self, level: str, message: str, *args) -> None:  # noqa: ANN002
+                self.records.append((level, message, args))
+
+        agent = _FakeAgent()
+        agent.logger = _Logger()
+        selection = type("S", (), {"provider": "p", "model": "m"})()
+        log_usage_observed(
+            agent,
+            "s1",
+            selection,
+            Usage(prompt_tokens=10, completion_tokens=2, total_tokens=12, cache_hit_reported=False),
+        )
+        level, message, args = agent.logger.records[0]
+        self.assertEqual((level, message), ("debug", "llm usage"))
+        pairs = dict(zip(args[::2], args[1::2]))
+        self.assertEqual(pairs["prompt_tokens"], 10)
+        self.assertEqual(pairs["cache_hit_tokens"], 0)
+        self.assertIs(pairs["cache_hit_reported"], False)
+        # 没有 logger / usage 时静默返回，不抛异常。
+        log_usage_observed(_FakeAgent(), "s1", selection, None)
 
     def test_audit_side_usage(self) -> None:
         agent = _FakeAgent()

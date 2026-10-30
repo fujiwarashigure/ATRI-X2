@@ -488,6 +488,7 @@ context_default_limit = 6
 | --- | --- |
 | `生图服务未启用` | `services.toml` 的 `[image_generation] enabled = false`（旧部署为 `app.toml`）或没重启 |
 | `缺少 API Key` | `IMAGE_API_KEY` 没设置，或 `.env` 没被加载 |
+| 「获取可用模型」返回 `鉴权失败（HTTP 401）。本次请求没有携带密钥…` | 界面「密钥值」里填的密钥还没点「保存进阶配置」——它只存在输入框里；先保存（写入 `.env`）再点「获取可用模型」，或设置环境变量 `IMAGE_API_KEY` |
 | `生图服务返回 404` | `base_url` 少/多了 `/v1`；用 `endpoint` 直接写全路径 |
 | `生图服务返回 400` | `quality` / `size` / `output_format` 不被中转支持；用 `extra_payload` 调整 |
 | `没有返回图片` | 中转返回结构不是 `data[].b64_json` / `data[].url` |
