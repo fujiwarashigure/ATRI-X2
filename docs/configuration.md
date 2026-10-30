@@ -9,7 +9,7 @@ ATRI-X 使用一个主配置入口加载应用配置和运行态状态；LLM Pro
 | 文件或目录 | 职责 |
 | --- | --- |
 | `app.toml` | 主配置入口，保存行为、平台、工具、安全、维护等应用配置，并记录各独立配置文件的相对路径。 |
-| `services.toml` | 共享只读服务配置：`[providers.*]`、`[model_metadata]`、`[model_profiles]`、`[image_generation]`、`[image_to_prompt]`、`[vision]`、`[asr]`。多个服务可以挂载同一个文件；密钥仍只放在 `.env`。 |
+| `services.toml` | 共享只读服务配置：`[providers.*]`、`[model_metadata]`、`[model_profiles]`、`[image_generation]`、`[image_to_prompt]`、`[comic]`、`[vision]`、`[asr]`。多个服务可以挂载同一个文件；密钥仍只放在 `.env`。 |
 | `providers.toml` | 旧版 LLM Provider 配置；仍兼容，只有 `[config_files].providers` 指定时才读取。新部署建议统一使用 `services.toml`。 |
 | `atrinis.toml` | Atrinis 监听枢纽配置，保存 HTTP、token、delivery、allowed_tools 和 Atriwisp 策略。 |
 | `state.toml` | 运行态状态，例如默认 Session 模式、chat/work/compact/naming 模型选择。 **该文件会被 ATRI-X 运行时回写，不能和 `services.toml` 共用。** |
@@ -206,6 +206,52 @@ services:
 
 - 修改 `services.toml` 后需要重启或 recreate ATRI-X 容器；当前不热加载该文件（`state.toml` 相反：它会被运行时回写，并支持外部编辑热加载，见[外部修改 `state.toml` 的热加载](#外部修改-statetoml-的热加载)）。
 - 旧部署不配置 `[config_files].services`、继续使用 `[config_files].providers = "providers.toml"` 时，行为与旧版本一致。
+
+
+## 聊天漫画 comic（1.1.6 新增）
+
+聊天漫画的业务策略放在 `services.toml` 的 `[comic]` 段；生图端点/密钥仍然在
+`[image_generation]`，漫画不重复配置。功能说明与工具参数见 [聊天漫画](comic.md)。
+
+```toml
+[comic]
+enabled = true
+planner = "auto"            # auto | rules | llm
+plan_model = "work"         # naming / compact / chat / work
+language = "zh"
+layout = "grid"             # grid | strip
+default_panel_count = 6
+max_panels = 12
+max_characters = 4
+context_limit = 12
+max_scene_runes = 240
+max_dialogue_runes = 120
+max_prompt_runes = 6000
+send_by_default = true
+```
+
+| 键 | 说明 |
+| --- | --- |
+| `enabled` | 关掉后 `comic_plan` / `comic_render` 整组不注册。 |
+| `planner` | `auto`（有规划模型就用，否则规则规划）、`rules`、`llm`。规则规划不需要模型配置。 |
+| `plan_model` | 启动期解析出的规划模型槽；槽位没配 provider/model 时回落到 work 模型。 |
+| `default_panel_count` / `max_panels` | 默认格数与一页上限（也是工具 `panel_count` 的上限）。 |
+| `max_characters` | 一页最多几个人物（不超过生图参考图上限 4）。 |
+| `context_limit` | 默认取材多少条聊天消息。 |
+| `max_scene_runes` / `max_dialogue_runes` | 单格画面描述 / 单句台词长度上限。 |
+| `max_prompt_runes` | 漫画提示词总上限；受保护的分镜与台词不会被静默丢弃，超限直接报错。 |
+| `send_by_default` | 工具没显式传 `send` 时是否直接发到当前聊天。 |
+
+注意事项：
+
+- `[comic]` 只认 `services.toml`；写进 `app.toml` 会被严格解码当成未知键拒绝（避免
+  同一份配置出现两个生效位置，排障时分不清哪个赢了）。
+- `[comic]` 在启动期装配，改完需要重启后台服务；规划提示词模板（桌面端「提示词 →
+  漫画」，id `comic.plan`）下一次规划即生效。
+- 规划模型需要 `[providers.*]` 与模型槽可用；没有模型时 `planner=auto` 自动用规则
+  规划，台词逐字取自聊天原文。
+- 生成记录落在 `<配置目录>/comic/records/`，计划落在 `<配置目录>/comic/plans/`；
+  两者都是自包含 JSON，删除对应的 `task_id`/`plan_id` 文件即可清理。
 
 
 ## 运维健康接口
@@ -2115,6 +2161,53 @@ emotions = ["开心", "期待", "得意", "害羞", "惊讶", "困惑", "难过"
 Hook 不要直接发平台消息，应返回输出意图，由 Agent 统一交给 Output Manager 发送。
 
 规则与持久 Hook 的完整配置说明见 [Hook](hooks.md)。
+
+## 自定义提示词库与标签库
+
+内置模板（生图改写教义、识图模板、群友档案 / 专属人设注入模板、表情提示、人设卡
+指引）的默认文本在 `atri_x/promptlib/defaults.py`，用户改动落在配置目录下的两个
+GUI 数据文件里；桌面端「提示词」选项卡直接编辑它们：
+
+| 文件 | 内容 | 生效时机 |
+|---|---|---|
+| `gui/prompts.json` | 提示词条目（只存"和内置默认不同"的条目 + 用户自建条目） | 下一轮对话（按文件指纹热加载） |
+| `gui/tags.json` | 标签词表（标签名 / 说明 / 别名 / 分组） | 下一轮对话（热加载） |
+| `tool_tags.toml` | tag → 工具组 + 提示词（原有机制，GUI 可编辑） | 下一轮对话（热加载） |
+| `services.toml` 的 `[image_generation.profiles.*]` | 命名生图档案（`@image:<名字>`） | 重启后台服务 |
+
+`gui/prompts.json` 的结构：
+
+```json
+{
+  "version": 1,
+  "prompts": {
+    "image.rewrite.natural": {
+      "id": "image.rewrite.natural",
+      "title": "生图改写：自然语言目标",
+      "category": "image",
+      "content": "……覆盖后的正文……",
+      "variables": [],
+      "description": "",
+      "inject": false
+    }
+  }
+}
+```
+
+- 内置条目 id：`image.rewrite.natural` / `image.rewrite.tags` / `vision.image_prompt` /
+  `vision.image_analysis` / `vision.chat_description` / `vision.attributes` /
+  `member.profile` / `member.persona` / `system.reactions` / `system.character_guide`。
+  改内置条目**只需要写 content**（其余字段可省略），没改过的条目不写，升级后自动跟随新默认。
+- 模板变量用 `{name}`，只有条目 `variables` 里声明的会被替换（例如 `member.profile`
+  的 `{platform}` / `{tags_line}` / `{profile_body}`，`system.reactions` 的 `{emotions}`）。
+  "整行只有一个变量且值为空"的行会被丢掉，所以去掉昵称 / 标签 / 角色资料不会留下空行。
+- 用户自建条目（id 建议以 `custom.` 开头）+ `inject = true` 时，会作为独立片段追加到
+  每轮系统提示词；它属于用户自己的系统提示词扩展，不改变权限、工具边界与安全规则。
+- 群友档案注入时的自由文本仍由代码转义（`<` / `>`），模板不能绕过这条边界；档案里的
+  标签若命中 `gui/tags.json` 词表，会渲染成 `标签（说明）`，没登记的标签原样输出。
+- 生图档案的字段与 `services.toml` 一致（`model` / `size` / `quality` / `base_url` /
+  `preset_prompt` / `negative_prompt` / `superadmin_only` / `aliases` 等），空串/留空表示
+  继承全局 `[image_generation]`；聊天里用 `@image:<名字>` 激活。
 
 ## 建议的维护方式
 

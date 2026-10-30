@@ -211,8 +211,9 @@ class FullWiringTest(_TmpDirTest):
         # Go ``register.go`` 注册的全部工具数 + Python 新增（``fetch_message`` /
         # ``get_current_time`` / ``character_import`` / ``character_activate`` /
         # ``persona_control`` / ``runtime_resources``）。1.1.3 修订：角色库一组新增
-        # 3 个工具；1.1.4 新增超管专属只读资源查询 ``runtime_resources``。
-        self.assertEqual(len(REGISTERED_TOOLS), 55)
+        # 3 个工具；1.1.4 新增超管专属只读资源查询 ``runtime_resources``；
+        # 1.1.6 新增聊天漫画 ``comic_plan`` / ``comic_render``（共 57 个）。
+        self.assertEqual(len(REGISTERED_TOOLS), 57)
         self.assertEqual(len(names), len(REGISTERED_TOOLS))
 
     def test_no_dependency_degraded_silently(self) -> None:

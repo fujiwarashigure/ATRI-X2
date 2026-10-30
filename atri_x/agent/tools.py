@@ -369,6 +369,13 @@ class ToolRuntimeMixin:
         # 人设卡操作指引：让"导入人设 / 切换人设"这类请求直接走工具，不再翻文件。
         if characters is not None:
             manager.add_source(CharacterGuideSystemPromptSource(characters))
+        # 用户自建提示词（桌面端「提示词」页勾选"注入系统提示词"的条目）。
+        try:
+            from atri_x.agent.user_prompt_source import UserPromptsSystemPromptSource
+        except Exception:  # noqa: BLE001 - 同僚模块可能尚未落地
+            UserPromptsSystemPromptSource = None  # type: ignore[assignment]
+        if UserPromptsSystemPromptSource is not None:
+            manager.add_source(UserPromptsSystemPromptSource())
         builder = getattr(host, "prompt_builder", None)
         if builder is not None:
             builder.system = manager

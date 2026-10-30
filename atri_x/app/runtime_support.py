@@ -30,6 +30,7 @@ __all__ = [
     "max_int64",
     "maxInt64",
     "config_dir_of",
+    "configure_prompt_libraries",
     "register_turn_alias",
     "audit_func",
     "resolve_file_delivery_credentials",
@@ -55,6 +56,52 @@ def max_int64(value: int, fallback: int) -> int:
 def config_dir_of(cfg: Any) -> str:
     """配置目录（Go 里到处写 ``filepath.Dir(cfg.ConfigPath)``）。"""
     return os.path.dirname(str(getattr(cfg, "config_path", "") or ""))
+
+
+def comic_tool_options(cfg: Any, request: Any) -> dict[str, Any]:
+    """聊天漫画相关的 ``ToolRuntimeOptions`` 字段（Python 侧新增，1.1.6）。
+
+    放在本模块而不是 ``runtime.py``：``runtime.py`` 已贴着行数上限，而这三个
+    字段的取值逻辑（配置段 + 规划模型槽 + 平台头像解析器）本身是"装配知识"。
+    """
+    from atri_x.app.comic import PlatformAvatarResolver, build_comic_planner
+
+    models = getattr(request, "models", None)
+    platforms = getattr(request, "platforms", None)
+    runtimes = list(getattr(platforms, "runtimes", None) or [])
+    return {
+        "comic": getattr(cfg, "comic", None),
+        "comic_planner": build_comic_planner(cfg, models),
+        "comic_avatar_resolver": PlatformAvatarResolver(runtimes),
+    }
+
+
+def configure_prompt_libraries(cfg: Any, logger: Any = None) -> Any:
+    """把进程级提示词库 / 标签库绑定到配置目录（失败不阻断启动）。
+
+    数据文件在 ``<配置目录>/gui/prompts.json`` 与 ``<配置目录>/gui/tags.json``；
+    读不到/坏了都退回内置默认（提示词照常工作），所以这里只记一行 WARN。
+    返回提示词库实例（没有配置目录时返回 ``None``）。
+    """
+    config_dir = config_dir_of(cfg)
+    if not config_dir:
+        return None
+    try:
+        from atri_x.promptlib import configure, configure_tags
+
+        configure_tags(config_dir, logger=logger)
+        return configure(config_dir, logger=logger)
+    except Exception as exc:  # noqa: BLE001 - 提示词库不能阻断启动
+        if logger is not None:
+            try:
+                logger.warn(
+                    "提示词库初始化失败，已按内置默认处理",
+                    event="prompt_library_init_failed",
+                    error=str(exc),
+                )
+            except Exception:  # noqa: BLE001 - 日志失败不影响启动
+                pass
+        return None
 
 
 def register_turn_alias(aliases: dict[str, str], alias: str, name: str) -> None:

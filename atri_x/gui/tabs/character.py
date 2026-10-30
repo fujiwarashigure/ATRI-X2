@@ -41,6 +41,7 @@ from atri_x.character import (
 )
 from atri_x.gui.configedit import ConfigEditError, write_text_file
 from atri_x.gui.tabs.base import ConfigTab, confirm, message
+from atri_x.gui.taglibedit import apply_tag_picker
 
 __all__ = ["CharacterTab"]
 
@@ -145,6 +146,11 @@ class CharacterTab(ConfigTab):
         self._form_row(form, 1, "名称", self.name_var)
         self._form_row(form, 2, "别名（逗号分隔）", self.aliases_var)
         self._form_row(form, 3, "标签（逗号分隔）", self.tags_var)
+        ttk.Button(
+            form,
+            text="标签库…",
+            command=lambda: apply_tag_picker(self, self.tags_var, "从标签库选择人设卡标签"),
+        ).grid(row=3, column=2, sticky="w", padx=(6, 0))
         vis_row = ttk.Frame(form)
         vis_row.grid(row=4, column=0, columnspan=2, sticky="w", pady=2)
         ttk.Label(vis_row, text="可见性", width=18).pack(side=tk.LEFT)

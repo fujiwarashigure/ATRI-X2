@@ -25,7 +25,7 @@
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
-| `atri_x.platform` | 平台适配层：适配器契约、连接信号、配置与媒体编解码。 | 75 | `test_agent_chat.py`、`test_agent_commands_integration.py`、`test_agent_core.py`、`test_agent_group_policy.py`、`test_agent_inbound_media.py`、`test_agent_participation.py`、`test_agent_wakeup.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_cli_sessions.py`、`test_gui_client.py`、`test_gui_protocol.py`、`test_long_memory_scope.py`、`test_media_manager.py`、`test_media_platform.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_platform_builtin.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_platform_cli_tui.py`、`test_platform_core.py`、`test_platform_headless.py`、`test_platform_qq_onebot.py`、`test_platform_qqofficial.py`、`test_qq_onebot_backend.py`、`test_qq_onebot_smoke.py`、`test_qq_onebot_snowluma.py`、`test_qq_slowfetch.py`、`test_refcontext.py` |
+| `atri_x.platform` | 平台适配层：适配器契约、连接信号、配置与媒体编解码。 | 75 | `_comic_fakes.py`、`test_agent_chat.py`、`test_agent_commands_integration.py`、`test_agent_core.py`、`test_agent_group_policy.py`、`test_agent_inbound_media.py`、`test_agent_participation.py`、`test_agent_wakeup.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_cli_sessions.py`、`test_gui_client.py`、`test_gui_protocol.py`、`test_long_memory_scope.py`、`test_media_manager.py`、`test_media_platform.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_platform_builtin.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_platform_cli_tui.py`、`test_platform_core.py`、`test_platform_headless.py`、`test_platform_qq_onebot.py`、`test_platform_qqofficial.py`、`test_qq_onebot_backend.py`、`test_qq_onebot_smoke.py`、`test_qq_onebot_snowluma.py`、`test_qq_slowfetch.py`、`test_refcontext.py` |
 | `atri_x.platform.backoff` | 平台重连用的指数退避。 | 62 | — |
 | `atri_x.platform.builtin` | ``internal/platform/builtin`` 的 Python 移植：把配置变成平台适配器集合。 | 429 | `test_platform_builtin.py` |
 | `atri_x.platform.cli` | CLI 平台适配器（对应 Go 包 ``internal/platform/cli``）。 | 90 | `test_cli_sessions.py`、`test_gui_client.py`、`test_gui_protocol.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_platform_cli_tui.py` |
@@ -103,4 +103,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 796 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 825 个 / 超线文件 79 个）。

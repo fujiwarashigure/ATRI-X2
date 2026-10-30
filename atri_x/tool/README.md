@@ -22,14 +22,14 @@
 
 ## 模块清单（自动生成）
 
-共 **82** 个模块，被测试覆盖 **60** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **83** 个模块，被测试覆盖 **61** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
-| `atri_x.tool` | Tool Runtime：工具契约、注册表、发现、风险准入与执行适配。 | 191 | `agent_fakes.py`、`test_agent_assembly.py`、`test_agent_chat.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_background.py`、`test_builtin_character_artist.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_command_router.py`、`test_completion.py`、`test_diagram_pack.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_research_bootstrap.py`、`test_safety_integration.py`、`test_tool_core.py`、`test_tool_discover.py`、`test_tool_media_runtime.py`、`test_tool_runtimeinfo.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
+| `atri_x.tool` | Tool Runtime：工具契约、注册表、发现、风险准入与执行适配。 | 191 | `agent_fakes.py`、`test_agent_assembly.py`、`test_agent_chat.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_background.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_command_router.py`、`test_completion.py`、`test_diagram_pack.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_research_bootstrap.py`、`test_safety_integration.py`、`test_tool_core.py`、`test_tool_discover.py`、`test_tool_media_runtime.py`、`test_tool_runtimeinfo.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
 | `atri_x.tool.availability` | 工具"为什么没被采用"的机器可读原因，以及产出它的唯一判定入口。 | 114 | — |
 | `atri_x.tool.builder` | 工具 schema 与元信息的声明式构造器。 | 249 | `test_tool_discover.py` |
-| `atri_x.tool.builtin` | 内置工具包：ATRI-X 自带的全部工具实现与注册入口。 | 748 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
+| `atri_x.tool.builtin` | 内置工具包：ATRI-X 自带的全部工具实现与注册入口。 | 748 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
 | `atri_x.tool.builtin.angel_memory` | Angel 长期记忆工具族：写入、召回，以及可选的删除（angel_forget）。 | 457 | `test_builtin_tools2.py` |
 | `atri_x.tool.builtin.artist_extract` | ``artist_extract``：从提示词文本或图片自身的生成参数里提取画师串。 | 456 | `test_builtin_character_artist.py` |
 | `atri_x.tool.builtin.artist_library` | ``artist_library_*``：画师串组合的检索、读取、保存与删除。 | 817 | `test_builtin_character_artist.py` |
@@ -37,6 +37,7 @@
 | `atri_x.tool.builtin.atriwisp_creator` | ``atriwisp_creator``：给出一份创建 Atriwisp 监听器的精简任务卡。 | 343 | `test_builtin_tools4.py` |
 | `atri_x.tool.builtin.character` | ``character_*``：角色素材库的列表、读取、检索、管理与删除。 | 1117 | `test_builtin_character_artist.py`、`test_builtin_imagegen.py`、`test_member_persona.py` |
 | `atri_x.tool.builtin.chat_history` | 聊天历史工具族：关键词检索、上下文窗口、引用回复。 | 598 | `test_builtin_tools2.py` |
+| `atri_x.tool.builtin.comic` | 聊天漫画工具：``comic_plan``（只规划、预览）与 ``comic_render``（真正生成）。 | 435 | `test_builtin_comic.py` |
 | `atri_x.tool.builtin.common` | 内置工具的公共环境读取与共享小助手。 | 249 | `test_builtin_character_artist.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_tools3.py` |
 | `atri_x.tool.builtin.cron` | ``cron`` / ``cron_query`` / ``cron_write`` 三个定时任务工具。 | 594 | `test_builtin_cron.py`、`test_builtin_tools3.py` |
 | `atri_x.tool.builtin.fetch_message` | ``fetch_message`` 工具：按消息 id 取回引用 / 转发的完整正文。**Python 版新增**。 | 109 | `test_qq_slowfetch.py` |
@@ -60,7 +61,7 @@
 | `atri_x.tool.builtin.long_memory_store` | 长期记忆的 SQLite 索引、文件回填与检索。 | 980 | `test_builtin_long_memory.py`、`test_long_memory_scope.py` |
 | `atri_x.tool.builtin.persona` | ``persona_control``：成员自己开关「专属人设」（按人长期生效）。 | 264 | `test_member_persona.py` |
 | `atri_x.tool.builtin.prompt_library` | ``prompt_library_search``：检索内置的 GPT Image 提示词库。 | 132 | `test_builtin_tools2.py` |
-| `atri_x.tool.builtin.register` | 把所有已落地的内置工具装进 :class:`atri_x.tool.Registry`。 | 458 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_imagegen.py`、`test_builtin_tools2.py`、`test_builtin_tools4.py`、`test_member_profile.py`、`test_qq_slowfetch.py` |
+| `atri_x.tool.builtin.register` | 把所有已落地的内置工具装进 :class:`atri_x.tool.Registry`。 | 469 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_comic.py`、`test_builtin_imagegen.py`、`test_builtin_tools2.py`、`test_builtin_tools4.py`、`test_member_profile.py`、`test_qq_slowfetch.py` |
 | `atri_x.tool.builtin.resident_memory` | 常驻记忆工具族：入口 + 读取 + 普通记忆 + 核心记忆。 | 388 | `test_builtin_tools2.py`、`test_memory_notes.py` |
 | `atri_x.tool.builtin.runtime` | ``runtime.go`` 对应的入口名与配置换算。 | 151 | `test_builtin_tools4.py` |
 | `atri_x.tool.builtin.runtime_resources` | ``runtime_resources``：超管专属的只读硬件资源占用查询。 | 196 | `test_builtin_runtime_resources.py` |
@@ -106,7 +107,7 @@
 | `atri_x.tool.skill.process` | 子进程启动、超时/取消与进程树终止。 | 244 | — |
 | `atri_x.tool.skill.runner` | Go skill 运行器：把 payload 写进子进程 stdin 并解析 stdout。 | 333 | — |
 | `atri_x.tool.skill.scanner` | 文件系统 skill 扫描器。 | 399 | — |
-| `atri_x.tool.tool` | Tool Runtime 核心类型：工具契约、风险等级、注册表与工具发现。 | 502 | `test_agent_assembly.py`、`test_agent_cron.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_cron.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_tool_discover.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
+| `atri_x.tool.tool` | Tool Runtime 核心类型：工具契约、风险等级、注册表与工具发现。 | 502 | `test_agent_assembly.py`、`test_agent_cron.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_tool_discover.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
 | `atri_x.tool.workspace` | 工具 workspace 上下文与路径解析。 | 229 | `test_builtin_files.py`、`test_toolrun.py` |
 
 ## 对应上游 Go（自动生成）
@@ -117,4 +118,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 796 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 825 个 / 超线文件 79 个）。

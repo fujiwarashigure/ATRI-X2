@@ -322,6 +322,20 @@ TOOL_CATALOG: tuple[ToolMeta, ...] = (
         "low",
     ),
     ToolMeta(
+        "comic_plan",
+        "漫画分镜",
+        "把当前群聊改编成一页结构化漫画分镜；只规划预览，不消耗生图额度。",
+        "图片与画师",
+        "low",
+    ),
+    ToolMeta(
+        "comic_render",
+        "生成漫画",
+        "按分镜计划生成一张整页漫画图；失败/超时不自动重试，可重发已有图片。",
+        "图片与画师",
+        "low",
+    ),
+    ToolMeta(
         "image_to_prompt",
         "图片反推提示词",
         "从参考图片反推出可直接使用的绘图提示词。",

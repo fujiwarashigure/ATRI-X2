@@ -33,6 +33,7 @@ from atri_x.gui.tabs.members import MembersTab
 from atri_x.gui.tabs.model import ModelTab
 from atri_x.gui.tabs.permission import PermissionTab
 from atri_x.gui.tabs.platform import PlatformTab
+from atri_x.gui.tabs.promptlib import PromptLibTab
 from atri_x.gui.tabs.research import ResearchTab  # [atri-research]
 from atri_x.gui.tabs.timepanel import TimeTab
 from atri_x.gui.tabs.toolperm import ToolPermTab
@@ -50,6 +51,7 @@ __all__ = [
     "ModelTab",
     "PermissionTab",
     "PlatformTab",
+    "PromptLibTab",
     "ResearchTab",  # [atri-research]
     "TimeTab",
     "ToolPermTab",

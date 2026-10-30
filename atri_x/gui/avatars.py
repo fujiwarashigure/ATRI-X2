@@ -52,6 +52,13 @@ FETCH_TIMEOUT = 15.0
 #: QQ 头像接口（``s`` 是边长，``nk`` 是 QQ 号）。
 QQ_AVATAR_URL = "https://q1.qlogo.cn/g?b=qq&nk={uin}&s={size}"
 
+#: QQ 头像接口真正接受的边长档位（``0`` 是原图，这里不用）。
+#:
+#: 服务端只认 ``40 / 100 / 140 / 640`` 这几档，其它值（例如本地缓存边长 96）
+#: 一律回 ``HTTP 400``（响应头 ``X-ErrNo: -105``）。所以**请求边长**必须先吸附到
+#: 这几档——它和本地缓存边长 :data:`AVATAR_SIZE` 是两回事。
+QQ_AVATAR_SIZES = (40, 100, 140, 640)
+
 #: 有公开头像接口的平台。
 QQ_PLATFORMS = ("qqonebot", "qqofficial")
 
@@ -66,7 +73,16 @@ def avatar_url(platform: str, user_id: str, *, size: int = AVATAR_SIZE) -> str:
     user = (user_id or "").strip()
     if name not in QQ_PLATFORMS or not user.isdigit():
         return ""
-    return QQ_AVATAR_URL.format(uin=user, size=max(int(size), 40))
+    return QQ_AVATAR_URL.format(uin=user, size=_request_size(size))
+
+
+def _request_size(size: int) -> int:
+    """把期望边长吸附到 QQ 头像接口接受的一档（向上取整；超过最大档取 640）。"""
+    wanted = max(int(size), 1)
+    for supported in QQ_AVATAR_SIZES:
+        if supported >= wanted:
+            return supported
+    return QQ_AVATAR_SIZES[-1]
 
 
 def fetch_avatar_png(

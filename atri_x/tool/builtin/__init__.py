@@ -58,10 +58,9 @@ Python 模块                    对应 Go 文件
 （``agent_skill`` / ``go_skill_run`` / ``create_atrix_skill`` / ``read_atrix_skill`` /
 ``modify_atrix_skill`` / ``finalize_atrix_skill``）与工具发现入口 ``discover_tool``
 全部已接线，真实装配（:func:`atri_x.app.tool_runtime.build_tool_runtime`）在依赖
-齐全时注册 ``REGISTERED_TOOLS`` 里的全部 55 个名字，``UNPORTED_TOOLS`` 为空。
-``angel_forget`` 由 ``angel_memory_allow_forget`` 控制，属条件注册（见
-``CONDITIONAL_TOOLS``）。``runtime.go`` 的 ``Runtime`` / ``RuntimeOptions`` /
-``NewRuntime`` 已经在 app 层落地（:mod:`atri_x.app.tool_runtime`），本包不再重复装配。
+齐全时注册 ``REGISTERED_TOOLS`` 里的全部 57 个名字（1.1.6 新增聊天漫画两个），
+``UNPORTED_TOOLS`` 为空。``angel_forget`` 由 ``angel_memory_allow_forget`` 控制，
+属条件注册（见 ``CONDITIONAL_TOOLS``）。``runtime.go`` 的 ``Runtime`` / ``RuntimeOptions`` / ``NewRuntime`` 已经在 app 层落地（:mod:`atri_x.app.tool_runtime`），本包不再重复装配。
 
 注册表的三种语义见 :mod:`atri_x.tool.builtin.register`：``ALWAYS_REGISTERED_TOOLS``
 （Go 无守卫）、``CONDITIONAL_TOOLS``（按 Go 的依赖守卫分组）、``REGISTERED_TOOLS``
@@ -220,6 +219,7 @@ from atri_x.tool.builtin.character import (  # noqa: F401
     new_character_tools,
     render_character_sections,
 )
+from atri_x.tool.builtin.comic import *  # noqa: F401,F403
 from atri_x.tool.builtin.common import (  # noqa: F401
     abs_clean,
     append_warnings,

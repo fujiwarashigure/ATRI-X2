@@ -19,6 +19,7 @@ from unittest import mock
 from atri_x.config import AppConfig
 from atri_x.config import ModelSelection
 from atri_x.config import assets as A
+from atri_x.config import comic as config_comic
 from atri_x.config import inspect as I
 from atri_x.config import loader
 from atri_x.config.app import default, default_app_config
@@ -136,6 +137,16 @@ class TestDefaultAssetsEndToEnd(ConfigCase):
         self.assertFalse(self.cfg.image_generation.enabled)
         self.assertEqual(self.cfg.image_generation.model, "gpt-image-2.5")
         self.assertEqual(self.cfg.image_generation.queue_timeout_seconds, 0)
+
+    def test_comic_defaults_apply_when_section_absent(self) -> None:
+        # 默认 services.toml 里没有 [comic]：业务策略用内置默认值，不要求用户先配置。
+        self.assertTrue(self.cfg.comic.enabled)
+        self.assertEqual(self.cfg.comic.planner, "auto")
+        self.assertEqual(self.cfg.comic.plan_model, "work")
+        self.assertEqual(self.cfg.comic.default_panel_count, 6)
+        self.assertEqual(self.cfg.comic.max_panels, 12)
+        self.assertEqual(self.cfg.comic.max_characters, 4)
+        self.assertTrue(self.cfg.comic.send_by_default)
 
     def test_state_supplies_model_selection(self) -> None:
         self.assertEqual(self.cfg.mode_models["work"].model, "deepseek-v4-pro")
@@ -523,6 +534,64 @@ class TestExtraPayloadPassthrough(ConfigCase):
         )
         with self.assertRaises(ConfigDecodeError):
             loader.load(app)
+
+
+class TestComicConfig(ConfigCase):
+    """``[comic]``（Python 侧新增，1.1.6）的解码与合并。"""
+
+    def test_config_comic_module_is_importable(self) -> None:
+        self.assertEqual(config_comic.__name__, "atri_x.config.comic")
+        self.assertTrue(config_comic.ComicConfig().enabled)
+
+    def test_services_toml_carries_comic_section(self) -> None:
+        from atri_x.config.services import load_services_config
+
+        path = self.write(
+            "services.toml",
+            "[comic]\n"
+            'planner = "rules"\n'
+            'plan_model = "compact"\n'
+            "default_panel_count = 4\n"
+            "max_panels = 8\n"
+            "max_characters = 3\n"
+            "send_by_default = false\n",
+        )
+        services = load_services_config(str(path))
+        self.assertIsNotNone(services.comic)
+        self.assertEqual(services.comic.planner, "rules")
+        self.assertEqual(services.comic.plan_model, "compact")
+        self.assertEqual(services.comic.default_panel_count, 4)
+        self.assertEqual(services.comic.max_panels, 8)
+        self.assertEqual(services.comic.max_characters, 3)
+        self.assertFalse(services.comic.send_by_default)
+        # 段里没写的字段保留内置默认值。
+        self.assertTrue(services.comic.enabled)
+        self.assertEqual(services.comic.layout, "grid")
+
+    def test_comic_in_app_toml_is_rejected(self) -> None:
+        # [comic] 属于 services.toml 的共享服务配置；写进 app.toml 要报未知键，
+        # 否则同一份配置会有两个"生效位置"，排障时没人知道哪个赢了。
+        app = self.write_minimal("[comic]\nenabled = true\n")
+        with self.assertRaises(ConfigDecodeError):
+            loader.load(app)
+
+    def test_comic_section_merges_into_app_config(self) -> None:
+        from atri_x.config.services import ComicConfig, ServicesConfig
+
+        config = AppConfig()
+        self.assertEqual(config.comic.default_panel_count, 6)
+        config.merge_services(ServicesConfig(comic=ComicConfig(default_panel_count=4)))
+        self.assertEqual(config.comic.default_panel_count, 4)
+        # 缺席的段不覆盖（与 mergeServices 的渐进迁移语义一致）。
+        config.merge_services(ServicesConfig())
+        self.assertEqual(config.comic.default_panel_count, 4)
+
+    def test_unknown_comic_key_is_rejected(self) -> None:
+        from atri_x.config.services import load_services_config
+
+        path = self.write("services.toml", "[comic]\nnot_a_field = 1\n")
+        with self.assertRaises(ConfigDecodeError):
+            load_services_config(str(path))
 
 
 class TestAppDefaults(ConfigCase):

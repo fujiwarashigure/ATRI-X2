@@ -24,6 +24,11 @@ from atri_x.app.dependencies import ModelClients
 from atri_x.app.service_types import ImagePromptRewriteRequest
 from atri_x.errors import InvalidError
 from atri_x.llm import ChatRequest, LLMMessage, Role, text_segments
+from atri_x.promptlib import active as active_prompt_library
+from atri_x.promptlib.defaults import (
+    PROMPT_IMAGE_REWRITE_NATURAL,
+    PROMPT_IMAGE_REWRITE_TAGS,
+)
 
 __all__ = [
     "ImagePromptRewriter",
@@ -43,27 +48,12 @@ __all__ = [
 ]
 
 #: 自然语言目标（GPT Image、Flux）的教义。
-IMAGE_REWRITE_SYSTEM_NATURAL = """你是生图提示词工程师。把用户给的画面描述改写成一段更适合自然语言生图模型（例如 GPT Image、Flux）的完整提示词。
-要求：
-- 只输出提示词本身，不要解释、不要 markdown 代码块、不要引号；
-- 严格保留用户原意、主体和角色身份，不新增无关元素；
-- 优先自然语言描述，可补充镜头、光线、构图、材质、画质；
-- 如果给了角色设定，保持外貌、服装、风格一致；
-- 如果给了参考对话，从中提取关键场景信息，不要照抄无关闲聊；
-- 语言以英文为主，专有名词可以保留中文；
-- 长度不超过给定上限。"""
+#: 内置默认值；用户可在桌面端「提示词」页覆盖（id = ``image.rewrite.natural``）。
+IMAGE_REWRITE_SYSTEM_NATURAL = PROMPT_IMAGE_REWRITE_NATURAL
 
 #: 加权标签目标（Stable Diffusion、NovelAI）的教义。
-IMAGE_REWRITE_SYSTEM_TAGS = """你是绘图标签工程师。目标模型使用以逗号分隔的标签提示词，不是自然语言长句。
-要求：
-- 只输出标签串本身，用逗号加空格分隔，不要解释、不要 markdown 代码块、不要引号；
-- 每个标签是一个单词或短语，不要写成完整句子，不要写序号；
-- 严格保留用户已经给出的标签原文以及它们的先后顺序，不要改写、不要翻译、不要重新排序；
-- 可以补充与画面一致的质量、镜头、光线、构图、材质标签；
-- 如果给了角色设定，把外貌、服装、风格转写成标签；
-- 如果给了参考对话，只提取能变成标签的场景信息；
-- 绝对不要输出 (tag:1.2) 这类权重表达式，也不要输出括号或方括号分组：权重由程序按用户原样单独处理，你输出括号会破坏它；
-- 长度不超过给定上限。"""
+#: 内置默认值；用户可在桌面端「提示词」页覆盖（id = ``image.rewrite.tags``）。
+IMAGE_REWRITE_SYSTEM_TAGS = PROMPT_IMAGE_REWRITE_TAGS
 
 #: 默认输出上限（rune）。
 DEFAULT_MAX_RUNES = 4000
@@ -76,9 +66,13 @@ REWRITE_MAX_TOKENS = 700
 class ImagePromptRewriter:
     """执行 ``image_generate`` 的可选 LLM 改写。对应 Go ``imagePromptRewriter``。"""
 
-    def __init__(self, client: Any = None, model: str = "") -> None:
+    def __init__(
+        self, client: Any = None, model: str = "", library: Any = None
+    ) -> None:
         self.client = client
         self.model = model
+        #: 提示词库（``None`` = 用进程级当前库；测试可注入固定实例）。
+        self.library = library
 
     async def rewrite_image_prompt(self, ctx: Any, req: Any) -> str:
         """对应 Go ``RewriteImagePrompt``。"""
@@ -96,7 +90,9 @@ class ImagePromptRewriter:
                         role=Role.SYSTEM,
                         segments=text_segments(
                             image_rewrite_system_for(
-                                request.target_dialect, request.model_family
+                                request.target_dialect,
+                                request.model_family,
+                                library=self.library,
                             )
                         ),
                     ),
@@ -207,10 +203,13 @@ def image_rewrite_selection(cfg: Any) -> Any:
     return work
 
 
-def image_rewrite_system_for(dialect: str, family: str) -> str:
+def image_rewrite_system_for(
+    dialect: str, family: str, *, library: Any = None
+) -> str:
     """按目标挑改写教义。对应 Go ``imageRewriteSystemFor``。
 
     未声明方言的 profile 保持自然语言默认值 —— 这是 OpenAI 兼容 images 端点的期望。
+    ``library`` 为 ``None`` 时用进程级当前提示词库（用户可在桌面端覆盖这两段教义）。
     """
     from atri_x.artist.types import Dialect, normalize_dialect
 
@@ -221,9 +220,10 @@ def image_rewrite_system_for(dialect: str, family: str) -> str:
             normalized = Dialect.SD_WEIGHTED
         else:
             normalized = Dialect.NATURAL
+    prompts = library if library is not None else active_prompt_library()
     if normalized in (Dialect.SD_WEIGHTED, Dialect.NAI, Dialect.TAGS):
-        return IMAGE_REWRITE_SYSTEM_TAGS
-    return IMAGE_REWRITE_SYSTEM_NATURAL
+        return prompts.text("image.rewrite.tags", IMAGE_REWRITE_SYSTEM_TAGS)
+    return prompts.text("image.rewrite.natural", IMAGE_REWRITE_SYSTEM_NATURAL)
 
 
 #: 与 Go ``Dialect.Label`` 逐字一致。``atri_x/artist/types.py`` 尚未移植这个

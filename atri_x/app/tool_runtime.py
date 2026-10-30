@@ -84,6 +84,12 @@ class ToolRuntimeOptions:
     artist_library_root: str = ""
     artist_metadata_store: Any = None
     image_generation: Any = None
+    #: Python 侧新增（1.1.6）：``[comic]`` 段（聊天漫画业务策略）。
+    comic: Any = None
+    #: 漫画规划模型（``atri_x.app.comic.LLMComicPlanner``）；``None`` 时用规则规划。
+    comic_planner: Any = None
+    #: 平台头像解析器（``atri_x.app.comic.PlatformAvatarResolver``）。
+    comic_avatar_resolver: Any = None
     web_search: Any = None
     web_extract: Any = None
     prompt_rewriter: Any = None
@@ -116,6 +122,8 @@ class ToolRuntime:
     character_store: Any = None
     group_analysis: Any = None
     artists: Any = None
+    #: Python 侧新增（1.1.6）：聊天漫画服务（未配置生图时是 ``None``）。
+    comic: Any = None
     image_profiles: dict[str, Any] = field(default_factory=dict)
     default_image_profile: str = ""
     warnings: list[str] = field(default_factory=list)
@@ -165,6 +173,11 @@ def build_tool_runtime(opts: ToolRuntimeOptions) -> ToolRuntime:
     image_profiles, default_image_profile, image_limiter = _build_image_profiles(
         opts, process_env, warnings
     )
+    from atri_x.app.tool_runtime_comic import build_comic_service
+
+    comic_service = build_comic_service(
+        opts, image_profiles, default_image_profile, image_limiter, character_store, warnings
+    )
 
     file_manager = new_file_manager_with_media(
         str(getattr(info, "sandbox_root", "") or ""),
@@ -188,6 +201,7 @@ def build_tool_runtime(opts: ToolRuntimeOptions) -> ToolRuntime:
             image_profiles=image_profiles,
             default_image_profile=default_image_profile,
             image_limiter=image_limiter,
+            comic=comic_service,
             artists=artists,
             web_search=opts.web_search,
             web_extract=opts.web_extract,
@@ -227,6 +241,7 @@ def build_tool_runtime(opts: ToolRuntimeOptions) -> ToolRuntime:
         character_store=character_store,
         group_analysis=group_analysis,
         artists=artists,
+        comic=comic_service,
         image_profiles=image_profiles,
         default_image_profile=default_image_profile,
         warnings=warnings,

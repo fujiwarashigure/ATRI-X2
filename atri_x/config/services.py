@@ -1,20 +1,16 @@
 """共享只读服务配置：``[providers.*]`` / ``[model_metadata]`` / ``[model_profiles]`` /
-``[image_generation]`` / ``[image_to_prompt]`` / ``[vision]`` / ``[asr]`` /
-``[web_search]`` / ``[web_extract]``。
-
-对应 Go：``internal/config/config.go`` 里的 ``ProviderConfig`` / ``ModelConfig`` /
-``ModelMetadataConfig`` / ``ModelProfileConfig`` / ``ServicesConfig`` /
-``ImageGenerationConfig(ProfileConfig)`` / ``ImageToPromptConfig`` / ``VisionConfig`` /
-``ASRConfig``，以及 ``ParseAPIProtocol`` / ``VisionSupport`` / ``AudioSupport``。
-``[web_extract]`` 是 Python 版新增的段（Go 的 ``web_extract`` 没有通道配置）。
+``[image_generation]`` / ``[image_to_prompt]`` / ``[comic]`` / ``[vision]`` / ``[asr]`` /
+``[web_search]`` / ``[web_extract]``。对应 Go：``internal/config/config.go`` 里的
+``ProviderConfig`` / ``ModelConfig`` / ``ModelMetadataConfig`` / ``ModelProfileConfig`` /
+``ServicesConfig`` / ``ImageGenerationConfig(ProfileConfig)`` / ``ImageToPromptConfig`` /
+``VisionConfig`` / ``ASRConfig``，以及 ``ParseAPIProtocol`` / ``VisionSupport`` /
+``AudioSupport``。``[web_extract]`` 与 ``[comic]`` 是 Python 版新增的段。
 
 分工（与 :mod:`atri_x.config.app` 的分界）：本模块只管**多个进程共享的只读服务配置**，
 它们来自 ``[config_files].services``（新布局 ``services.toml``）或旧的 ``providers.toml``；
-``state.toml`` 运行态见 :mod:`atri_x.config.state`，app.toml 静态行为段见
-:mod:`atri_x.config.app_sections`。
+``state.toml`` 运行态见 :mod:`atri_x.config.state`，app.toml 静态行为段见 app_sections。
 
-旧部署兼容：``providers.toml`` 用 :func:`atri_x.config.loader.load_providers_config` 读，
-只取 ``providers`` 与 ``model_metadata`` 两段（与 Go ``mergeProviders`` 一致）。
+旧部署兼容：``providers.toml`` 用 :func:`atri_x.config.loader.load_providers_config` 读，只取 ``providers`` 与 ``model_metadata`` 两段（与 Go ``mergeProviders`` 一致）。
 """
 
 from __future__ import annotations
@@ -29,12 +25,14 @@ from atri_x.config.app_sections import (
     StrictConfig,
     load_toml,
 )
+from atri_x.config.comic import ComicConfig
 
 __all__ = [
     "APIProtocol",
     "ASRConfig",
     "AudioSupport",
     "DEFAULT_CONTEXT_WINDOW",
+    "ComicConfig",
     "ImageGenerationConfig",
     "ImageGenerationProfileConfig",
     "ImageToPromptConfig",
@@ -697,6 +695,7 @@ class ServicesConfig(StrictConfig):
     model_profiles: dict[str, ModelProfileConfig] = field(default_factory=dict)
     image_generation: ImageGenerationConfig | None = None
     image_to_prompt: ImageToPromptConfig | None = None
+    comic: ComicConfig | None = None
     vision: VisionConfig | None = None
     asr: ASRConfig | None = None
     web_search: WebSearchConfig | None = None

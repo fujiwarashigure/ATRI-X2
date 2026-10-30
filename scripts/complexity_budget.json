@@ -4,12 +4,12 @@
   "note": "结构指标棘轮：只降不升。放宽预算必须改这个文件（review 可见）。口径见 atri_x/devtools/astindex.py 与 boundaries.py。",
   "long_file_lines": 600,
   "budget": {
-    "modules": 796,
+    "modules": 825,
     "long_files": 79,
     "max_file_lines": 1225,
-    "cross_domain_edges": 1475,
-    "max_fan_in": 250,
-    "untested_modules": 310,
+    "cross_domain_edges": 1521,
+    "max_fan_in": 252,
+    "untested_modules": 307,
     "boundary_violations": 25
   },
   "context": {

@@ -28,7 +28,11 @@ from typing import Any
 from atri_x.app.asr import build_audio_transcriber
 from atri_x.app.naming import NamingLogger
 from atri_x.app.ops_health import VisionMetricsState
-from atri_x.app.runtime_support import audit_func, register_turn_alias
+from atri_x.app.runtime_support import (
+    audit_func,
+    configure_prompt_libraries,
+    register_turn_alias,
+)
 from atri_x.app.vision import VisionChatDescriber, build_vision_describer
 from atri_x.config import ModelSelection
 from atri_x.delivery import new_manager as new_delivery_manager
@@ -46,6 +50,7 @@ def _is_enabled(section: Any) -> bool:
     if callable(method):
         return bool(method())
     return bool(getattr(section, "enabled", False))
+
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +79,7 @@ async def build_agent(
     from atri_x.app.doctor import DoctorService
 
     cfg = foundation.config
+    configure_prompt_libraries(cfg, getattr(foundation, "logger", None))
     _ensure_research_engine(cfg, getattr(foundation, "logger", None))
     model_profiles, model_aliases = _model_profiles(cfg, models)
     tool_profiles, tool_aliases = _tool_profiles(cfg)

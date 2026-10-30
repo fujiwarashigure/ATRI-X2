@@ -47,6 +47,7 @@ from atri_x.tool.builtin.chat_history import (
     new_reply_to_chat_history_message_tool,
     new_search_chat_history_tool,
 )
+from atri_x.tool.builtin.comic import new_comic_tools
 from atri_x.tool.builtin.common import with_config_env_dir
 from atri_x.tool.builtin.cron import new_cron_tools
 from atri_x.tool.builtin.file_guard import (
@@ -165,6 +166,9 @@ CONDITIONAL_TOOLS: dict[str, tuple[str, ...]] = {
         "persona_control",
     ),
     "image_profiles": ("image_generate",),
+    # Python 侧新增（1.1.6）：聊天漫画。守卫是"装配层已经建好漫画服务"，
+    # 而漫画服务本身依赖生图 profile；两者是同一批客户端/限流器/媒体中心。
+    "comic": ("comic_plan", "comic_render"),
     # Go 的守卫是 ``Artists.Enabled()``（有可写画师串库）；artist_extract 不在此列。
     "artists": (
         "artist_library_search",
@@ -238,6 +242,9 @@ class RegisterOptions:
     image_profiles: dict[str, ImageProfile] = field(default_factory=dict)
     default_image_profile: str = ""
     image_limiter: Any = None
+    #: Python 侧新增（1.1.6）：聊天漫画服务（``atri_x.comic.service.ComicService``）。
+    #: ``None`` = 漫画工具整组不注册（没有生图配置时它们只能失败）。
+    comic: Any = None
     artists: ArtistTools = field(default_factory=ArtistTools)
     prompt_rewriter: Any = None
     image_prompt_service: Any = None
@@ -364,6 +371,10 @@ def register_all(registry: Registry, opts: RegisterOptions) -> None:
         )
         image_tool.artists = opts.artists
         registry.register(image_tool)
+
+    if opts.comic is not None:
+        for comic_tool in new_comic_tools(opts.comic):
+            registry.register(comic_tool)
 
     # artist_extract 不需要串库，所以只要能生图就注册；串库工具只在库存在时
     # 注册，因为没有一个时它们每个都只能失败。

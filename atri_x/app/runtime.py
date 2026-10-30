@@ -54,6 +54,7 @@ from atri_x.app.runtime_support import (
     _register_retention_cleanups,
     audit_func,
     build_cron_service,
+    comic_tool_options,
     config_dir_of,
     log_error as _log_error,
     max_int64,
@@ -170,12 +171,8 @@ class DefaultRuntimeFactory:
         media_center.history = foundation.chat_history
         await maybe_await(media_center.reconcile_history(ctx))
         platform_files = getattr(cfg, "platform_files", None)
-        media_center.max_import_bytes = int(
-            getattr(platform_files, "max_receive_file_bytes", 0) or 0
-        )
-        media_center.download_timeout = float(
-            getattr(platform_files, "download_timeout_secs", 0) or 0
-        )
+        media_center.max_import_bytes = int(getattr(platform_files, "max_receive_file_bytes", 0) or 0)
+        media_center.download_timeout = float(getattr(platform_files, "download_timeout_secs", 0) or 0)
         media_center.media = getattr(cfg, "media", None)
         artist_metadata = _build_artist_metadata(cfg, logger)
         if artist_metadata is not None:
@@ -549,6 +546,8 @@ def _tool_options(
         artist_library_root=str(getattr(artist_library, "root", "") or ""),
         artist_metadata_store=artist_metadata,
         image_generation=image_generation,
+        # Python 侧新增（1.1.6）：聊天漫画（配置段 + 规划模型 + 平台头像解析）。
+        **comic_tool_options(cfg, req),
         web_search=getattr(cfg, "web_search", None),
         web_extract=getattr(cfg, "web_extract", None),
         prompt_rewriter=image_rewriter,

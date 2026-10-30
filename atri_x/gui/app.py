@@ -54,6 +54,7 @@ from atri_x.gui.tabs import (
     ModelTab,
     PermissionTab,
     PlatformTab,
+    PromptLibTab,
     TimeTab,
     ToolPermTab,
     ResearchTab,  # [atri-research]
@@ -88,6 +89,7 @@ _TABS = (
     "工具权限",
     "研究",  # [atri-research]
     "权限",
+    "提示词",
 )
 
 #: 选项卡名字 → 索引（供「功能」页双击跳转）。
@@ -251,6 +253,7 @@ class GuiApp:
             13: lambda parent: PermissionTab(
                 parent, self.paths, on_restart=self._restart_backend
             ),
+            14: lambda parent: PromptLibTab(parent, self.paths, on_restart=self._restart_backend),
         }
         #: 启动时就构建的页：对话（默认页）与功能（状态栏轮询要写它）。
         eager = (0, 10)

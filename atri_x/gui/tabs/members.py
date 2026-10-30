@@ -28,6 +28,7 @@ from atri_x.character import Viewer
 from atri_x.gui import avatars, memberdata, widgets
 from atri_x.gui.memberdata import GroupScope, MemberProfile, MemberSeen
 from atri_x.gui.tabs.base import ConfigTab, confirm, message
+from atri_x.gui.taglibedit import apply_tag_picker
 from atri_x.memberprofile import PersonaDataError, render_member_profile
 from atri_x.memberprofile.persona import (
     MemberPersona,
@@ -35,6 +36,7 @@ from atri_x.memberprofile.persona import (
     persona_key,
     render_member_persona,
 )
+from atri_x.promptlib import TagCatalog
 
 __all__ = ["MembersTab"]
 
@@ -170,6 +172,11 @@ class MembersTab(ConfigTab):
         self._form_row(form, 0, "昵称", self.name_var)
         self._form_row(form, 1, "备注名（列表优先显示）", self.alias_var)
         self._form_row(form, 2, "标签（逗号分隔）", self.tags_var)
+        ttk.Button(
+            form,
+            text="标签库…",
+            command=lambda: apply_tag_picker(self, self.tags_var, "从标签库选择群友标签"),
+        ).grid(row=2, column=2, sticky="w", padx=(6, 0))
         ttk.Label(form, text="角色数据").grid(row=3, column=0, sticky="nw", pady=2)
         self.profile_text = tk.Text(
             form, height=9, wrap=tk.WORD, font=("Microsoft YaHei UI", 9)
@@ -489,7 +496,9 @@ class MembersTab(ConfigTab):
                         "下一轮仍使用默认 SOUL.md 人设（绑定关系保留）。"
                     )
             if draft.enabled:
-                profile_text = render_member_profile(draft)
+                profile_text = render_member_profile(
+                    draft, tag_catalog=self._tag_catalog()
+                )
                 if profile_text:
                     blocks.append(profile_text)
             if blocks:
@@ -505,6 +514,13 @@ class MembersTab(ConfigTab):
         self.preview_text.delete("1.0", tk.END)
         self.preview_text.insert("1.0", text)
         self.preview_text.configure(state=tk.DISABLED)
+
+    def _tag_catalog(self) -> TagCatalog | None:
+        """标签库（用于预览里展示「标签（说明）」）；没有配置目录时返回 None。"""
+        paths = self.paths
+        if paths is None:
+            return None
+        return TagCatalog(paths.config_dir)
 
     def _show_avatar(self, profile: MemberProfile | None) -> None:
         path = ""

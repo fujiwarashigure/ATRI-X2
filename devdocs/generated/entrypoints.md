@@ -22,6 +22,7 @@
 | `atri_x.app.asr` | ASR（语音转写）服务装配。 |
 | `atri_x.app.breaker_llm` | 熔断 / 兜底包装的 LLM 客户端。 |
 | `atri_x.app.cli_client` | CLI 远程客户端入口：把 CLI 平台配置成"连远端服务"的瘦客户端。 |
+| `atri_x.app.comic` | 漫画功能的装配层：规划模型客户端 + 平台头像适配。 |
 | `atri_x.app.config_check` | ``atri-x config check``：加载 app.toml 并给出人类可读的摘要与告警。 |
 | `atri_x.app.cron` | Cron 启动编排：异步准备 cron 任务表。 |
 | `atri_x.app.dependencies` | 装配层依赖注入点：各阶段请求/组件与 :class:`Dependencies`。 |
@@ -50,6 +51,7 @@
 | `atri_x.app.support` | 装配层的叶子级共享助手。 |
 | `atri_x.app.time_check` | ``python -m atri_x.app.time_check``：时区数据与解析探针。 |
 | `atri_x.app.tool_runtime` | 内置工具运行时的 app 侧装配。 |
+| `atri_x.app.tool_runtime_comic` | 漫画服务的 app 侧装配（从 :mod:`atri_x.app.tool_runtime` 拆出）。 |
 | `atri_x.app.vision` | 视觉服务装配：把共享 ``vision.Service`` 接到 Agent 的聊天视觉兜底接口。 |
 
 ## Slash 命令模块（`atri_x/agent/commands/`）
@@ -257,6 +259,7 @@
 | `atri_x.gui.tabs.mountpanel` | 「进阶」页生图区的本地挂载面板（:class:`MountPanelMixin`）。 |
 | `atri_x.gui.tabs.permission` | 「权限」选项卡：超级管理员名单 + 风险等级 / 工具轮次 / 成员建卡开关。 |
 | `atri_x.gui.tabs.platform` | 「平台」选项卡：QQ / Telegram / 本地 CLI 服务端 / 超级管理员。 |
+| `atri_x.gui.tabs.promptlib` | 「提示词」选项卡：自定义提示词模板 / 生图档案 / 工具标签 / 标签库。 |
 | `atri_x.gui.tabs.research` | 「研究」选项卡：查看科研助理的运行与产物（只读）。 |
 | `atri_x.gui.tabs.searchpanel` | 「模型 → 搜索服务」子页：``web_search`` 的通道列表、表单、顺序与密钥。 |
 | `atri_x.gui.tabs.timepanel` | 「时间」选项卡：统一时间服务（``[time]`` / ``[time.verification]`` / ``[[time.sources]]``）。 |

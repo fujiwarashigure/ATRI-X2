@@ -26,6 +26,9 @@ from atri_x.memory.resident import (
     RESIDENT_MEMORY_PROMPT_HEADER,
     wrap_resident_memory_prompt,
 )
+from atri_x.promptlib import active as active_prompt_library
+from atri_x.promptlib import render_template
+from atri_x.promptlib.defaults import PROMPT_REACTION_GUIDE
 from atri_x.storage.models import SessionModeWork
 from atri_x.tool import background_context
 
@@ -51,8 +54,9 @@ class ReactionSystemPromptSource:
     知道图库路径/文件名；标记由后端从正文里删掉，用户看不到。
     """
 
-    def __init__(self, config: Any = None) -> None:
+    def __init__(self, config: Any = None, *, library: Any = None) -> None:
         self.config = config
+        self.library = library
 
     async def parts(
         self, ctx: Any, req: SystemPromptRequest
@@ -72,25 +76,21 @@ class ReactionSystemPromptSource:
         return [
             SystemPromptPart(
                 name="reactions",
-                content=reaction_prompt_text(emotions),
+                content=reaction_prompt_text(emotions, library=self.library),
             )
         ]
 
 
-def reaction_prompt_text(emotions: list[str]) -> str:
-    """生成表情意图标记的使用说明（系统提示词片段）。"""
+def reaction_prompt_text(emotions: list[str], *, library: Any = None) -> str:
+    """生成表情意图标记的使用说明（系统提示词片段）。
+
+    模板可从桌面端「提示词」页覆盖（条目 id = ``system.reactions``），
+    ``{emotions}`` 是可用标签列表。
+    """
     tags = "、".join(emotions)
-    return (
-        "## 表情提示\n"
-        "你可以在合适的回复末尾追加一个表情意图标记，例如「……吧！[[emo:无语]]」。\n"
-        "可用标签：" + tags + "。\n"
-        "规则：\n"
-        "- 每轮最多一个标记，写在正文最后；没有合适的情绪就不要写。\n"
-        "- 不要为了发表情改变回答内容，也不要向用户解释这个标记。\n"
-        "- 专业说明、严肃安慰、错误通知、工具执行进度不要加。\n"
-        "- 轻松吐槽可以用无语/无奈；完成挑战可以用得意；对方分享好消息可以用开心。\n"
-        "- 「嘲笑」只用于明确友好的玩笑，不用于贬低用户。"
-    )
+    prompts = library if library is not None else active_prompt_library()
+    template = prompts.text("system.reactions", PROMPT_REACTION_GUIDE)
+    return render_template(template, {"emotions": tags})
 
 #: 注入时的信任声明。唯一出处是 ``atri_x.memory.resident``（Go 常量同名）。
 resident_memory_prompt_header = RESIDENT_MEMORY_PROMPT_HEADER

@@ -12,7 +12,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.1.5`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
+| 版本 | `1.1.6`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -44,15 +44,15 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行 |
-| 本仓库 | 平铺布局的 `atri_x/`：797 个 `.py` 模块，约 23.4 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.1 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：826 个 `.py` 模块，约 24.1 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.1 万行） |
 | 研究引擎 | 随包 `research_pack/`：38 个模块、约 8.7k 行纯标准库引擎 + 15 个原创 AgentSkill；安装版 / 便携版首启自动装进配置目录 |
 | 图表能力 | 随包 `drawio_pack/`（drawio-skill 3.4.2，47 个纯标准库脚本 + 20 篇参考 + shape 索引）+ 内置 draw.io 32.6.1 无头渲染器；工具 `drawio` 仅超管可用，安装版 / 便携版开箱出 PNG/SVG/PDF |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 229 个 Python 文件（其中 220 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
+| 测试 | `tests/` 239 个 Python 文件（其中 229 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
 | 门禁 | 代码 7 道 + 文档 1 道（`check_docs`）+ 索引 1 道（`gen_index --check`）+ 复杂度预算，全部可在 CI 跑 |
-| 规模 | 1416 个受版本控制文件（不含 `runtime`/`build`/`dist`/缓存/本机私有配置） |
+| 规模 | 1280 个受版本控制文件（不含 `runtime`/`build`/`dist`/缓存/本机私有配置） |
 
 ## 功能特性
 
@@ -70,7 +70,7 @@
 ### 平台与前端
 
 - **CLI**：本地 TUI（聊天区、通知区、滚动、copy mode、补全）；也可作为服务端，任意电脑用 CLI 客户端远程连接（默认 `32172`）。
-- **Windows 桌面端**：Tk 窗口 + 托盘常驻 + 后台服务自动拉起，14 个选项卡覆盖模型 / 平台 / 人设卡 / 群友 / 知识库 / 时间 / 日志 / 工具权限 / 运行状态 / 研究等全部配置；密钥可显示隐藏，配置改动自动留备份，模型页保存后从磁盘回读逐字段校验。详见 [Windows 桌面端](docs/windows-app.md)。
+- **Windows 桌面端**：Tk 窗口 + 托盘常驻 + 后台服务自动拉起，15 个选项卡覆盖模型 / 平台 / 人设卡 / 群友 / 知识库 / 时间 / 日志 / 工具权限 / 提示词 / 运行状态 / 研究等全部配置；提示词模板、生图档案、工具标签与标签词表都能在「提示词」页改（内置模板只存改动、下一轮生效）；密钥可显示隐藏，配置改动自动留备份，模型页保存后从磁盘回读逐字段校验。详见 [Windows 桌面端](docs/windows-app.md)。
 - **Windows 两种交付形态**：安装包（开始菜单/自启/卸载项）与便携版 zip（解压即用，数据留在解压目录）；一条 `python packaging/build.py --release` 同时产出并各自自检。
 - **即时通信平台**：Telegram、QQ OneBot、QQ Official，统一平台层与输出层，便于扩展。
 - **前端自由定制**：远程 CLI 走 WebSocket，协议见 [前端 API](docs/frontend-api.md)。
@@ -101,6 +101,7 @@
 
 - **角色素材库**：文件夹管理角色文本与图片，支持索引、检索、`@char:<id>` 临时启用与 `character_*` 工具。见 [角色素材库](docs/character-library.md)。
 - **图像生成**：对接 OpenAI 兼容 `/images/generations`，全局预设 + 角色预设 + 场景描述组装提示词，支持规则优化、画师串、多角色同框、并发排队；开启留档后入库转码前保存原图生成参数。见 [生图服务](docs/image-generation.md)。
+- **聊天漫画**：`comic_plan` 把当前群聊改编成结构化分镜（格数/人物/逐字台词/来源消息），`comic_render` 再生成一张整页漫画；人物自动对齐角色卡或平台头像，参考图按编号绑定，生成记录可追溯、失败不自动重复扣费。见 [聊天漫画](docs/comic.md)。
 - **图片反推提示词**：`image_to_prompt` 把参考图交给视觉模型反推 prompt，带指纹缓存与并发合并。
 - **视觉兜底与语音转写**：主模型拒绝图片时先转写再重试；可选把语音消息转文本后进入聊天。见 [识图](docs/vision.md)。
 
@@ -173,13 +174,14 @@ python -m atri_x --config path/to/app.toml   # 指定主配置
 
 ## 发行版、容器镜像与部署
 
-当前版本 **`1.1.5`**（正式发行版）：新增**内置 draw.io 图表能力**——超管专属工具 `drawio`
-把代码目录 / Terraform / SQL / OpenAPI / AsyncAPI / Proto / GraphQL / K8s / Compose / CI
-配置或 Diagram IR 转成**可编辑** `.drawio`，并用随包内置的 draw.io 32.6.1 无头渲染成
-PNG / SVG / PDF 直接发到聊天；安装版 / 便携版开箱即用，**不需要用户安装 draw.io**。
-详见 [`docs/release-notes/1.1.5.md`](docs/release-notes/1.1.5.md)、[docs/diagram.md](docs/diagram.md)
-与 [CHANGELOG.md](CHANGELOG.md)；上一版（超管资源查询 + 可维护性/导航体系）见
-[`docs/release-notes/1.1.4.md`](docs/release-notes/1.1.4.md)。
+当前版本 **`1.1.6`**（正式发行版）：**提示词库 GUI 化 + 聊天漫画**。桌面端新增第 15 个
+「提示词」选项卡（提示词模板 / 生图档案 / 工具标签 / 标签词库都能改，内置模板只存改动、
+下一轮生效）；新增 `comic_plan` / `comic_render` 两个工具，把当前群聊改编成一页结构化
+漫画（先分镜预览再生成整页图，台词逐字保留、人物自动对齐角色卡/群友头像、失败不重复扣费）；
+同时修复桌面端「群友」页「下载头像」HTTP 400。详见
+[`docs/release-notes/1.1.6.md`](docs/release-notes/1.1.6.md)、[聊天漫画](docs/comic.md)、
+[CHANGELOG.md](CHANGELOG.md)；上一版（内置 draw.io 图表能力）见
+[`docs/release-notes/1.1.5.md`](docs/release-notes/1.1.5.md)。
 历史版发行说明见 [`docs/release-notes/`](docs/release-notes/)。
 
 | 产物 | 位置 |
@@ -297,8 +299,8 @@ CI 会在每次 push / PR 跑完整套（[`.github/workflows/quality.yml`](.gith
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 1040 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=797 imported=797`，0 失败 |
+| `check_syntax` | 1079 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=826 imported=826`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径，不衡量行为正确性） |
 | `check_except` | 与位置级基线一致（0 个新增位置） |

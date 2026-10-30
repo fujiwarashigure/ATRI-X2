@@ -71,6 +71,7 @@ from atri_x.config.services import (
     ASRConfig,
     AudioSupport,
     DEFAULT_CONTEXT_WINDOW,
+    ComicConfig,
     ImageGenerationConfig,
     ImageToPromptConfig,
     ModelMetadataConfig,
@@ -183,6 +184,7 @@ class AppConfig(StrictConfig):
     character_library: CharacterLibraryConfig = field(default_factory=CharacterLibraryConfig)
     image_generation: ImageGenerationConfig = field(default_factory=ImageGenerationConfig)
     image_to_prompt: ImageToPromptConfig = field(default_factory=ImageToPromptConfig)
+    comic: ComicConfig = field(default_factory=ComicConfig, metadata=TOML_OFF)
     vision: VisionConfig = field(default_factory=VisionConfig)
     asr: ASRConfig = field(default_factory=ASRConfig)
     web_search: WebSearchConfig = field(default_factory=WebSearchConfig)
@@ -196,9 +198,7 @@ class AppConfig(StrictConfig):
     tool_profiles: dict[str, ToolProfileConfig] = field(default_factory=dict)
     turn_directives: TurnDirectivesConfig = field(default_factory=TurnDirectivesConfig)
     tool_tags: ToolTagsConfig = field(default_factory=ToolTagsConfig, metadata=TOML_OFF)
-    context_overflow: dict[str, ContextOverflowConfig] = field(
-        default_factory=dict, metadata=TOML_OFF
-    )
+    context_overflow: dict[str, ContextOverflowConfig] = field(default_factory=dict, metadata=TOML_OFF)
     group_policy: dict[str, GroupPolicyConfig] = field(default_factory=dict, metadata=TOML_OFF)
     config_path: str = field(default="", metadata=TOML_OFF)
     providers_config_path: str = field(default="", metadata=TOML_OFF)
@@ -605,6 +605,8 @@ class AppConfig(StrictConfig):
             self.image_generation = services.image_generation
         if services.image_to_prompt is not None:
             self.image_to_prompt = services.image_to_prompt
+        if services.comic is not None:
+            self.comic = services.comic
         if services.vision is not None:
             self.vision = services.vision
         if services.asr is not None:
@@ -707,7 +709,6 @@ class AppConfig(StrictConfig):
                     f"{section}.prompt_dialect must be auto, natural, sd_weighted "
                     f"(sd/a1111/webui), nai (novelai) or tags (tag), got {dialect!r}"
                 )
-
         image = self.image_generation
         check("[image_generation]", image.negative_prompt_mode, image.prompt_dialect)
         for name, profile in image.profiles.items():
@@ -715,8 +716,7 @@ class AppConfig(StrictConfig):
                   profile.prompt_dialect)
         artist_library = image.artist_library
         dedicated = (
-            ("image_generation.artist_library.root", artist_library.root.strip(),
-             artist_library.is_enabled()),
+            ("image_generation.artist_library.root", artist_library.root.strip(), artist_library.is_enabled()),
             ("image_generation.metadata_store", image.metadata_store.strip(), True),
         )
         config_dir = os.path.dirname(config_path)

@@ -418,4 +418,8 @@ def new_prompt_builder(opts: Any) -> PromptBuilder:
     # 人设卡操作指引：只写"什么请求走哪个工具"，避免模型用文件工具瞎翻（见模块 docstring）。
     if characters is not None:
         sources.append(CharacterGuideSystemPromptSource(characters))
+    # 用户自建提示词（桌面端「提示词」页勾选"注入系统提示词"的条目）。
+    from atri_x.agent.user_prompt_source import UserPromptsSystemPromptSource
+
+    sources.append(UserPromptsSystemPromptSource())
     return PromptBuilder(SystemPromptManager(sources))

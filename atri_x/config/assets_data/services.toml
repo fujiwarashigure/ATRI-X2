@@ -230,3 +230,17 @@ queue_timeout_seconds = 0
 #
 # [web_extract.engines.direct]
 # protocol = "direct"         # plain GET + stdlib HTML stripping, no key
+
+# 聊天漫画（1.1.6 新增）：comic_plan 先出结构化分镜预览（不扣生图额度），
+# comic_render 再按计划生成一张整页漫画。生图端点仍然用上面的 [image_generation]，
+# 这里只配漫画编排策略；不写这一段时用内置默认值（缺段也能用）。
+# [comic]
+# enabled = true
+# planner = "auto"             # auto（有模型用模型，否则规则规划）/ rules / llm
+# plan_model = "work"          # naming / compact / chat / work
+# default_panel_count = 6
+# max_panels = 12              # 也是 comic_plan 的 panel_count 上限
+# max_characters = 4           # 最多几个有参考图的人物（不超过生图参考图上限）
+# context_limit = 12           # 默认取材多少条聊天消息
+# max_prompt_runes = 6000      # 受保护分镜/台词超限直接报错，不会静默丢
+# send_by_default = true

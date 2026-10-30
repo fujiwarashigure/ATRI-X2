@@ -6,6 +6,132 @@
 
 ---
 
+## [1.1.6] - 2026-10-31 — 提示词库 GUI 化 + 聊天漫画 + 头像下载修复
+
+> 只加能力：**不改**配置格式（新增 `[comic]` 段与三个 GUI 数据文件）、不改既有工具
+> schema、不改会话与数据库格式；默认行为与 1.1.5 逐字一致（内置提示词模板原样搬进
+> `atri_x/promptlib/defaults.py`）。发行说明（面向用户）见
+> [`docs/release-notes/1.1.6.md`](docs/release-notes/1.1.6.md)。
+
+旧状态（1.1.5）：
+
+- 提示词分四层：`SOUL.md` / 人设卡 / 群友档案 / 生图预设这些"用户数据"能改，但
+  **模板常量写死在源码里**——生图改写的两套 system 教义、识图四套模板、群友档案与
+  专属人设的注入模板、表情提示、人设卡指引，想改只能改 Python 重新打包。
+- `[image_generation.profiles.*]`（`@image:<名字>` 命名生图档案）与 `tool_tags.toml`
+  的 tag 提示词**没有界面**，只能手写 TOML（多行字符串尤其难写）。
+- 群友 / 人设卡的「标签」只是逗号分隔的裸词：注入提示词时只有 `标签：a、b`，没有词表、
+  没有说明、不能复用同一份标签。
+
+新状态：
+
+- **新包 `atri_x/promptlib`**：内置模板（`defaults.py`）+ 用户覆盖
+  （`<配置目录>/gui/prompts.json`，只存改动）+ `(mtime_ns,size)` 指纹热加载；模板用
+  `{变量}` 渲染，"整行只有一个空变量"的行自动丢弃。默认文本与 1.1.5 的常量逐字一致
+  （`tests/test_promptlib.py` 断言）。
+- **接入六处硬编码提示词**：生图 LLM 改写（natural / tags）、识图四套 system 模板、
+  群友档案整段模板、专属人设整段模板、表情提示、人设卡指引。群友档案的自由文本仍由
+  代码转义 `<` / `>`，模板不能绕过注入边界。
+- **用户自建提示词**可勾选「注入系统提示词」，作为独立片段追加到每轮系统提示词
+  （`SystemPromptPart("user_prompt:<id>")`），保存后下一轮生效。
+- **桌面端新增第 15 个「提示词」选项卡**，四个子页：提示词模板（分类列表 + 正文编辑 +
+  示例变量预览 + 恢复默认 / 导入 / 导出）、生图档案（`[image_generation.profiles.*]`
+  增删改，写回 `services.toml` 且保留其它键与注释）、工具标签（`tool_tags.toml`）、
+  标签库（`gui/tags.json` 的标签名 / 说明 / 别名 / 分组）。
+- **标签词表**：群友档案 / 人设卡页新增「标签库…」多选按钮；群友档案注入时命中词表的
+  标签渲染成 `标签（说明）`（未登记标签原样输出，兼容旧档案）。
+- 生成物与门禁：`gen_index.py` 重新生成、`complexity_budget.json` 按新增模块/导入边刷新、
+  新增 `tests/test_promptlib.py` 与 `tests/test_gui_promptlib.py`。
+
+### 桌面端「下载头像」HTTP 400
+
+旧状态（1.1.5 发行版）：群友页点「下载头像」直接报 `下载头像失败：HTTP 400`。根因是 QQ
+头像接口（`q1.qlogo.cn/g?b=qq&nk=...&s=...`）只接受固定边长档位 `40` / `100` / `140` /
+`640`，而界面把本地缓存边长 `96` 直接当请求参数发出去，服务端回 `HTTP 400`（响应头
+`X-ErrNo: -105`）。
+
+新状态：请求边长先**吸附到接口支持的档位**（向上取整、超过 640 取 640），本地仍按 96
+解码缩放缓存；`tests/test_gui_members.py` 钉住档位映射与 401/404/超时/超大体的报错文案。
+
+### 聊天漫画（`comic_plan` / `comic_render`）
+
+> 只加能力：**不改**既有工具 schema、会话与数据库格式；新增 `services.toml` 的
+> `[comic]` 段（有默认值，缺段也能用）与 `<配置目录>/comic/` 数据目录。
+> 普通生图 `image_generate` 行为不变（同一批 profile / 限流器 / 媒体中心复用）。
+
+旧状态（1.1.5）：
+
+- 想让模型"根据刚才聊天画漫画"只能靠 `image_generate` 加成句提示词：聊天上下文是
+  压缩摘要（单条约 200 字符、总量 2400），没有消息 ID、没有结构化分镜、台词可能被
+  语义改写翻译或压缩；
+- 有人物参考图时只能靠 `character_id:图片名` 手工指定，没有"群友身份 → 漫画人物 →
+  第几张参考图"的绑定；
+- 生成失败只能整次重来，无法区分"生成失败"与"投递失败"，也无法回答"这张图用了哪些
+  聊天、哪版分镜、哪个 profile"。
+
+新状态：
+
+- **新业务域 `atri_x/comic/`**：计划值对象与校验（`models` / `records`）、只从当前会话
+  取材并保留消息 ID（`context`）、群友身份 → 角色卡/头像参考图绑定（`characters`）、
+  规则规划 + 模型 JSON 结构校验（`planner`）、受保护提示词编译（`prompt`）、参考图
+  读取（`references`）、文件持久化（`store`）、编排（`service` / `options`）。
+- **两个新工具**：`comic_plan`（取材 + 分镜 + 预览，**不消耗生图额度**）与
+  `comic_render`（按 `plan_id + revision` 生成**一张整页**漫画）。没有 `count` 参数，
+  格数是计划里的 `panel_count`。
+- **台词受保护**：分镜、人物—参考图映射、逐字台词都是 `PromptPriorityProtected`，
+  超长时先丢风格片段、仍超长直接报错；漫画不使用普通生图的语义改写通道。
+- **人物不串**：群友身份键 `member:<platform>:<sender_id>`、角色卡键
+  `character:<id>`；参考图优先级 本次显式指定 > 角色卡图片 > 平台头像；
+  `character_mode=avatars` 时不会被换成角色卡，缺图明确告警/报错。
+- **失败恢复**：生成/入库/投递三个独立状态落库；超时等"可能已生成"记 `unknown` 且
+  不自动重试；`task_id` 重发只发已有 MediaID；计划 `revision + fingerprint` 绑定，
+  改台词后旧版本不能误用；重启时卡在渲染中的记录标 unknown。
+- **规划模型可选**：`planner=auto` 有模型用模型、没模型用规则规划（规则规划台词逐字
+  取原文，开箱可用）；规划 system 提示词在桌面端「提示词 → 漫画」可改（id `comic.plan`）。
+- 生成物与门禁：`gen_index.py` 重新生成、复杂度预算按新增模块/边刷新；新增
+  `tests/test_comic_*.py`（模型/取材/人物/规划/提示词/服务）与
+  `tests/test_builtin_comic.py`。
+- 顺带修：`tests/test_app_runtime_agent.py` 补 `tearDownModule` 清进程级旁路用量
+  sink——Agent 构造会安装它，测试之间残留会让后续无关测试的旁路调用审计到假
+  logger 上（全量跑出 `AttributeError: '_Logger' object has no attribute 'log'`）。
+
+### 发行
+
+- 版本号 `1.1.5` → `1.1.6`：`atri_x/__init__.py`（`__version__`）/ `pyproject.toml` /
+  `deploy/VERSION` / 仓库 `README.md` 同步；产物名随之变成 `ATRI-X-1.1.6-*`。不新增破坏性
+  配置键、不改既有工具 schema、不改会话 / 数据库格式，配置与会话数据**向后兼容**。
+- 打包：`packaging/build.py --release --with-kernel --with-qqproto <NapCat Shell> --with-drawio
+  <draw.io 解包目录>` 一条命令出 onedir + 便携版 zip + 安装包；产物级核验（`--version` /
+  `config check` / tzdata / `-m` 转发 / 随包研究引擎 / 随包 draw.io 无头导出 / sidecar 内核 /
+  GUI selftest / `service run` 起服务）全部通过；便携包解压自检与安装包静默安装/卸载自检
+  全部通过。构建机 Python 3.14.7 / PyInstaller 6.22.3，含可选 PDF 依赖 reportlab 5.1.0 /
+  pypdf 6.21.4（研究助理 PDF 能力不降级）。
+- 发行产物（本机从工作树重建；按发布要求**未提交 git、未推送 GitHub**）：
+  - `ATRI-X-1.1.6-setup.exe` 592,941,662 字节（565.5 MB）—
+    `034a89a267b86da9e2347ab1a0dbf68a1b5b870d95fb1eea3d221e1b4f1aae32`
+  - `ATRI-X-1.1.6-portable-win64.zip` 862,455,451 字节（822.5 MB）—
+    `be4b2884309742b50f3a95ec1eaad791773ce2f8181594d7135fcac0b205a2cd`
+  - `ATRI-X-1.1.6-repo.zip` / `.tar.gz`：源码归档（不含 `dist`/`build`/`runtime`/缓存），
+    尺寸与 SHA-256 见发行库 `SHA256SUMS.txt` 与 `ATRI-X-1.1.6-repo-entries.txt`。
+- 构建事实：onedir 714.6 MB / 24,752 文件；内置 DSH 内核 277.6 MB（384 包 / Node
+  v24.19.0）；内置 draw.io 渲染器 381.9 MB / 19 文件（32.6.1）；内置协议端 2,516 文件 /
+  1,202.5 MB（NapCat 4.18.38 + QQ 9.9.33-52230，脱敏 = True）；便携包 822.5 MB（压缩比
+  43%，27,268 输入文件）；安装包 565.5 MB（ISCC 282.2s，静默安装 97.8s / 27,271 文件，
+  卸载 15.9s）。构建总耗时约 10.4 分钟。
+- 门禁 11 项 0 失败：`check_syntax`（1,079 文件）/ `check_imports`（`modules=826
+  imported=826`）/ `check_integration`（74 项）/ `check_coverage`（72 包加权 100%）/
+  `check_except` / `check_secrets --all`（0 命中）/ `gen_index --check` /
+  `gen_stats --check` / `gen_drawio_pack --check` / `check_docs` / `check_complexity`。
+- 全量单测：`Ran 7,156 tests`，其中 7 项失败均为**本机运行实例占用端口 / 构建机缺
+  `packaging/vendor/drawio`** 导致；停掉宿主实例后相关套件复跑 127/128 通过，剩余 1 项
+  是 `packaging` 构建环境前置条件（源码树不放 400 MB 的 draw.io 解包目录，正式构建用
+  `--with-drawio` 显式指定），证据见发行库 `证据/1.1.6/unittest-env-rerun-1.1.6.log`。
+  本版新增定向用例 137 个（漫画）+ 提示词库 / 配置 / 工具接线等共 403 项全部通过。
+- 脱敏：源码树 / 源码归档扫描 0 命中（个人目录、令牌、模型密钥）；便携包与安装包内的
+  qqproto 由打包脚本按白名单剔除配置/缓存/日志，`proto-info.json` 标记 `sanitized=True`。
+
+---
+
 ## [1.1.5] - 2026-10-30 — 内置 draw.io 图表能力（超管专属）
 
 > 只加功能：**不改**配置格式、既有工具 schema（新增一个工具）、会话与数据库格式；配置与会话数据向后兼容。

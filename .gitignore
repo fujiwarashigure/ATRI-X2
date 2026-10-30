@@ -81,10 +81,3 @@ tmp_sqlite_test/
 
 # 随包 draw.io 技能的本地运行产物（导出图/渲染 profile/临时输入；pack.json 摘要不收它们）
 /drawio_pack/skills/drawio-skill/out/
-
-# drawio 技能的随包数据（shape-index.json.gz / 图标 / IR schema / NOTICE）：
-# gen_drawio_pack --check 与构建都依赖，必须入库。上面的全局 `data/` 规则会误伤
-# 这个同名目录（1.1.5 曾因此漏提交 5 个文件，导致全新 clone 上 doc gate 变红），
-# 所以在这里显式放行。
-!/drawio_pack/skills/drawio-skill/data/
-!/drawio_pack/skills/drawio-skill/data/**

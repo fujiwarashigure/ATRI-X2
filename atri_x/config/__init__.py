@@ -28,6 +28,7 @@ from atri_x.config import (
     app as app,
     app_sections as app_sections,
     assets as assets,
+    comic as comic,
     inspect as inspect,
     loader as loader,
     services as services,
@@ -37,6 +38,7 @@ from atri_x.config import (
 )
 from atri_x.config.app import *  # noqa: F403
 from atri_x.config.app_sections import *  # noqa: F403
+from atri_x.config.comic import *  # noqa: F403
 from atri_x.config.assets import (
     DATA_DIR,
     DEFAULT_CONFIG_ASSETS,
@@ -62,6 +64,7 @@ __all__ = sorted(
         "app",
         "app_sections",
         "assets",
+        "comic",
         "copy_asset_tree",
         "default_config_asset",
         "ensure_platform_defaults_in_dir",
@@ -74,6 +77,7 @@ __all__ = sorted(
     }
     | set(app.__all__)
     | set(app_sections.__all__)
+    | set(comic.__all__)
     | set(inspect.__all__)
     | set(loader.__all__)
     | set(services.__all__)

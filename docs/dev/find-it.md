@@ -95,6 +95,44 @@
 **易错点**：提示词里不要塞易变的数字（时间走时间服务注入）；群友人设按"平台 + 群 + 用户"匹配。
 **验证**：`python -m unittest tests.test_agent_prompt tests.test_member_persona -v`
 
+## 改内置提示词模板 / 标签词表
+
+1. 默认文本：`atri_x/promptlib/defaults.py`（改它等于改"用户没覆盖时"的默认；用户覆盖在
+   `<配置目录>/gui/prompts.json`，由桌面端「提示词」页维护）。
+2. 渲染：`atri_x/promptlib/render.py`（只替换登记过的 `{变量}`；"整行只有一个空变量"的行丢弃）。
+3. 接入：生图改写 `atri_x/app/image_rewriter.py`、识图模板 `atri_x/vision/prompt.py`、
+   群友档案 `atri_x/memberprofile/prompt.py`、专属人设 `atri_x/memberprofile/persona.py`、
+   表情提示 `atri_x/agent/system_prompt_sources.py`、人设卡指引 `atri_x/agent/character_guide_prompt.py`。
+4. 测试：`tests/test_promptlib.py`（默认文本逐字一致、覆盖/热加载/转义）、
+   `tests/test_gui_promptlib.py`（GUI 读写）。
+5. 文档：`docs/configuration.md` 的「自定义提示词库与标签库」。
+
+**易错点**：默认文本有"契约"性质（识图模板参与缓存指纹、群友档案要保证 `<member_profile>`
+边界唯一），改之前先跑 `tests/test_promptlib.py`；用户可编辑的是模板，**转义与信任声明
+留在代码里**，不能因为模板可配置就把边界交给用户文本。
+**验证**：`python -m unittest tests.test_promptlib tests.test_gui_promptlib -v`
+
+## 改聊天漫画 / 新增漫画工具
+
+1. 业务域：`atri_x/comic/`（Python 侧新增，Go 上游没有）。职责划分见
+   `docs/comic.md` 第 8 节；编排入口是 `service.py` 的 `ComicService`。
+2. 工具：`atri_x/tool/builtin/comic.py` 的 `comic_plan` / `comic_render`；注册守卫在
+   `atri_x/tool/builtin/register.py` 的 `CONDITIONAL_TOOLS["comic"]`，装配在
+   `atri_x/app/tool_runtime_comic.py`（复用同一批生图 profile / 限流器 / 媒体中心）。
+3. 规划模型与平台头像：`atri_x/app/comic.py`（`LLMComicPlanner` / `PlatformAvatarResolver`），
+   由 `atri_x/app/runtime_support.py` 的 `comic_tool_options` 注入。
+4. 配置：`atri_x/config/comic.py` 的 `ComicConfig`（`services.toml` 的 `[comic]` 段）。
+5. 测试：`tests/test_comic_*.py`（模型/取材/人物/规划/提示词/服务）与
+   `tests/test_builtin_comic.py`；测试假实现共用 `tests/_comic_fakes.py`。
+6. 文档：`docs/comic.md`；配置键见 `docs/configuration.md` 的「聊天漫画 comic」。
+7. 工具目录：`atri_x/gui/toolcatalog.py` 必须同步补 `TOOL_CATALOG`（回归用例钉住两边集合相等）。
+
+**易错点**：台词是受保护块，不能被普通生图的改写器处理，也不能按字符硬截断；计划必须
+绑定 `plan_id + revision + fingerprint`；`TimeoutError` 一类"可能已在服务端生成"的失败
+只能记 `unknown`，不要自动重试；生图 profile 的 `superadmin_only` 必须在漫画服务里重新
+校验（普通用户不能借 `comic_render` 绕过）。
+**验证**：`python -m unittest tests.test_comic_service tests.test_builtin_comic -v`
+
 ## 加测试 / 修测试
 
 1. 找同名测试：`ls tests/ | grep <module>`；没有就从相近模块的测试文件抄结构。

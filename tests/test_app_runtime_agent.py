@@ -568,5 +568,17 @@ class TestDoctorCommandUsesLiveCapabilities(unittest.TestCase):
         self.assertNotIn("redaction", text)
 
 
+def tearDownModule() -> None:
+    """清掉进程级旁路 LLM 用量 sink（Agent 构造会安装，测试之间不能残留）。
+
+    不清理的话，本模块最后建的 Agent 会把 sink 带到后续测试：压缩/群分析等旁路
+    调用会去审计一个已经不存在的 Agent 的假 logger（``_Logger`` 没有 ``log``），
+    表现为无关测试报 ``AttributeError``。这是测试隔离问题，不是产品行为。
+    """
+    from atri_x.llm.usage_sink import set_usage_sink
+
+    set_usage_sink(None)
+
+
 if __name__ == "__main__":
     unittest.main()

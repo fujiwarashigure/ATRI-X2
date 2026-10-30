@@ -137,6 +137,12 @@ from atri_x.app.health import (
 )
 from atri_x.app.health_handler import HealthHandler
 from atri_x.app.health_llm import HealthLLM, wrap_health_llm
+from atri_x.app.comic import (
+    LLMComicPlanner,
+    PlatformAvatarResolver,
+    build_comic_planner,
+    comic_plan_selection,
+)
 from atri_x.app.image_rewriter import (
     ImagePromptRewriter,
     build_image_prompt_rewriter,
@@ -350,6 +356,10 @@ __all__ = [
     "build_image_prompt_rewriter",
     "image_rewrite_selection",
     "image_rewrite_system_for",
+    "LLMComicPlanner",
+    "PlatformAvatarResolver",
+    "build_comic_planner",
+    "comic_plan_selection",
     "NamingLogger",
     "PlatformCallerResolver",
     "HookPlatformCallerResolver",

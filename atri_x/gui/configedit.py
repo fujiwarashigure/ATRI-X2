@@ -87,6 +87,8 @@ class ConfigPaths:
     sessions_db_path: str = ""
     chat_history_db_path: str = ""
     log_dir: str = ""
+    #: ``tool_tags.toml`` 的绝对路径（「提示词 → 工具标签」页读写它）。
+    tool_tags_path: str = ""
 
     @property
     def hooks_path(self) -> str:
@@ -136,6 +138,9 @@ class ConfigPaths:
             sessions_db_path=sessions_db,
             chat_history_db_path=history_db,
             log_dir=log_dir,
+            tool_tags_path=_resolve_relative(
+                resolved, _text(files.get("tool_tags")) or "tool_tags.toml"
+            ),
         )
 
 
@@ -173,6 +178,7 @@ def load_paths(config_path: str) -> ConfigPaths | None:
             sessions_db_path=sessions_db,
             chat_history_db_path=history_db,
             log_dir=log_dir,
+            tool_tags_path=os.path.join(directory, "tool_tags.toml"),
         )
 
 

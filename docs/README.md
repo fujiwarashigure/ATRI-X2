@@ -13,6 +13,7 @@
 4. [核心概念](concepts.md)：理解 Chat / Work 模式、工具发现、Session、Hook、Cron、Skill 和安全策略。
 5. [角色素材库](character-library.md)：用文件夹管理角色文本与图片，支持索引检索和 `@char:<id>` 临时启用。
 6. [生图服务](image-generation.md)：对接中转站 GPT Image 2.5，自动拼接预设提示词并出图。
+   - [聊天漫画](comic.md)：把当前群聊改编成一页结构化漫画（先分镜预览、再生成整页图），人物自动对齐角色卡或群友头像，台词逐字保留、生成记录可追溯。
 7. [图片反推提示词](configuration.md#图片反推提示词-image_to_prompt)：用 `image_to_prompt` 内置工具把参考图交给视觉模型，反推绘图提示词。
 8. [视觉兜底 vision](configuration.md#视觉兜底-vision)：纯文本主模型拒绝图片时，先用视觉模型把图片转写成描述再重试。
 9. [识图能力与两段式描述](vision.md)：图片精度（`detail`）、每轮带图先描述的两段式、SauceNAO 以图搜图兜底、隐私开关与失败原因。

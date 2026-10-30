@@ -213,6 +213,18 @@ class AvatarCase(MemberCase):
         self.assertEqual(avatars.avatar_url("telegram", "10001"), "")
         self.assertEqual(avatars.avatar_url("qqonebot", "not-a-number"), "")
 
+    def test_url_size_is_accepted_by_qq_endpoint(self) -> None:
+        """回归：``s=96`` 会被 qlogo 回 HTTP 400（X-ErrNo -105），请求边长必须吸附档位。"""
+        sizes = [1, 39, 40, 41, 96, 100, 101, 639, 640, 641, 99999]
+        for size in sizes:
+            url = avatars.avatar_url("qqonebot", "10001", size=size)
+            self.assertIn(f"s={avatars._request_size(size)}", url)
+            self.assertIn(avatars._request_size(size), avatars.QQ_AVATAR_SIZES)
+        # 默认（本地缓存边长 96）请求 100：服务端接受的最小一档，缩到 96 只降不升。
+        self.assertIn("s=100", avatars.avatar_url("qqonebot", "10001"))
+        self.assertNotIn("s=96", avatars.avatar_url("qqonebot", "10001"))
+        self.assertEqual(avatars.QQ_AVATAR_SIZES, (40, 100, 140, 640))
+
     def test_to_png_accepts_png_and_jpeg(self) -> None:
         png = self._png(10)
         jpeg = encode_jpeg(Image(10, 10, "RGB", bytearray([10, 200, 30] * 100)))

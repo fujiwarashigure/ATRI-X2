@@ -362,6 +362,7 @@ class RegisterWiringTest(unittest.TestCase):
 
         这是「接线是否完整」的回归：任一条件组因为守卫写错/漏注册都会在这里暴露。
         """
+        from atri_x.comic import ComicOptions, ComicService, ComicStore
         from atri_x.imagegen import Config as ImageConfig
         from atri_x.tool.builtin.artist_tools import ArtistTools
         from atri_x.tool.builtin.file_manager import FileManager
@@ -393,6 +394,18 @@ class RegisterWiringTest(unittest.TestCase):
                 default_image_profile="main",
                 artists=ArtistTools(service=FakeArtistService()),
                 image_prompt_service=object(),
+                # Python 侧新增（1.1.6）：漫画两个工具挂在 ``comic`` 守卫上；这
+                # 里用真实 ComicService（构造不触网、不建数据库）。
+                comic=ComicService(
+                    ComicOptions(),
+                    store=ComicStore(TMP_ROOT),
+                    profiles={
+                        "main": ImageProfile(
+                            name="main", client=FakeImageClient(), config=ImageConfig()
+                        )
+                    },
+                    default_profile="main",
+                ),
             ),
         )
         names = {info.name for info in registry.list()}

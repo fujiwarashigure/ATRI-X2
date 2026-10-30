@@ -21,11 +21,11 @@
 
 ## 模块清单（自动生成）
 
-共 **147** 个模块，被测试覆盖 **88** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **148** 个模块，被测试覆盖 **89** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
-| `atri_x.agent` | ``atri_x.agent``：Agent 核心、回合流程、事件、收件箱与外围能力。 | 389 | `agent_commands_fakes.py`、`agent_fakes.py`、`test_agent_admission.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_budget.py`、`test_agent_chat.py`、`test_agent_chat_anomaly.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_agent_context_policy.py`、`test_agent_context_runtime.py`、`test_agent_core.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_group_policy.py`、`test_agent_inbound_media.py`、`test_agent_model.py`、`test_agent_participation.py`、`test_agent_prompt.py`、`test_agent_reactions.py`、`test_agent_risk.py`、`test_agent_segments.py`、`test_agent_title.py`、`test_agent_tools.py`、`test_agent_wakeup.py`、`test_app_runtime_agent.py`、`test_builtin_runtime_resources.py`、`test_dsh_acp_client.py`、`test_dsh_route.py`、`test_hook_runtime.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_request_manager.py`、`test_safety_integration.py`、`test_security_grants.py`、`test_session_naming_contract.py`、`test_time_context.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_prechat.py`、`test_vision_privacy.py` |
+| `atri_x.agent` | ``atri_x.agent``：Agent 核心、回合流程、事件、收件箱与外围能力。 | 389 | `agent_commands_fakes.py`、`agent_fakes.py`、`test_agent_admission.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_budget.py`、`test_agent_chat.py`、`test_agent_chat_anomaly.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_agent_context_policy.py`、`test_agent_context_runtime.py`、`test_agent_core.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_group_policy.py`、`test_agent_inbound_media.py`、`test_agent_model.py`、`test_agent_participation.py`、`test_agent_prompt.py`、`test_agent_reactions.py`、`test_agent_risk.py`、`test_agent_segments.py`、`test_agent_title.py`、`test_agent_tools.py`、`test_agent_wakeup.py`、`test_app_runtime_agent.py`、`test_builtin_runtime_resources.py`、`test_dsh_acp_client.py`、`test_dsh_route.py`、`test_hook_runtime.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_promptlib.py`、`test_request_manager.py`、`test_safety_integration.py`、`test_security_grants.py`、`test_session_naming_contract.py`、`test_time_context.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_prechat.py`、`test_vision_privacy.py` |
 | `atri_x.agent.admission` | 计算静默：静默时段里"哪些模型调用允许发生"的唯一判定入口。 | 224 | `test_agent_admission.py` |
 | `atri_x.agent.asr` | 入站语音转写（ASR）。 | 355 | — |
 | `atri_x.agent.bootstrap` | Agent 的可选服务装配入口（幂等）。 | 576 | `test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands_integration.py`、`test_app_runtime_agent.py` |
@@ -35,7 +35,7 @@
 | `atri_x.agent.budget_ledger` | 每日计量账本本体：原子预留、执行幂等、用量与状态桥。 | 701 | — |
 | `atri_x.agent.call_reason` | 一次 LLM 调用的**原因**标签（Python 版新增）。 | 89 | `test_agent_admission.py`、`test_usage_attribution.py` |
 | `atri_x.agent.character_directive` | ``@char:`` / ``@c:`` 单回合角色声明的解析与应用。 | 145 | `test_agent_assembly.py` |
-| `atri_x.agent.character_guide_prompt` | 人设卡操作指引（系统提示词来源）。 | 55 | — |
+| `atri_x.agent.character_guide_prompt` | 人设卡操作指引（系统提示词来源）。 | 48 | — |
 | `atri_x.agent.chat` | 回合主流程：从入站文本到助手消息落库。 | 412 | `test_agent_chat.py`、`test_agent_core.py` |
 | `atri_x.agent.chat_anomaly` | 上游把工具调用写成正文时的补救与清洗。 | 157 | `test_agent_chat_anomaly.py` |
 | `atri_x.agent.chat_llm` | 单次 LLM 调用：请求构造、流式读取、用量与错误审计。 | 611 | `test_agent_chat.py`、`test_agent_chat_anomaly.py` |
@@ -141,7 +141,7 @@
 | `atri_x.agent.participation` | 群聊参与状态机 MVP（评估 §D）：只做**抑制**，不主动找话题。 | 345 | `test_agent_participation.py` |
 | `atri_x.agent.platform_signals` | 平台连接信号的订阅与按平台执行队列。 | 249 | — |
 | `atri_x.agent.prefix` | 命令前缀的读取与取消命令识别。 | 47 | — |
-| `atri_x.agent.prompt` | 提示词构造：SOUL 提供者、工具名/schema 提供者、``PromptBuilder``。 | 421 | `test_agent_prompt.py`、`test_member_profile.py` |
+| `atri_x.agent.prompt` | 提示词构造：SOUL 提供者、工具名/schema 提供者、``PromptBuilder``。 | 425 | `test_agent_prompt.py`、`test_member_profile.py` |
 | `atri_x.agent.ratelimit` | 入站限流：用户桶 + 群桶、计数与可观测状态。 | 275 | `test_agent_bootstrap.py`、`test_agent_directives.py` |
 | `atri_x.agent.reactions` | 表情反应层与 Agent 回合输出的接线（Python 侧新增，无 Go 对应）。 | 164 | `test_agent_chat.py`、`test_agent_reactions.py` |
 | `atri_x.agent.request_context` | 回合请求 ID 在 ctx 上的读写。 | 32 | `test_agent_core.py` |
@@ -164,11 +164,12 @@
 | `atri_x.agent.tool_transcript` | 工具调用在会话记录里的落库形态。对应 Go：``internal/agent/tool_transcript.go``。 | 476 | `test_agent_chat.py`、`test_agent_tools.py` |
 | `atri_x.agent.toolrun_adapter` | 工具运行适配层：把 ``Agent`` 接到 ``atri_x.toolrun`` 的 Runner 上。 | 980 | `test_agent_risk.py`、`test_safety_integration.py`、`test_toolrun.py` |
 | `atri_x.agent.toolrun_prompt_provider` | 默认的工具 schema / 名单提供者（Agent 侧适配）。对应 Go：``internal/agent/toolrun_prompt_provider.… | 88 | `test_agent_tools.py` |
-| `atri_x.agent.tools` | 工具运行时状态装配。对应 Go：``internal/agent/tools.go``。 | 518 | `test_agent_assembly.py`、`test_agent_risk.py`、`test_agent_tools.py` |
+| `atri_x.agent.tools` | 工具运行时状态装配。对应 Go：``internal/agent/tools.go``。 | 525 | `test_agent_assembly.py`、`test_agent_risk.py`、`test_agent_tools.py` |
 | `atri_x.agent.tools_service` | ``agent.services["tools"]`` / ``command_deps.tools`` 的装配对象。 | 60 | — |
 | `atri_x.agent.turn_gate` | 回合输出的"最后一公里"闸门。 | 75 | — |
 | `atri_x.agent.turn_output` | 回合输出端口：前台流式输出与后台静默输出。 | 273 | `test_agent_chat.py`、`test_platform_cli.py`、`test_platform_cli_remote.py` |
 | `atri_x.agent.turn_override` | 单回合指令：``@model:`` / ``@image:`` / ``@use:`` 的解析、裁决与剥离。 | 337 | `test_agent_assembly.py`、`test_agent_chat.py` |
+| `atri_x.agent.user_prompt_source` | 用户自建提示词的系统提示词来源。 | 42 | `test_promptlib.py` |
 | `atri_x.agent.vision` | 多图兜底：把图片段换成模型生成的文字描述。 | 518 | `test_vision_prechat.py`、`test_vision_privacy.py` |
 | `atri_x.agent.wakeup` | 唤醒判定：群聊里这条消息要不要叫醒模型，以及唤醒词的剥离。 | 262 | `test_agent_participation.py`、`test_agent_wakeup.py` |
 | `atri_x.agent.workspace` | 会话工作区目录的持久化适配（``tool.WorkspaceStore`` 的实现）。 | 154 | `test_agent_directives.py`、`test_toolrun.py` |
@@ -181,4 +182,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 796 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 825 个 / 超线文件 79 个）。
