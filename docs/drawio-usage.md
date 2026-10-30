@@ -232,7 +232,7 @@
 | 现象 | 原因 / 处理 |
 | --- | --- |
 | 工具列表里没有 `drawio` | 不是超管（发现阶段就不可见）；或技能未安装：安装版重装，源码树跑 §11 的 bootstrap |
-| `doctor` 显示 `render_available: false` | 内置渲染器缺失/路径失效：安装版重新安装；源码树设 `ATRIX_DRAWIO` 或放 `packaging/vendor/drawio/` |
+| `doctor` 显示 `render_available: false` | 内置渲染器缺失/路径失效：安装版重新安装；源码树设 `ATRIX_DRAWIO`，或按 `packaging/vendor/README.md` 把官方解包目录放进 `packaging/vendor/` 下的 `drawio` 子目录（该子目录不入库，构建时读取） |
 | 只返回 `.drawio`，没有图片 | 渲染器不可用（同上），或渲染失败——结果文本里会写原因；源文件仍可用 |
 | `未找到 draw.io 渲染器` | 同上；`.drawio` 可拿桌面版 draw.io 打开 |
 | `renderer process gone (crashed)` | 渲染器目录不完整（最常见是删了 `ffmpeg.dll`），用官方解包目录重做 |
