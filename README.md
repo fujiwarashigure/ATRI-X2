@@ -12,7 +12,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.1.6`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
+| 版本 | `1.1.7`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -44,13 +44,13 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行 |
-| 本仓库 | 平铺布局的 `atri_x/`：826 个 `.py` 模块，约 24.1 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.1 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：829 个 `.py` 模块，约 24.1 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.1 万行） |
 | 研究引擎 | 随包 `research_pack/`：38 个模块、约 8.7k 行纯标准库引擎 + 15 个原创 AgentSkill；安装版 / 便携版首启自动装进配置目录 |
 | 图表能力 | 随包 `drawio_pack/`（drawio-skill 3.4.2，47 个纯标准库脚本 + 20 篇参考 + shape 索引）+ 内置 draw.io 32.6.1 无头渲染器；工具 `drawio` 仅超管可用，安装版 / 便携版开箱出 PNG/SVG/PDF |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 239 个 Python 文件（其中 229 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
+| 测试 | `tests/` 240 个 Python 文件（其中 230 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
 | 门禁 | 代码 7 道 + 文档 1 道（`check_docs`）+ 索引 1 道（`gen_index --check`）+ 复杂度预算，全部可在 CI 跑 |
 | 规模 | 1459 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
 
@@ -174,19 +174,20 @@ python -m atri_x --config path/to/app.toml   # 指定主配置
 
 ## 发行版、容器镜像与部署
 
-当前版本 **`1.1.6`**（正式发行版）：**提示词库 GUI 化 + 聊天漫画**。桌面端新增第 15 个
-「提示词」选项卡（提示词模板 / 生图档案 / 工具标签 / 标签词库都能改，内置模板只存改动、
-下一轮生效）；新增 `comic_plan` / `comic_render` 两个工具，把当前群聊改编成一页结构化
-漫画（先分镜预览再生成整页图，台词逐字保留、人物自动对齐角色卡/群友头像、失败不重复扣费）；
-同时修复桌面端「群友」页「下载头像」HTTP 400。详见
-[`docs/release-notes/1.1.6.md`](docs/release-notes/1.1.6.md)、[聊天漫画](docs/comic.md)、
-[CHANGELOG.md](CHANGELOG.md)；上一版（内置 draw.io 图表能力）见
-[`docs/release-notes/1.1.5.md`](docs/release-notes/1.1.5.md)。
+当前版本 **`1.1.7`**（正式发行版）：**后台服务断线自愈 + 服务退出诊断**。桌面端连不上本机
+后台服务时不再停在「已断开」等用户处理：断线 8 秒后自动探测并重启 `atri-x service run`
+（失败按 15/30/60/120 秒退避，最多 5 次，状态栏显示「正在自动重启后台服务…」），恢复后自动
+重连；只对 `ws://127.0.0.1` / `localhost` / `[::1]` 的本地服务生效，`--no-service` 与用户
+显式「停止后台服务」不会触发。服务的启动/退出（pid、退出码、运行时长）写进 `gui.log`，便于
+定位「服务是怎么没的」。同一版本还包含：CI 全量单测拆 6 片并行、本地全量单测不再要求先停
+后台服务。详见 [`docs/release-notes/1.1.7.md`](docs/release-notes/1.1.7.md)、
+[CHANGELOG.md](CHANGELOG.md)；上一版（提示词库 GUI 化 + 聊天漫画）见
+[`docs/release-notes/1.1.6.md`](docs/release-notes/1.1.6.md)。
 历史版发行说明见 [`docs/release-notes/`](docs/release-notes/)。
 
-当前线上版：[**GitHub Release v1.1.6**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.6)
-（tag `v1.1.6` 指向 1.1.6 发行提交；安装包 / 便携版 / 源码归档 / `SHA256SUMS.txt` 均为 Release 附件）；
-上一版 [v1.1.5](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.5)。
+当前线上版：[**GitHub Release v1.1.7**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.7)
+（tag `v1.1.7` 指向 1.1.7 发行提交；安装包 / 便携版 / 源码归档 / `SHA256SUMS.txt` 均为 Release 附件）；
+上一版 [v1.1.6](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.6)。
 
 | 产物 | 位置 |
 | --- | --- |
@@ -311,8 +312,8 @@ server`，拆片后不再出现。
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 1080 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=826 imported=826`，0 失败 |
+| `check_syntax` | 1084 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=829 imported=829`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径，不衡量行为正确性） |
 | `check_except` | 与位置级基线一致（0 个新增位置） |

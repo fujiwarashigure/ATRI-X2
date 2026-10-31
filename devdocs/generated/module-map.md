@@ -3,7 +3,7 @@
 
 # 模块索引（自动生成）
 
-共 **825** 个模块 / **241396** 物理行 / **71** 个一级域。被测试直接覆盖 **518** 个（62.8%）。
+共 **828** 个模块 / **241880** 物理行 / **71** 个一级域。被测试直接覆盖 **521** 个（62.9%）。
 
 查模块：`rg -n "atri_x\.tool\.builtin" devdocs/generated/module-map.md`。
 
@@ -331,10 +331,10 @@
 | `atri_x.groupanalysis.summarizer` | 群分析的可选摘要器。 | DEFAULT_SUMMARY_INPUT_RUNES, DEFAULT_SUMMARY_MAX_RUNES, DEF… | 160 | `test_groupanalysis.py` |
 | `atri_x.groupkb` | 群知识库（确定性 FAQ 匹配）。对应 Go：``internal/groupkb/groupkb.go`` 的包声明。 | Match, MatchContains, MatchExact, MatchKeywords, Normalize,… | 44 | `test_groupkb.py` |
 | `atri_x.groupkb.groupkb` | 确定性 FAQ 匹配引擎（纯本地、无模型依赖）。 | MatchContains, MatchExact, MatchKeywords, Normalize, Normal… | 250 | — |
-| `atri_x.gui` | ``atri_x.gui``：Windows 桌面端（Tk 前端 + 托盘 + 后台服务管理）。 | GuiApp, GuiConfigError, GuiSettings, RemoteClient, Transcri… | 76 | `test_cli_sessions.py`、`test_gui_client.py`、`test_gui_configedit.py`、`test_gui_diagnostics.py`、`test_gui_extractconfig.py`、`test_gui_icon.py`、`test_gui_imagemount.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_members.py`、`test_gui_modelcatalog.py`、`test_gui_promptlib.py`、`test_gui_proto_manager.py`、`test_gui_protocol.py`、`test_gui_qqproto.py`、`test_gui_searchconfig.py`、`test_gui_service.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
-| `atri_x.gui.__main__` | ``python -m atri_x.gui``：桌面端进程入口。 | build_settings, main, parse_args | 217 | `test_gui_diagnostics.py` |
+| `atri_x.gui` | ``atri_x.gui``：Windows 桌面端（Tk 前端 + 托盘 + 后台服务管理）。 | GuiApp, GuiConfigError, GuiSettings, RemoteClient, Transcri… | 76 | `test_cli_sessions.py`、`test_gui_client.py`、`test_gui_configedit.py`、`test_gui_diagnostics.py`、`test_gui_extractconfig.py`、`test_gui_icon.py`、`test_gui_imagemount.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_members.py`、`test_gui_modelcatalog.py`、`test_gui_promptlib.py`、`test_gui_proto_manager.py`、`test_gui_protocol.py`、`test_gui_qqproto.py`、`test_gui_searchconfig.py`、`test_gui_service.py`、`test_gui_supervisor.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
+| `atri_x.gui.__main__` | ``python -m atri_x.gui``：桌面端进程入口。 | build_settings, main, parse_args | 220 | `test_gui_diagnostics.py` |
 | `atri_x.gui.about` | 「关于 ATRI-X」窗口：版本、项目简介、仓库地址、推荐语与署名。 | DESCRIPTION, POWERED_BY, RECOMMEND, REPO_URL, TAGLINE, abou… | 139 | `test_gui_tabs.py` |
-| `atri_x.gui.actions` | 主窗口的「服务」动作：启动 / 重启 / 停止后台服务、打开目录/日志、关于。 | handle_restart, open_config_dir, open_service_log, restart_… | 170 | `test_gui_diagnostics.py` |
+| `atri_x.gui.actions` | 主窗口的「服务」动作：启动 / 重启 / 停止后台服务、打开目录/日志、关于。 | handle_restart, open_config_dir, open_service_log, restart_… | 196 | `test_gui_diagnostics.py` |
 | `atri_x.gui.app` | Tk 主窗口：选项卡（对话/模型/人设卡/平台/群友/知识库/进阶/日志/功能）+ 状态栏 + 托盘常驻。 | GuiApp, WINDOW_TITLE | 860 | `test_gui_diagnostics.py`、`test_gui_tabs.py` |
 | `atri_x.gui.autostart` | 开机自启：写用户注册表 ``Run`` 项（``HKCU\…\CurrentVersion\Run``）。 | AutostartState, RUN_KEY, VALUE_NAME, command_line, disable,… | 104 | — |
 | `atri_x.gui.avatars` | 群友头像：拼平台头像 URL、下载、解码缩放成统一的本地 PNG 缓存。 | AVATAR_DIR, AVATAR_SIZE, AvatarError, avatar_file, avatar_u… | 180 | `test_gui_members.py`、`test_gui_tabs.py` |
@@ -353,7 +353,7 @@
 | `atri_x.gui.icon` | 品牌图标素材的运行时解析。 | BRAND_DIR, app_icon, app_icon_png, available | 45 | `test_gui_icon.py` |
 | `atri_x.gui.imagemount` | 本地生图服务的「挂载」：把端口映射 / SSL 链接翻译成 OpenAI 兼容 Base URL。 | DEFAULT_COMFY_PORT, DEFAULT_HOST, DEFAULT_PREFIX, ImageMoun… | 357 | `test_gui_imagemount.py`、`test_gui_tabs.py` |
 | `atri_x.gui.imageprofileedit` | 「提示词」页的「生图档案」子页：编辑 ``services.toml`` 的命名生图 profile。 | ImageProfilesPanel | 317 | `test_gui_promptlib.py` |
-| `atri_x.gui.journal` | 界面操作日志：把桌面端"点了什么、改了哪个文件"记进 ``<配置目录>/gui/gui.log``。 | JOURNAL_NAME, MAX_JOURNAL_BYTES, journal_path, read_lines, … | 91 | `test_gui_diagnostics.py`、`test_gui_tabs.py` |
+| `atri_x.gui.journal` | 界面操作日志：把桌面端"点了什么、改了哪个文件"记进 ``<配置目录>/gui/gui.log``。 | JOURNAL_NAME, MAX_JOURNAL_BYTES, journal_path, read_lines, … | 91 | `test_gui_diagnostics.py`、`test_gui_service.py`、`test_gui_tabs.py` |
 | `atri_x.gui.linkstate` | 「在线」选项卡的数据层：平台配置、协议端探测、后台服务健康快照。 | DEFAULT_PLATFORM, EndpointProbe, HEALTH_PATH, HealthReport,… | 573 | `test_gui_link.py`、`test_gui_qqproto.py` |
 | `atri_x.gui.memberdata` | 群友角色数据：成员档案的 GUI 适配层 + 群友发现。 | GroupScope, MAX_PROFILE_RUNES, MAX_TAGS, MEMBERS_FILE, Memb… | 222 | `test_gui_members.py`、`test_gui_promptlib.py`、`test_gui_tabs.py` |
 | `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型，并把「备注名」缓存在本地。 | CATALOG_FILE, CATALOG_VERSION, Catalog, CatalogEntry, Catal… | 437 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
@@ -366,11 +366,14 @@
 | `atri_x.gui.qqproto` | 内置 QQ 协议端环境（NapCat + 便携 QQ）的首次运行准备。 | BUNDLE_ENV_VAR, DEFAULT_ONEBOT_PORT, DEFAULT_WEBUI_PORT, EN… | 599 | `test_gui_proto_manager.py`、`test_gui_qqproto.py` |
 | `atri_x.gui.qqproto_cli` | ``atri-x.exe -m atri_x.gui.qqproto`` 的命令行入口。 | main | 86 | — |
 | `atri_x.gui.reactionpage` | 「人设卡 → 表情图库」子选项卡（Python 侧新增，无 Go 对应）。 | CATALOG_FILENAME, REACTION_TAB_TITLE, ReactionPanel, galler… | 553 | — |
+| `atri_x.gui.recovery` | 桌面端的断线自愈接线层：把 :mod:`atri_x.gui.supervisor` 接到 :class:`GuiApp` 上。 | RecoveringGuiApp | 120 | `test_gui_supervisor.py` |
 | `atri_x.gui.searchconfig` | 桌面端「模型 → 搜索服务」页的数据层：读写 ``services.toml`` 的 ``[web_search]``。 | DEFAULT_SEARCH_ENGINES, PROTOCOL_HINTS, PROTOCOL_LABELS, Se… | 249 | `test_gui_searchconfig.py`、`test_gui_tabs.py` |
 | `atri_x.gui.selftest` | 桌面端自检：不连服务、不建托盘，只验证 Tk 侧能构建与渲染。 | run_selftest, safe_print | 115 | — |
-| `atri_x.gui.service` | GUI 的「服务侧」准备：配置、token、后台服务的探测与拉起。 | DEFAULT_CLIENT_ID, DEFAULT_HEALTH_ADDR, DEFAULT_TOKEN_ENV, … | 638 | `test_gui_link.py`、`test_gui_qqproto.py`、`test_gui_service.py`、`test_gui_tabs.py` |
+| `atri_x.gui.service` | GUI 的「服务侧」准备：配置、token、后台服务的探测与拉起。 | DEFAULT_CLIENT_ID, DEFAULT_HEALTH_ADDR, DEFAULT_TOKEN_ENV, … | 624 | `test_gui_link.py`、`test_gui_qqproto.py`、`test_gui_service.py`、`test_gui_tabs.py` |
+| `atri_x.gui.servicelog` | 后台服务的生命周期日志：启动头、启动/退出记录。 | record, watch_exit, write_header | 76 | `test_gui_service.py` |
 | `atri_x.gui.sessions` | 会话侧边栏：会话列表 + 新建/刷新（GUI 的"会话列表/历史"入口）。 | SessionSidebar, load_history_into | 156 | `test_cli_sessions.py` |
 | `atri_x.gui.snowluma_proto` | SnowLuma 协议端环境的探测与托管（可选的备用协议端，外置，**不内置分发**）。 | CONSENT_NAME, DEFAULT_WEBUI_PORT, ENV_VAR, ONEBOT_CONFIG_PR… | 261 | `test_gui_proto_manager.py` |
+| `atri_x.gui.supervisor` | 桌面端的后台服务看护：断线后自动探测 → 重启 → 退避重试。 | GRACE_SECONDS, MAX_ATTEMPTS, RECOVERY_BACKOFF_SECONDS, Reco… | 273 | `test_gui_supervisor.py` |
 | `atri_x.gui.tabs` | 桌面端的选项卡集合。 | AdvancedTab, CharacterTab, ChatTab, ConfigTab, FeaturesTab,… | 58 | `test_gui_link.py`、`test_gui_promptlib.py`、`test_gui_qqproto.py`、`test_gui_tabs.py`、`test_gui_timepanel.py` |
 | `atri_x.gui.tabs.advanced` | 「进阶」选项卡：生图/视觉/语音、记忆与群功能开关、日志级别。 | AdvancedTab | 544 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.base` | 配置选项卡的公共骨架：底部状态行、错误弹窗、"需要重启"提示。 | ConfigTab, confirm, message | 136 | — |

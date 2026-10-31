@@ -331,5 +331,76 @@ class ServerUrlTestCase(unittest.TestCase):
         )
 
 
+class ServiceLifecycleLogTestCase(EnvTestCase):
+    """后台服务的启动/退出要写进 ``gui.log``。
+
+    这是「服务悄无声息消失」唯一可靠的线索：进程被 ``taskkill`` 或崩溃时 stdout
+    通常什么都没有，只剩一个退出码。断线自愈（``atri_x.gui.supervisor``）要靠它
+    才能事后说清「服务到底是怎么没的」。
+    """
+
+    def _settings(self) -> service.GuiSettings:
+        return service.GuiSettings(
+            config_path=str(self.config_path),
+            config_dir=str(self.config_dir),
+            url="ws://127.0.0.1:32172/cli/v1/ws",
+            client_id="local",
+            token="secret",
+            token_env="ATRIX_CLI_LOCAL_TOKEN",
+        )
+
+    def _wait_journal(self, needle: str, timeout: float = 5.0) -> str:
+        import time
+
+        from atri_x.gui import journal
+
+        deadline = time.monotonic() + timeout
+        text = ""
+        while time.monotonic() < deadline:
+            text = journal.read_tail(str(self.config_dir))
+            if needle in text:
+                return text
+            time.sleep(0.02)
+        return text
+
+    def test_record_service_lifecycle_writes_journal(self) -> None:
+        from atri_x.gui import servicelog
+
+        servicelog.record(self._settings(), "启动后台服务（pid 1234）")
+        text = self._wait_journal("启动后台服务（pid 1234）")
+        self.assertIn("启动后台服务（pid 1234）", text)
+
+    def test_watch_service_exit_records_exit_code(self) -> None:
+        from atri_x.gui import servicelog
+
+        class _FakeProcess:
+            pid = 4242
+
+            def wait(self) -> int:
+                return 1
+
+        servicelog.watch_exit(_FakeProcess(), self._settings())
+        text = self._wait_journal("退出码 1")
+        self.assertIn("pid 4242", text)
+        self.assertIn("退出码 1", text)
+
+    def test_write_header_carries_config_and_endpoints(self) -> None:
+        from atri_x.gui import servicelog
+
+        class _Handle:
+            def __init__(self) -> None:
+                self.data = b""
+
+            def write(self, chunk: bytes) -> None:
+                self.data += chunk
+
+        handle = _Handle()
+        servicelog.write_header(handle, self._settings())
+        text = handle.data.decode("utf-8")
+        self.assertIn("启动后台服务", text)
+        self.assertIn(str(self.config_path), text)
+        self.assertIn("ws://127.0.0.1:32172/cli/v1/ws", text)
+
+
 if __name__ == "__main__":  # pragma: no cover - 手工运行入口
     unittest.main()

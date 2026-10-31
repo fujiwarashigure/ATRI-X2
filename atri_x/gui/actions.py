@@ -31,6 +31,17 @@ __all__ = [
 ]
 
 
+def _auto_recover_hook(app: Any, action: str) -> None:
+    """调用桌面端的断线自愈暂停/恢复钩子。
+
+    ``--selftest``/单测里构造的是裸 :class:`GuiApp`（没有这两个方法），所以按名字取、
+    取不到就跳过：服务菜单的动作不能因为自愈层缺失而报错。
+    """
+    hook = getattr(app, action, None)
+    if hook is not None:
+        hook()
+
+
 def start_backend(app: Any) -> None:
     """确保后台服务在跑；成功后就重连。"""
     if app.settings is None:
@@ -38,9 +49,12 @@ def start_backend(app: Any) -> None:
         return
     from atri_x.gui.service import prepare_settings, spawn_service, wait_until_ready
 
+    # 手动启动/等待期间暂停自愈：避免看护线程和这条路径同时拉起两个服务。
+    _auto_recover_hook(app, "suspend_auto_recover")
     try:
         settings = prepare_settings(app.settings.config_path)
     except Exception as exc:  # noqa: BLE001 - 直接展示给用户
+        _auto_recover_hook(app, "resume_auto_recover")
         messagebox.showerror("ATRI-X", f"准备配置失败：{exc}", parent=app.root)
         return
     ok, reason = wait_until_ready(settings, timeout=1.0)
@@ -48,11 +62,13 @@ def start_backend(app: Any) -> None:
         try:
             spawn_service(settings)
         except Exception as exc:  # noqa: BLE001
+            _auto_recover_hook(app, "resume_auto_recover")
             messagebox.showerror("ATRI-X", f"启动后台服务失败：{exc}", parent=app.root)
             return
         app.service_owned = True
         ok, reason = wait_until_ready(settings, timeout=25.0)
     if not ok:
+        _auto_recover_hook(app, "resume_auto_recover")
         messagebox.showerror(
             "ATRI-X",
             f"后台服务没有就绪：{reason}\n\n日志：{service_log_path()}",
@@ -60,6 +76,8 @@ def start_backend(app: Any) -> None:
         )
         return
     app.settings = settings
+    app.service_owned = True
+    _auto_recover_hook(app, "resume_auto_recover")
     app.reconnect()
 
 
@@ -75,6 +93,8 @@ def restart_backend(app: Any) -> None:
         parent=app.root,
     ):
         return
+    # 重启本身会让连接断开 1–2 秒；期间不能让断线自愈再插一脚。
+    _auto_recover_hook(app, "suspend_auto_recover")
     app._status_text = "● 正在重启后台服务…"
     threading.Thread(
         target=lambda: _restart_worker(app), name="atri-x-gui-restart", daemon=True
@@ -94,6 +114,8 @@ def _restart_worker(app: Any) -> None:
 def handle_restart(app: Any, payload: Any) -> None:
     """主线程处理重启结果（``app._handle_event`` 收到 ``restart`` 事件时调用）。"""
     ok, detail = payload
+    # 无论成败都恢复自愈：失败时服务可能是死的，交给看护线程按退避再试。
+    _auto_recover_hook(app, "resume_auto_recover")
     if ok:
         app.service_owned = True
         app._append_notice("后台服务已重启，正在重新连接…")
@@ -118,6 +140,10 @@ def stop_backend(app: Any) -> None:
     from atri_x.gui.service import stop_service
 
     ok, detail = stop_service()
+    if ok:
+        # 用户是**故意**停的：停止自愈，否则看护线程会立刻把服务拉起来。
+        _auto_recover_hook(app, "suspend_auto_recover")
+        app._status_text = "● 后台服务已停止"
     (messagebox.showinfo if ok else messagebox.showerror)("ATRI-X", detail, parent=app.root)
 
 

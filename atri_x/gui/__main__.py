@@ -21,9 +21,10 @@ from typing import Sequence
 
 from atri_x import __version__
 from atri_x.gui import autostart
-from atri_x.gui.app import WINDOW_TITLE, GuiApp
+from atri_x.gui.app import WINDOW_TITLE
 from atri_x.gui.client import RemoteClient
 from atri_x.gui.process import record_startup_failure
+from atri_x.gui.recovery import RecoveringGuiApp
 from atri_x.gui.selftest import run_selftest
 from atri_x.gui.service import (
     GuiConfigError,
@@ -117,13 +118,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_NO_TK
 
     client = RemoteClient(settings.url, settings.client_id, settings.token)
-    app = GuiApp(
+    app = RecoveringGuiApp(
         root,
         settings,
         client=client,
         tray_enabled=not args.no_tray,
         minimized=args.minimized,
         service_owned=service_owned,
+        # --no-service 表示「只连已有服务，不管理进程」，那种模式不能自动重启别人。
+        allow_auto_recover=not args.no_service,
     )
     app.run()
     return 0

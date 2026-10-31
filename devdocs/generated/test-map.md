@@ -3,8 +3,8 @@
 
 # 测试地图（自动生成）
 
-- 模块 **825** 个，其中被测试直接/间接覆盖 **518** 个（62.8%）；无覆盖 **307** 个。
-- 测试文件 **239** 个。
+- 模块 **828** 个，其中被测试直接/间接覆盖 **521** 个（62.9%）；无覆盖 **307** 个。
+- 测试文件 **240** 个。
 
 口径：测试文件 import 了某模块（或其子模块）就算覆盖该模块；「无覆盖」不代表没测过，但**改那个模块时没有同名测试可跑**，只能靠调用方测试。
 
@@ -202,7 +202,7 @@
 | `atri_x.groupanalysis` | `tests/test_groupanalysis.py` |
 | `atri_x.groupanalysis.summarizer` | `tests/test_groupanalysis.py` |
 | `atri_x.groupkb` | `tests/test_groupkb.py` |
-| `atri_x.gui` | `tests/test_cli_sessions.py`、`tests/test_gui_client.py`、`tests/test_gui_configedit.py`、`tests/test_gui_diagnostics.py`、`tests/test_gui_extractconfig.py`、`tests/test_gui_icon.py`、`tests/test_gui_imagemount.py`、`tests/test_gui_link.py`、`tests/test_gui_maintenance.py`、`tests/test_gui_members.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_proto_manager.py`、`tests/test_gui_protocol.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_searchconfig.py`、`tests/test_gui_service.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py`、`tests/test_gui_toolsettings.py` |
+| `atri_x.gui` | `tests/test_cli_sessions.py`、`tests/test_gui_client.py`、`tests/test_gui_configedit.py`、`tests/test_gui_diagnostics.py`、`tests/test_gui_extractconfig.py`、`tests/test_gui_icon.py`、`tests/test_gui_imagemount.py`、`tests/test_gui_link.py`、`tests/test_gui_maintenance.py`、`tests/test_gui_members.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_proto_manager.py`、`tests/test_gui_protocol.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_searchconfig.py`、`tests/test_gui_service.py`、`tests/test_gui_supervisor.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py`、`tests/test_gui_toolsettings.py` |
 | `atri_x.gui.__main__` | `tests/test_gui_diagnostics.py` |
 | `atri_x.gui.about` | `tests/test_gui_tabs.py` |
 | `atri_x.gui.actions` | `tests/test_gui_diagnostics.py` |
@@ -219,7 +219,7 @@
 | `atri_x.gui.icon` | `tests/test_gui_icon.py` |
 | `atri_x.gui.imagemount` | `tests/test_gui_imagemount.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.imageprofileedit` | `tests/test_gui_promptlib.py` |
-| `atri_x.gui.journal` | `tests/test_gui_diagnostics.py`、`tests/test_gui_tabs.py` |
+| `atri_x.gui.journal` | `tests/test_gui_diagnostics.py`、`tests/test_gui_service.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.linkstate` | `tests/test_gui_link.py`、`tests/test_gui_qqproto.py` |
 | `atri_x.gui.memberdata` | `tests/test_gui_members.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.modelcatalog` | `tests/test_gui_modelcatalog.py`、`tests/test_gui_tabs.py` |
@@ -230,10 +230,13 @@
 | `atri_x.gui.proto_setup` | `tests/test_gui_proto_manager.py`、`tests/test_gui_qqproto.py` |
 | `atri_x.gui.protocol` | `tests/test_cli_sessions.py`、`tests/test_gui_diagnostics.py`、`tests/test_gui_protocol.py` |
 | `atri_x.gui.qqproto` | `tests/test_gui_proto_manager.py`、`tests/test_gui_qqproto.py` |
+| `atri_x.gui.recovery` | `tests/test_gui_supervisor.py` |
 | `atri_x.gui.searchconfig` | `tests/test_gui_searchconfig.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.service` | `tests/test_gui_link.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_service.py`、`tests/test_gui_tabs.py` |
+| `atri_x.gui.servicelog` | `tests/test_gui_service.py` |
 | `atri_x.gui.sessions` | `tests/test_cli_sessions.py` |
 | `atri_x.gui.snowluma_proto` | `tests/test_gui_proto_manager.py` |
+| `atri_x.gui.supervisor` | `tests/test_gui_supervisor.py` |
 | `atri_x.gui.tabs` | `tests/test_gui_link.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py` |
 | `atri_x.gui.tabs.advanced` | `tests/test_gui_tabs.py` |
 | `atri_x.gui.tabs.character` | `tests/test_gui_promptlib.py`、`tests/test_gui_tabs.py` |

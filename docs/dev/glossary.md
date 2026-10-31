@@ -10,7 +10,7 @@
 | Agent 对话编排 | `atri_x/agent/` | `internal/agent` | 148 | 89/148 | `[agent]`、`[agent.dsh]` |
 | 工具与工具运行时 | `atri_x/tool/` | `internal/tool/builtin` | 83 | 61/83 | `state.toml` 的 `tool_allowlist`、`[tools]` |
 | 平台适配器 | `atri_x/platform/` | `internal/platform/qq-onebot` | 69 | 50/69 | `[platform.*]` |
-| 桌面端（Tk + 托盘） | `atri_x/gui/` | `—` | 77 | 54/77 | `state.toml` 与各服务的 GUI 段 |
+| 桌面端（Tk + 托盘） | `atri_x/gui/` | `—` | 80 | 57/80 | `state.toml` 与各服务的 GUI 段 |
 | 存储与 SQLite | `atri_x/storage/` | `internal/storage/sqlite` | 19 | 10/19 | `[storage]` |
 | 配置与运行时状态 | `atri_x/config/` | `internal/config` | 11 | 10/11 | `[app]` / `[security]` / `[connect_notice]` 等 |
 | Hook 与插件 | `atri_x/hook/` | `internal/hook/rules` | 39 | 21/39 | `hooks.toml` |

@@ -36,10 +36,9 @@ import sys
 import time
 import tomllib
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from atri_x.gui import proto_manager, qqproto
+from atri_x.gui import proto_manager, qqproto, servicelog
 from atri_x.gui.process import (  # noqa: F401 - 这些名字属于本模块对外的对外接口
     app_dir,
     application_paths,
@@ -416,7 +415,7 @@ def spawn_service(settings: GuiSettings) -> subprocess.Popen[bytes]:
     log_path = service_log_path()
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     handle = open(log_path, "ab", buffering=0)
-    handle.write(_log_header(settings).encode("utf-8"))
+    servicelog.write_header(handle, settings)
     env = dict(os.environ)
     env.setdefault(settings.token_env, settings.token)
     if settings.health_addr:
@@ -442,6 +441,8 @@ def spawn_service(settings: GuiSettings) -> subprocess.Popen[bytes]:
     finally:
         handle.close()
     write_service_pid(process.pid)
+    servicelog.record(settings, f"启动后台服务（pid {process.pid}）")
+    servicelog.watch_exit(process, settings)
     return process
 
 
@@ -621,18 +622,3 @@ def _upsert_env_line(path: str, name: str, value: str) -> None:
     else:
         lines.append(entry)
     _write_text(path, "\n".join(lines) + "\n")
-
-
-def _log_header(settings: GuiSettings) -> str:
-    moment = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    proto = settings.qqproto
-    proto_line = (
-        f"协议端：{proto.label} · {proto.ws_url}" if proto is not None else "协议端：（无）"
-    )
-    return (
-        f"\n=== {moment} 启动后台服务 ===\n"
-        f"配置：{settings.config_path}\n"
-        f"地址：{settings.url}\n"
-        f"状态接口：{settings.health_addr or '（未配置）'}\n"
-        f"{proto_line}\n"
-    )
