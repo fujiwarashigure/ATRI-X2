@@ -106,13 +106,17 @@
   GUI selftest / `service run` 起服务）全部通过；便携包解压自检与安装包静默安装/卸载自检
   全部通过。构建机 Python 3.14.7 / PyInstaller 6.22.3，含可选 PDF 依赖 reportlab 5.1.0 /
   pypdf 6.21.4（研究助理 PDF 能力不降级）。
-- 发行产物（本机从工作树重建；按发布要求**未提交 git、未推送 GitHub**）：
+- 发行产物（本机从工作树重建；已提交并推送 GitHub，并作为 **GitHub Release v1.1.6**（15 个附件）发布——`main` 提交 `7624bab`、tag `v1.1.6`）：
   - `ATRI-X-1.1.6-setup.exe` 592,941,662 字节（565.5 MB）—
     `034a89a267b86da9e2347ab1a0dbf68a1b5b870d95fb1eea3d221e1b4f1aae32`
   - `ATRI-X-1.1.6-portable-win64.zip` 862,455,451 字节（822.5 MB）—
     `be4b2884309742b50f3a95ec1eaad791773ce2f8181594d7135fcac0b205a2cd`
-  - `ATRI-X-1.1.6-repo.zip` / `.tar.gz`：源码归档（不含 `dist`/`build`/`runtime`/缓存），
+  - `ATRI-X-1.1.6-repo.zip` / `.tar.gz`：源码归档（1,457 条目，不含仓库根 `dist`/`build`/`runtime`
+    构建产物与缓存；`atri_x/dist` / `atri_x/hook/runtime` / `atri_x/runtime` 源码包完整保留），
     尺寸与 SHA-256 见发行库 `SHA256SUMS.txt` 与 `ATRI-X-1.1.6-repo-entries.txt`。
+- GitHub Release：[`v1.1.6`](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.6)，
+  15 个附件（安装包 / 便携版 / 源码归档 zip + tar.gz + 条目清单 / 发行说明 / 自检报告 /
+  兼容性报告 / 第三方声明 / drawio 指南 / SnowLuma 指南 / `README.md` / `LEGAL.md` / `SHA256SUMS.txt`）。
 - 构建事实：onedir 714.6 MB / 24,752 文件；内置 DSH 内核 277.6 MB（384 包 / Node
   v24.19.0）；内置 draw.io 渲染器 381.9 MB / 19 文件（32.6.1）；内置协议端 2,516 文件 /
   1,202.5 MB（NapCat 4.18.38 + QQ 9.9.33-52230，脱敏 = True）；便携包 822.5 MB（压缩比

@@ -184,6 +184,10 @@ python -m atri_x --config path/to/app.toml   # 指定主配置
 [`docs/release-notes/1.1.5.md`](docs/release-notes/1.1.5.md)。
 历史版发行说明见 [`docs/release-notes/`](docs/release-notes/)。
 
+当前线上版：[**GitHub Release v1.1.6**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.6)
+（tag `v1.1.6` 指向 1.1.6 发行提交；安装包 / 便携版 / 源码归档 / `SHA256SUMS.txt` 均为 Release 附件）；
+上一版 [v1.1.5](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.5)。
+
 | 产物 | 位置 |
 | --- | --- |
 | Windows 安装包 | `ATRI-X-<版本>-setup.exe`：用户级安装（不弹 UAC），含桌面端、托盘、开机自启、内置 DSH 内核与内置 QQ 协议端 |
