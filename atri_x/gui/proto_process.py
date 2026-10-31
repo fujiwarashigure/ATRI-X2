@@ -135,13 +135,13 @@ def managed_status(env_dir: str) -> dict[str, Any]:
         return {"managed": False, "reason": "本程序没有启动过协议端"}
     if not _pid_alive(pid):
         return {"managed": False, "pid": pid, "reason": "记录的协议端进程已经退出"}
-    expected = os.path.basename(str(record.get("image") or "")).lower()
-    actual = _pid_image(pid).lower()
-    if expected and actual and expected != actual:
+    expected = _image_name(record.get("image"))
+    actual = _pid_image(pid)
+    if expected and actual and expected != _image_name(actual):
         return {
             "managed": False,
             "pid": pid,
-            "reason": f"PID {pid} 已被别的进程占用（{actual or '未知'}）",
+            "reason": f"PID {pid} 已被别的进程占用（{actual}）",
         }
     return {
         "managed": True,
@@ -166,11 +166,11 @@ def stop_managed(env_dir: str) -> tuple[bool, str]:
     if not _pid_alive(pid):
         clear_state(env_dir)
         return False, "记录的协议端进程已经退出（已清理记录）"
-    expected = os.path.basename(str(record.get("image") or "")).lower()
-    actual = _pid_image(pid).lower()
-    if expected and actual and expected != actual:
+    expected = _image_name(record.get("image"))
+    actual = _pid_image(pid)
+    if expected and actual and expected != _image_name(actual):
         clear_state(env_dir)
-        return False, f"PID {pid} 现在是 {actual or '未知进程'}，不是本程序启动的协议端，已放弃停止"
+        return False, f"PID {pid} 现在是 {actual}，不是本程序启动的协议端，已放弃停止"
     _terminate_tree(pid)
     deadline = time.monotonic() + STOP_WAIT_SECONDS
     while time.monotonic() < deadline:
@@ -192,6 +192,18 @@ def _as_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _image_name(value: Any) -> str:
+    """镜像名归一化：去路径、转小写、去 ``.exe`` 后缀后再比较。
+
+    启动用的 ``argv[0]`` 与 ``tasklist`` 报回来的名字不一定写法一致：内置 NapCat 用
+    ``["cmd", "/c", Start-NapCat.bat]`` 启动，记录里存的是 ``cmd``，而 ``tasklist``
+    报 ``cmd.exe``。不归一化就会把"自己启动的进程"误判成"PID 被别的进程占用"
+    （状态显示「已被别的进程占用（cmd.exe）」且停止按钮拒绝执行）。
+    """
+    base = os.path.basename(str(value or "").strip()).lower()
+    return base[:-4] if base.endswith(".exe") else base
 
 
 def _pid_alive(pid: int) -> bool:

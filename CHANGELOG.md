@@ -53,6 +53,19 @@
 新状态：请求边长先**吸附到接口支持的档位**（向上取整、超过 640 取 640），本地仍按 96
 解码缩放缓存；`tests/test_gui_members.py` 钉住档位映射与 401/404/超时/超大体的报错文案。
 
+### 修订：协议端托管状态误报（2026-10-31 重发，版本号仍为 1.1.6）
+
+旧状态（1.1.6 首发）：桌面端「在线」页把本程序刚启动的内置 NapCat 显示成
+「进程：未运行或未托管（PID … 已被别的进程占用（cmd.exe））」，点「停止协议端」也会被
+拒绝（只清掉状态记录）。根因是 `atri_x/gui/proto_process.py` 把 `argv[0]` 的 basename
+（`cmd`）写进状态文件，而 Windows `tasklist` 报回 `cmd.exe`；字符串比较把"自己启动的
+进程"误判成"PID 被别的进程复用"。
+
+新状态：新增 `_image_name()` 归一化（去路径 / 转小写 / 去 `.exe`）后再比较，
+`managed_status()` 与 `stop_managed()` 共用；旧记录（`cmd`）无需迁移即可对上，真正被
+复用的 PID 仍然拒绝终止（安全边界不变）。`tests/test_gui_proto_manager.py` 新增三个
+用例（`cmd` vs `cmd.exe`、路径 + 大小写、停止时同样归一化）。
+
 ### 聊天漫画（`comic_plan` / `comic_render`）
 
 > 只加能力：**不改**既有工具 schema、会话与数据库格式；新增 `services.toml` 的
@@ -106,11 +119,13 @@
   GUI selftest / `service run` 起服务）全部通过；便携包解压自检与安装包静默安装/卸载自检
   全部通过。构建机 Python 3.14.7 / PyInstaller 6.22.3，含可选 PDF 依赖 reportlab 5.1.0 /
   pypdf 6.21.4（研究助理 PDF 能力不降级）。
-- 发行产物（本机从工作树重建；已提交并推送 GitHub，并作为 **GitHub Release v1.1.6**（15 个附件）发布——`main` 提交 `7624bab`、tag `v1.1.6`）：
-  - `ATRI-X-1.1.6-setup.exe` 592,941,662 字节（565.5 MB）—
-    `034a89a267b86da9e2347ab1a0dbf68a1b5b870d95fb1eea3d221e1b4f1aae32`
-  - `ATRI-X-1.1.6-portable-win64.zip` 862,455,451 字节（822.5 MB）—
-    `be4b2884309742b50f3a95ec1eaad791773ce2f8181594d7135fcac0b205a2cd`
+- 发行产物（本机从工作树重建；已推送 GitHub 并作为 **GitHub Release v1.1.6**（15 个附件）
+  发布——`main` 提交 `7624bab`、tag `v1.1.6`。下表是 **2026-10-31 重发版**的尺寸与哈希，
+  版本号仍为 1.1.6，覆盖原资产）：
+  - `ATRI-X-1.1.6-setup.exe` 592,949,732 字节（565.5 MB）—
+    `eaab4f6609184e8f2a4d742a12723011b3904e5bb806458a42171fffb4bf0846`
+  - `ATRI-X-1.1.6-portable-win64.zip` 862,457,391 字节（822.5 MB）—
+    `54df59065b3ceb7954bbde614cc2be2d421bace48b35af83d154e03b8c4ce2c1`
   - `ATRI-X-1.1.6-repo.zip` / `.tar.gz`：源码归档（1,457 条目，不含仓库根 `dist`/`build`/`runtime`
     构建产物与缓存；`atri_x/dist` / `atri_x/hook/runtime` / `atri_x/runtime` 源码包完整保留），
     尺寸与 SHA-256 见发行库 `SHA256SUMS.txt` 与 `ATRI-X-1.1.6-repo-entries.txt`。
@@ -120,17 +135,17 @@
 - 构建事实：onedir 714.6 MB / 24,752 文件；内置 DSH 内核 277.6 MB（384 包 / Node
   v24.19.0）；内置 draw.io 渲染器 381.9 MB / 19 文件（32.6.1）；内置协议端 2,516 文件 /
   1,202.5 MB（NapCat 4.18.38 + QQ 9.9.33-52230，脱敏 = True）；便携包 822.5 MB（压缩比
-  43%，27,268 输入文件）；安装包 565.5 MB（ISCC 282.2s，静默安装 97.8s / 27,271 文件，
-  卸载 15.9s）。构建总耗时约 10.4 分钟。
+  43%，27,268 输入文件）；安装包 565.5 MB（ISCC 284.5s，静默安装 100.7s / 27,271 文件，
+  卸载 16.5s）。构建总耗时约 11.2 分钟（onedir + 便携约 4.4 分钟，安装包编译与自检约 6.8 分钟）。
 - 门禁 11 项 0 失败：`check_syntax`（1,079 文件）/ `check_imports`（`modules=826
   imported=826`）/ `check_integration`（74 项）/ `check_coverage`（72 包加权 100%）/
   `check_except` / `check_secrets --all`（0 命中）/ `gen_index --check` /
   `gen_stats --check` / `gen_drawio_pack --check` / `check_docs` / `check_complexity`。
-- 全量单测：`Ran 7,156 tests`，其中 7 项失败均为**本机运行实例占用端口 / 构建机缺
-  `packaging/vendor/drawio`** 导致；停掉宿主实例后相关套件复跑 127/128 通过，剩余 1 项
-  是 `packaging` 构建环境前置条件（源码树不放 400 MB 的 draw.io 解包目录，正式构建用
-  `--with-drawio` 显式指定），证据见发行库 `证据/1.1.6/unittest-env-rerun-1.1.6.log`。
-  本版新增定向用例 137 个（漫画）+ 提示词库 / 配置 / 工具接线等共 403 项全部通过。
+- 全量单测（重发版复跑）：`Ran 7,160 tests`，失败 1 / 跳过 3；唯一失败
+  `test_packaging_build.test_build_path_fails_before_pyinstaller_when_pillow_is_missing`
+  是**构建机前置条件**（源码树不放 400 MB 的 `packaging/vendor/drawio`，正式构建用
+  `--with-drawio` 显式指定），不是产品缺陷。本版新增定向用例 3 个（协议端 PID 归属）+
+  既有 31 个回归全部通过（`tests/test_gui_proto_manager.py` 34 项）。
 - 脱敏：源码树 / 源码归档扫描 0 命中（个人目录、令牌、模型密钥）；便携包与安装包内的
   qqproto 由打包脚本按白名单剔除配置/缓存/日志，`proto-info.json` 标记 `sanitized=True`。
 

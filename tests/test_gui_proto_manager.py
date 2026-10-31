@@ -142,6 +142,50 @@ class ProcessStateCase(unittest.TestCase):
         killer.assert_called_once_with(888)
         self.assertEqual(proto_process.read_state(str(self.env_dir)), {})
 
+    def test_status_accepts_recorded_image_without_exe_suffix(self) -> None:
+        """记录存的是 ``argv[0]`` 的 basename（``cmd``），tasklist 报的是 ``cmd.exe``。"""
+        proto_process.write_state(str(self.env_dir), {"pid": 555, "image": "cmd"})
+        with (
+            mock.patch.object(proto_process, "_pid_alive", return_value=True),
+            mock.patch.object(proto_process, "_pid_image", return_value="cmd.exe"),
+        ):
+            info = proto_process.managed_status(str(self.env_dir))
+        self.assertTrue(info["managed"])
+        self.assertEqual(info["pid"], 555)
+        self.assertEqual(info["reason"], "")
+
+    def test_status_ignores_image_path_and_case(self) -> None:
+        proto_process.write_state(
+            str(self.env_dir), {"pid": 556, "image": r"C:\Windows\System32\CMD.EXE"}
+        )
+        with (
+            mock.patch.object(proto_process, "_pid_alive", return_value=True),
+            mock.patch.object(proto_process, "_pid_image", return_value="cmd.exe"),
+        ):
+            info = proto_process.managed_status(str(self.env_dir))
+        self.assertTrue(info["managed"])
+
+    def test_stop_accepts_recorded_image_without_exe_suffix(self) -> None:
+        """NapCat 是 ``cmd /c`` 起的；不能因为少个 .exe 就放弃停止自己起的进程树。"""
+        proto_process.write_state(str(self.env_dir), {"pid": 557, "image": "cmd"})
+        alive = {"value": True}
+
+        def fake_alive(pid: int) -> bool:
+            return alive["value"]
+
+        def fake_terminate(pid: int) -> None:
+            alive["value"] = False
+
+        with (
+            mock.patch.object(proto_process, "_pid_alive", side_effect=fake_alive),
+            mock.patch.object(proto_process, "_pid_image", return_value="cmd.exe"),
+            mock.patch.object(proto_process, "_terminate_tree", side_effect=fake_terminate) as killer,
+        ):
+            ok, detail = proto_process.stop_managed(str(self.env_dir))
+        self.assertTrue(ok)
+        self.assertIn("557", detail)
+        killer.assert_called_once_with(557)
+
     def test_launch_records_pid(self) -> None:
         class _Proc:
             pid = 4321

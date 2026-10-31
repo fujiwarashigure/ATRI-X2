@@ -3,7 +3,7 @@
 
 # 模块索引（自动生成）
 
-共 **825** 个模块 / **241234** 物理行 / **71** 个一级域。被测试直接覆盖 **518** 个（62.8%）。
+共 **825** 个模块 / **241246** 物理行 / **71** 个一级域。被测试直接覆盖 **518** 个（62.8%）。
 
 查模块：`rg -n "atri_x\.tool\.builtin" devdocs/generated/module-map.md`。
 
@@ -360,7 +360,7 @@
 | `atri_x.gui.process` | 进程与路径助手：程序目录、状态目录、后台服务的 pid 记录与终止、单实例。 | app_dir, application_paths, cleanup_service_pid, focus_exis… | 363 | `test_gui_diagnostics.py` |
 | `atri_x.gui.promptedit` | 「提示词」选项卡的模板编辑面板：左分类列表 + 右正文编辑器 + 只读预览。 | PromptTemplatesPanel | 416 | `test_gui_promptlib.py` |
 | `atri_x.gui.proto_manager` | 协议端管理层：按配置选后端（NapCat / SnowLuma），统一 prepare/launch/stop/status。 | apply_connection, configured_backend, launch, prepare, stat… | 190 | `test_gui_proto_manager.py` |
-| `atri_x.gui.proto_process` | 协议端进程托管：启动、停止、PID 归属校验。 | STATE_NAME, clear_state, launch_console, managed_status, re… | 259 | `test_gui_proto_manager.py` |
+| `atri_x.gui.proto_process` | 协议端进程托管：启动、停止、PID 归属校验。 | STATE_NAME, clear_state, launch_console, managed_status, re… | 271 | `test_gui_proto_manager.py` |
 | `atri_x.gui.proto_setup` | 协议端环境描述（NapCat / SnowLuma 共用）。 | ProtoSetup, QqProtoSetup | 76 | `test_gui_proto_manager.py`、`test_gui_qqproto.py` |
 | `atri_x.gui.protocol` | GUI 侧的协议解析与对话模型（纯逻辑，不依赖 tkinter，可离线测试）。 | ChatLine, FRAME_HANDLERS, FRAME_SPECIAL, HistoryItem, ROLE_… | 454 | `test_cli_sessions.py`、`test_gui_diagnostics.py`、`test_gui_protocol.py` |
 | `atri_x.gui.qqproto` | 内置 QQ 协议端环境（NapCat + 便携 QQ）的首次运行准备。 | BUNDLE_ENV_VAR, DEFAULT_ONEBOT_PORT, DEFAULT_WEBUI_PORT, EN… | 567 | `test_gui_proto_manager.py`、`test_gui_qqproto.py` |
