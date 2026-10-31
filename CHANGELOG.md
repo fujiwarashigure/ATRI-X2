@@ -50,6 +50,9 @@
   路径用正斜杠、`.iss` 反斜杠路径按 Windows 语义解析、视觉字节预算用 PNG `tEXt` 撑体积
   （不依赖 Pillow 压缩率）、`/diagnostics` 的 `pillow_installed` 只在真装了 Pillow 时要求
   版本号。
+- 分片运行器改为**逐模块子进程 + 单模块 300 秒超时**：某个模块在 runner 上挂死时，只会让
+  那一片快速报红并在日志里点名（`!!! 模块超时（>300s）：tests.xxx`），不再把整个 job 拖到
+  `in_progress` 超时、连日志都拿不到。
 
 ### 发行
 

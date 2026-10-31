@@ -29,6 +29,9 @@ import argparse
 import contextlib
 import io
 import json
+import os
+import re
+import subprocess
 import sys
 import time
 import unittest
@@ -129,6 +132,85 @@ def _failed_module(name: str, exc: Exception) -> unittest.FunctionTestCase:
     return unittest.FunctionTestCase(_raise, description=f"tests.{name}（导入失败）")
 
 
+#: 单个模块的超时（秒）。到点就杀掉子进程记为失败：一个挂死的模块只会让**这一片**
+#: 报红并把「是哪个模块挂的」写进日志，不会像之前那样把整片拖到 job 超时（真实事故：
+#: ubuntu 上 shard 6 的某个模块挂住，job 一直 in_progress，日志都拿不到）。
+PER_MODULE_TIMEOUT_SECONDS = 300.0
+
+_RAN_RE = re.compile(r"^Ran (\d+) tests? in ([\d.]+)s", re.MULTILINE)
+_SUMMARY_RE = re.compile(r"^(OK|FAILED)(?: \((.*)\))?\s*$", re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class ModuleRun:
+    """一个测试模块在独立子进程里的运行结果。"""
+
+    name: str
+    ok: bool
+    ran: int
+    failures: int
+    errors: int
+    skipped: int
+    seconds: float
+    output: str
+    timed_out: bool = False
+
+
+def _parse_counts(output: str) -> tuple[int, int, int, int]:
+    """从 unittest 输出里取 ``(ran, failures, errors, skipped)``。"""
+    ran = 0
+    for match in _RAN_RE.finditer(output):
+        ran = int(match.group(1))
+    failures = errors = skipped = 0
+    summaries = list(_SUMMARY_RE.finditer(output))
+    if summaries:
+        detail = summaries[-1].group(2) or ""
+        for part in detail.split(","):
+            key, _, value = part.strip().partition("=")
+            if not value.strip().isdigit():
+                continue
+            if key.strip() == "failures":
+                failures = int(value)
+            elif key.strip() == "errors":
+                errors = int(value)
+            elif key.strip() == "skipped":
+                skipped = int(value)
+    return ran, failures, errors, skipped
+
+
+def _run_module(name: str, timeout: float = PER_MODULE_TIMEOUT_SECONDS) -> ModuleRun:
+    """在独立子进程里跑一个模块（超时可杀、崩溃不牵连别的模块）。"""
+    command = [sys.executable, "-m", "unittest", f"tests.{name}", "-v"]
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUNBUFFERED"] = "1"
+    started = time.perf_counter()
+    try:
+        completed = subprocess.run(  # noqa: S603 - 命令由本脚本构造
+            command,
+            cwd=str(REPO),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        elapsed = time.perf_counter() - started
+        raw = exc.stdout or ""
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        output = str(raw) + f"\n!!! 模块超时（>{timeout:.0f}s）：tests.{name}（子进程已杀）\n"
+        ran, failures, errors, skipped = _parse_counts(output)
+        return ModuleRun(name, False, ran, failures, errors + 1, skipped, elapsed, output, True)
+    elapsed = time.perf_counter() - started
+    output = (completed.stdout or "") + (completed.stderr or "")
+    ran, failures, errors, skipped = _parse_counts(output)
+    ok = completed.returncode == 0 and not failures and not errors
+    return ModuleRun(name, ok, ran, failures, errors, skipped, elapsed, output)
+
+
 def run_shard(index: int, shards: int) -> int:
     modules = test_modules()
     planned = plan(modules, shards)
@@ -148,25 +230,34 @@ def run_shard(index: int, shards: int) -> int:
         if name in planned.broken:
             print(f"!! 模块导入失败 {name}: {planned.broken[name]}", flush=True)
 
-    loader = unittest.TestLoader()
-    suite = unittest.TestSuite()
-    for name in names:
-        try:
-            suite.addTests(loader.loadTestsFromName(f"tests.{name}"))
-        except Exception as exc:  # noqa: BLE001 - 同上：让失败可见而不是静默跳过
-            print(f"!! 加载失败 {name}: {type(exc).__name__}: {exc}", flush=True)
-            suite.addTest(_failed_module(name, exc))
-
     started = time.perf_counter()
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    runs: list[ModuleRun] = []
+    for position, name in enumerate(names, start=1):
+        print(f"\n----- [{position}/{len(names)}] tests.{name} -----", flush=True)
+        run = _run_module(name)
+        runs.append(run)
+        sys.stdout.write(run.output)
+        sys.stdout.flush()
+        status = "ok" if run.ok else ("超时" if run.timed_out else "失败")
+        print(
+            f"----- tests.{name}: {status}，Ran {run.ran} tests（{run.seconds:.1f}s 进程墙钟）-----",
+            flush=True,
+        )
     elapsed = time.perf_counter() - started
+    total = len(runs)
+    ran = sum(run.ran for run in runs)
+    failures = sum(run.failures for run in runs)
+    errors = sum(run.errors for run in runs)
+    skipped = sum(run.skipped for run in runs)
+    bad = [run.name for run in runs if not run.ok]
     print(
-        f"=== shard {index + 1}/{shards} 结束：{result.testsRun} 用例，"
-        f"失败 {len(result.failures)} / 错误 {len(result.errors)} / 跳过 {len(result.skipped)}，"
-        f"实际 {elapsed:.0f}s ===",
+        f"=== shard {index + 1}/{shards} 结束：{total} 模块 / {ran} 用例，"
+        f"失败 {failures} / 错误 {errors} / 跳过 {skipped}，实际 {elapsed:.0f}s ===",
         flush=True,
     )
-    return 0 if result.wasSuccessful() else 1
+    if bad:
+        print(f"!! 未通过模块（{len(bad)}）：" + "、".join(bad), flush=True)
+    return 0 if not bad else 1
 
 
 def print_plan(shards: int) -> int:
@@ -272,7 +363,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if str(REPO) not in sys.path:
         sys.path.insert(0, str(REPO))
-    import os
 
     os.chdir(REPO)  # 与 CI 在仓库根执行 `python -m unittest` 的口径一致
     if args.measure:
