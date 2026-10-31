@@ -99,6 +99,39 @@ Hyper-V / WSL / Docker 的动态端口保留），任何进程绑定该端口都
 - 已按同样流程**重建脱敏发行仓库 / 便携版 / 安装版**（版本号仍为 1.1.6），尺寸与哈希见
   下节「发行」。
 
+### 修订：CI 全量单测拆 6 片并行 + 修掉依赖构建机 draw.io 前置的用例（2026-10-31 第三次刷新，版本号仍为 1.1.6）
+
+旧状态（本轮重发版）：
+
+- `.github/workflows/quality.yml` 只有一个 job：12 道门禁后面接
+  `python -m unittest discover -s tests -t . -v`。全量 7,167 个用例在 GitHub 托管 runner 上
+  要跑 **45 分钟以上**，最近几次运行都在「全量单测」这一步以
+  `The hosted runner lost communication with the server` 结束——步骤永远停在
+  `in_progress`、job 却已经 `completed`，门禁因此常年红。这不是用例失败，是单个长任务把
+  runner 拖失联。
+- 另外 `tests/test_packaging_build.py` 里「PIL 校验必须早于 PyInstaller」那条用例依赖构建机
+  放没放 `packaging/vendor/drawio`（400 MB，不入库）：没放时 `build.resolve_drawio_dir`
+  会先报 draw.io 缺失，用例等不到 `import PIL` 的报错而误红，CI 上必然复现。
+
+新状态：
+
+- **新增 `scripts/ci_shard_tests.py` + `scripts/ci_test_weights.json`**：按模块**实测耗时**
+  把全量用例贪心均分成 N 片（默认 6 片；权重由 `--measure` 在本机逐模块跑一遍生成，缺失项按
+  用例数估）。只按用例数分并不均衡——`test_gui_tabs` 这类要反复建 Tk 根的模块单条用例就慢一个
+  量级（实测 163s/122 条）。划分是**确定性**的（只看 `tests/test_*.py` 集合、用例数与权重），
+  各片自己算出同一份，不需要中心调度或中间产物；`--plan` 打印计划并自检「恰好覆盖全部测试
+  模块 + 用例数守恒」，以后加/删测试模块不会悄悄漏跑。
+- **`quality.yml` 拆成两个 job**：`gates`（12 道门禁 + 分片计划自检，约 40 秒）与
+  `tests`（matrix 6 片，`fail-fast: false`，失败时上传本片日志 artifact）并行；runner 固定
+  `ubuntu-24.04`；`concurrency` 取消同分支旧运行；超时 20 / 30 分钟。本机 6 片实测
+  27–257s（未加权）/ 预计加权后 76–163s；托管 runner 上单片约 6–10 分钟，
+  runner 不再被单个长任务拖失联，红了也能一眼定位到片。
+- **修测试隔离**：那条 PIL 用例打桩 `build.resolve_drawio_dir`，只测「PIL 校验早于
+  PyInstaller」，不再随构建机是否放渲染器漂移。
+- 验证：本地 12 道门禁 0 失败；6 片合计 `Ran 7,167 tests`、失败 0 / 跳过 3（此前那 1 项
+  构建机环境失败已消失），与单进程全量口径一致。
+- README 数字随新增脚本刷新（`check_syntax` 1,080 个文件、受版本控制 1,459 个文件）。
+
 ### 聊天漫画（`comic_plan` / `comic_render`）
 
 > 只加能力：**不改**既有工具 schema、会话与数据库格式；新增 `services.toml` 的

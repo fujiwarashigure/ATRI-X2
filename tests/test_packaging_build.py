@@ -281,8 +281,14 @@ class CheckEnvCliTest(unittest.TestCase):
         self.assertIn("import PIL", err)
 
     def test_build_path_fails_before_pyinstaller_when_pillow_is_missing(self) -> None:
-        """真构建路径：发现 PIL 缺失时必须在调用 PyInstaller 之前退出。"""
+        """真构建路径：发现 PIL 缺失时必须在调用 PyInstaller 之前退出。
+
+        真构建路径会先要求 draw.io 渲染器（``packaging/vendor/drawio`` 不入库，CI 上
+        必然没有），这里把它打桩成"存在"，否则用例结果会随构建机是否放了渲染器漂移，
+        测的就不是「PIL 校验早于 PyInstaller」了。
+        """
         with (
+            mock.patch.object(build, "resolve_drawio_dir", return_value=Path("/fake/drawio")),
             mock.patch.object(build, "pyinstaller_version", return_value="9.9.9"),
             mock.patch.object(optional_deps, "backend_probe", return_value=MISSING_PILLOW),
             mock.patch.object(build, "run_build") as runner,

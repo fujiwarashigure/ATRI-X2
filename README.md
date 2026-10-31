@@ -52,7 +52,7 @@
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
 | 测试 | `tests/` 239 个 Python 文件（其中 229 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
 | 门禁 | 代码 7 道 + 文档 1 道（`check_docs`）+ 索引 1 道（`gen_index --check`）+ 复杂度预算，全部可在 CI 跑 |
-| 规模 | 1457 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
+| 规模 | 1459 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
 
 ## 功能特性
 
@@ -300,14 +300,18 @@ python scripts/gen_drawio_pack.py --check   # drawio_pack/pack.json 摘要与技
 python -m unittest discover -s tests -t .             # 全量测试
 ```
 
-CI 会在每次 push / PR 跑完整套（[`.github/workflows/quality.yml`](.github/workflows/quality.yml)）。
+CI 会在每次 push / PR 跑完整套（[`.github/workflows/quality.yml`](.github/workflows/quality.yml)）：
+`gates` job 跑 12 道门禁，`tests` job 把全量单测按模块**实测耗时**确定性拆成 6 片并行
+（`scripts/ci_shard_tests.py` + `scripts/ci_test_weights.json`，单片约 6–10 分钟）——单个
+45 分钟以上的长任务会把托管 runner 拖成 `The hosted runner lost communication with the
+server`，拆片后不再出现。
 
 最近一次在 `Windows 10 + Python 3.14.7` 上的结果（文件与模块计数由 `python scripts/gen_stats.py`
 从工作树静态统计，可随时复算）：
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 1079 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_syntax` | 1080 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
 | `check_imports` | `modules=826 imported=826`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径，不衡量行为正确性） |
