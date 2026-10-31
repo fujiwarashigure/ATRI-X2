@@ -20,7 +20,9 @@ jobs:
   gates:
     name: code + docs gates
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 全量单测在 GitHub 2 核 runner 上需要 30 分钟以上（1.1.5 的 4724a93 运行即因此被
+    # 30 分钟超时杀掉，unittest 步骤跑了 34 分钟仍未结束），放宽到 60 分钟。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
