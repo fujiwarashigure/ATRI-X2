@@ -316,6 +316,8 @@ def readme_text(shell_name: str, qq_version: str, napcat_version: str) -> str:
         "",
         "四、注意",
         "  * 默认端口：OneBot 3001 / WebUI 6099；实际端口见 ATRI-X「在线」页。",
+        "    端口若被 Windows 的动态保留段（Hyper-V / WSL / Docker）或别的进程占着，",
+        "    ATRI-X 首次准备时会自动顺延到可用端口，并把 ws_url 一起改过来。",
         "  * 同一台机器不要同时运行两份 NapCat（端口会冲突）。",
         "  * 整个程序目录可以移动；ATRI-X 会在新位置沿用同一份协议端配置。",
         "  * 非官方协议端有账号风控风险，请使用小号并自担风险。",

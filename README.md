@@ -225,6 +225,10 @@ python -m atri_x doctor [--json] [--e2e]      # 配置/存储/端口/平台/模�
 | `32172` | CLI 远程 WebSocket 服务端（启用时） |
 | `32170` | Atrinis 事件 HTTP 入口（默认关闭） |
 
+内置 QQ 协议端的 OneBot / WebUI 端口（默认 `3001` / `6099`）由桌面端首次准备时生成；如果落在
+Windows 的动态保留段（Hyper-V / WSL / Docker 会整段占走，实测 `2942–3041`）或已被别的进程占用，
+桌面端会**自动顺延**到可用端口并把 `ws_url` 一起改过来，实际值以「在线」页显示为准。
+
 `/live` 只看进程是否还能响应；`/ready` 还要求初始化完成、数据目录可写、调度心跳未过期；`/healthz`
 汇总状态并在平台/模型异常时显示 `degraded`。`/tasks`、`/metrics`、`/diagnostics`、`/healthz` 需要
 配置 `ATRIX_OPS_TOKEN` 才注册。部署细节见 [deploy/README.md](deploy/README.md) 第 5～7 节。

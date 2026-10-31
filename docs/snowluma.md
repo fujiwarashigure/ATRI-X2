@@ -627,6 +627,12 @@ ATRI-X 的读取规则：**按修改时间取最新的那一份** `onebot_*.json
 | SnowLuma：不可用（未找到…） | 目录/环境变量问题 | §6.3 |
 | SnowLuma 不可用（还没有可用的 OneBot 正向 WS 配置） | 配置里没有端口>0 的 wsServers | §5.2 启用 WS |
 
+> 端口明明没被占用、SnowLuma 也登录了，但 3001 就是起不来？先查 Windows 的**排除端口段**：
+> `netsh interface ipv4 show excludedportrange protocol=tcp`。Hyper-V / WSL / Docker 会整段
+> 保留动态端口（实测 `2942–3041`），落在里面的端口绑定会报 `WinError 10013`。换一个不在
+> 保留段里的端口（如 `30001`），并在 ATRI-X 的 `ws_url` 里同步改掉即可。内置 NapCat 走的是
+> 同一条链路，但桌面端会自动顺延端口，不需要手工改。
+
 ### 9.2 命令行冒烟（推荐先跑这个）
 
 便携版用 `debug-console.bat`（它会设好便携数据目录并打开命令行），然后：

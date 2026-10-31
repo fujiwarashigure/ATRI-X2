@@ -66,6 +66,39 @@
 复用的 PID 仍然拒绝终止（安全边界不变）。`tests/test_gui_proto_manager.py` 新增三个
 用例（`cmd` vs `cmd.exe`、路径 + 大小写、停止时同样归一化）。
 
+### 修订：协议端端口被 Windows 保留段占用，QQ 登录后依然连不上（2026-10-31 再次重发，版本号仍为 1.1.6）
+
+旧状态（本轮重发版）：NapCat 控制台里 QQ 已经扫码登录成功、WebUI（`6099`）也能打开，
+但「在线」页一直停在「协议端未就绪 / OneBot：未连通」，后台日志只有一行
+`onebot connect failed: 连接 ws://127.0.0.1:3001/ 失败：[WinError 1225] 远程计算机拒绝网络连接`。
+根因是 OneBot 端口 `3001` 落进了 **Windows 的排除端口段**（本机实测
+`netsh interface ipv4 show excludedportrange protocol=tcp` 给出 `2942–3041`，来自
+Hyper-V / WSL / Docker 的动态端口保留），任何进程绑定该端口都会得到
+`WinError 10013`，所以 NapCat 的 OneBot WS 服务端根本没能监听——它能登录 QQ，但 ATRI-X
+永远连不上。而 `atri_x/gui/qqproto.py` 挑端口时只判断"端口号非空"，不验证能不能绑；
+登录后 NapCat 又优先读账号那份 `onebot11_<QQ号>.json`，只改全局 `onebot11.json` 也不生效。
+
+新状态：
+
+- **先探测再写配置**：`atri_x/gui/proto_process.py` 新增 `port_bindable()` /
+  `port_listening()` / `port_usable()` / `pick_free_port()`（顺延 200 个端口 → 高位段
+  `30000/31000` → 系统临时端口）。`qqproto` 准备配置时先用它验证端口：空闲能绑才用；
+  **已有进程在听也算可用**（多半是上一轮启动的协议端，换端口会把在线的机器人踢下线）。
+- **不可用就顺延**：`3001` 被系统保留时自动改用可用端口，并把全局 `onebot11.json` 与
+  所有已存在的账号配置 `onebot11_<QQ号>.json` 一起改（令牌同步），WebUI 端口同样校验。
+- **回写 `app.toml`**：若 `[platform.qqonebot].ws_url` 是"回环地址 + 旧端口既绑不上也没人
+  在听"，一并改成协议端实际端口；**非回环地址（指向别的机器 / 外部协议端）一律不动**。
+- **界面说清楚**：`QqProtoSetup.port_note` 记录"端口 3001 不可用，已自动改用 30001"，
+  「在线」页四维状态与「启动协议端」提示都会显示；实际端口仍以「在线」页为准。
+- 文档补充：`README.md`（端口表下的自动顺延说明）、`docs/windows-app.md` §5.1（保留段
+  现象 + 处理）、`docs/snowluma.md` §9.1（保留段排查命令），`packaging/qqproto.py` 生成的
+  `NapCat-使用说明.txt` 也加上这条。
+- 测试：`tests/test_gui_qqproto.py` 新增 7 个用例（端口优先/保留段顺延/监听中不换端口/
+  账号配置同步/`ws_url` 重指/`pick_free_port` 跳出整段保留/WebUI 端口校验），并把
+  「显式端口优先」等用例打桩端口探测，避免用例结果随构建机端口保留状态漂移。
+- 已按同样流程**重建脱敏发行仓库 / 便携版 / 安装版**（版本号仍为 1.1.6），尺寸与哈希见
+  下节「发行」。
+
 ### 聊天漫画（`comic_plan` / `comic_render`）
 
 > 只加能力：**不改**既有工具 schema、会话与数据库格式；新增 `services.toml` 的
@@ -120,32 +153,35 @@
   全部通过。构建机 Python 3.14.7 / PyInstaller 6.22.3，含可选 PDF 依赖 reportlab 5.1.0 /
   pypdf 6.21.4（研究助理 PDF 能力不降级）。
 - 发行产物（本机从工作树重建；已推送 GitHub 并作为 **GitHub Release v1.1.6**（15 个附件）
-  发布——`main` 提交 `7624bab`、tag `v1.1.6`。下表是 **2026-10-31 重发版**的尺寸与哈希，
-  版本号仍为 1.1.6，覆盖原资产）：
-  - `ATRI-X-1.1.6-setup.exe` 592,949,732 字节（565.5 MB）—
-    `eaab4f6609184e8f2a4d742a12723011b3904e5bb806458a42171fffb4bf0846`
-  - `ATRI-X-1.1.6-portable-win64.zip` 862,457,391 字节（822.5 MB）—
-    `54df59065b3ceb7954bbde614cc2be2d421bace48b35af83d154e03b8c4ce2c1`
+  发布——`main` 提交前进到本轮修复提交、tag `v1.1.6` 不动。下表是 **2026-10-31 第二次重发**
+  的尺寸与哈希，版本号仍为 1.1.6，覆盖原资产）：
+  - `ATRI-X-1.1.6-setup.exe` 592,998,164 字节（565.5 MB）—
+    `5e15acec9d651c75ae894a07597a089b6e7d8dbd523976e5305152f8ecaf1888`
+  - `ATRI-X-1.1.6-portable-win64.zip` 862,465,140 字节（822.5 MB）—
+    `9f55c60f2a508486115ecb0458faff50913c985a0d05f503098f5d157fbd4a3a`
   - `ATRI-X-1.1.6-repo.zip` / `.tar.gz`：源码归档（1,457 条目，不含仓库根 `dist`/`build`/`runtime`
     构建产物与缓存；`atri_x/dist` / `atri_x/hook/runtime` / `atri_x/runtime` 源码包完整保留），
     尺寸与 SHA-256 见发行库 `SHA256SUMS.txt` 与 `ATRI-X-1.1.6-repo-entries.txt`。
 - GitHub Release：[`v1.1.6`](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.6)，
   15 个附件（安装包 / 便携版 / 源码归档 zip + tar.gz + 条目清单 / 发行说明 / 自检报告 /
   兼容性报告 / 第三方声明 / drawio 指南 / SnowLuma 指南 / `README.md` / `LEGAL.md` / `SHA256SUMS.txt`）。
-- 构建事实：onedir 714.6 MB / 24,752 文件；内置 DSH 内核 277.6 MB（384 包 / Node
+- 构建事实：onedir 714.7 MB / 24,752 文件；内置 DSH 内核 277.6 MB（384 包 / Node
   v24.19.0）；内置 draw.io 渲染器 381.9 MB / 19 文件（32.6.1）；内置协议端 2,516 文件 /
   1,202.5 MB（NapCat 4.18.38 + QQ 9.9.33-52230，脱敏 = True）；便携包 822.5 MB（压缩比
-  43%，27,268 输入文件）；安装包 565.5 MB（ISCC 284.5s，静默安装 100.7s / 27,271 文件，
-  卸载 16.5s）。构建总耗时约 11.2 分钟（onedir + 便携约 4.4 分钟，安装包编译与自检约 6.8 分钟）。
+  43%，27,268 输入文件）；安装包 565.5 MB（ISCC 309s，静默安装 108.5s / 27,271 文件，
+  卸载 17.6s）。构建总耗时约 11.7 分钟（onedir + 便携约 3.1 分钟，安装包编译与自检约 8.6 分钟）。
 - 门禁 11 项 0 失败：`check_syntax`（1,079 文件）/ `check_imports`（`modules=826
   imported=826`）/ `check_integration`（74 项）/ `check_coverage`（72 包加权 100%）/
   `check_except` / `check_secrets --all`（0 命中）/ `gen_index --check` /
   `gen_stats --check` / `gen_drawio_pack --check` / `check_docs` / `check_complexity`。
-- 全量单测（重发版复跑）：`Ran 7,160 tests`，失败 1 / 跳过 3；唯一失败
+- 全量单测（第二次重发版复跑，停掉本机 ATRI-X 后台服务后跑的干净基线）：`Ran 7,167 tests`，
+  失败 1 / 跳过 3；唯一失败
   `test_packaging_build.test_build_path_fails_before_pyinstaller_when_pillow_is_missing`
   是**构建机前置条件**（源码树不放 400 MB 的 `packaging/vendor/drawio`，正式构建用
-  `--with-drawio` 显式指定），不是产品缺陷。本版新增定向用例 3 个（协议端 PID 归属）+
-  既有 31 个回归全部通过（`tests/test_gui_proto_manager.py` 34 项）。
+  `--with-drawio` 显式指定），不是产品缺陷。本版定向用例新增 7 个（端口可绑探测 / 保留段
+  顺延 / 监听中不换端口 / 账号配置同步 / `ws_url` 重指 / `pick_free_port` 跳出整段保留 /
+  WebUI 端口校验），`tests/test_gui_qqproto.py` 37 项全通过；另用**冻结产物**实测
+  "app.toml 写 3001 → 自动改 30000 + 同步 `onebot11_<QQ号>.json`"。
 - 脱敏：源码树 / 源码归档扫描 0 命中（个人目录、令牌、模型密钥）；便携包与安装包内的
   qqproto 由打包脚本按白名单剔除配置/缓存/日志，`proto-info.json` 标记 `sanitized=True`。
 

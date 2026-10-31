@@ -47,6 +47,8 @@ class ProtoSetup:
     #: OneBot 令牌；``repr=False`` 避免被日志/异常顺手打出来。
     token: str = field(default="", repr=False)
     changed: bool = False
+    #: 端口被系统保留/占用而自动改端口时的一句话说明（正常为空）；给界面展示。
+    port_note: str = ""
     #: SnowLuma 首启要先同意第三方 EULA/隐私，再设 WebUI 密码；没同意前不代设。
     needs_consent: bool = False
     #: 协议端目录在程序目录之外（用户自备）：界面显示"外部自备（未托管）"。

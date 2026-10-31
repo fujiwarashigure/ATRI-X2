@@ -424,9 +424,7 @@ class LinkTab(ConfigTab):
                 extra.append(f"错误：{entry.last_error}")
             detail += "\n" + " · ".join(extra)
         self._vars["platform_detail"].set(detail)
-        self._vars["platform_config"].set(
-            f"协议端 {cfg.ws_url}" if cfg.ws_url else "还没配协议端地址（见「平台」页）"
-        )
+        self._vars["platform_config"].set(f"协议端 {cfg.ws_url}" if cfg.ws_url else "还没配协议端地址（见「平台」页）")
         try:
             self._connect_button.configure(text="断开（下线）" if cfg.enabled else "连接（上线）")
         except tk.TclError:  # pragma: no cover - 窗口销毁中
@@ -482,6 +480,8 @@ class LinkTab(ConfigTab):
             detail_lines.append("SnowLuma 还没完成首启（同意 EULA/隐私 + 设 WebUI 密码）")
         elif not probe or not probe.reachable:
             detail_lines.append("协议端没起？点「启动协议端」再检测。")
+        if proto is not None and proto.port_note:
+            detail_lines.append(f"端口提示：{proto.port_note}")
         self._vars["endpoint_detail"].set("\n".join(detail_lines))
 
     def _describe_process(self, proto: ProtoSetup | None) -> str:

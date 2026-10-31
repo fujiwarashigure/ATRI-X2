@@ -11,6 +11,11 @@
 
 不做的事：不扫全表找进程、不按名字杀、不接管不是本程序启动的协议端（外置/用户自己
 双击起来的进程，界面只显示"外部自备（未托管）"）。
+
+顺带提供**回环端口探测**：协议端要在 ``127.0.0.1:<port>`` 上监听，而 Windows 的
+Hyper-V / WSL / Docker 会在动态端口段里占走一段（实测 2942–3041 被整段保留），绑定
+直接报 ``WinError 10013``；NapCat 那边只会起不来，不会给出好懂的错误。准备配置时先在
+这里探测，端口不可用就顺延，避免"登录成功但 ATRI-X 永远连不上"。
 """
 
 from __future__ import annotations
@@ -19,18 +24,27 @@ import csv
 import io
 import json
 import os
+import socket
 import subprocess
 import time
 from typing import Any
 
 __all__ = [
+    "PORT_FALLBACK_BASES",
+    "PORT_SCAN_SPAN",
     "STATE_NAME",
     "clear_state",
     "launch_console",
     "managed_status",
+    "pick_free_port",
+    "port_bindable",
+    "port_listening",
+    "port_usable",
+    "read_json",
     "read_state",
     "state_path",
     "stop_managed",
+    "write_json",
     "write_state",
 ]
 
@@ -42,6 +56,81 @@ _CREATE_NEW_CONSOLE = 0x00000010
 
 #: 停止时最多等这么久（秒），超时也算"已发出停止请求"。
 STOP_WAIT_SECONDS = 8.0
+
+#: 顺延探测宽度：系统保留段一次能吃掉上百个端口，20 个不够用。
+PORT_SCAN_SPAN = 200
+
+#: 顺延探测仍失败时再试的高位端口段（避开低位的动态/保留段）。
+PORT_FALLBACK_BASES = (30000, 31000)
+
+
+def port_bindable(host: str, port: int) -> bool:
+    """本机回环上这个端口能不能绑定（只探测，不监听）。"""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind((host, int(port)))
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    return True
+
+
+def port_listening(host: str, port: int, timeout: float = 0.3) -> bool:
+    """这个地址上是不是已经有进程在监听（只 connect，不发数据）。"""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.settimeout(timeout)
+    try:
+        probe.connect((host, int(port)))
+    except OSError:
+        return False
+    finally:
+        probe.close()
+    return True
+
+
+def port_usable(host: str, port: int) -> bool:
+    """这个端口现在能不能用：空闲可绑，或者已经有进程在听。
+
+    "已被监听"也算可用：多半是上一轮启动的协议端，这时换端口会把正在线上的
+    机器人踢下线，所以宁可沿用。
+    """
+    if int(port) <= 0:
+        return False
+    return port_bindable(host, port) or port_listening(host, port)
+
+
+def _ephemeral_port(host: str) -> int:
+    """让系统分配一个空闲端口（绑定 0 号端口拿到号码后立刻释放）。"""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind((host, 0))
+        return int(probe.getsockname()[1])
+    except OSError:
+        return 0
+    finally:
+        probe.close()
+
+
+def pick_free_port(host: str, preferred: int, span: int = PORT_SCAN_SPAN) -> int:
+    """从 ``preferred`` 起挑一个能绑定的端口。
+
+    顺序：``preferred`` 起顺延 ``span`` 个 → :data:`PORT_FALLBACK_BASES` 高位段
+    → 系统临时端口；全失败才退回 ``preferred`` 本身。
+    """
+    for offset in range(max(1, span)):
+        candidate = int(preferred) + offset
+        if candidate > 65535:
+            break
+        if port_bindable(host, candidate):
+            return candidate
+    for base in PORT_FALLBACK_BASES:
+        for offset in range(20):
+            candidate = base + offset
+            if candidate <= 65535 and port_bindable(host, candidate):
+                return candidate
+    return _ephemeral_port(host) or int(preferred)
 
 
 def state_path(env_dir: str) -> str:
@@ -88,6 +177,33 @@ def clear_state(env_dir: str) -> None:
         os.remove(path)
     except OSError:
         pass
+
+
+def read_json(path: str) -> dict[str, Any]:
+    """读协议端的 JSON 配置；文件不存在/损坏都当空字典（允许重新生成）。"""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def write_json(path: str, data: dict[str, Any]) -> bool:
+    """整份写协议端 JSON 配置；内容没变返回 ``False``（幂等，不刷文件时间）。"""
+    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            if handle.read() == text:
+                return False
+    except OSError:
+        pass
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+    return True
 
 
 def launch_console(

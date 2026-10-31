@@ -4,18 +4,21 @@
 ``qqproto\\``（见 ``packaging/qqproto.py``）。本模块负责把那份**不带任何令牌**的
 环境变成一台可用的本机协议端：
 
-1. 生成或复用 OneBot 令牌，写进配置目录 ``.env`` 的 ``QQONEBOT_ACCESS_TOKEN``
-   （后台服务据此连协议端，所以它必须和 NapCat 的 ``onebot11.json`` 一致）；
+1. 生成或复用 OneBot 令牌，写进配置目录 ``.env`` 的 ``QQONEBOT_ACCESS_TOKEN``（后台服务据此连协议端，
+   必须和 NapCat 的 ``onebot11.json`` 一致）；
 2. 挑端口：优先沿用 ``app.toml`` 已配的**本机** ``ws_url`` 端口与上一次的
-   ``onebot11.json`` / ``webui.json``；都没有才挑空闲端口（默认 3001 / 6099）；
+   ``onebot11.json`` / ``webui.json``；都没有才挑空闲端口（默认 3001 / 6099）。
+   **挑中的端口会先探测能不能绑**：Windows 的 Hyper-V / WSL / Docker 会整段保留
+   动态端口（实测 2942–3041），被保留时 NapCat 根本监听不上，所以顺延到下一个可用
+   端口，并把 ``app.toml`` 里那条已失效的本机 ``ws_url`` 一起改过来；
 3. 写 NapCat 的 ``onebot11.json``（正向 WebSocket 服务端 127.0.0.1）与
-   ``webui.json``（扫码登录页）；
+   ``webui.json``（扫码登录页）。**登录后 NapCat 优先读账号那份**（``onebot11_<uin>.json``），
+   所以已有的账号配置也跟着改，否则下次启动继续用旧端口；
 4. ``app.toml`` 缺 ``[platform.qqonebot]`` 时补一段指向本机协议端的默认值
    （``enabled = false``）。**已有值一律不动**：用户接外部 NapCat 的配置不会被覆盖。
 
-安全边界：不下载、不启动进程、不碰 QQ 的用户数据目录；只在发行包自带环境存在时
-动作。没内置环境的构建（例如 ``--no-gui`` 或用户自备 NapCat）调用本模块会得到
-``available=False``，且**一个文件都不写**。
+安全边界：不下载、不启动进程、不碰 QQ 的用户数据目录；没内置环境时（``--no-gui`` 或用户
+自备 NapCat）调用本模块得到 ``available=False``，且**一个文件都不写**。
 
 也可以单独跑（打包自检与排障用，冻结后在 exe 里同样可用）::
 
@@ -27,11 +30,11 @@ from __future__ import annotations
 import json
 import os
 import secrets
-import socket
 from typing import Any, Mapping, Sequence
 
 from atri_x.errors import InvalidError
 from atri_x.gui import configedit, proto_process
+from atri_x.gui.proto_process import pick_free_port, port_usable
 from atri_x.gui.proto_setup import ProtoSetup
 from atri_x.platform.qq_onebot.backend import (
     LEGACY_DEFAULT_BACKEND,
@@ -186,32 +189,10 @@ def napcat_app_dir(shell_dir: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 端口与 JSON 小工具
+# 地址与 JSON 小工具
 # ---------------------------------------------------------------------------
-
-
-def _port_bindable(host: str, port: int) -> bool:
-    """本机回环上这个端口能不能绑（只探测，不监听）。"""
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        probe.bind((host, int(port)))
-    except OSError:
-        return False
-    finally:
-        probe.close()
-    return True
-
-
-def pick_free_port(host: str, preferred: int, span: int = 20) -> int:
-    """从 ``preferred`` 起挑一个能被绑定的端口（全被占则返回 ``preferred`` 本身）。"""
-    for offset in range(max(1, span)):
-        candidate = int(preferred) + offset
-        if candidate > 65535:
-            break
-        if _port_bindable(host, candidate):
-            return candidate
-    return int(preferred)
+# 端口探测/挑选在 :mod:`atri_x.gui.proto_process`（``pick_free_port`` 等），
+# 这里沿用同一套实现：既有的 ``qqproto.pick_free_port`` 名字保持不变。
 
 
 def _url_port(url: str) -> tuple[str, int]:
@@ -232,33 +213,6 @@ def _url_port(url: str) -> tuple[str, int]:
 
 def _is_loopback(host: str) -> bool:
     return host in ("127.0.0.1", "localhost", "::1", "0.0.0.0")
-
-
-def _read_json(path: str) -> dict[str, Any]:
-    """读 JSON 对象；文件不存在/坏了都当空对象（协议端配置允许重新生成）。"""
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        return {}
-    return dict(data) if isinstance(data, Mapping) else {}
-
-
-def _write_json(path: str, data: Mapping[str, Any]) -> bool:
-    """整份写 JSON；内容没变返回 ``False``（幂等，不刷文件时间）。"""
-    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            if handle.read() == text:
-                return False
-    except OSError:
-        pass
-    directory = os.path.dirname(path)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(text)
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -301,60 +255,106 @@ def _configured_onebot_port(app_toml: str) -> int:
     return port if port and _is_loopback(host) else 0
 
 
-def _ensure_onebot(config_dir: str, token: str, port_hint: int) -> tuple[int, bool]:
-    """写 NapCat 的 ``onebot11.json`` 正向 WS 服务端；返回 ``(端口, 是否改动)``。"""
-    path = os.path.join(config_dir, ONEBOT_CONFIG_NAME)
-    data = _read_json(path)
-    network = data.get("network") if isinstance(data.get("network"), Mapping) else {}
+def _onebot_config_files(config_dir: str) -> list[str]:
+    """全局 ``onebot11.json`` + 每个账号的 ``onebot11_<uin>.json``（登录后后者优先）。"""
+    main = os.path.join(config_dir, ONEBOT_CONFIG_NAME)
+    paths = [main]
+    try:
+        names = sorted(os.listdir(config_dir))
+    except OSError:
+        return paths
+    for name in names:
+        if name.startswith("onebot11_") and name.endswith(".json"):
+            paths.append(os.path.join(config_dir, name))
+    return paths
+
+
+def _with_server(data: Mapping[str, Any], port: int, token: str) -> dict[str, Any]:
+    """返回把"我们那条" WS 服务端改成 ``port`` / ``token`` 后的完整配置。"""
+    out = dict(data)
+    network = out.get("network") if isinstance(out.get("network"), Mapping) else {}
     servers = network.get("websocketServers")
     servers = list(servers) if isinstance(servers, list) else []
-
-    index = -1
-    current: Mapping[str, Any] = {}
+    desired = {
+        "name": SERVER_NAME, "enable": True, "host": "127.0.0.1", "port": int(port),
+        "messagePostFormat": "array", "reportSelfMessage": False, "token": token,
+        "enableForcePushEvent": True, "debug": False, "heartInterval": 30000,
+    }
     for position, item in enumerate(servers):
         if isinstance(item, Mapping) and str(item.get("name") or "") == SERVER_NAME:
-            index, current = position, item
+            merged = dict(item)
+            merged.update(desired)
+            servers[position] = merged
             break
-    try:
-        existing_port = int(current.get("port") or 0)
-    except (TypeError, ValueError):
-        existing_port = 0
-    port = int(port_hint) or existing_port or pick_free_port("127.0.0.1", DEFAULT_ONEBOT_PORT)
-
-    desired = {
-        "name": SERVER_NAME,
-        "enable": True,
-        "host": "127.0.0.1",
-        "port": port,
-        "messagePostFormat": "array",
-        "reportSelfMessage": False,
-        "token": token,
-        "enableForcePushEvent": True,
-        "debug": False,
-        "heartInterval": 30000,
-    }
-    merged = dict(current)
-    merged.update(desired)
-    if index >= 0:
-        servers[index] = merged
     else:
-        servers.append(merged)
+        servers.append(desired)
     network = dict(network)
     network["websocketServers"] = servers
-    data["network"] = network
-    return port, _write_json(path, data)
+    out["network"] = network
+    return out
+
+
+def _server_port(data: Mapping[str, Any]) -> int:
+    """配置里"我们那条" WS 服务端的端口；没有/坏值返回 0。"""
+    network = data.get("network") if isinstance(data.get("network"), Mapping) else {}
+    servers = network.get("websocketServers")
+    if not isinstance(servers, list):
+        return 0
+    for item in servers:
+        if not isinstance(item, Mapping) or str(item.get("name") or "") != SERVER_NAME:
+            continue
+        try:
+            return int(item.get("port") or 0)
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _ensure_onebot(config_dir: str, token: str, port_hint: int) -> tuple[int, bool, str]:
+    """写 NapCat 的正向 WS 服务端配置；返回 ``(端口, 是否改动, 端口提示)``。
+
+    端口优先级：``app.toml`` 本机端口 → 已有配置里的端口 → ``DEFAULT_ONEBOT_PORT``；
+    选中的端口先探测能不能绑，绑不上就顺延并在提示里说明。
+    """
+    paths = _onebot_config_files(config_dir)
+    configs = [proto_process.read_json(path) for path in paths]
+    preferred = int(port_hint) or 0
+    if not preferred:
+        for data in configs:
+            preferred = _server_port(data)
+            if preferred:
+                break
+    preferred = preferred or DEFAULT_ONEBOT_PORT
+    port, note = preferred, ""
+    if not port_usable("127.0.0.1", preferred):
+        picked = pick_free_port("127.0.0.1", DEFAULT_ONEBOT_PORT)
+        if picked and picked != preferred:
+            port = picked
+            note = (
+                f"端口 {preferred} 当前不可用（可能被 Windows/Hyper-V/WSL 保留段或其它进程占用），"
+                f"已自动改用 {picked}"
+            )
+    changed = False
+    for path, data in zip(paths, configs):
+        changed = proto_process.write_json(path, _with_server(data, port, token)) or changed
+    return port, changed, note
 
 
 def _ensure_webui(config_dir: str) -> tuple[int, str, bool]:
-    """写 NapCat 的 ``webui.json``；返回 ``(端口, 令牌, 是否改动)``。"""
+    """写 NapCat 的 ``webui.json``；返回 ``(端口, 令牌, 是否改动)``。
+
+    端口同样做可绑定探测：被系统保留段吃掉时 WebUI 起不来，扫码登录就没入口。
+    """
     path = os.path.join(config_dir, WEBUI_CONFIG_NAME)
-    data = _read_json(path)
+    data = proto_process.read_json(path)
     host = str(data.get("host") or "127.0.0.1")
     try:
         port = int(data.get("port") or 0)
     except (TypeError, ValueError):
         port = 0
     port = port or pick_free_port("127.0.0.1", DEFAULT_WEBUI_PORT)
+    if not port_usable(host, port):
+        port = pick_free_port(host, DEFAULT_WEBUI_PORT)
     token = str(data.get("token") or "") or secrets.token_hex(8)
 
     defaults: dict[str, Any] = {
@@ -376,7 +376,7 @@ def _ensure_webui(config_dir: str) -> tuple[int, str, bool]:
     merged["host"] = host
     merged["port"] = port
     merged["token"] = token
-    return port, token, _write_json(path, merged)
+    return port, token, proto_process.write_json(path, merged)
 
 
 def _ensure_platform_section(app_toml: str, port: int, backend: str = "") -> bool:
@@ -426,6 +426,32 @@ def _ensure_platform_section(app_toml: str, port: int, backend: str = "") -> boo
     if not missing:
         return False
     return configedit.patch_section(app_toml, PLATFORM_SECTION, missing)
+
+
+def _repoint_platform_ws_url(app_toml: str, port: int) -> bool:
+    """把 ``[platform.qqonebot].ws_url`` 里**已失效的本机端口**改成协议端实际端口。
+
+    只动"回环地址 + 旧端口既绑不上也没人在听"这种（改前也连不上），所以不会覆盖
+    用户"指向另一台机器 / 另一个外部协议端"的意图；非回环地址一律不动。
+    """
+    if not app_toml or not os.path.isfile(app_toml) or not port:
+        return False
+    try:
+        data = configedit.read_toml(app_toml)
+    except configedit.ConfigEditError:
+        return False
+    platform = data.get("platform")
+    section = platform.get("qqonebot") if isinstance(platform, Mapping) else None
+    if not isinstance(section, Mapping):
+        return False
+    host, old_port = _url_port(str(section.get("ws_url") or section.get("url") or ""))
+    if not _is_loopback(host) or not old_port or old_port == port:
+        return False
+    if port_usable(host, old_port):
+        return False
+    return configedit.patch_section(
+        app_toml, PLATFORM_SECTION, {"ws_url": f"ws://127.0.0.1:{int(port)}/"}
+    )
 
 
 def ensure_qqproto(
@@ -482,11 +508,12 @@ def ensure_qqproto(
     token, token_changed = _ensure_token(env_path)
     changed = changed or token_changed
     port_hint = _configured_onebot_port(app_toml)
-    onebot_port, onebot_changed = _ensure_onebot(napcat_config, token, port_hint)
+    onebot_port, onebot_changed, port_note = _ensure_onebot(napcat_config, token, port_hint)
     changed = changed or onebot_changed
     webui_port, webui_token, webui_changed = _ensure_webui(napcat_config)
     changed = changed or webui_changed
     changed = _ensure_platform_section(app_toml, onebot_port, declared) or changed
+    changed = _repoint_platform_ws_url(app_toml, onebot_port) or changed
 
     return QqProtoSetup(
         available=True,
@@ -501,6 +528,7 @@ def ensure_qqproto(
         webui_url=f"http://127.0.0.1:{webui_port}/webui?token={webui_token}",
         token=token,
         changed=changed,
+        port_note=port_note,
     )
 
 
@@ -516,12 +544,15 @@ def launch_background(setup: QqProtoSetup) -> tuple[bool, str]:
     script = setup.start_script
     if not script or not os.path.isfile(script):
         return False, f"缺少协议端启动脚本：{script or '（未知）'}"
+    detail = "已启动内置 NapCat（新的控制台窗口）；扫码登录后回本页点「连接（上线）」"
+    if setup.port_note:
+        detail = f"{setup.port_note}；{detail}"
     return proto_process.launch_console(
         setup.env_dir,
         setup.backend,
         ["cmd", "/c", script],
         cwd=setup.shell_dir or setup.env_dir,
-        detail="已启动内置 NapCat（新的控制台窗口）；扫码登录后回本页点「连接（上线）」",
+        detail=detail,
     )
 
 
@@ -549,6 +580,7 @@ def setup_summary(setup: QqProtoSetup) -> dict[str, Any]:
         "webuiUrl": f"http://127.0.0.1:{setup.webui_port}/webui" if setup.webui_port else "",
         "tokenSet": bool(setup.token),
         "changed": setup.changed,
+        "portNote": setup.port_note,
     }
 
 

@@ -183,7 +183,9 @@ class QqProtoLogicCase(unittest.TestCase):
         setup = self._ensure()
         self.assertTrue(setup.available, setup.reason)
         self.assertTrue(setup.changed)
-        self.assertEqual(setup.onebot_port, qqproto.DEFAULT_ONEBOT_PORT)
+        # 本机 3001 可能正好落在系统保留段里（Windows/Hyper-V/WSL），那时会顺延；
+        # "优先用 3001" 由 test_default_port_preferred_when_usable 用打桩端口探测覆盖。
+        self.assertGreater(setup.onebot_port, 1024)
         self.assertGreater(setup.webui_port, 0)
 
         env_values = configedit.read_env(str(self.config_dir / ".env"))
@@ -288,7 +290,8 @@ class QqProtoLogicCase(unittest.TestCase):
             'access_token_env = "QQONEBOT_ACCESS_TOKEN"\n'
         )
         _write(self.config_path, text)
-        setup = self._ensure()
+        with mock.patch.object(qqproto, "port_usable", return_value=True):
+            setup = self._ensure()
         self.assertEqual(setup.onebot_port, 3456)
         onebot = _read(_napcat_config_dir(setup.shell_dir) / "onebot11.json")
         self.assertEqual(onebot["network"]["websocketServers"][0]["port"], 3456)
@@ -340,7 +343,8 @@ class QqProtoLogicCase(unittest.TestCase):
             napcat / "webui.json",
             json.dumps({"host": "127.0.0.1", "port": 7099, "token": "keep-me"}),
         )
-        setup = self._ensure()
+        with mock.patch.object(qqproto, "port_usable", return_value=True):
+            setup = self._ensure()
         self.assertEqual(setup.webui_port, 7099)
         webui = _read(napcat / "webui.json")
         self.assertEqual(webui["token"], "keep-me")
@@ -365,7 +369,88 @@ class QqProtoLogicCase(unittest.TestCase):
         finally:
             busy.close()
         self.assertNotEqual(picked, port)
-        self.assertGreater(picked, port)
+        self.assertTrue(qqproto.proto_process.port_bindable("127.0.0.1", picked))
+
+    def test_pick_free_port_escapes_fully_blocked_range(self) -> None:
+        """顺延段整段被系统保留时（Windows 一次能吃掉上百个），要跳到后面的可用端口。"""
+        with mock.patch.object(
+            qqproto.proto_process, "port_bindable", side_effect=lambda _h, p: p >= 30010
+        ):
+            picked = qqproto.pick_free_port("127.0.0.1", 30001, span=5)
+        self.assertEqual(picked, 30010)
+
+    def test_port_usable_accepts_listening_socket(self) -> None:
+        """已有进程在听也算"可用"：不能因为它占着就换端口把在线的机器人踢下线。"""
+        busy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        port = int(busy.getsockname()[1])
+        try:
+            self.assertTrue(qqproto.proto_process.port_usable("127.0.0.1", port))
+        finally:
+            busy.close()
+
+    def test_default_port_preferred_when_usable(self) -> None:
+        with mock.patch.object(qqproto, "port_usable", return_value=True):
+            setup = self._ensure()
+        self.assertEqual(setup.onebot_port, qqproto.DEFAULT_ONEBOT_PORT)
+        self.assertEqual(setup.port_note, "")
+
+    def test_reserved_port_rotates_and_notes(self) -> None:
+        """端口被系统保留时自动顺延，并给出可展示的提示、把 ws_url 一起改过来。"""
+        text = APP_TOML + (
+            "\n[platform.qqonebot]\n"
+            'ws_url = "ws://127.0.0.1:3456/"\n'
+            'access_token_env = "QQONEBOT_ACCESS_TOKEN"\n'
+        )
+        _write(self.config_path, text)
+        with mock.patch.object(qqproto, "port_usable", return_value=False), mock.patch.object(
+            qqproto, "pick_free_port", return_value=30001
+        ):
+            setup = self._ensure()
+        self.assertEqual(setup.onebot_port, 30001)
+        self.assertIn("3456", setup.port_note)
+        self.assertIn("30001", setup.port_note)
+        data = configedit.read_toml(str(self.config_path))
+        self.assertEqual(data["platform"]["qqonebot"]["ws_url"], "ws://127.0.0.1:30001/")
+        onebot = _read(_napcat_config_dir(setup.shell_dir) / "onebot11.json")
+        self.assertEqual(onebot["network"]["websocketServers"][0]["port"], 30001)
+        self.assertEqual(qqproto.setup_summary(setup)["portNote"], setup.port_note)
+
+    def test_account_configs_follow_global_port(self) -> None:
+        """登录后 NapCat 优先读 ``onebot11_<uin>.json``：账号那份也要一起改。"""
+        napcat = _napcat_config_dir(str(self.bundle / "qqproto" / "NapCat.52230.Shell"))
+        old = {
+            "network": {
+                "websocketServers": [
+                    {"name": qqproto.SERVER_NAME, "enable": True, "port": 3001,
+                     "token": "old-token", "host": "127.0.0.1"}
+                ]
+            }
+        }
+        _write(napcat / "onebot11_3916419115.json", json.dumps(old))
+        with mock.patch.object(qqproto, "port_usable", return_value=True):
+            setup = self._ensure()
+        for name in ("onebot11.json", "onebot11_3916419115.json"):
+            servers = _read(napcat / name)["network"]["websocketServers"]
+            ours = [item for item in servers if item["name"] == qqproto.SERVER_NAME]
+            self.assertEqual(len(ours), 1, name)
+            self.assertEqual(ours[0]["port"], setup.onebot_port, name)
+            self.assertEqual(ours[0]["token"], setup.token, name)
+
+    def test_listening_port_is_not_rotated(self) -> None:
+        """端口上已经有协议端在听时沿用原端口，不重写配置。"""
+        text = APP_TOML + (
+            "\n[platform.qqonebot]\n"
+            'ws_url = "ws://127.0.0.1:3001/"\n'
+            'access_token_env = "QQONEBOT_ACCESS_TOKEN"\n'
+        )
+        _write(self.config_path, text)
+        with mock.patch.object(qqproto.proto_process, "port_bindable", return_value=False), \
+                mock.patch.object(qqproto.proto_process, "port_listening", return_value=True):
+            setup = self._ensure()
+        self.assertEqual(setup.onebot_port, 3001)
+        self.assertEqual(setup.port_note, "")
 
     def test_summary_never_contains_token(self) -> None:
         setup = self._ensure()
@@ -431,7 +516,7 @@ class QqProtoServiceCase(unittest.TestCase):
         assert settings.qqproto is not None
         self.assertTrue(settings.qqproto.available, settings.qqproto.reason)
         self.assertEqual(settings.qqproto.backend, "napcat")
-        self.assertEqual(settings.qqproto.onebot_port, qqproto.DEFAULT_ONEBOT_PORT)
+        self.assertGreater(settings.qqproto.onebot_port, 1024)
 
     def test_new_install_prepares_bundled_napcat(self) -> None:
         """新装默认 NapCat：首次启动就用内置协议端，并落显式 ``protocol_backend``。"""
@@ -582,6 +667,22 @@ class LinkTabCase(unittest.TestCase):
         )
         tab._render_endpoint()
         self.assertIn("登录态未确认", tab._vars["endpoint_state"].get())
+
+    def test_endpoint_shows_port_note(self) -> None:
+        """端口被系统保留而自动顺延后，「在线」页要把原因写出来，别让用户以为没起。"""
+        tab = self._tab(
+            qqproto.QqProtoSetup(
+                available=True,
+                env_dir="C:/x/qqproto",
+                onebot_port=30001,
+                port_note="端口 3001 当前不可用，已自动改用 30001",
+            )
+        )
+        tab._cfg = linkstate.PlatformConfig(enabled=True, ws_url="ws://127.0.0.1:30001/")
+        tab._report = None
+        tab._probe = None
+        tab._render_endpoint()
+        self.assertIn("端口提示", tab._vars["endpoint_detail"].get())
 
 
 if __name__ == "__main__":
