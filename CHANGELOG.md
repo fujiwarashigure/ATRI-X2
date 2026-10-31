@@ -77,21 +77,25 @@ Windows 行为不变（仍用 `taskkill /T /PID`）。
   --with-qqproto <NapCat Shell>` 一条命令出 onedir + 便携版 zip + 安装包；产物级核验全过
   （便携包解压 27,218 条目后 13 项检查：`--version` / `config check` / qqproto / `-m` 转发 /
   研究引擎 / sidecar / GUI selftest / start-portable / debug-console / APPDATA 重定向；安装包
-  ISCC 编译 291.5s、静默安装 102.1s / 27,216 文件、卸载 16.1s）。onedir 706.4 MB / 24,697 文件
+  ISCC 编译 288.4s、静默安装 102.4s / 27,216 文件、卸载 16.1s）。onedir 706.4 MB / 24,697 文件
   （内置 DSH 内核 277.6 MB、draw.io 渲染器 381.9 MB / 19 文件、内置协议端 2,512 文件 /
   1,202.5 MB，proto-info 标记 `sanitized=True`）；便携包 815.1 MB（压缩比 43%）；构建总耗时
-  约 12 分钟。
+  约 10.7 分钟。
 - 产物（2026-10-31 本机从工作树重建，已推送 GitHub 并作为 **GitHub Release v1.1.7**（15 个
   附件）发布）：
-  - `ATRI-X-1.1.7-setup.exe` 585,456,891 字节（558.3 MB）—
-    `4316fd1b5134c495ca300195773e4d574a9f157984e92c8c44ffe2c8133485f8`
-  - `ATRI-X-1.1.7-portable-win64.zip` 854,707,439 字节（815.1 MB）—
-    `3080f0b958e19f3acd4c04fd779c89595844f5c9eea992634430a6544953ab1b`
+  - `ATRI-X-1.1.7-setup.exe` 585,421,349 字节（558.3 MB）—
+    `53078a4301045263f2d3e4da0cc91d03c0ad0318491fc1ee5c60260ef9afefff`
+  - `ATRI-X-1.1.7-portable-win64.zip` 854,709,929 字节（815.1 MB）—
+    `b4f39a92d3e9a183933cb7bc7ac8dff3a741565f6b5b327fcbb2314b9e702686`
   - `ATRI-X-1.1.7-repo.zip` / `.tar.gz`：源码归档（条目数、尺寸与 SHA-256 见发行库
     `SHA256SUMS.txt` 与 `ATRI-X-1.1.7-repo-entries.txt`；`atri_x/dist` / `atri_x/hook/runtime` /
     `atri_x/runtime` 源码包完整保留），由 `git archive HEAD` 生成并逐文件核对 git blob。
-- 全量单测：`Ran 7,190 tests`，失败 0 / 跳过 3（后台服务保持运行；旧版探针用例要求先停服务，
-  本版不需要）。12 项门禁 0 失败。
+- 全量单测：`Ran 7,192 tests`，失败 0 / 跳过 4（4 个跳过=3 个本机没有 Tk 显示环境的图形用例 +
+  1 个 POSIX-only 的进程组守卫用例；后台服务保持运行——旧版探针用例要求先停服务，本版不需要）。
+  12 项门禁 0 失败。
+- CI：`quality` 工作流在代码提交 `dcfb0f3` 上**全绿**（7 个 job：门禁 + 6 片单测；
+  [run 41174060627](https://github.com/fujiwarashigure/ATRI-X2/actions/runs/41174060627)）；
+  曾经挂 30 分钟以上的 shard 6 现在 69 秒跑完（POSIX 进程组 bug 已修）。
 - 脱敏（构建后填写）：源码树与源码归档扫描结果见发行库
   `证据/1.1.7/sanitize-source-1.1.7.log`。
 
