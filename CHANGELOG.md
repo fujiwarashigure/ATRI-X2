@@ -174,6 +174,23 @@ Hyper-V / WSL / Docker 的动态端口保留），任何进程绑定该端口都
   sink——Agent 构造会安装它，测试之间残留会让后续无关测试的旁路调用审计到假
   logger 上（全量跑出 `AttributeError: '_Logger' object has no attribute 'log'`）。
 
+### 修订：本地测试误杀真实后台服务 + ubuntu 分片 6 个平台专有断言（2026-10-31 第四次刷新，版本号仍为 1.1.6）
+
+旧状态（本轮）：`tests/test_deploy_backup.py` / `tests/test_deploy_watchdog.py` 的探针用例
+默认访问 `127.0.0.1:32171` 并断言「连不上」。开发机上桌面端的后台服务正常监听时，这些
+用例会打到**真服务**（`/healthz` 返回 401、`/live` 可达），4 个用例因此失败——于是跑全量
+单测的人只能先把用户正在用的后台服务杀掉；GUI 随后一直显示「已断开（WinError 1225）」，
+而桌面端**没有断线自愈**，QQ 机器人与桌面端一起长期掉线。ubuntu 分片另有 6 个只在 POSIX
+上失败的断言：Windows 路径语义（`file:///C:/…` 的前导斜杠、协议端记录里的反斜杠路径、
+`.iss` 里的反斜杠路径）、视觉字节预算用例依赖 Pillow 编码器的压缩率、`/diagnostics` 把
+`pillow_installed` 写死为 True。
+
+新状态：探针与启动器用例显式指向一个空闲端口（`--url` / `ATRIX_HEALTH_URL`），测试与宿主
+上跑着什么无关，跑全量**不再需要**停后台服务；6 个平台断言改为与平台无关（POSIX 保留
+`/C:/…` 前导斜杠、协议端记录路径用正斜杠、`.iss` 路径统一按 Windows 语义换成 `/` 再解析、
+视觉预算用例用 PNG `tEXt` 文本块把体积撑到预算之上、`pillow_installed` 只在真装了 Pillow
+时才要求版本号非空）。本轮只改测试，不改产品行为。
+
 ### 发行
 
 - 版本号 `1.1.5` → `1.1.6`：`atri_x/__init__.py`（`__version__`）/ `pyproject.toml` /

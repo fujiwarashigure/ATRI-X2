@@ -57,7 +57,7 @@ from atri_x.media.worker import (
     truncate_worker_error,
 )
 from atri_x.safecontext import CancelToken
-from tests.test_media_manager import AsyncMediaTestCase, make_image, make_png
+from tests.test_media_manager import AsyncMediaTestCase, make_image, make_png, png_with_text
 
 
 def transparent_png(width: int, height: int) -> bytes:
@@ -134,7 +134,13 @@ class TestPrepareVisionImage(unittest.TestCase):
         self.assertLessEqual(max(width, height), 64)
 
     def test_enforces_byte_budget(self) -> None:
-        data = make_png(256, 256, noise=True)
+        # 输入体积必须与编码后端无关：同一张"噪声"图，Pillow 与纯标准库后端压出来
+        # 的 PNG 差好几倍（CI 没装 Pillow，256×256 压完只有 ~2 KB，比预算还小，
+        # 于是 `assertGreater` 先炸）。改用 PNG tEXt 文本块把体积撑到预算之上——
+        # 这同时是真实场景：A1111 / NovelAI 会把生成参数写进这种文本块。
+        data = png_with_text(
+            make_png(256, 256, noise=True), keyword=b"parameters", text=b"steps: 20, " * 1024
+        )
         budget = 4 * 1024
         self.assertGreater(len(data), budget)
         output, mime_type = prepare_vision_image(data, "image/png", 0, budget)

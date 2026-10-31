@@ -43,6 +43,18 @@ def iss_value(text: str, directive: str) -> str:
     return ""
 
 
+def iss_path(value: str) -> Path:
+    """把 iss 里的相对路径解析成真实文件路径。
+
+    ``.iss`` 是 Windows 安装包脚本，路径一律用反斜杠（``assets\\wizard-image.png``、
+    ``..\\atri_x\\gui\\brand\\app.ico``）。POSIX 上反斜杠不是分隔符，直接
+    ``PACKAGING / value`` 会得到一个不存在的文件名（CI 的 ubuntu 分片就是这样红
+    的）。这里统一把 ``\\`` 换成 ``/`` 再拼——同一份 iss 在任何平台上都指向同一个
+    文件，测试也就与宿主平台无关了。
+    """
+    return (PACKAGING / value.strip().replace("\\", "/")).resolve()
+
+
 class SpecBrandTest(unittest.TestCase):
     def test_brand_dir_is_collected_as_data(self) -> None:
         """窗口图标与托盘图标都要在运行期读文件，所以必须进 datas。"""
@@ -64,7 +76,7 @@ class InstallerBrandTest(unittest.TestCase):
     def test_setup_icon_is_set(self) -> None:
         value = iss_value(self.text, "SetupIconFile")
         self.assertTrue(value, "atri-x.iss 没写 SetupIconFile：安装包会用 Inno 默认图标")
-        path = (PACKAGING / value).resolve()
+        path = iss_path(value)
         self.assertTrue(path.is_file(), f"SetupIconFile 指向的文件不存在: {path}")
         self.assertEqual(path, BRAND_ICO.resolve())
 
@@ -73,7 +85,7 @@ class InstallerBrandTest(unittest.TestCase):
             value = iss_value(self.text, directive)
             self.assertTrue(value, f"atri-x.iss 没写 {directive}")
             for item in value.split(","):
-                path = (PACKAGING / item.strip()).resolve()
+                path = iss_path(item)
                 self.assertTrue(path.is_file(), f"{directive} 指向的文件不存在: {path}")
 
     def test_welcome_page_is_enabled(self) -> None:
@@ -83,7 +95,7 @@ class InstallerBrandTest(unittest.TestCase):
     def test_banner_assets_keep_the_required_aspect(self) -> None:
         value = iss_value(self.text, "WizardImageFile")
         for item in value.split(","):
-            path = (PACKAGING / item.strip()).resolve()
+            path = iss_path(item)
             width, height = png_size(path)
             self.assertAlmostEqual(
                 width / height, BANNER_RATIO, delta=0.01, msg=f"{path.name} 比例不是 164:314"
@@ -92,7 +104,7 @@ class InstallerBrandTest(unittest.TestCase):
     def test_small_image_is_square(self) -> None:
         value = iss_value(self.text, "WizardSmallImageFile")
         for item in value.split(","):
-            path = (PACKAGING / item.strip()).resolve()
+            path = iss_path(item)
             width, height = png_size(path)
             self.assertEqual(width, height, f"{path.name} 不是正方形")
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -28,6 +29,23 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def free_loopback_port() -> int:
+    """返回一个此刻没有监听的回环端口。
+
+    运行状态探针的用例要的是「连不上」，**不能**依赖默认端口 32171 空闲：开发机上
+    桌面端可能正跑着后台服务（32171/32172），探针会打到真实服务上，既误报失败，又
+    会诱导人「先把服务停掉再跑测试」——真实事故里就是这样杀掉过用户正在用的后台
+    服务（GUI 因此一直显示「已断开（WinError 1225）」，且不会自愈）。所以探针地址
+    一律显式指向一个刚绑定并释放的空闲端口。
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+    finally:
+        probe.close()
 DEPLOY_SRC = REPO_ROOT / "deploy"
 TMP_ROOT = REPO_ROOT / "tmp_deploy_backup_test"
 #: 备份/恢复脚本依赖的同级模块，必须一起拷进夹具的 deploy 目录。
@@ -413,14 +431,26 @@ class TestRestoreVerify(DeployFixture):
 
 
 class TestHealthProbe(DeployFixture):
-    """``health_probe.py``：退出码与 JSON 键名是给编排系统看的契约。"""
+    """``health_probe.py``：退出码与 JSON 键名是给编排系统看的契约。
+
+    所有「连不上」用例都显式指向 :func:`free_loopback_port`，不碰默认的
+    127.0.0.1:32171——那是本机真实后台服务的监听端口。
+    """
+
+    def unreachable_url(self, path: str = "/live") -> str:
+        """一个保证没人监听的探针 URL。"""
+        return f"http://127.0.0.1:{free_loopback_port()}{path}"
 
     def test_unreachable_endpoint_exits_one(self) -> None:
-        result = self.run_script("health_probe.py", "--timeout", "1", "--quiet")
+        result = self.run_script(
+            "health_probe.py", "--url", self.unreachable_url(), "--timeout", "1", "--quiet"
+        )
         self.assertEqual(result.returncode, 1)
 
     def test_json_keys_are_stable(self) -> None:
-        result = self.run_script("health_probe.py", "--timeout", "1", "--json")
+        result = self.run_script(
+            "health_probe.py", "--url", self.unreachable_url(), "--timeout", "1", "--json"
+        )
         self.assertEqual(result.returncode, 1)
         import json
 
@@ -431,9 +461,16 @@ class TestHealthProbe(DeployFixture):
         self.assertEqual(payload["status"], 0)
 
     def test_ready_and_healthz_switch_paths(self) -> None:
-        live = self.run_script("health_probe.py", "--timeout", "1", "--json")
-        ready = self.run_script("health_probe.py", "--timeout", "1", "--json", "--ready")
-        healthz = self.run_script("health_probe.py", "--timeout", "1", "--json", "--healthz")
+        # ``--url`` 给了就忽略 --ready/--healthz（见脚本 help），所以这里分别给三个 URL。
+        live = self.run_script(
+            "health_probe.py", "--url", self.unreachable_url("/live"), "--timeout", "1", "--json"
+        )
+        ready = self.run_script(
+            "health_probe.py", "--url", self.unreachable_url("/ready"), "--timeout", "1", "--json"
+        )
+        healthz = self.run_script(
+            "health_probe.py", "--url", self.unreachable_url("/healthz"), "--timeout", "1", "--json"
+        )
         import json
 
         self.assertTrue(json.loads(live.stdout)["url"].endswith("/live"))

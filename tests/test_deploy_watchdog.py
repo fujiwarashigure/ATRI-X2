@@ -30,6 +30,7 @@ import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import unittest
@@ -39,6 +40,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_SRC = REPO_ROOT / "deploy"
 TMP_ROOT = REPO_ROOT / "tmp_deploy_watchdog_test"
 LIB_MODULES = ("_lib.py", "_libfs.py", "_envutil.py", "_proc.py", "_netutil.py", "_console.py")
+
+
+def free_loopback_port() -> int:
+    """返回一个此刻没有监听的回环端口。
+
+    启动器的 ``status`` / ``tasks`` 走默认状态接口 127.0.0.1:32171；开发机上桌面端
+    的真实后台服务可能正监听在那里，探针会打到真服务（401 认证失败）而不是「不可
+    达」，既误报失败又诱导人先停掉用户正在用的服务。测试里显式把 ``ATRIX_HEALTH_URL``
+    指到一个空闲端口，保证与宿主上跑着什么无关。
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+    finally:
+        probe.close()
 
 FIXTURE_LOG = """2026-10-01T00:00:00Z starting atri-x
 provider api_key=sk-abcdefghijklmnopqrstuvwxyz ok
@@ -287,6 +304,17 @@ class TestWindowsLauncher(WatchdogFixture):
         self.windows = self.deploy / "windows"
         self.windows.mkdir(parents=True, exist_ok=True)
         shutil.copy2(DEPLOY_SRC / "windows" / "atri_x.py", self.windows / "atri_x.py")
+        # 状态接口默认 http://127.0.0.1:32171；把它指到空闲端口，避免打到宿主上
+        # 真实运行的 ATRI-X 后台服务（见 free_loopback_port 的说明）。
+        self._saved_health_url = os.environ.get("ATRIX_HEALTH_URL")
+        os.environ["ATRIX_HEALTH_URL"] = f"http://127.0.0.1:{free_loopback_port()}"
+        self.addCleanup(self._restore_health_url)
+
+    def _restore_health_url(self) -> None:
+        if self._saved_health_url is None:
+            os.environ.pop("ATRIX_HEALTH_URL", None)
+        else:
+            os.environ["ATRIX_HEALTH_URL"] = self._saved_health_url
 
     def load_module(self):
         """导入夹具里的 ``atri_x`` 模块（每次重新加载，避免串味）。"""

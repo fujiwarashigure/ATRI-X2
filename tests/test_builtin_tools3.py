@@ -347,7 +347,12 @@ class SendFileToolTest(unittest.TestCase):
         self.assertFalse(is_image_mime("text/plain"))
         self.assertEqual(mime_type_from_name("a.png"), "image/png")
         self.assertEqual(file_name_from_url("https://x/y/z.txt?q=1"), "z.txt")
-        self.assertEqual(local_source_path("file:///C:/a/b.txt").replace("\\", "/"), "C:/a/b.txt")
+        # ``file:///C:/a/b.txt`` 的 URL 路径是 ``/C:/a/b.txt``：Windows 会把盘符前的
+        # 那个前导斜杠去掉（与 Go 的 ``localSourcePath`` 一致），POSIX 上则原样保留。
+        expected_local = "C:/a/b.txt" if os.name == "nt" else "/C:/a/b.txt"
+        self.assertEqual(
+            local_source_path("file:///C:/a/b.txt").replace("\\", "/"), expected_local
+        )
         with self.assertRaises(InvalidError):
             local_source_path("file://host/x")
         # Go：``file:///`` 的 Host 为空、Path 为 ``/``，只有 Path 为空才报错。

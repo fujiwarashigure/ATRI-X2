@@ -60,8 +60,16 @@ class DiagnosticsImageBackendTest(unittest.TestCase):
         image_module.set_backend("pure")
         payload = backend_probe.image_backend_info()
         self.assertEqual(payload["backend"], "stdlib")
-        self.assertTrue(payload["pillow_installed"])
-        self.assertTrue(payload["version"])
+        # 「强制纯后端」必须能与「没装 Pillow」区分开：装了 Pillow 时版本号非空、
+        # reason 为空；没装时版本号为空、reason 说明 import 失败。CI 的 runner 上
+        # 没有 Pillow，所以这里不能写死 pillow_installed=True（那正是分片 4 红的
+        # 原因）——断言的是这条不变量本身。
+        if payload["pillow_installed"]:
+            self.assertTrue(payload["version"])
+            self.assertEqual(payload["reason"], "")
+        else:
+            self.assertEqual(payload["version"], "")
+            self.assertRegex(payload["reason"], r"ImportError|ModuleNotFoundError")
 
     def test_probe_failure_degrades_to_stdlib_with_reason(self) -> None:
         """模拟 Pillow 缺失（``sys.modules`` 里置 None 会让 import 直接失败）。"""

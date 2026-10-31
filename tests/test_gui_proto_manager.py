@@ -155,8 +155,11 @@ class ProcessStateCase(unittest.TestCase):
         self.assertEqual(info["reason"], "")
 
     def test_status_ignores_image_path_and_case(self) -> None:
+        # 记录里带完整路径且大小写不同，仍应按「文件名」认成自己启动的进程。
+        # 路径用正斜杠：``os.path.basename`` 只在 Windows 上把反斜杠当分隔符，
+        # 用 ``C:\Windows\...`` 会让 POSIX 的 CI 分片把整串当成文件名而误判。
         proto_process.write_state(
-            str(self.env_dir), {"pid": 556, "image": r"C:\Windows\System32\CMD.EXE"}
+            str(self.env_dir), {"pid": 556, "image": "C:/Windows/System32/CMD.EXE"}
         )
         with (
             mock.patch.object(proto_process, "_pid_alive", return_value=True),
