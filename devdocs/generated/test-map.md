@@ -3,7 +3,7 @@
 
 # 测试地图（自动生成）
 
-- 模块 **828** 个，其中被测试直接/间接覆盖 **521** 个（62.9%）；无覆盖 **307** 个。
+- 模块 **828** 个，其中被测试直接/间接覆盖 **522** 个（63.0%）；无覆盖 **306** 个。
 - 测试文件 **240** 个。
 
 口径：测试文件 import 了某模块（或其子模块）就算覆盖该模块；「无覆盖」不代表没测过，但**改那个模块时没有同名测试可跑**，只能靠调用方测试。
@@ -273,8 +273,9 @@
 | `atri_x.hook.match` | `tests/test_hook_builtin_control.py`、`tests/test_hook_manager.py`、`tests/test_hook_match.py`、`tests/test_hook_protocol.py`、`tests/test_hook_rules.py` |
 | `atri_x.hook.output` | `tests/test_hook_output.py`、`tests/test_hook_protocol.py`、`tests/test_hook_rules.py` |
 | `atri_x.hook.output.jsonstrict` | `tests/test_hook_output.py` |
-| `atri_x.hook.protocol` | `tests/test_hook_protocol.py`、`tests/test_hook_runtime.py` |
+| `atri_x.hook.protocol` | `tests/test_hook_protocol.py`、`tests/test_hook_rules.py`、`tests/test_hook_runtime.py` |
 | `atri_x.hook.protocol.frames` | `tests/test_hook_runtime.py` |
+| `atri_x.hook.protocol.stream` | `tests/test_hook_rules.py` |
 | `atri_x.hook.rules` | `tests/test_hook_rules.py` |
 | `atri_x.hook.rules.config` | `tests/test_hook_rules.py` |
 | `atri_x.hook.rules.detail` | `tests/test_hook_rules.py` |
@@ -616,9 +617,9 @@
 
 `atri_x.historygate.gate`
 
-### hook（18）
+### hook（17）
 
-`atri_x.hook.builtin.angel_memory`、`atri_x.hook.builtin.register`、`atri_x.hook.builtin.self_learning`、`atri_x.hook.media`、`atri_x.hook.output.message`、`atri_x.hook.output.output`、`atri_x.hook.process`、`atri_x.hook.protocol.eventjson`、`atri_x.hook.protocol.stream`、`atri_x.hook.rules.action`、`atri_x.hook.rules.exec`、`atri_x.hook.rules.exec_stderr`、`atri_x.hook.runtime.config`、`atri_x.hook.runtime.manager`、`atri_x.hook.runtime.media`、`atri_x.hook.runtime.protocol`、`atri_x.hook.runtime.transport`、`atri_x.hook.runtime.worker`
+`atri_x.hook.builtin.angel_memory`、`atri_x.hook.builtin.register`、`atri_x.hook.builtin.self_learning`、`atri_x.hook.media`、`atri_x.hook.output.message`、`atri_x.hook.output.output`、`atri_x.hook.process`、`atri_x.hook.protocol.eventjson`、`atri_x.hook.rules.action`、`atri_x.hook.rules.exec`、`atri_x.hook.rules.exec_stderr`、`atri_x.hook.runtime.config`、`atri_x.hook.runtime.manager`、`atri_x.hook.runtime.media`、`atri_x.hook.runtime.protocol`、`atri_x.hook.runtime.transport`、`atri_x.hook.runtime.worker`
 
 ### imagegen（3）
 

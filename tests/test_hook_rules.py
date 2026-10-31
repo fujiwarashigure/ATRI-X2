@@ -1010,5 +1010,29 @@ class TestExecAction(unittest.TestCase):
         self.assertIn("timed out after 1s", str(ctx.exception))
 
 
+class TestHookProcessGroup(unittest.TestCase):
+    """POSIX 上 hook 插件必须自成进程组，否则超时清理会杀到宿主自己。
+
+    真实故障：Linux 上 ``test_timeout``（插件故意挂住）触发超时清理时，
+    ``os.killpg(os.getpgid(child))`` 命中的是**宿主自己所在的进程组**——CI 分片
+    runner（乃至整个 job）被 SIGKILL，job 一直 in_progress、日志都拿不到。
+    修复两件事：子进程 ``start_new_session=True``；杀进程组前拒绝朝宿主自己的组开枪。
+    """
+
+    def test_spawn_kwargs_only_detach_on_posix(self) -> None:
+        from atri_x.hook.protocol.stream import detached_process_kwargs
+
+        self.assertEqual(detached_process_kwargs("nt"), {})
+        self.assertEqual(detached_process_kwargs("posix"), {"start_new_session": True})
+
+    def test_kill_process_group_never_targets_host_group(self) -> None:
+        from atri_x.hook.protocol.stream import kill_process_group
+
+        if os.name == "nt":
+            self.skipTest("killpg 是 POSIX 语义")
+        # 传宿主自己的 pid：它与宿主同组，守卫必须什么都不做（否则这里把测试进程打死）。
+        kill_process_group(os.getpid())
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

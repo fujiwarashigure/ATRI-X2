@@ -10,6 +10,7 @@ import os
 import threading
 from typing import Any
 
+from atri_x.hook.protocol.stream import kill_process_group
 from atri_x.hook.rules.action import (
     State,
     has_strict_dir,
@@ -233,12 +234,9 @@ async def kill_process_tree(proc: Any) -> None:
             except OSError:
                 pass
         else:
-            import signal
-
-            try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except OSError:
-                pass
+            # 只杀插件自己的进程组（插件用 detached_process_kwargs 起了新会话）；
+            # 万一调用方漏了，kill_process_group 会拒绝朝宿主组开枪。
+            kill_process_group(pid)
     try:
         proc.kill()
     except (ProcessLookupError, RuntimeError):

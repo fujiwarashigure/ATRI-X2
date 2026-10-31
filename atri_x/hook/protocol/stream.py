@@ -12,6 +12,7 @@ Go 用 ``bufio.Reader.ReadSlice`` 反复拼接到 ``\\n``，或者用带
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from atri_x.errors import AtriXError
@@ -23,6 +24,8 @@ __all__ = [
     "LineReader",
     "short_protocol_line",
     "await_cancelable",
+    "detached_process_kwargs",
+    "kill_process_group",
 ]
 
 _READ_CHUNK = 64 * 1024
@@ -114,3 +117,38 @@ async def await_cancelable(awaitable: Any, token: Any) -> Any:
         raise
     finally:
         remove()
+
+
+def detached_process_kwargs(platform: str | None = None) -> dict[str, Any]:
+    """``create_subprocess_exec`` 的「独立会话」参数：POSIX 上让子进程自成进程组。
+
+    为什么必须有：POSIX 上插件超时/停止靠 ``killpg(os.getpgid(pid), SIGKILL)`` 杀整棵
+    进程树；子进程若与宿主同组，这一枪打中的是**宿主自己所在的进程组**——Linux 上
+    hook 插件一超时就把 ATRI-X 服务（或正在跑测试的进程）一起 SIGKILL 掉，表现是
+    「CI job 卡死/服务整机掉线」。放进新会话后 killpg 只命中插件自己那棵树。
+
+    Windows 不走这条路径（用 ``taskkill /T /PID``），返回空字典。
+    """
+    name = os.name if platform is None else platform
+    return {"start_new_session": True} if name != "nt" else {}
+
+
+def kill_process_group(pid: int) -> None:
+    """只朝**子进程自己的**进程组发 SIGKILL；绝不误伤宿主所在的组。
+
+    防御性兜底：万一某个调用方忘了用 :func:`detached_process_kwargs`（子进程与宿主同
+    组），这里直接放弃 ``killpg``，交给调用方的 ``proc.kill()`` 只杀直接子进程——打死
+    宿主自己永远比漏杀几个孙进程更糟。
+    """
+    import signal
+
+    try:
+        group = os.getpgid(int(pid))
+    except (OSError, TypeError, ValueError):
+        return
+    if group == os.getpgrp():
+        return
+    try:
+        os.killpg(group, signal.SIGKILL)
+    except OSError:
+        pass

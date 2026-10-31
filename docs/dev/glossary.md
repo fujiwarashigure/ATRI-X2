@@ -13,7 +13,7 @@
 | 桌面端（Tk + 托盘） | `atri_x/gui/` | `—` | 80 | 57/80 | `state.toml` 与各服务的 GUI 段 |
 | 存储与 SQLite | `atri_x/storage/` | `internal/storage/sqlite` | 19 | 10/19 | `[storage]` |
 | 配置与运行时状态 | `atri_x/config/` | `internal/config` | 11 | 10/11 | `[app]` / `[security]` / `[connect_notice]` 等 |
-| Hook 与插件 | `atri_x/hook/` | `internal/hook/rules` | 39 | 21/39 | `hooks.toml` |
+| Hook 与插件 | `atri_x/hook/` | `internal/hook/rules` | 39 | 22/39 | `hooks.toml` |
 | LLM 适配与协议 | `atri_x/llm/` | `internal/llm/openai` | 15 | 13/15 | `[llm]` / `[models]` |
 | 装配层 | `atri_x/app/` | `internal/app` | 36 | 31/36 | `[app]` 与各服务装配段 |
 | 媒体与图片处理 | `atri_x/media/` | `internal/media` | 27 | 11/27 | `[image_generation]` / `[media]` |

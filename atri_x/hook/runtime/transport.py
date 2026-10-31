@@ -22,6 +22,7 @@ from atri_x.hook.protocol import (
     ProtocolFrameError,
     decode_frame,
     encode_frame,
+    kill_process_group,
     new_request,
     validate_id,
 )
@@ -251,12 +252,8 @@ async def kill(worker: Any) -> None:
             except OSError:
                 pass
         else:
-            import signal
-
-            try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except OSError:
-                pass
+            # 只杀 worker 自己的进程组（worker 用 detached_process_kwargs 起了新会话）。
+            kill_process_group(pid)
     try:
         proc.kill()
     except (ProcessLookupError, RuntimeError):

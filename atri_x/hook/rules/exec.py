@@ -37,7 +37,7 @@ from atri_x.hook.protocol import (
     short_protocol_line,
     validate_id,
 )
-from atri_x.hook.protocol.stream import await_cancelable
+from atri_x.hook.protocol.stream import await_cancelable, detached_process_kwargs
 from atri_x.hook.rules.action import (
     ActionResult,
     State,
@@ -125,7 +125,7 @@ async def run_exec(
             env=command.env_dict(),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, **detached_process_kwargs(),
         )
     except (OSError, ValueError) as exc:
         raise ExecError(str(exc)) from exc

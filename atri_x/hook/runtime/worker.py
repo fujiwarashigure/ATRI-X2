@@ -26,7 +26,7 @@ from atri_x.errors import AtriXError
 from atri_x.hook.event import Event, Point
 from atri_x.hook.match import event_match_context
 from atri_x.hook.output import BuildOptions, build_group, build_message_segments
-from atri_x.hook.protocol import apply_llm_result
+from atri_x.hook.protocol import apply_llm_result, detached_process_kwargs
 from atri_x.hook.protocol.frames import Frame
 from atri_x.hook.output.jsonstrict import JSONDecodeError, decode_json  # noqa: F401
 from atri_x.hook.runtime import tool_bridge, transport
@@ -204,7 +204,7 @@ class Worker:
                 env=command.env_dict(),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE, **detached_process_kwargs(),
             )
         except (OSError, ValueError) as exc:
             with self.mu:

@@ -3,7 +3,7 @@
 
 # 模块索引（自动生成）
 
-共 **828** 个模块 / **241880** 物理行 / **71** 个一级域。被测试直接覆盖 **521** 个（62.9%）。
+共 **828** 个模块 / **241913** 物理行 / **71** 个一级域。被测试直接覆盖 **522** 个（63.0%）。
 
 查模块：`rg -n "atri_x\.tool\.builtin" devdocs/generated/module-map.md`。
 
@@ -433,16 +433,16 @@
 | `atri_x.hook.output.message` | 进程 Hook 替换消息内容的线格式（``message.segments``）。 | MessageSegment, build_message_image, build_message_segment,… | 229 | — |
 | `atri_x.hook.output.output` | Hook 输出的线格式：``outputs`` 段的解码与构造。 | BuildOptions, Group, JSONDecodeError, MAX_BASE64_BYTES, Max… | 428 | — |
 | `atri_x.hook.process` | 进程 Hook 继承的环境。 | ProcessEnvironment, new_process_environment | 29 | — |
-| `atri_x.hook.protocol` | ``hook.v2`` 进程间协议。 | — | 19 | `test_hook_protocol.py`、`test_hook_runtime.py` |
+| `atri_x.hook.protocol` | ``hook.v2`` 进程间协议。 | — | 19 | `test_hook_protocol.py`、`test_hook_rules.py`、`test_hook_runtime.py` |
 | `atri_x.hook.protocol.eventjson` | ``hook.Event`` 与其负载的 JSON 投影。 | RawJSON, ZERO_TIME_JSON, dumps, event_from_json, event_to_j… | 659 | — |
 | `atri_x.hook.protocol.frames` | ``hook.v2`` JSON Lines 协议帧。 | EventHandleParams, EventResultBase, Frame, LLMResult, Messa… | 330 | `test_hook_runtime.py` |
-| `atri_x.hook.protocol.stream` | ``hook.v2`` 的按行读取（带帧上限）。 | LineReader, MAX_PROTOCOL_FRAME_BYTES, ProtocolFrameError, a… | 116 | — |
+| `atri_x.hook.protocol.stream` | ``hook.v2`` 的按行读取（带帧上限）。 | LineReader, MAX_PROTOCOL_FRAME_BYTES, ProtocolFrameError, a… | 154 | `test_hook_rules.py` |
 | `atri_x.hook.rules` | ``hooks.toml`` 规则引擎。 | Action, ActionResult, CONFIG_FILE, Config, DEFAULT_PRIORITY… | 88 | `test_hook_rules.py` |
 | `atri_x.hook.rules.action` | 规则动作的执行：改文本、发消息、跑工具、调插件。 | ActionResult, State, allow_field, apply_text_action, byte_s… | 439 | — |
 | `atri_x.hook.rules.config` | ``hooks.toml`` 与插件 ``hook.toml`` 的装载。 | decode_config, decode_plugin_config, load_config, normalize… | 686 | `test_hook_rules.py` |
 | `atri_x.hook.rules.detail` | ``/hooks`` 列表里展示的规则详情文本。 | format_rule_detail, rule_description, strconv_quote, target… | 124 | `test_hook_rules.py` |
 | `atri_x.hook.rules.exec` | ``exec`` 动作：跑一次 hook.v2 一次性插件。 | byte_size, plugin_stdin_write_error, read_protocol_line, ru… | 746 | — |
-| `atri_x.hook.rules.exec_stderr` | ``exec`` 动作的进程辅助：stderr 尾巴、错误包装、cwd 解析。 | ExecError, ExecStderrLogger, ExecStderrTail, exec_context_e… | 261 | — |
+| `atri_x.hook.rules.exec_stderr` | ``exec`` 动作的进程辅助：stderr 尾巴、错误包装、cwd 解析。 | ExecError, ExecStderrLogger, ExecStderrTail, exec_context_e… | 259 | — |
 | `atri_x.hook.rules.rule` | 规则的校验、角色条件展开与执行。 | RuleError, contains_string, matches_roles, matches_unified_… | 256 | `test_hook_rules.py` |
 | `atri_x.hook.rules.rules` | 规则模块：装载 ``hooks.toml`` 并把每条规则注册成 Hook。 | CONFIG_FILE, DEFAULT_PRIORITY, Module, NewModule, new_module | 190 | `test_hook_rules.py` |
 | `atri_x.hook.rules.toml_error` | ``hooks.toml`` 的读取与详细错误信息。 | ConfigParseError, StrictDecodeError, conflicting_toml_key, … | 514 | `test_hook_rules.py` |
@@ -455,7 +455,7 @@
 | `atri_x.hook.runtime.routes` | Hook 路由：租约、等待态、单飞调用与工具上下文令牌。 | DISPATCHED_METADATA_KEY, Invocation, Lease, MAX_TOOL_CALLS_… | 355 | `test_hook_runtime.py` |
 | `atri_x.hook.runtime.shared` | Hook 共享的有界 JSON 协调存储。 | DEFAULT_SHARED_TTL, MAX_SHARED_KEY_BYTES, MAX_SHARED_STATE_… | 382 | `test_hook_runtime.py` |
 | `atri_x.hook.runtime.tool_bridge` | 进程 Hook 发来的请求：``tool.call`` / ``hooks.reload`` / ``media.*`` / ``shared.*``。 | ToolBridgeError, call_tool, plugin_request, schemas | 307 | `test_hook_runtime.py` |
-| `atri_x.hook.runtime.transport` | worker 的协议传输层：读写帧、请求/响应配对、进程强杀。 | Pending, deliver_response, handle_plugin_event, kill, notif… | 279 | — |
+| `atri_x.hook.runtime.transport` | worker 的协议传输层：读写帧、请求/响应配对、进程强杀。 | Pending, deliver_response, handle_plugin_event, kill, notif… | 276 | — |
 | `atri_x.hook.runtime.worker` | 一个有状态 Hook 进程（hook.v2 worker）。 | Worker, WorkerError, WorkerProcessError, WorkerTimeoutError | 714 | — |
 | `atri_x.imagegen` | OpenAI 兼容生图客户端与提示词组装（自包含子系统）。 | Client, ComposeBlocks, ComposeResult, Config, DEFAULT_MAX_P… | 186 | `_comic_fakes.py`、`test_builtin_comic.py`、`test_builtin_imagegen.py`、`test_builtin_tools4.py`、`test_comic_service.py`、`test_imagegen.py`、`test_safety_integration.py` |
 | `atri_x.imagegen._extract_library` | 从上游机械抽取提示词库 ``prompts/library.json``。 | CHECK_DRIFT, CHECK_OK, CHECK_UNUSABLE, LibraryCheck, check,… | 217 | `test_imagegen.py` |

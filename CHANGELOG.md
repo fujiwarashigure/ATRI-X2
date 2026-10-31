@@ -39,6 +39,21 @@
 - 新增 `tests/test_gui_supervisor.py`（状态机时机/退避/上限/暂停恢复/回环判定/恢复动作编排）
   与 `tests/test_gui_service.py` 的服务生命周期日志用例。
 
+### 修订：POSIX 上 hook 插件超时会杀掉宿主自己的进程组（Linux/Docker 整机掉线）
+
+旧状态（1.1.6）：Linux 上 hook 插件（`exec` 动作 / 有状态 hook worker）超时或停止时，清理
+走 `os.killpg(os.getpgid(child), SIGKILL)`，但子进程是用 `create_subprocess_exec` 直接起的、
+**与宿主同一个进程组**——这一枪打中的是宿主自己所在的组，于是「插件超时」变成「ATRI-X 服务
+被 SIGKILL 整机掉线」。它还会让 CI 分片 runner 被莫名 SIGKILL：job 一直 `in_progress`、
+连日志都拿不到（`quality` 历史上 shard 6 挂住 30 分钟以上就是这个原因）。
+
+新状态：`atri_x/hook/protocol/stream.py` 新增 `detached_process_kwargs()`（POSIX 上
+`start_new_session=True`，插件自成进程组）与 `kill_process_group()`（**拒绝朝宿主自己的组
+开枪**的防御性兜底）；`exec.py` / `hook/runtime/worker.py` 起进程时走前者，
+`exec_stderr.kill_process_tree` / `hook/runtime/transport.kill` 走后者。回归用例见
+`tests/test_hook_rules.py::TestHookProcessGroup`（POSIX 上真正跑一遍「不对自己开枪」）。
+Windows 行为不变（仍用 `taskkill /T /PID`）。
+
 ### 修订：CI 拆片 + 本地测试卫生 + ubuntu 平台断言（并入本版）
 
 - 全量单测拆 6 片并行（`scripts/ci_shard_tests.py` + 实测权重 `scripts/ci_test_weights.json`），
@@ -58,11 +73,27 @@
 
 - 版本号 `1.1.6` → `1.1.7`：`atri_x/__init__.py`（`__version__`）/ `pyproject.toml` /
   `deploy/VERSION` / 仓库 `README.md` 同步；产物名随之变成 `ATRI-X-1.1.7-*`。
-- 构建与产物（构建后填写）：尺寸 / SHA-256 / 构建事实见下方。
+- 构建：`python packaging/build.py --release --with-kernel --with-drawio <draw.io 解包目录>
+  --with-qqproto <NapCat Shell>` 一条命令出 onedir + 便携版 zip + 安装包；产物级核验全过
+  （便携包解压 27,218 条目后 13 项检查：`--version` / `config check` / qqproto / `-m` 转发 /
+  研究引擎 / sidecar / GUI selftest / start-portable / debug-console / APPDATA 重定向；安装包
+  ISCC 编译 291.5s、静默安装 102.1s / 27,216 文件、卸载 16.1s）。onedir 706.4 MB / 24,697 文件
+  （内置 DSH 内核 277.6 MB、draw.io 渲染器 381.9 MB / 19 文件、内置协议端 2,512 文件 /
+  1,202.5 MB，proto-info 标记 `sanitized=True`）；便携包 815.1 MB（压缩比 43%）；构建总耗时
+  约 12 分钟。
+- 产物（2026-10-31 本机从工作树重建，已推送 GitHub 并作为 **GitHub Release v1.1.7**（15 个
+  附件）发布）：
+  - `ATRI-X-1.1.7-setup.exe` 585,456,891 字节（558.3 MB）—
+    `4316fd1b5134c495ca300195773e4d574a9f157984e92c8c44ffe2c8133485f8`
+  - `ATRI-X-1.1.7-portable-win64.zip` 854,707,439 字节（815.1 MB）—
+    `3080f0b958e19f3acd4c04fd779c89595844f5c9eea992634430a6544953ab1b`
+  - `ATRI-X-1.1.7-repo.zip` / `.tar.gz`：源码归档（条目数、尺寸与 SHA-256 见发行库
+    `SHA256SUMS.txt` 与 `ATRI-X-1.1.7-repo-entries.txt`；`atri_x/dist` / `atri_x/hook/runtime` /
+    `atri_x/runtime` 源码包完整保留），由 `git archive HEAD` 生成并逐文件核对 git blob。
 - 全量单测：`Ran 7,190 tests`，失败 0 / 跳过 3（后台服务保持运行；旧版探针用例要求先停服务，
   本版不需要）。12 项门禁 0 失败。
-- 脱敏（构建后填写）：源码树与源码归档扫描 0 命中；便携包/安装包内 qqproto 按白名单剔除
-  配置/缓存/日志（`proto-info.json` 标记 `sanitized=True`）；证据日志走脱敏脚本。
+- 脱敏（构建后填写）：源码树与源码归档扫描结果见发行库
+  `证据/1.1.7/sanitize-source-1.1.7.log`。
 
 ---
 
