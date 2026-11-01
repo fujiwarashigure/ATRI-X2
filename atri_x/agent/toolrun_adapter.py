@@ -39,13 +39,7 @@ from atri_x.toolrun import (
 from atri_x.toolrun.toolrun import ResolvedTool
 from atri_x.tool import RiskAssessment
 # safety-guard: 工具结果审核 + 把 guard 挂到工具 ctx（image_generate / send_file 用）
-from atri_x.safety import (
-    TOOL_IMAGE_STRIPPED_TEXT,
-    mode_from_host,
-    scope_from_host,
-    with_safety_guard,
-    with_safety_scope,
-)
+from atri_x.agent.safety_tools import _safety_guard_segments, attach_safety_ctx
 from atri_x.agent.tools import (
     compact_arguments,
     is_background_session,
@@ -245,13 +239,8 @@ class AgentToolRunDeps:
 
     async def prepare_tool_context(self, ctx: Any, session: Any, call: Any) -> Any:
         """对应 Go ``PrepareToolContext``。"""
-        # safety-guard: 把 guard 与审计归属挂到工具 ctx 上（工具拿不到 agent，只能从 ctx 取）。
-        # guard 绑定当前会话模式：chat / work 的「按模式覆盖」策略在工具内部也生效。
-        guard = getattr(self.agent, "safety_guard", None)
-        if guard is not None:
-            guard = guard.for_mode(mode_from_host(self.agent, ctx))
-        ctx = with_safety_guard(ctx, guard)
-        ctx = with_safety_scope(ctx, scope_from_host(self.agent, ctx))
+        # safety-guard: 把 guard（按会话模式绑定）与审计归属挂到工具 ctx 上。
+        ctx = attach_safety_ctx(self.agent, ctx)
         if session is None:
             return ctx
         agent = self.agent
@@ -602,48 +591,6 @@ class AgentToolRunDeps:
 # ---------------------------------------------------------------------------
 # 公开 helper（同时供测试与别处复用）
 # ---------------------------------------------------------------------------
-def _safety_guard_segments(
-    agent: Any, ctx: Any, segments: list[MessageSegment], call: Any
-) -> list[MessageSegment]:
-    """safety-guard: 工具结果审核。
-
-    文本段逐段过 ``filter_text``（``enforce`` 下脱敏、命中词表类换成拦截文案）；
-    ``should_strip_tool_images()`` 为真时把图片段替换成文本占位（模型与后续上下文
-    看不到图）。``guard`` 未装配或 ``mode = off`` 时原样返回。
-    """
-    guard = getattr(agent, "safety_guard", None)
-    if guard is None:
-        return segments
-    scope = scope_from_host(agent, ctx)
-    mode = mode_from_host(agent, ctx)
-    strip_images = guard.should_strip_tool_images(mode)
-    tool_name = str(getattr(call, "name", "") or "")
-    out: list[MessageSegment] = []
-    for segment in segments:
-        if segment.type == SegmentType.TEXT:
-            filtered, _decision = guard.filter_text(
-                segment.text,
-                stage="tool",
-                scope=scope,
-                meta={"tool": tool_name},
-                mode=mode,
-            )
-            if filtered != segment.text:
-                clone = segment.clone()
-                clone.text = filtered
-                out.append(clone)
-            else:
-                out.append(segment)
-            continue
-        if segment.type == SegmentType.IMAGE and strip_images:
-            out.append(
-                MessageSegment(type=SegmentType.TEXT, text=TOOL_IMAGE_STRIPPED_TEXT)
-            )
-            continue
-        out.append(segment)
-    return out
-
-
 def risk_confirmation_detail_text(confirmation: Any) -> str:
     """高风险调用详情文案。对应 Go ``riskConfirmationDetailText``。"""
     if getattr(confirmation, "redacted", False):

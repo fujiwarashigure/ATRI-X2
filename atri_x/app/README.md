@@ -21,7 +21,7 @@
 
 ## 模块清单（自动生成）
 
-共 **36** 个模块，被测试覆盖 **31** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **37** 个模块，被测试覆盖 **32** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
@@ -51,8 +51,9 @@
 | `atri_x.app.platforms` | 平台装配与运行循环。 | 692 | `test_app_platforms.py`、`test_deploy_harness.py` |
 | `atri_x.app.runner` | 装配运行器：按固定顺序装配各阶段并保证逆序清理。 | 543 | `test_app_ops_plugins.py`、`test_app_runner.py` |
 | `atri_x.app.runtime` | 运行期装配主链：媒体中心 → 工具运行时 → Hook → Agent → 生命周期。 | 619 | `test_app_runner.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py` |
-| `atri_x.app.runtime_agent` | Agent 装配。 | 717 | `test_app_runtime_agent.py`、`test_member_profile.py`、`test_safety_integration.py` |
+| `atri_x.app.runtime_agent` | Agent 装配。 | 610 | `test_app_runtime_agent.py`、`test_member_profile.py` |
 | `atri_x.app.runtime_hooks` | Hook 控制面装配。 | 120 | — |
+| `atri_x.app.runtime_safety` | 内容安全与识图的宿主装配（从 :mod:`atri_x.app.runtime_agent` 抽出）。 | 149 | `test_safety_integration.py` |
 | `atri_x.app.runtime_support` | 运行期装配的共享助手：审计入口、凭据解析、cron 服务、Hook 生命周期。 | 366 | — |
 | `atri_x.app.service_marker` | 服务实例标记：防止同一台机器上跑起第二个 ``atri-x`` service。 | 226 | `test_app_bootstrap.py` |
 | `atri_x.app.service_types` | app 内部使用的服务侧数据类型。 | 94 | `test_app_platforms.py` |
@@ -70,4 +71,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 828 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 833 个 / 超线文件 78 个）。

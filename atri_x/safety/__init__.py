@@ -31,11 +31,13 @@ from atri_x.safety.audit import AuditLog, utc_now
 from atri_x.safety.guard import (
     DEFAULT_BLOCK_REPLACEMENT,
     MEDIA_BLOCK_TEXT,
-    SESSION_MODES,
     TOOL_IMAGE_STRIPPED_TEXT,
-    ModeBoundGuard,
     SafetyDecision,
     SafetyGuard,
+)
+from atri_x.safety.mode_ctx import (
+    SESSION_MODES,
+    ModeBoundGuard,
     SafetyScope,
     guard_from_context,
     mode_from_host,

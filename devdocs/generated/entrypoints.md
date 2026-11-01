@@ -45,6 +45,7 @@
 | `atri_x.app.runtime` | 运行期装配主链：媒体中心 → 工具运行时 → Hook → Agent → 生命周期。 |
 | `atri_x.app.runtime_agent` | Agent 装配。 |
 | `atri_x.app.runtime_hooks` | Hook 控制面装配。 |
+| `atri_x.app.runtime_safety` | 内容安全与识图的宿主装配（从 :mod:`atri_x.app.runtime_agent` 抽出）。 |
 | `atri_x.app.runtime_support` | 运行期装配的共享助手：审计入口、凭据解析、cron 服务、Hook 生命周期。 |
 | `atri_x.app.service_marker` | 服务实例标记：防止同一台机器上跑起第二个 ``atri-x`` service。 |
 | `atri_x.app.service_types` | app 内部使用的服务侧数据类型。 |

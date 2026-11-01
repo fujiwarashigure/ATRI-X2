@@ -560,7 +560,7 @@ class TestModeOverridesIntegration(SafetyCase):
         self.assertIn(SECRET, bound.filter_text("key=" + SECRET, stage="send")[0])
 
     async def test_override_enables_guard_when_global_disabled(self) -> None:
-        from atri_x.app.runtime_agent import _build_safety_guard
+        from atri_x.app.runtime_safety import _build_safety_guard
 
         cfg = types.SimpleNamespace(
             safety=types.SimpleNamespace(
@@ -578,7 +578,7 @@ class TestModeOverridesIntegration(SafetyCase):
         self.assertTrue(guard.active_for("chat"))
 
     async def test_guard_not_built_when_nothing_enabled(self) -> None:
-        from atri_x.app.runtime_agent import _build_safety_guard
+        from atri_x.app.runtime_safety import _build_safety_guard
 
         cfg = types.SimpleNamespace(
             safety=types.SimpleNamespace(

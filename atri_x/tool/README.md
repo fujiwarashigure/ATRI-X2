@@ -22,7 +22,7 @@
 
 ## 模块清单（自动生成）
 
-共 **83** 个模块，被测试覆盖 **61** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **84** 个模块，被测试覆盖 **61** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
@@ -51,9 +51,10 @@
 | `atri_x.tool.builtin.file_tools_read` | ``read_file`` 的声明与结果渲染。 | 216 | — |
 | `atri_x.tool.builtin.get_media` | ``get_media``：按当前聊天的消息 ID 与媒体序号取媒体 ID（不返回内容）。 | 226 | `test_builtin_tools3.py` |
 | `atri_x.tool.builtin.group_analysis` | ``group_analysis``：统计当前群聊的消息量、活跃成员与活跃时段。 | 145 | `test_builtin_tools3.py` |
-| `atri_x.tool.builtin.image_generate` | ``image_generate``：调用 OpenAI 兼容的生图端点并组装最终提示词。 | 754 | `test_builtin_imagegen.py`、`test_builtin_tools4.py`、`test_safety_integration.py` |
+| `atri_x.tool.builtin.image_generate` | ``image_generate``：调用 OpenAI 兼容的生图端点并组装最终提示词。 | 723 | `test_builtin_imagegen.py`、`test_builtin_tools4.py`、`test_safety_integration.py` |
 | `atri_x.tool.builtin.image_generate_compose` | ``image_generate`` 的提示词编译与参考图收集。 | 554 | `test_builtin_imagegen.py` |
 | `atri_x.tool.builtin.image_generate_context` | ``image_generate`` 的上下文与角色解析部分。 | 464 | `test_builtin_imagegen.py` |
+| `atri_x.tool.builtin.image_safety` | 生图链路上的内容安全接线（从 :mod:`atri_x.tool.builtin.image_generate` 抽出）。 | 78 | — |
 | `atri_x.tool.builtin.image_to_prompt` | ``image_to_prompt``：把参考图片反推成可直接用于绘图的提示词。 | 498 | `test_builtin_imagegen.py`、`test_vision_privacy.py` |
 | `atri_x.tool.builtin.long_memory` | ``long_memory`` / ``long_memory_search`` / ``long_memory_write`` 三个工具。 | 315 | `test_builtin_long_memory.py`、`test_long_memory_scope.py` |
 | `atri_x.tool.builtin.long_memory_model` | 长期记忆的记录模型、front matter 读写与文本处理助手。 | 528 | `test_builtin_long_memory.py`、`test_long_memory_scope.py` |
@@ -118,4 +119,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 828 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 833 个 / 超线文件 78 个）。

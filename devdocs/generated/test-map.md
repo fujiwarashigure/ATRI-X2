@@ -3,7 +3,7 @@
 
 # 测试地图（自动生成）
 
-- 模块 **828** 个，其中被测试直接/间接覆盖 **522** 个（63.0%）；无覆盖 **306** 个。
+- 模块 **833** 个，其中被测试直接/间接覆盖 **523** 个（62.8%）；无覆盖 **310** 个。
 - 测试文件 **240** 个。
 
 口径：测试文件 import 了某模块（或其子模块）就算覆盖该模块；「无覆盖」不代表没测过，但**改那个模块时没有同名测试可跑**，只能靠调用方测试。
@@ -128,7 +128,8 @@
 | `atri_x.app.platforms` | `tests/test_app_platforms.py`、`tests/test_deploy_harness.py` |
 | `atri_x.app.runner` | `tests/test_app_ops_plugins.py`、`tests/test_app_runner.py` |
 | `atri_x.app.runtime` | `tests/test_app_runner.py`、`tests/test_app_runtime_resident.py`、`tests/test_app_tool_runtime_wiring.py` |
-| `atri_x.app.runtime_agent` | `tests/test_app_runtime_agent.py`、`tests/test_member_profile.py`、`tests/test_safety_integration.py` |
+| `atri_x.app.runtime_agent` | `tests/test_app_runtime_agent.py`、`tests/test_member_profile.py` |
+| `atri_x.app.runtime_safety` | `tests/test_safety_integration.py` |
 | `atri_x.app.service_marker` | `tests/test_app_bootstrap.py` |
 | `atri_x.app.service_types` | `tests/test_app_platforms.py` |
 | `atri_x.app.support` | `tests/test_app_runner.py` |
@@ -537,9 +538,9 @@
 
 ## 无直接测试覆盖的模块（按一级域）
 
-### agent（59）
+### agent（61）
 
-`atri_x.agent.asr`、`atri_x.agent.budget_chat`、`atri_x.agent.budget_keys`、`atri_x.agent.budget_ledger`、`atri_x.agent.character_guide_prompt`、`atri_x.agent.chat_request_options`、`atri_x.agent.chat_stream`、`atri_x.agent.chat_vision`、`atri_x.agent.command_runtime`、`atri_x.agent.commands.character`、`atri_x.agent.commands.compact`、`atri_x.agent.commands.completion`、`atri_x.agent.commands.context_policy`、`atri_x.agent.commands.doctor`、`atri_x.agent.commands.group_knowledge`、`atri_x.agent.commands.group_policy`、`atri_x.agent.commands.group_services`、`atri_x.agent.commands.help`、`atri_x.agent.commands.hook`、`atri_x.agent.commands.log`、`atri_x.agent.commands.log_args`、`atri_x.agent.commands.log_format`、`atri_x.agent.commands.member_panel`、`atri_x.agent.commands.memory_common`、`atri_x.agent.commands.memory_forget`、`atri_x.agent.commands.memory_learning`、`atri_x.agent.commands.model`、`atri_x.agent.commands.request`、`atri_x.agent.commands.research`、`atri_x.agent.commands.rollback`、`atri_x.agent.commands.session_core`、`atri_x.agent.commands.session_format`、`atri_x.agent.commands.session_lifecycle`、`atri_x.agent.commands.session_module`、`atri_x.agent.commands.session_navigation`、`atri_x.agent.commands.state`、`atri_x.agent.commands.time`、`atri_x.agent.commands.tool`、`atri_x.agent.completion`、`atri_x.agent.core_build`、`atri_x.agent.core_forward`、`atri_x.agent.cron_background`、`atri_x.agent.dsh.client`、`atri_x.agent.dsh.command`、`atri_x.agent.dsh.transport`、`atri_x.agent.events`、`atri_x.agent.identity`、`atri_x.agent.inbound_speaker`、`atri_x.agent.inbox`、`atri_x.agent.logging`、`atri_x.agent.media_output`、`atri_x.agent.member_panel`、`atri_x.agent.memory_learning_admin`、`atri_x.agent.ops`、`atri_x.agent.platform_signals`、`atri_x.agent.prefix`、`atri_x.agent.state_watch`、`atri_x.agent.tools_service`、`atri_x.agent.turn_gate`
+`atri_x.agent.asr`、`atri_x.agent.budget_chat`、`atri_x.agent.budget_keys`、`atri_x.agent.budget_ledger`、`atri_x.agent.character_guide_prompt`、`atri_x.agent.chat_request_options`、`atri_x.agent.chat_stream`、`atri_x.agent.chat_vision`、`atri_x.agent.command_runtime`、`atri_x.agent.commands.character`、`atri_x.agent.commands.compact`、`atri_x.agent.commands.completion`、`atri_x.agent.commands.context_policy`、`atri_x.agent.commands.doctor`、`atri_x.agent.commands.group_knowledge`、`atri_x.agent.commands.group_policy`、`atri_x.agent.commands.group_services`、`atri_x.agent.commands.help`、`atri_x.agent.commands.hook`、`atri_x.agent.commands.log`、`atri_x.agent.commands.log_args`、`atri_x.agent.commands.log_format`、`atri_x.agent.commands.member_panel`、`atri_x.agent.commands.memory_common`、`atri_x.agent.commands.memory_forget`、`atri_x.agent.commands.memory_learning`、`atri_x.agent.commands.model`、`atri_x.agent.commands.request`、`atri_x.agent.commands.research`、`atri_x.agent.commands.rollback`、`atri_x.agent.commands.session_core`、`atri_x.agent.commands.session_format`、`atri_x.agent.commands.session_lifecycle`、`atri_x.agent.commands.session_module`、`atri_x.agent.commands.session_navigation`、`atri_x.agent.commands.state`、`atri_x.agent.commands.time`、`atri_x.agent.commands.tool`、`atri_x.agent.completion`、`atri_x.agent.core_build`、`atri_x.agent.core_forward`、`atri_x.agent.cron_background`、`atri_x.agent.dsh.client`、`atri_x.agent.dsh.command`、`atri_x.agent.dsh.transport`、`atri_x.agent.events`、`atri_x.agent.identity`、`atri_x.agent.inbound_speaker`、`atri_x.agent.inbox`、`atri_x.agent.logging`、`atri_x.agent.media_output`、`atri_x.agent.member_panel`、`atri_x.agent.memory_learning_admin`、`atri_x.agent.ops`、`atri_x.agent.platform_signals`、`atri_x.agent.prefix`、`atri_x.agent.safety_llm`、`atri_x.agent.safety_tools`、`atri_x.agent.state_watch`、`atri_x.agent.tools_service`、`atri_x.agent.turn_gate`
 
 ### angelmemory（3）
 
@@ -661,9 +662,9 @@
 
 `atri_x.redact.redact`
 
-### safety（4）
+### safety（5）
 
-`atri_x.safety.audit`、`atri_x.safety.guard`、`atri_x.safety.policy`、`atri_x.safety.rules`
+`atri_x.safety.audit`、`atri_x.safety.guard`、`atri_x.safety.mode_ctx`、`atri_x.safety.policy`、`atri_x.safety.rules`
 
 ### security（3）
 
@@ -697,9 +698,9 @@
 
 `atri_x.timesync.diagnostics`
 
-### tool（22）
+### tool（23）
 
-`atri_x.tool.availability`、`atri_x.tool.builtin.file_tools_ast`、`atri_x.tool.builtin.file_tools_detail`、`atri_x.tool.builtin.file_tools_directory`、`atri_x.tool.builtin.file_tools_read`、`atri_x.tool.builtin.shell_env`、`atri_x.tool.builtin.time_tool`、`atri_x.tool.executor`、`atri_x.tool.provider`、`atri_x.tool.skill.agent_skill_tool`、`atri_x.tool.skill.atriyph_warnings`、`atri_x.tool.skill.catalog`、`atri_x.tool.skill.command_tool`、`atri_x.tool.skill.descriptor`、`atri_x.tool.skill.finalize_atrix_skill`、`atri_x.tool.skill.manager`、`atri_x.tool.skill.media`、`atri_x.tool.skill.modify_atrix_skill`、`atri_x.tool.skill.parser`、`atri_x.tool.skill.process`、`atri_x.tool.skill.runner`、`atri_x.tool.skill.scanner`
+`atri_x.tool.availability`、`atri_x.tool.builtin.file_tools_ast`、`atri_x.tool.builtin.file_tools_detail`、`atri_x.tool.builtin.file_tools_directory`、`atri_x.tool.builtin.file_tools_read`、`atri_x.tool.builtin.image_safety`、`atri_x.tool.builtin.shell_env`、`atri_x.tool.builtin.time_tool`、`atri_x.tool.executor`、`atri_x.tool.provider`、`atri_x.tool.skill.agent_skill_tool`、`atri_x.tool.skill.atriyph_warnings`、`atri_x.tool.skill.catalog`、`atri_x.tool.skill.command_tool`、`atri_x.tool.skill.descriptor`、`atri_x.tool.skill.finalize_atrix_skill`、`atri_x.tool.skill.manager`、`atri_x.tool.skill.media`、`atri_x.tool.skill.modify_atrix_skill`、`atri_x.tool.skill.parser`、`atri_x.tool.skill.process`、`atri_x.tool.skill.runner`、`atri_x.tool.skill.scanner`
 
 ### utils（9）
 

@@ -21,7 +21,7 @@
 
 ## 模块清单（自动生成）
 
-共 **148** 个模块，被测试覆盖 **89** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **150** 个模块，被测试覆盖 **89** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
@@ -38,7 +38,7 @@
 | `atri_x.agent.character_guide_prompt` | 人设卡操作指引（系统提示词来源）。 | 48 | — |
 | `atri_x.agent.chat` | 回合主流程：从入站文本到助手消息落库。 | 412 | `test_agent_chat.py`、`test_agent_core.py` |
 | `atri_x.agent.chat_anomaly` | 上游把工具调用写成正文时的补救与清洗。 | 157 | `test_agent_chat_anomaly.py` |
-| `atri_x.agent.chat_llm` | 单次 LLM 调用：请求构造、流式读取、用量与错误审计。 | 611 | `test_agent_chat.py`、`test_agent_chat_anomaly.py` |
+| `atri_x.agent.chat_llm` | 单次 LLM 调用：请求构造、流式读取、用量与错误审计。 | 603 | `test_agent_chat.py`、`test_agent_chat_anomaly.py` |
 | `atri_x.agent.chat_observe` | 模型调用的日志、审计与上下文助手。 | 260 | `test_usage_attribution.py` |
 | `atri_x.agent.chat_request_options` | LLM 请求的临时参数（``LLMRequestOptions``）与其合并/解析。 | 79 | — |
 | `atri_x.agent.chat_stream` | 模型流式调用的叶子助手（打开流、并发槽、记账结算、媒体补全）。 | 154 | — |
@@ -146,6 +146,8 @@
 | `atri_x.agent.reactions` | 表情反应层与 Agent 回合输出的接线（Python 侧新增，无 Go 对应）。 | 164 | `test_agent_chat.py`、`test_agent_reactions.py` |
 | `atri_x.agent.request_context` | 回合请求 ID 在 ctx 上的读写。 | 32 | `test_agent_core.py` |
 | `atri_x.agent.risk_confirmation` | 高风险工具确认的文案与指令识别。对应 Go：``internal/agent/risk_confirmation.go``。 | 366 | `test_agent_risk.py` |
+| `atri_x.agent.safety_llm` | 模型输出侧的内容安全接线（从 :mod:`atri_x.agent.chat_llm` 抽出）。 | 37 | — |
+| `atri_x.agent.safety_tools` | 工具链路上的内容安全接线（从 :mod:`atri_x.agent.toolrun_adapter` 抽出）。 | 91 | — |
 | `atri_x.agent.seams` | Agent 的可选能力接缝（seam）。 | 595 | `test_agent_bootstrap.py` |
 | `atri_x.agent.segments` | 入站消息段在 ctx / LLM / 平台三种表示之间的搬运。 | 299 | `test_agent_segments.py`、`test_platform_cli_remote.py` |
 | `atri_x.agent.session_metadata` | Session metadata 的编解码。 | 339 | `test_agent_core.py` |
@@ -162,7 +164,7 @@
 | `atri_x.agent.tool_schemas` | 工具 schema 装配与日志正文预览。 | 244 | `test_agent_assembly.py` |
 | `atri_x.agent.tool_tag_config` | ``tool_tags.toml``：标签 → 工具集合 + 提示词，以及按标签取工具名。 | 372 | `test_agent_directives.py`、`test_agent_prompt.py` |
 | `atri_x.agent.tool_transcript` | 工具调用在会话记录里的落库形态。对应 Go：``internal/agent/tool_transcript.go``。 | 476 | `test_agent_chat.py`、`test_agent_tools.py` |
-| `atri_x.agent.toolrun_adapter` | 工具运行适配层：把 ``Agent`` 接到 ``atri_x.toolrun`` 的 Runner 上。 | 980 | `test_agent_risk.py`、`test_safety_integration.py`、`test_toolrun.py` |
+| `atri_x.agent.toolrun_adapter` | 工具运行适配层：把 ``Agent`` 接到 ``atri_x.toolrun`` 的 Runner 上。 | 927 | `test_agent_risk.py`、`test_safety_integration.py`、`test_toolrun.py` |
 | `atri_x.agent.toolrun_prompt_provider` | 默认的工具 schema / 名单提供者（Agent 侧适配）。对应 Go：``internal/agent/toolrun_prompt_provider.… | 88 | `test_agent_tools.py` |
 | `atri_x.agent.tools` | 工具运行时状态装配。对应 Go：``internal/agent/tools.go``。 | 525 | `test_agent_assembly.py`、`test_agent_risk.py`、`test_agent_tools.py` |
 | `atri_x.agent.tools_service` | ``agent.services["tools"]`` / ``command_deps.tools`` 的装配对象。 | 60 | — |
@@ -182,4 +184,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 828 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 833 个 / 超线文件 78 个）。

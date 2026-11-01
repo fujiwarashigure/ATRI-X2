@@ -3,7 +3,7 @@
 
 # 模块索引（自动生成）
 
-共 **828** 个模块 / **241913** 物理行 / **71** 个一级域。被测试直接覆盖 **522** 个（63.0%）。
+共 **833** 个模块 / **242132** 物理行 / **71** 个一级域。被测试直接覆盖 **523** 个（62.8%）。
 
 查模块：`rg -n "atri_x\.tool\.builtin" devdocs/generated/module-map.md`。
 
@@ -23,7 +23,7 @@
 | `atri_x.agent.character_guide_prompt` | 人设卡操作指引（系统提示词来源）。 | CHARACTER_GUIDE_TEXT, CharacterGuideSystemPromptSource | 48 | — |
 | `atri_x.agent.chat` | 回合主流程：从入站文本到助手消息落库。 | audit_partial_platform_send, handle_chat, handle_turn_conte… | 412 | `test_agent_chat.py`、`test_agent_core.py` |
 | `atri_x.agent.chat_anomaly` | 上游把工具调用写成正文时的补救与清洗。 | apply_text_tool_recovery | 157 | `test_agent_chat_anomaly.py` |
-| `atri_x.agent.chat_llm` | 单次 LLM 调用：请求构造、流式读取、用量与错误审计。 | LEVEL_ERROR, LEVEL_WARN, LLMCallResult, LLMRequestOptions, … | 611 | `test_agent_chat.py`、`test_agent_chat_anomaly.py` |
+| `atri_x.agent.chat_llm` | 单次 LLM 调用：请求构造、流式读取、用量与错误审计。 | LEVEL_ERROR, LEVEL_WARN, LLMCallResult, LLMRequestOptions, … | 603 | `test_agent_chat.py`、`test_agent_chat_anomaly.py` |
 | `atri_x.agent.chat_observe` | 模型调用的日志、审计与上下文助手。 | audit_side_usage, audit_usage, elapsed_millis, is_cli_conte… | 260 | `test_usage_attribution.py` |
 | `atri_x.agent.chat_request_options` | LLM 请求的临时参数（``LLMRequestOptions``）与其合并/解析。 | LLMRequestOptions, llm_request_options_from_payload, merge_… | 79 | — |
 | `atri_x.agent.chat_stream` | 模型流式调用的叶子助手（打开流、并发槽、记账结算、媒体补全）。 | — | 154 | — |
@@ -131,6 +131,8 @@
 | `atri_x.agent.reactions` | 表情反应层与 Agent 回合输出的接线（Python 侧新增，无 Go 对应）。 | build_reaction_service, conversation_kind, finalize_turn_re… | 164 | `test_agent_chat.py`、`test_agent_reactions.py` |
 | `atri_x.agent.request_context` | 回合请求 ID 在 ctx 上的读写。 | TurnRequestID, turn_request_id_from_context, with_turn_requ… | 32 | `test_agent_core.py` |
 | `atri_x.agent.risk_confirmation` | 高风险工具确认的文案与指令识别。对应 Go：``internal/agent/risk_confirmation.go``。 | REDACTED_ARGUMENTS_TEXT, RiskConfirmationCommand, confirmat… | 366 | `test_agent_risk.py` |
+| `atri_x.agent.safety_llm` | 模型输出侧的内容安全接线（从 :mod:`atri_x.agent.chat_llm` 抽出）。 | filter_llm_text | 37 | — |
+| `atri_x.agent.safety_tools` | 工具链路上的内容安全接线（从 :mod:`atri_x.agent.toolrun_adapter` 抽出）。 | _safety_guard_segments, attach_safety_ctx, guard_segments | 91 | — |
 | `atri_x.agent.seams` | Agent 的可选能力接缝（seam）。 | AgentSeams, DirectiveOutcome | 595 | `test_agent_bootstrap.py` |
 | `atri_x.agent.segments` | 入站消息段在 ctx / LLM / 平台三种表示之间的搬运。 | InboundTurnInput, file_segment_text, has_inbound_non_text_s… | 299 | `test_agent_segments.py`、`test_platform_cli_remote.py` |
 | `atri_x.agent.session_metadata` | Session metadata 的编解码。 | ContextCompactState, LLMOriginState, SessionMetadata, decod… | 339 | `test_agent_core.py` |
@@ -147,7 +149,7 @@
 | `atri_x.agent.tool_schemas` | 工具 schema 装配与日志正文预览。 | compact_arguments, filter_tool_schemas_by_allowlist, is_bac… | 244 | `test_agent_assembly.py` |
 | `atri_x.agent.tool_tag_config` | ``tool_tags.toml``：标签 → 工具集合 + 提示词，以及按标签取工具名。 | ToolTagConfigSource, ToolTagFileState, completion_tool_name… | 372 | `test_agent_directives.py`、`test_agent_prompt.py` |
 | `atri_x.agent.tool_transcript` | 工具调用在会话记录里的落库形态。对应 Go：``internal/agent/tool_transcript.go``。 | AssistantMetadata, ToolTranscriptMixin, assistant_raw_text_… | 476 | `test_agent_chat.py`、`test_agent_tools.py` |
-| `atri_x.agent.toolrun_adapter` | 工具运行适配层：把 ``Agent`` 接到 ``atri_x.toolrun`` 的 Runner 上。 | AgentToolRunDeps, ConfirmResult, cached_tools_for_session, … | 980 | `test_agent_risk.py`、`test_safety_integration.py`、`test_toolrun.py` |
+| `atri_x.agent.toolrun_adapter` | 工具运行适配层：把 ``Agent`` 接到 ``atri_x.toolrun`` 的 Runner 上。 | AgentToolRunDeps, ConfirmResult, cached_tools_for_session, … | 927 | `test_agent_risk.py`、`test_safety_integration.py`、`test_toolrun.py` |
 | `atri_x.agent.toolrun_prompt_provider` | 默认的工具 schema / 名单提供者（Agent 侧适配）。对应 Go：``internal/agent/toolrun_prompt_provider.go``。 | ToolRunPromptProvider, new_tool_run_prompt_provider | 88 | `test_agent_tools.py` |
 | `atri_x.agent.tools` | 工具运行时状态装配。对应 Go：``internal/agent/tools.go``。 | AgentService, SkillLifecycle, ToolRuntimeMixin, ToolRuntime… | 525 | `test_agent_assembly.py`、`test_agent_risk.py`、`test_agent_tools.py` |
 | `atri_x.agent.tools_service` | ``agent.services["tools"]`` / ``command_deps.tools`` 的装配对象。 | AgentToolsService, new_tools_service | 60 | — |
@@ -189,8 +191,9 @@
 | `atri_x.app.platforms` | 平台装配与运行循环。 | AtrinisRuntimeAdapter, CONNECT_NOTICE_PLATFORM, DefaultPlat… | 692 | `test_app_platforms.py`、`test_deploy_harness.py` |
 | `atri_x.app.runner` | 装配运行器：按固定顺序装配各阶段并保证逆序清理。 | CleanupStep, DEFAULT_SHUTDOWN_TIMEOUT, NewRunner, Runner, m… | 543 | `test_app_ops_plugins.py`、`test_app_runner.py` |
 | `atri_x.app.runtime` | 运行期装配主链：媒体中心 → 工具运行时 → Hook → Agent → 生命周期。 | DefaultRuntimeFactory, HookRuntimeLifecycle, audit_func, bu… | 619 | `test_app_runner.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py` |
-| `atri_x.app.runtime_agent` | Agent 装配。 | buildAgent, build_agent | 717 | `test_app_runtime_agent.py`、`test_member_profile.py`、`test_safety_integration.py` |
+| `atri_x.app.runtime_agent` | Agent 装配。 | buildAgent, build_agent | 610 | `test_app_runtime_agent.py`、`test_member_profile.py` |
 | `atri_x.app.runtime_hooks` | Hook 控制面装配。 | buildHookService, build_hook_service | 120 | — |
+| `atri_x.app.runtime_safety` | 内容安全与识图的宿主装配（从 :mod:`atri_x.app.runtime_agent` 抽出）。 | _build_safety_guard, build_safety_guard, configure_vision_p… | 149 | `test_safety_integration.py` |
 | `atri_x.app.runtime_support` | 运行期装配的共享助手：审计入口、凭据解析、cron 服务、Hook 生命周期。 | HookRuntimeLifecycle, audit_func, build_cron_service, confi… | 366 | — |
 | `atri_x.app.service_marker` | 服务实例标记：防止同一台机器上跑起第二个 ``atri-x`` service。 | ServiceMarker, ServiceMarkerError, claim_service_marker, re… | 226 | `test_app_bootstrap.py` |
 | `atri_x.app.service_types` | app 内部使用的服务侧数据类型。 | AudioTranscriptionRequest, AudioTranscriptionResult, ImageP… | 94 | `test_app_platforms.py` |
@@ -640,7 +643,8 @@
 | `atri_x.safecontext` | 上下文块渲染与取消令牌。 | CancelToken, CancelledError, DeadlineExceededError, ErrCanc… | 476 | `test_agent_chat.py`、`test_agent_core.py`、`test_atrinis_http.py`、`test_fileops.py`、`test_groupanalysis.py`、`test_maintenance.py`、`test_maintenance_dsh.py`、`test_media_image.py`、`test_media_manager.py`、`test_media_worker.py`、`test_ops.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_platform_cli_tui.py`、`test_request_manager.py`、`test_selflearning.py`、`test_signal.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_turn_manager.py`、`test_vision.py`、`test_vision_privacy.py` |
 | `atri_x.safety` | 内置安全闸门：道德 / 合规词表过滤 + 敏感信息（PII / 凭据）脱敏。 | ACTION_BLOCK, ACTION_FLAG, ACTION_PASS, ACTION_REDACT, Audi… | 119 | `test_safety_core.py`、`test_safety_integration.py` |
 | `atri_x.safety.audit` | 审计日志：``safety-audit.jsonl`` 的追加写入。 | AuditLog, DEFAULT_AUDIT_MAX_BYTES, utc_now | 142 | — |
-| `atri_x.safety.guard` | 安全闸门：文本审核 / 脱敏、媒体出口判定与审计的唯一入口。 | DEFAULT_BLOCK_REPLACEMENT, MEDIA_BLOCK_TEXT, ModeBoundGuard… | 635 | — |
+| `atri_x.safety.guard` | 安全闸门：文本审核 / 脱敏、媒体出口判定与审计的唯一入口。 | DEFAULT_BLOCK_REPLACEMENT, MEDIA_BLOCK_TEXT, ModeBoundGuard… | 435 | — |
+| `atri_x.safety.mode_ctx` | 安全闸门的"归属"与"按会话模式绑定"（从 :mod:`atri_x.safety.guard` 抽出）。 | ModeBoundGuard, SESSION_MODES, SafetyScope, guard_from_cont… | 263 | — |
 | `atri_x.safety.policy` | 安全策略：``[safety]`` 段 → :class:`SafetyPolicy`，以及内置类别的默认值。 | ACTION_BLOCK, ACTION_FLAG, ACTION_PASS, ACTION_REDACT, DEFA… | 379 | — |
 | `atri_x.safety.rules` | 规则与词表的唯一出处：词表数据文件 + 词表匹配 + 敏感信息正则。 | CATEGORY_IDS, CATEGORY_LABELS, CATEGORY_SEVERITIES, RuleHit… | 425 | — |
 | `atri_x.security` | 工具权限与风险策略。 | ACTOR_CONTEXT_KEY, Actor, ActorFromContext, ActorID, Compar… | 121 | `agent_commands_fakes.py`、`agent_fakes.py`、`test_agent_admission.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_agent_core.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_group_policy.py`、`test_agent_participation.py`、`test_agent_risk.py`、`test_app_runtime_agent.py`、`test_background.py`、`test_builtin_cron.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_cron.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_platform_qq_onebot.py`、`test_resident_memory.py`、`test_security_grants.py`、`test_tool_discover.py`、`test_tool_skill.py`、`test_toolrun.py` |
@@ -744,9 +748,10 @@
 | `atri_x.tool.builtin.file_tools_read` | ``read_file`` 的声明与结果渲染。 | ReadFileArgs, is_sensitive_read_file, read_file_builder, re… | 216 | — |
 | `atri_x.tool.builtin.get_media` | ``get_media``：按当前聊天的消息 ID 与媒体序号取媒体 ID（不返回内容）。 | GetMediaArgs, GetMediaTool, get_media_builder, get_media_hi… | 226 | `test_builtin_tools3.py` |
 | `atri_x.tool.builtin.group_analysis` | ``group_analysis``：统计当前群聊的消息量、活跃成员与活跃时段。 | GroupAnalysisArgs, GroupAnalysisTool, group_analysis_builde… | 145 | `test_builtin_tools3.py` |
-| `atri_x.tool.builtin.image_generate` | ``image_generate``：调用 OpenAI 兼容的生图端点并组装最终提示词。 | ImageGenerateArgs, ImageGenerateTool, ImageProfile, generat… | 754 | `test_builtin_imagegen.py`、`test_builtin_tools4.py`、`test_safety_integration.py` |
+| `atri_x.tool.builtin.image_generate` | ``image_generate``：调用 OpenAI 兼容的生图端点并组装最终提示词。 | ImageGenerateArgs, ImageGenerateTool, ImageProfile, generat… | 723 | `test_builtin_imagegen.py`、`test_builtin_tools4.py`、`test_safety_integration.py` |
 | `atri_x.tool.builtin.image_generate_compose` | ``image_generate`` 的提示词编译与参考图收集。 | ImageArtistBlock, ImageComposition, ImageReferenceSource, c… | 554 | `test_builtin_imagegen.py` |
 | `atri_x.tool.builtin.image_generate_context` | ``image_generate`` 的上下文与角色解析部分。 | ImagePromptRewriteRequest, ImagePromptRewriter, ImageToolMe… | 464 | `test_builtin_imagegen.py` |
+| `atri_x.tool.builtin.image_safety` | 生图链路上的内容安全接线（从 :mod:`atri_x.tool.builtin.image_generate` 抽出）。 | filter_image_prompt, gate_image_output | 78 | — |
 | `atri_x.tool.builtin.image_to_prompt` | ``image_to_prompt``：把参考图片反推成可直接用于绘图的提示词。 | ImageArtistJSON, ImageMetadataRecord, ImagePromptService, I… | 498 | `test_builtin_imagegen.py`、`test_vision_privacy.py` |
 | `atri_x.tool.builtin.long_memory` | ``long_memory`` / ``long_memory_search`` / ``long_memory_write`` 三个工具。 | LongMemorySearchTool, LongMemoryTool, LongMemoryWriteTool, … | 315 | `test_builtin_long_memory.py`、`test_long_memory_scope.py` |
 | `atri_x.tool.builtin.long_memory_model` | 长期记忆的记录模型、front matter 读写与文本处理助手。 | LongMemoryFrontMatter, LongMemoryInvalidFile, LongMemoryRec… | 528 | `test_builtin_long_memory.py`、`test_long_memory_scope.py` |
