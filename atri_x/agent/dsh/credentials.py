@@ -14,6 +14,13 @@
 - ``anthropic``：用户明确知道该网关支持 Anthropic Messages，强制注入；
 - ``openai`` / ``off``：明确不路由（前者是"协议不兼容"的自述，后者是"不走 DSH"）。
 
+**网关头代理**：有的 Anthropic 兼容网关还要求自定义请求头（如 OpenCode Go 的
+``x-opencode-session``），而内核没有加请求头的入口。因此 provider 声明了
+``extra_headers`` 时，这里额外产出一个 :class:`~atri_x.agent.dsh.gateway.GatewaySpec`
+（``plan.gateway_spec``），由运行时在拉起内核前起一个回环头代理并把 ``base_url``
+指过去（见 :mod:`atri_x.agent.dsh.gateway`）。没有 ``extra_headers`` 的 provider
+（官方 DeepSeek 等）保持直连，行为不变。
+
 本模块只做解析，不启动子进程；任何异常都降级成"不可用"而不是抛出。
 """
 
@@ -24,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
+from atri_x.agent.dsh.gateway import DEFAULT_ANTHROPIC_BASE_URL, GatewaySpec
 from atri_x.agent.dsh.router import (
     DEFAULT_CREDENTIAL_BASE_URL_ENV,
     DEFAULT_CREDENTIAL_ENV,
@@ -107,6 +115,20 @@ def _provider_api_key(provider: Any) -> str:
     return _text_of(os.environ.get(key_env, "")) if key_env else ""
 
 
+def _provider_extra_headers(provider: Any) -> dict[str, str]:
+    """provider 级自定义请求头（网关用来鉴权/路由；值为敏感信息，不落状态）。"""
+    raw = getattr(provider, "extra_headers", None)
+    if not isinstance(raw, Mapping):
+        return {}
+    out: dict[str, str] = {}
+    for name, value in raw.items():
+        key = _text_of(name)
+        text = _text_of(value)
+        if key and text:
+            out[key] = text
+    return out
+
+
 def _providers_table(agent: Any) -> Mapping[str, Any]:
     providers = getattr(agent, "providers", None)
     return providers if isinstance(providers, Mapping) else {}
@@ -149,17 +171,23 @@ class CredentialPlan:
     provider: str = ""
     #: 选中的 ``base_url``（不可用时用于解释，不含密钥）。
     base_url: str = ""
+    #: 需要本地头代理时的规格（provider 声明了 ``extra_headers``）；否则 ``None``。
+    gateway_spec: GatewaySpec | None = None
     #: 不可用原因（中文，直接给 ``status``/审计/功能页用）。
     reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        """状态快照：**只报变量名**，绝不回显凭据值。"""
+        """状态快照：**只报变量名/头名字**，绝不回显凭据或请求头值。"""
+        spec = self.gateway_spec
         return {
             "usable": self.usable,
             "protocol": self.protocol,
             "provider": self.provider,
             "baseUrl": self.base_url,
             "envKeys": sorted(str(key) for key in self.env),
+            "gateway": spec is not None,
+            "gatewayUpstream": spec.upstream if spec is not None else "",
+            "gatewayHeaders": spec.header_names if spec is not None else [],
             "reason": self.reason,
         }
 
@@ -195,6 +223,7 @@ def resolve_credential_plan(agent: Any, config: DshRouteConfig) -> CredentialPla
     )
     api_key = _provider_api_key(provider)
     base_url = _text_of(getattr(provider, "base_url", ""))
+    extra_headers = _provider_extra_headers(provider)
     inherited_base_url = _text_of(os.environ.get(base_url_env, ""))
     inherited_key = _text_of(os.environ.get(env_name, ""))
 
@@ -225,6 +254,12 @@ def resolve_credential_plan(agent: Any, config: DshRouteConfig) -> CredentialPla
         usable = False
 
     if not usable:
+        hint = ""
+        if extra_headers:
+            hint = (
+                "；该 provider 声明了 extra_headers，DSH 会在本地回环代理上补齐这些请求头，"
+                "因此只需把 base_url 换成它的 Anthropic Messages 路径（例如 …/anthropic）"
+            )
         return _unusable(
             protocol,
             provider_name,
@@ -232,7 +267,8 @@ def resolve_credential_plan(agent: Any, config: DshRouteConfig) -> CredentialPla
             f"provider {provider_name or '<env>'} 的 base_url（{base_url or '未配置'}）"
             "不是 Anthropic Messages 端点：DSH 内核只会往 <base_url>/v1/messages 发请求"
             "（OpenAI 兼容网关必然 404）。请改配官方 DeepSeek 密钥，"
-            "或在该网关支持 Anthropic 协议时设 credential_protocol=\"anthropic\"",
+            "或在该网关支持 Anthropic 协议时设 credential_protocol=\"anthropic\""
+            + hint,
         )
 
     env: dict[str, str] = {}
@@ -243,12 +279,25 @@ def resolve_credential_plan(agent: Any, config: DshRouteConfig) -> CredentialPla
     # 非官方端点才需要下发 base_url；用户显式写进进程环境的优先，不再覆盖。
     if base_url and not _is_official_base_url(base_url) and not inherited_base_url:
         env[base_url_env] = base_url
+    upstream = base_url or inherited_base_url or DEFAULT_ANTHROPIC_BASE_URL
+    spec: GatewaySpec | None = None
+    if extra_headers:
+        try:
+            spec = GatewaySpec(upstream=upstream, headers=extra_headers)
+        except ValueError as exc:
+            return _unusable(
+                protocol,
+                provider_name,
+                base_url,
+                f"provider {provider_name or '<env>'} 的网关头代理配置无效：{exc}",
+            )
     return CredentialPlan(
         env=env,
         usable=True,
         protocol=PROTOCOL_ANTHROPIC,
         provider=provider_name,
-        base_url=base_url or inherited_base_url,
+        base_url=upstream,
+        gateway_spec=spec,
     )
 
 

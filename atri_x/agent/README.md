@@ -21,11 +21,11 @@
 
 ## 模块清单（自动生成）
 
-共 **156** 个模块，被测试覆盖 **96** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **157** 个模块，被测试覆盖 **97** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
-| `atri_x.agent` | ``atri_x.agent``：Agent 核心、回合流程、事件、收件箱与外围能力。 | 389 | `agent_commands_fakes.py`、`agent_fakes.py`、`test_agent_admission.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_budget.py`、`test_agent_chat.py`、`test_agent_chat_anomaly.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_agent_context_policy.py`、`test_agent_context_runtime.py`、`test_agent_core.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_group_policy.py`、`test_agent_inbound_media.py`、`test_agent_model.py`、`test_agent_participation.py`、`test_agent_prompt.py`、`test_agent_provider_limit.py`、`test_agent_reactions.py`、`test_agent_risk.py`、`test_agent_segments.py`、`test_agent_title.py`、`test_agent_tools.py`、`test_agent_wakeup.py`、`test_app_runtime_agent.py`、`test_builtin_runtime_resources.py`、`test_dsh_acp_client.py`、`test_dsh_route.py`、`test_dsh_scheduler.py`、`test_hook_runtime.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_promptlib.py`、`test_request_manager.py`、`test_safety_integration.py`、`test_security_grants.py`、`test_session_naming_contract.py`、`test_time_context.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_prechat.py`、`test_vision_privacy.py` |
+| `atri_x.agent` | ``atri_x.agent``：Agent 核心、回合流程、事件、收件箱与外围能力。 | 389 | `agent_commands_fakes.py`、`agent_fakes.py`、`test_agent_admission.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_budget.py`、`test_agent_chat.py`、`test_agent_chat_anomaly.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_agent_context_policy.py`、`test_agent_context_runtime.py`、`test_agent_core.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_group_policy.py`、`test_agent_inbound_media.py`、`test_agent_model.py`、`test_agent_participation.py`、`test_agent_prompt.py`、`test_agent_provider_limit.py`、`test_agent_reactions.py`、`test_agent_risk.py`、`test_agent_segments.py`、`test_agent_title.py`、`test_agent_tools.py`、`test_agent_wakeup.py`、`test_app_runtime_agent.py`、`test_builtin_runtime_resources.py`、`test_dsh_acp_client.py`、`test_dsh_gateway.py`、`test_dsh_route.py`、`test_dsh_scheduler.py`、`test_hook_runtime.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_promptlib.py`、`test_request_manager.py`、`test_safety_integration.py`、`test_security_grants.py`、`test_session_naming_contract.py`、`test_time_context.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_prechat.py`、`test_vision_privacy.py` |
 | `atri_x.agent.admission` | 计算静默：静默时段里"哪些模型调用允许发生"的唯一判定入口。 | 224 | `test_agent_admission.py` |
 | `atri_x.agent.asr` | 入站语音转写（ASR）。 | 355 | — |
 | `atri_x.agent.bootstrap` | Agent 的可选服务装配入口（幂等）。 | 576 | `test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands_integration.py`、`test_app_runtime_agent.py` |
@@ -93,23 +93,24 @@
 | `atri_x.agent.cron` | 后台运行（cron / Atrinis 共用的 ``RunBackground``）与会话预处理。 | 605 | `test_agent_admission.py`、`test_agent_cron.py`、`test_agent_cron_background.py` |
 | `atri_x.agent.cron_background` | 后台任务的工具 / Skill 预载与 Session 元数据（Agent 侧）。 | 563 | — |
 | `atri_x.agent.cron_tools` | 后台任务里 shell 工具的风险裁决（Agent 侧）。对应 Go：``internal/agent/cron_tools.go``。 | 163 | `test_agent_cron.py` |
-| `atri_x.agent.dsh` | ``atri_x.agent.dsh``：ATRI-X 编排 DSH 的纯标准库 ACP 客户端。 | 57 | `test_dsh_acp_client.py`、`test_dsh_route.py`、`test_dsh_scheduler.py` |
+| `atri_x.agent.dsh` | ``atri_x.agent.dsh``：ATRI-X 编排 DSH 的纯标准库 ACP 客户端。 | 57 | `test_dsh_acp_client.py`、`test_dsh_gateway.py`、`test_dsh_route.py`、`test_dsh_scheduler.py` |
 | `atri_x.agent.dsh.affinity` | DSH 会话亲和：同一聊天连续路由时复用会话、只发增量，省掉重复交接。 | 183 | `test_dsh_scheduler.py` |
 | `atri_x.agent.dsh.client` | ``atri_x.agent.dsh.client``：DSH ACP 客户端（会话语义与 prompt 生命周期）。 | 428 | — |
 | `atri_x.agent.dsh.command` | DSH ACP 启动命令的解析（冒烟与路由共用，**唯一出处**）。 | 61 | — |
-| `atri_x.agent.dsh.credentials` | DSH 子进程的凭据注入与**协议判定**（P0：内核只会说 Anthropic Messages）。 | 257 | `test_dsh_route.py` |
+| `atri_x.agent.dsh.credentials` | DSH 子进程的凭据注入与**协议判定**（P0：内核只会说 Anthropic Messages）。 | 306 | `test_dsh_gateway.py`、`test_dsh_route.py` |
+| `atri_x.agent.dsh.gateway` | DSH 出站网关头代理：给内核补上第三方网关要求的请求头。 | 364 | `test_dsh_gateway.py` |
 | `atri_x.agent.dsh.handoff` | 上下文交接：把 ATRI-X 的对话拼成 DSH 的一次性 prompt，并把 ACP 用量折算成账本口径。 | 163 | `test_dsh_route.py` |
 | `atri_x.agent.dsh.route_call` | 把「路由判定」接到对话链路上：凭据闸门、预算、并发、流式回传、失败回退。 | 498 | `test_dsh_route.py` |
-| `atri_x.agent.dsh.router` | DSH 深度路由：任务特征打分 + 成本闸门 + 熔断。 | 558 | `test_dsh_route.py`、`test_dsh_scheduler.py` |
-| `atri_x.agent.dsh.runtime` | DSH 运行时的进程与并发管理：长驻 AcpClient + 有界并发 + 看门狗 + 会话亲和。 | 574 | `test_dsh_route.py`、`test_dsh_scheduler.py` |
+| `atri_x.agent.dsh.router` | DSH 深度路由：任务特征打分 + 成本闸门 + 熔断。 | 558 | `test_dsh_gateway.py`、`test_dsh_route.py`、`test_dsh_scheduler.py` |
+| `atri_x.agent.dsh.runtime` | DSH 运行时的进程与并发管理：长驻 AcpClient + 有界并发 + 看门狗 + 会话亲和。 | 597 | `test_dsh_gateway.py`、`test_dsh_route.py`、`test_dsh_scheduler.py` |
 | `atri_x.agent.dsh.scheduler` | DSH 轮次的并发槽、忙时回退、卡死看门狗与运行指标。 | 319 | `test_dsh_route.py`、`test_dsh_scheduler.py` |
-| `atri_x.agent.dsh.service` | DSH 路由的服务对象：路由器 + 懒创建运行时 + 凭据计划 + 预热 + 指标。 | 238 | `test_dsh_route.py` |
+| `atri_x.agent.dsh.service` | DSH 路由的服务对象：路由器 + 懒创建运行时 + 凭据计划 + 预热 + 指标。 | 257 | `test_dsh_route.py` |
 | `atri_x.agent.dsh.smoke` | ``python -m atri_x.agent.dsh.smoke``：DSH ACP 最小闭环冒烟。 | 196 | `test_dsh_acp_client.py` |
-| `atri_x.agent.dsh.status` | ``python -m atri_x.agent.dsh.status``：DSH 内核与深度路由的状态自检。 | 229 | `test_dsh_route.py` |
+| `atri_x.agent.dsh.status` | ``python -m atri_x.agent.dsh.status``：DSH 内核与深度路由的状态自检。 | 237 | `test_dsh_route.py` |
 | `atri_x.agent.dsh.transport` | ``atri_x.agent.dsh.transport``：ACP 子进程的 NDJSON stdio JSON-RPC 传输。 | 376 | — |
 | `atri_x.agent.dsh.turn` | DSH 轮次的数据形状：执行计划与执行结果（纯数据，无副作用）。 | 80 | `test_dsh_scheduler.py` |
 | `atri_x.agent.dsh.types` | ``atri_x.agent.dsh`` 的协议类型、常量与解析函数。 | 295 | `test_dsh_acp_client.py`、`test_dsh_route.py` |
-| `atri_x.agent.dsh.workspace` | DSH 的目录解析与子进程环境收敛（从 runtime 拆出，见 600 行约定）。 | 102 | `test_dsh_scheduler.py` |
+| `atri_x.agent.dsh.workspace` | DSH 的目录解析与子进程环境收敛（从 runtime 拆出，见 600 行约定）。 | 102 | `test_dsh_gateway.py`、`test_dsh_scheduler.py` |
 | `atri_x.agent.errors` | 面向用户的错误呈现与"已通知用户"标记。 | 145 | `test_agent_chat.py` |
 | `atri_x.agent.events` | 平台生命周期事件的确定性处理（不调用模型）。 | 466 | — |
 | `atri_x.agent.group_knowledge` | 群知识库（确定性 FAQ）：命中即本地回答，不进模型。 | 563 | `test_agent_group_policy.py` |
@@ -190,4 +191,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 859 个 / 超线文件 78 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 860 个 / 超线文件 78 个）。

@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from atri_x.agent.dsh.credentials import CredentialPlan, resolve_credential_plan
+from atri_x.agent.dsh.gateway import HeaderProxy
 from atri_x.agent.dsh.router import DshRouteConfig, DshRouter
 from atri_x.agent.dsh.runtime import DshRuntime, resolve_paths
 
@@ -72,12 +73,20 @@ class DshRouteService:
         if self.runtime is None:
             config = self.router.config
             plan = self.prepare(agent)
+            # 网关需要额外请求头时，内核的 base_url 指向本地头代理（见 gateway 模块）。
+            gateway = None
+            if plan.gateway_spec is not None:
+                try:
+                    gateway = HeaderProxy(plan.gateway_spec)
+                except Exception:  # noqa: BLE001 - 代理建不起来就按不可用回退
+                    gateway = None
             self.runtime = DshRuntime(
                 config,
                 command=self.router.command() if self.router.available() else None,
                 paths=resolve_paths(agent, config),
                 extra_env=dict(plan.env),
                 provider=plan.provider,
+                gateway=gateway,
             )
             self._paths_agent = agent
         return self.runtime
@@ -184,6 +193,7 @@ def dsh_metrics(agent: Any) -> dict[str, Any] | None:
         if not config.enabled:
             return None
         plan = service.prepare(agent)
+        gateway_headers = plan.gateway_spec.header_names if plan.gateway_spec else []
         snapshot: dict[str, Any] = {
             "enabled": True,
             "available": service.router.available(),
@@ -191,6 +201,11 @@ def dsh_metrics(agent: Any) -> dict[str, Any] | None:
             "credentialProtocol": plan.protocol,
             "credentialProvider": plan.provider,
             "credentialReason": plan.reason,
+            "credentialGateway": plan.gateway_spec is not None,
+            "credentialGatewayHeaders": gateway_headers,
+            "gatewayRunning": False,
+            "gatewayUpstreamHost": "",
+            "gatewayHeaderNames": gateway_headers,
             "breaker": service.router.breaker_state(),
             "prewarm": bool(config.prewarm),
             "running": False,
@@ -209,6 +224,7 @@ def dsh_metrics(agent: Any) -> dict[str, Any] | None:
             described = runtime.describe()
             scheduler = described.get("scheduler") or {}
             affinity = described.get("affinity") or {}
+            gateway = described.get("gateway") or {}
             snapshot.update(
                 {
                     "running": bool(described.get("running")),
@@ -221,6 +237,9 @@ def dsh_metrics(agent: Any) -> dict[str, Any] | None:
                     "lastError": str(described.get("lastError", "") or ""),
                     "stats": scheduler.get("stats") or {},
                     "affinity": affinity,
+                    "gatewayRunning": bool(gateway.get("running")),
+                    "gatewayUpstreamHost": str(gateway.get("upstreamHost", "") or ""),
+                    "gatewayHeaderNames": list(gateway.get("headerNames") or []),
                 }
             )
         return snapshot

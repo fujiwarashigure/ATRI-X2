@@ -111,7 +111,15 @@ DSH 是"第二个后端"：只有任务够复杂时才接管一轮，普通聊�
   4 个会话并发新建合计 20ms、4 个会话只多约 2MB 内存；贵的是 prompt 本身，不是进程；
 - 指标在 `/metrics` 的 `dsh` 段：`active / maxConcurrent`、`stats`（`admitted` /
   `busy_rejected` / `completed` / `failed` / `stalled` / `cold_starts` /
-  `idle_closes` / `prewarmed`）、`affinity`（条目/命中）。
+  `idle_closes` / `prewarmed`）、`affinity`（条目/命中）、`gatewayRunning` /
+  `gatewayHeaderNames`（网关头代理，见下）。
+
+**网关头代理（1.1.8）**：provider 在 `[providers.<name>.extra_headers]` 里声明了
+请求头时，DSH 内核不再直连上游，而是经 `127.0.0.1` 上的一个小反向代理转发（代理补头）。
+这是**每请求一次本地回环转发**的成本（同机、无 TLS、无额外解析），相对一次 prompt
+可以忽略；没有 `extra_headers` 的 provider（官方 DeepSeek 等）仍然直连、零开销。
+「性能」页会显示「DSH 网关头代理：运行中（补 …）」，`/metrics` 里对应
+`gatewayRunning` 与 `gatewayHeaderNames`。
 
 ## 已知瓶颈（1.1.8 的边界）
 
@@ -134,5 +142,5 @@ DSH 是"第二个后端"：只有任务够复杂时才接管一轮，普通聊�
 
 ```bash
 python -m unittest tests.test_gui_perf tests.test_agent_provider_limit \
-    tests.test_vision_concurrency tests.test_dsh_scheduler -v
+    tests.test_vision_concurrency tests.test_dsh_scheduler tests.test_dsh_gateway -v
 ```

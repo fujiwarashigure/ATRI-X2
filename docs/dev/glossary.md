@@ -7,7 +7,7 @@
 
 | 中文功能名 | Python 域 | 上游 Go 包 | 模块数 | 测试覆盖 | 配置段 |
 |---|---|---|---:|---:|---|
-| Agent 对话编排 | `atri_x/agent/` | `internal/agent` | 156 | 96/156 | `[agent]`、`[agent.dsh]` |
+| Agent 对话编排 | `atri_x/agent/` | `internal/agent` | 157 | 97/157 | `[agent]`、`[agent.dsh]` |
 | 工具与工具运行时 | `atri_x/tool/` | `internal/tool/builtin` | 84 | 61/84 | `state.toml` 的 `tool_allowlist`、`[tools]` |
 | 平台适配器 | `atri_x/platform/` | `internal/platform/qq-onebot` | 69 | 50/69 | `[platform.*]` |
 | 桌面端（Tk + 托盘） | `atri_x/gui/` | `—` | 88 | 62/88 | `state.toml` 与各服务的 GUI 段 |

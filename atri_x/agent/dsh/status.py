@@ -171,6 +171,14 @@ def _print_human(report: dict[str, Any]) -> None:
     )
     if credential.get("reason"):
         _write("credential: " + str(credential["reason"]))
+    if credential.get("gateway"):
+        _write(
+            "credential: gateway=head-proxy upstream=%s headers=%s"
+            % (
+                credential.get("gatewayUpstream", ""),
+                ",".join(credential.get("gatewayHeaders") or []) or "<none>",
+            )
+        )
     config = report.get("config") or {}
     _write(
         "schedule: maxConcurrent=%s busyWait=%ss stall=%ss idle=%ss prewarm=%s affinity=%s"

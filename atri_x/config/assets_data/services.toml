@@ -34,6 +34,9 @@ models = ["gpt-4o-mini"]
 # Also editable in the desktop GUI: 模型 → 请求头.
 # [providers.openai.extra_headers]
 # x-opencode-session = "your-session-id"
+# The same headers are also added when this provider feeds the DSH kernel: ATRI-X
+# proxies the kernel through a loopback reverse proxy that injects them (the kernel
+# itself has no custom-header support). Providers without extra_headers stay direct.
 
 # [providers.openai.model_configs."gpt-4o-mini"]
 # context_window = 128000

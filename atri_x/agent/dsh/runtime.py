@@ -35,7 +35,7 @@ from atri_x.agent.dsh.affinity import AffinityEntry, SessionAffinity
 from atri_x.agent.dsh.client import AcpClient
 from atri_x.agent.dsh.command import format_command, resolve_command
 from atri_x.agent.dsh.handoff import latest_user_text
-from atri_x.agent.dsh.router import DshRouteConfig
+from atri_x.agent.dsh.router import DEFAULT_CREDENTIAL_BASE_URL_ENV, DshRouteConfig
 from atri_x.agent.dsh.scheduler import TurnScheduler
 from atri_x.agent.dsh.turn import DshRunResult, DshTurnPlan
 from atri_x.agent.dsh.types import AcpError, AcpEvent, as_text
@@ -78,11 +78,18 @@ class DshRuntime:
         client_factory: Callable[..., AcpClient] | None = None,
         extra_env: Mapping[str, str] | None = None,
         provider: str = "",
+        gateway: Any = None,
         monitor_interval: float = 0.0,
     ) -> None:
         self.config = config or DshRouteConfig()
         self._command = command
         self.provider = str(provider or "").strip()
+        #: 第三方网关的头代理（见 :mod:`atri_x.agent.dsh.gateway`）；不需要时 ``None``。
+        self._gateway = gateway
+        self._base_url_env = (
+            str(getattr(self.config, "credential_base_url_env", "") or "")
+            or DEFAULT_CREDENTIAL_BASE_URL_ENV
+        )
         self.paths = paths or WorkspacePaths(workspace=os.getcwd(), home="")
         self._client_factory = client_factory or AcpClient
         self._extra_env = {
@@ -150,7 +157,11 @@ class DshRuntime:
             if not command:
                 raise RuntimeError("DSH 启动命令不可用（没有内置内核，PATH 上也没有 dsh）")
             os.makedirs(self.paths.workspace, exist_ok=True)
-            env = child_environment(self._extra_env)
+            overrides = dict(self._extra_env)
+            if self._gateway is not None:
+                # 内核 base_url 指向本地头代理；代理负责补网关要求的请求头。
+                overrides[self._base_url_env] = self._gateway.start()
+            env = child_environment(overrides)
             if self.paths.home:
                 os.makedirs(self.paths.home, exist_ok=True)
                 env["DSH_HOME"] = self.paths.home
@@ -196,7 +207,7 @@ class DshRuntime:
         return await loop.run_in_executor(None, self.prewarm)
 
     def close(self) -> None:
-        """终止子进程并停止监控（幂等；可在任意线程调用）。"""
+        """终止子进程、停止监控与头代理（幂等；可在任意线程调用）。"""
         with self._client_lock:
             self._closed = True
             client, self._client = self._client, None
@@ -209,11 +220,22 @@ class DshRuntime:
                 client.stop()
             except Exception:  # noqa: BLE001 - 退出路径不抛
                 pass
+        self._close_gateway()
 
     async def aclose(self) -> None:
         """异步包装 :meth:`close`（关停路径复用）。"""
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.close)
+
+    def _close_gateway(self) -> None:
+        """关掉头代理（best-effort；没起过就什么都不做）。"""
+        gateway, self._gateway = self._gateway, None
+        close = getattr(gateway, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # noqa: BLE001 - 关停路径不抛
+                pass
 
     # -- 计划 -----------------------------------------------------------------
     def plan_turn(
@@ -569,6 +591,7 @@ class DshRuntime:
             "provider": self.provider,
             # 只报变量名，不回显任何凭据值。
             "extraEnvKeys": sorted(self._extra_env),
+            "gateway": self._gateway.describe() if self._gateway is not None else None,
             "scheduler": self._scheduler.snapshot(),
             "affinity": None if self._affinity is None else self._affinity.snapshot(),
         }

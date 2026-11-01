@@ -43,6 +43,7 @@ flowchart LR
 | `atri_x/agent/dsh/client.py` | `AcpClient`：`initialize` / `session new\|resume\|list\|close` / `set_config_option` / `prompt` / `cancel` |
 | `atri_x/agent/dsh/command.py` | 启动命令解析：显式 > `DSH_ACP_COMMAND` > 内置内核 > PATH 上的 `dsh` |
 | `atri_x/agent/dsh/credentials.py` | 凭据注入 + **协议判定**（内核只会说 Anthropic Messages；OpenAI 兼容网关判不可用） |
+| `atri_x/agent/dsh/gateway.py` | 网关头代理：回环反代 + 补 `[providers.<name>.extra_headers]` 的请求头（内核没有自定义头入口） |
 | `atri_x/agent/dsh/workspace.py` | `workspace` / `DSH_HOME` 路径解析、子进程环境收敛、权限应答 |
 | `atri_x/agent/dsh/scheduler.py` | 有界并发槽、忙时回退、卡死看门狗、空闲回收触发、运行指标 |
 | `atri_x/agent/dsh/affinity.py` | 会话亲和：同一聊天连续路由时复用 DSH 会话、只发增量 |
@@ -151,6 +152,7 @@ DSH 已经被接进对话链路：**普通聊天走 ATRI-X 原生低成本链路
 |---|---|
 | `atri_x/agent/dsh/command.py` | 启动命令解析：显式 > `DSH_ACP_COMMAND` > 内置内核 > PATH 上的 `dsh`（冒烟与路由共用） |
 | `atri_x/agent/dsh/credentials.py` | 凭据注入与**协议判定**（官方 DeepSeek / `anthropic` 端点才允许注入；OpenAI 兼容网关判不可用） |
+| `atri_x/agent/dsh/gateway.py` | 网关头代理：`127.0.0.1` 反代 + 补 `extra_headers`，让需要额外请求头的 Anthropic 兼容网关可用 |
 | `atri_x/agent/dsh/router.py` | 任务特征打分 + 成本闸门 + 熔断（`[agent.dsh]`，纯函数可离线断言） |
 | `atri_x/agent/dsh/handoff.py` | **上下文交接**：系统设定 + 最近 N 轮 + 当前消息拼成一次性 prompt；ACP usage → 账本 `Usage` |
 | `atri_x/agent/dsh/affinity.py` | 会话亲和：同一聊天连续路由时复用 DSH 会话、只发增量 |
@@ -261,6 +263,28 @@ provider，空则优先名字含 `deepseek` 的 provider、其次当前 work pro
 最后以 `isolate_env=True` 起子进程（`JsonRpcStdio` 只用这份环境，不再往里补继承项）。
 ATRI-X 侧解析不到密钥时不注入空值，退回继承值（`.credentials.yaml` / 宿主环境仍可用）。
 
+**网关头代理（1.1.8 起）**：有些 Anthropic 兼容网关要求每个请求额外带请求头（例如
+OpenCode Go 的 `x-opencode-session`，缺了直接 `400 MissingSessionID`），而内核的
+`dsh-llm-deepseek` 只会发 `x-api-key` / `anthropic-version` / `anthropic-beta` / UA，
+没有自定义请求头入口。因此：
+
+- provider 在 `[providers.<name>.extra_headers]` 里声明了请求头时，凭据计划产出
+  `GatewaySpec`（见 `atri_x/agent/dsh/gateway.py`）；`DshRuntime` 在拉起内核前于
+  `127.0.0.1` 上起一个最小反向代理，并把 `DEEPSEEK_BASE_URL` 指过去；代理把
+  `/v1/messages`（以及 Files API 等同类路径）原样转发到 provider 的 `base_url`，
+  补上这些头再发出去；
+- 没有 `extra_headers` 的 provider（官方 DeepSeek 等）**完全不经过代理**，行为与以前一致；
+- 代理只监听回环、不落访问日志、不缓存；状态与审计只报头名字与上游主机，不回显头值；
+- 保留头（`Host` / `Content-Length` / `Connection` 等逐跳头）由代理重算，
+  `extra_headers` 里的同名项会被丢弃；
+- 代理起不来（端口/配置异常）时本轮按失败回退原生，不会静默把错误端点喂给内核。
+
+模型覆盖仍走内核公布的原样取值：`[agent.dsh].model` 要写
+`'["deepseek-official","deepseek-v4-pro"]'` 这种 JSON 串（TOML 用单引号），填裸模型 id
+会被 `-32602 unknown model option` 拒绝、降级为内核默认（`runtime.py` 一次性降级）。
+OpenCode Go 的 Messages 面实测接受 `deepseek-v4-pro`（HTTP 200、`billing_source=go`）；
+`deepseek-v4-flash` 这类 Go 套餐没有的 id 会回 `Model is unavailable`。
+
 ### 6.5 并发调度、看门狗与运行指标（P1/P2）
 
 1.1.7 及以前 `DshRuntime` 用一把进程级锁把所有路由轮次串成 1 并发：第 2、3 个复杂任务
@@ -283,8 +307,8 @@ ATRI-X 侧解析不到密钥时不注入空值，退回继承值（`.credentials
 - **按轮取消**：`run(cancel_token=...)` + `runtime.cancel(token)`，输出闸门关掉时只取消
   自己这一轮，不再误伤其它并发轮次（`cancel_active()` 保留为"取消全部"）；
 - **指标**：`runtime.describe()["scheduler"]` 与 `/metrics` 的 `dsh` 段（放行/忙拒/
-  完成/失败/卡死/冷启动/空闲回收/预热/等待与运行耗时、并发占用、亲和条目与命中），
-  「性能」页的「并发实况」会把这些画成可读行。
+  完成/失败/卡死/冷启动/空闲回收/预热/等待与运行耗时、并发占用、亲和条目与命中、
+  网关头代理是否运行），「性能」页的「并发实况」会把这些画成可读行。
 
 ### 6.6 仍未做（可选）
 
@@ -300,7 +324,7 @@ ATRI-X 侧解析不到密钥时不注入空值，退回继承值（`.credentials
 ## 7. 验证
 
 ```bash
-python -m unittest tests.test_dsh_acp_client tests.test_dsh_route tests.test_dsh_scheduler -v
+python -m unittest tests.test_dsh_acp_client tests.test_dsh_route tests.test_dsh_scheduler tests.test_dsh_gateway -v
 python -m atri_x.agent.dsh.status --score "重构 utils.py 并补测试"     # 内核+路由+凭据协议
 python scripts/check_syntax.py
 python scripts/check_imports.py

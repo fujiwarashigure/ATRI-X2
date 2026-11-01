@@ -44,13 +44,13 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行 |
-| 本仓库 | 平铺布局的 `atri_x/`：860 个 `.py` 模块，约 25.0 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.8 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：861 个 `.py` 模块，约 25.1 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.8 万行） |
 | 研究引擎 | 随包 `research_pack/`：38 个模块、约 8.7k 行纯标准库引擎 + 15 个原创 AgentSkill；安装版 / 便携版首启自动装进配置目录 |
 | 图表能力 | 随包 `drawio_pack/`（drawio-skill 3.4.2，47 个纯标准库脚本 + 20 篇参考 + shape 索引）+ 内置 draw.io 32.6.1 无头渲染器；工具 `drawio` 仅超管可用，安装版 / 便携版开箱出 PNG/SVG/PDF |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 249 个 Python 文件（其中 239 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
+| 测试 | `tests/` 250 个 Python 文件（其中 240 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
 | 门禁 | 代码 7 道 + 文档 1 道（`check_docs`）+ 索引 1 道（`gen_index --check`）+ 复杂度预算，全部可在 CI 跑 |
 | 规模 | 1505 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
 
@@ -312,8 +312,8 @@ server`，拆片后不再出现。
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 1124 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=860 imported=860`，0 失败 |
+| `check_syntax` | 1126 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=861 imported=861`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径，不衡量行为正确性） |
 | `check_except` | 与位置级基线一致（0 个新增位置） |

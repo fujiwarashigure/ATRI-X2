@@ -35,6 +35,14 @@
   不拉起内核、审计 `dsh_route_credential_unusable` 一次，然后静默回原生（不再白付冷启动）。
   网关确实支持 Anthropic 协议时显式设 `credential_protocol="anthropic"`；`openai` / `off`
   表示明确不路由。没有任何可注入凭据时不误判（内核可能用 `DSH_HOME/.credentials.yaml`）。
+- **P0 网关头代理（新增）**：新增 `atri_x/agent/dsh/gateway.py`。有些 Anthropic 兼容网关
+  要求每个请求额外带请求头（例如 OpenCode Go 的 `x-opencode-session`，缺了直接
+  `400 MissingSessionID`），而内核 `dsh-llm-deepseek` 没有自定义请求头入口。现在只要
+  provider 在 `[providers.<name>.extra_headers]` 里声明了请求头，ATRI-X 就在 `127.0.0.1`
+  上起一个最小反向代理，把 `DEEPSEEK_BASE_URL` 指过去并在转发时补齐这些头（支持流式
+  SSE 与 Files API 路径）；没有 `extra_headers` 的 provider（官方 DeepSeek 等）**仍然
+  直连**、行为与以前完全一致。代理只监听回环、不落访问日志、状态与审计只报头名字；
+  起不来时本轮按失败回退原生，不会把错误端点喂给内核。
 - **P1 有界并发 + 忙时回退**：新增 `scheduler.py`。`max_concurrent_prompts`（默认 2，1 =
   旧的串行）个 prompt 槽；槽满最多等 `busy_wait_seconds`（默认 2 秒），等不到抛
   `DshBusyError` → 释放预算预占、**不记熔断失败**、静默回原生（审计 `dsh_route_busy`）。
@@ -56,12 +64,13 @@
 - **结构**：`runtime.py` 从 425 行拆成 574 行并抽出 `workspace.py` / `turn.py`；
   `route_call.py` 从 596 行缩到 472 行，抽出 `service.py`（服务对象/预热/指标）；
   新增 `tests/test_dsh_scheduler.py`（并发槽/看门狗/亲和/真子进程并发等 22 个用例），
+  `tests/test_dsh_gateway.py`（头代理转发/流式/注入/降级/运行时接线 13 个用例），
   `tests/_dsh_fake_acp_server.py` 增加 `__ECHO_PROMPT__` / `__SLOW__` 标记；
   `test_dsh_route` 补凭据协议、凭据闸门、忙回退用例。
-- **文档**：`devdocs/dsh-acp.md` §6 重写（凭据协议 / 并发调度 / 亲和 / 指标）；
-  `docs/windows-app.md` §8.1 补新配置键与 404 修复说明；
+- **文档**：`devdocs/dsh-acp.md` §6 重写（凭据协议 / 网关头代理 / 并发调度 / 亲和 / 指标）；
+  `docs/windows-app.md` §8.1 补新配置键、404 修复与网关头代理示例；
   `docs/performance.md` 增加 DSH 并发一节；`python -m atri_x.agent.dsh.status` 输出
-  凭据协议判定（`credential_unusable` 时退出码为 1）。
+  凭据协议判定与网关头代理（`credential_unusable` 时退出码为 1）。
 
 ### 内容安全彻底升级（本地可编辑 + 远程双供应商 + 三档裁决）
 

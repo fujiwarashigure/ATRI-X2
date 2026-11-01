@@ -441,6 +441,17 @@ def _dsh_rows(dsh: Mapping[str, Any]) -> list[tuple[str, str]]:
             f"{_num(stats.get('cold_starts'))} / {_num(stats.get('idle_closes'))}",
         ),
     ]
+    if dsh.get("credentialGateway"):
+        gateway_headers = "、".join(
+            _text(name) for name in (dsh.get("gatewayHeaderNames") or []) if _text(name)
+        )
+        rows.append(
+            (
+                "DSH 网关头代理",
+                ("运行中" if dsh.get("gatewayRunning") else "未启动")
+                + (f"（补 {gateway_headers}）" if gateway_headers else ""),
+            )
+        )
     if dsh.get("affinityEnabled"):
         rows.append(
             (

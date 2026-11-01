@@ -952,7 +952,8 @@ lambda_penalty = 1.0        # 成本闸门权重
 cost_ratio = 2.0            # DSH 单轮成本相对原生链路的估计倍数
 cost_scale_tokens = 20000   # 多大的上下文算"一次大调用"（成本压力归一化）
 model = ""                  # 下发给 DSH 的模型（session/set_config_option；空=内核默认；
-                            # 只能填内核公布的取值，填裸模型 id 会降级为内核默认并在审计里记一条 warning）
+                            # 只能填内核公布的取值，例如 '["deepseek-official","deepseek-v4-pro"]'，
+                            # 填裸模型 id 会降级为内核默认并在审计里记一条 warning）
 timeout_seconds = 180
 max_history_messages = 8    # 交接多少轮最近历史
 prompt_char_budget = 12000
@@ -997,6 +998,37 @@ Anthropic 协议时，显式设 `credential_protocol = "anthropic"` 再试。
 没有任何事件会被看门狗取消；没在跑时 `idle_timeout_seconds` 回收内核进程；
 `prewarm=true` 让首轮少付冷启动。实际占用/忙拒/卡死/冷启动/亲和命中在
 「性能」页的「并发实况」里（读 `/metrics` 的 `dsh` 段）。
+
+**网关头代理（1.1.8）**：有些 Anthropic 兼容网关要求每个请求额外带请求头（例如
+OpenCode Go 的 `x-opencode-session`，缺了直接 `400 MissingSessionID`）。内核
+`dsh-llm-deepseek` 没有自定义请求头入口，所以只要 provider 声明了
+`[providers.<name>.extra_headers]`，ATRI-X 就在 `127.0.0.1` 上起一个最小反向代理，
+把 `DEEPSEEK_BASE_URL` 指过去，由代理在转发时补齐这些头；没有 `extra_headers` 的
+provider（官方 DeepSeek 等）仍然**直连、不经过代理**。同一个网关要同时服务原生聊天
+和 DSH 时，另建一个 Anthropic 路径的 provider：
+
+```toml
+[providers.opencode-go-anthropic]
+base_url = "https://opencode.ai/inference/go/anthropic"   # 必须是 Anthropic Messages 路径
+api_key_env = "OPENCODE_GO_API_KEY"
+models = ["deepseek-v4-pro"]
+
+[providers.opencode-go-anthropic.extra_headers]
+x-opencode-session = "atri-x-0001"        # 任意固定串，网关只要求"有"
+
+[agent.dsh]
+credential_provider = "opencode-go-anthropic"
+model = '["deepseek-official","deepseek-v4-pro"]'   # 内核公布的可选值（provider+model 的 JSON 串）
+```
+
+`model` 要填内核 `initialize` 公布的原样取值（`atri-x.exe -m atri_x.agent.dsh.status --json`
+不含它，但冒烟/日志会打印 `config: model=[...]`）；当前内置内核 `0.2.0-rc.2` 公开的三个
+取值是 `["deepseek-official","deepseek-v4-flash"]`、`["deepseek-official","deepseek-flash"]`、
+`["deepseek-official","deepseek-v4-pro"]`。填别的会被拒绝并降级为内核默认（审计里记一条
+warning），所以要用 TOML 的单引号保留 JSON 里的双引号。
+
+`base_url` 指 OpenAI 路径（`.../openai/v1`）时仍会被判不可用；模型要选该网关在
+Messages 面上确实提供的 id。「性能」页会多一行「DSH 网关头代理：运行中（补 …）」。
 
 **模型凭据**：ATRI-X 会把选中 provider 解析好的密钥（系统环境变量或配置目录 `.env` 都算）
 注入 DSH 子进程，所以桌面端把密钥写进 `%APPDATA%\ATRI-X\.env` 也能跑通路由；子进程**只拿到

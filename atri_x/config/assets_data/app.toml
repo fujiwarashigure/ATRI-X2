@@ -373,8 +373,9 @@ text = ""
 # cost_scale_tokens = 20000        # prompt size that counts as "one large call" for cost pressure
 # command = ""                     # explicit launch command; empty = DSH_ACP_COMMAND -> bundled kernel -> dsh on PATH
 # model = ""                       # session/set_config_option model; MUST be a value the kernel publishes
-#                                  # (e.g. "deepseek/deepseek-v4-flash"), NOT a bare model id: an unknown value
-#                                  # degrades to the kernel default for that turn instead of failing every turn
+#                                  # (e.g. '["deepseek-official","deepseek-v4-pro"]'), NOT a bare model id: an
+#                                  # unknown value degrades to the kernel default for that turn instead of
+#                                  # failing every turn
 # reasoning_effort = ""            # session/set_config_option reasoning_effort (same published-value rule)
 # timeout_seconds = 180
 # max_history_messages = 8         # recent messages handed to DSH together with the current one
@@ -392,6 +393,9 @@ text = ""
 #                                  # base_url containing "anthropic", or DEEPSEEK_BASE_URL from the process env).
 #                                  # OpenAI-compatible gateways are treated as unusable (routing silently falls
 #                                  # back); set "anthropic" only when the gateway really speaks that protocol.
+#                                  # When the chosen provider declares [providers.<name>.extra_headers],
+#                                  # ATRI-X proxies the kernel through a loopback header-injecting gateway
+#                                  # (provider without extra_headers, e.g. official DeepSeek, stays direct).
 # max_concurrent_prompts = 2        # concurrent prompts on the single ACP connection (1 = serialize)
 # busy_wait_seconds = 2             # wait for a free slot at most this long, then fall back to native
 # prewarm = true                    # spawn the kernel in the background at startup (saves ~1.7s on turn 1)
