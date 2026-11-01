@@ -164,6 +164,9 @@ queue_timeout_seconds = 0
 # probe_timeout_seconds = 4  # trigger = always 时的短超时；超时降级说“图没取到”
 # allow_external_images = true   # 隐私总开关：false 时不把任何图片发给外部视觉 API
 # allow_group_images = true      # 群聊隐私开关：false 时群图不送外部视觉 API
+# max_concurrent_jobs = 10       # 同时在跑的上游视觉任务上限；0 = 内置默认 10，负数 = 不限
+# max_job_queue = 16             # 等槽位的任务队列；0 = 内置默认 16，负数 = 不限
+# max_job_waiters = 16           # 合并到同一在途任务的调用者上限；0 = 内置默认 16，负数 = 不限
 # -- 可选：用户明确问“这是谁/出自哪”且置信度低时，用 SauceNAO 以图搜图兜底（默认关）
 # identity_enabled = false
 # identity_api_key_env = "SAUCENAO_API_KEY"

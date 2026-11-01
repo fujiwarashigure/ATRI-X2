@@ -258,10 +258,12 @@
 | `atri_x.gui.tabs.members` | 「群友」选项卡：按群管理群友的角色数据（备注名 / 标签 / 角色数据 / 头像）。 |
 | `atri_x.gui.tabs.model` | 「模型」选项卡：LLM Provider（含 API Key）、模型分配、搜索服务与抓取服务。 |
 | `atri_x.gui.tabs.mountpanel` | 「进阶」页生图区的本地挂载面板（:class:`MountPanelMixin`）。 |
+| `atri_x.gui.tabs.performance` | 「性能 / 并发」选项卡：一键切并发模式，外加一块后台并发实况。 |
 | `atri_x.gui.tabs.permission` | 「权限」选项卡：超级管理员名单 + 风险等级 / 工具轮次 / 成员建卡开关。 |
 | `atri_x.gui.tabs.platform` | 「平台」选项卡：QQ / Telegram / 本地 CLI 服务端 / 超级管理员。 |
 | `atri_x.gui.tabs.promptlib` | 「提示词」选项卡：自定义提示词模板 / 生图档案 / 工具标签 / 标签库。 |
 | `atri_x.gui.tabs.research` | 「研究」选项卡：查看科研助理的运行与产物（只读）。 |
+| `atri_x.gui.tabs.safety` | 「内容安全」选项卡：总览 + 策略 + 词表 + 复核 + 审计 + 原始 TOML。 |
 | `atri_x.gui.tabs.searchpanel` | 「模型 → 搜索服务」子页：``web_search`` 的通道列表、表单、顺序与密钥。 |
 | `atri_x.gui.tabs.timepanel` | 「时间」选项卡：统一时间服务（``[time]`` / ``[time.verification]`` / ``[[time.sources]]``）。 |
 | `atri_x.gui.tabs.toolperm` | 「工具权限」选项卡：按群、按会话模式管理工具授权（``state.toml`` 的 ``[group_policy]``）。 |

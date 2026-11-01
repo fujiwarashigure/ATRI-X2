@@ -281,9 +281,28 @@ outbound_review = "hold"
 python -m unittest tests.test_safety_core tests.test_safety_integration \
     tests.test_safety_settings tests.test_safety_providers \
     tests.test_safety_engine tests.test_safety_async_guard -v
+# 桌面端面板（无 Tk 环境自动跳过）
+python -m unittest tests.test_gui_safety -v
 ```
 
-## 桌面端
+## 桌面端（「内容安全」选项卡）
 
-「功能」页的「内容安全」一行是只读状态；「工具权限 → 工具参数（全局）」里可以改
-`app.toml` 的旧 `[safety]` 段。`safety.toml` 目前**手改文件 + 热加载**（GUI 面板在 1.1.9）。
+1.1.8 起桌面端有独立的**「内容安全」**页（`atri_x/gui/tabs/safety.py`），六个子页：
+
+| 子页 | 能做什么 | 写哪个文件 |
+| --- | --- | --- |
+| 总览 | 看当前开关/模式/远程供应商、复核待处理数、审计条数、词表规模；**一键创建默认配置**（`mode = "audit"`，只记不拦）；打开配置/词表/审计文件 | 只读（创建时写 `safety.toml`） |
+| 策略 | 表单编辑 `[local]` / `[remote]` / `[tiers]` / `[media]` / `[cost]` / `[remote.tencent]` / `[remote.aliyun]` / `[remote.stages]`；保存走**行级补丁**，不重写整份文件、不丢注释；写完立刻用后台同一个解码器校验 | `safety.toml` |
+| 词表 | 列出 `safety/wordlists/*.txt` 与 `safety/sensitive/*.regex`，就地编辑/新建/删除；**本地试扫**用当前策略跑一段文本，直接看命中类别、动作与脱敏结果（不联网、不写审计） | 词表/正则文件 |
+| 复核 | 列 `safety/review.db` 的待处理条目，看脱敏预览/供应商/分数，填备注后**通过 / 驳回 / 标记超时过期** | `safety/review.db` |
+| 审计 | `safety-audit.jsonl` 尾部（最多 500 条），按动作/阶段筛选；只显示脱敏预览与指纹 | 只读 |
+| 原始 TOML | 整份 `safety.toml` 文本编辑（表单没覆盖的键走这里）；保存前校验 | `safety.toml` |
+
+操作顺序建议：**总览 → 创建默认配置**（audit）→ 跑一天 → **审计**页确认命中符合预期 →
+**词表**页补词/加正则并试扫 → **策略**页把本地模式改成 `enforce` → 需要云审核时
+再填 `[remote.tencent]` / `[remote.aliyun]` 的环境变量名（密钥放 `.env`）。
+
+生效时机：`safety.toml` 与词表保存后**后台 ≤1 秒热加载**，不需要重启；只有
+"整个内容安全从关闭到启用"这类装配期差异才建议重启一次后台服务。
+「功能」页仍保留一行只读状态，双击可直接跳到本页。
+

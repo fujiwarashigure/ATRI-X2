@@ -376,8 +376,9 @@ class FeatureViewTestCase(ConfigCase):
         # 入库参数留档单独一行：它决定转码后还能不能读回原图参数。
         self.assertEqual(rows["image_metadata_store"].tab, "toolperm_params:artist_extract")
         self.assertEqual(rows["image_metadata_store"].status, "未启用")
-        # 内容安全不在「进阶」页：功能行要跳到「工具权限 → 工具参数（全局）」。
-        self.assertEqual(rows["safety"].tab, "toolperm_params")
+        # 内容安全 1.1.8 起有独立「内容安全」页；功能行要跳过去（旧 [safety] 段仍在工具参数里）。
+        self.assertEqual(rows["safety"].tab, "safety")
+        self.assertIn("「内容安全」页", rows["safety"].detail)
         self.assertIn("工具参数（全局）", rows["safety"].detail)
         # 没配 [safety.chat] / [safety.work] 时两个模式都算"继承全局"。
         self.assertIn("chat: 继承", rows["safety"].detail)

@@ -15,8 +15,12 @@ from atri_x.agent.chat_vision import (
     should_fallback_vision,
     vision_fallback_transparent,
 )
+from atri_x.errors import QueueFullError, QueueTimeoutError
 from atri_x.llm import ChatRequest, LLMMessage, Usage
 from atri_x.logging import ResultFailed
+from atri_x.ops.concurrency import Config as LimitConfig
+from atri_x.ops.concurrency import Limiter
+from atri_x.safecontext import CancelToken
 
 
 def _settle(agent: Any, ctx: Any, reservation: Any, usage: Usage | None, release: bool) -> None:
@@ -89,14 +93,32 @@ async def _open_stream(agent: Any, ctx: Any, selection: Any, req: ChatRequest) -
 async def _acquire_provider_slot(agent: Any, ctx: Any, provider: str) -> Any:
     """provider 级并发闸门。对应 Go ``Agent.acquireProviderSlot``。
 
-    Go 用 ``concurrency.Limiter``；这里每个 provider 一个 :class:`asyncio.Semaphore`，
-    ``provider_max_concurrent <= 0`` 时不过闸。返回的释放函数是幂等的（Go 的调用点
-    既显式释放又 ``defer`` 释放）。
+    Go 只有 ``concurrency.Limiter`` 一条路；Python 侧分两条，按
+    ``provider_queue_max_size`` 选：
+
+    * ``> 0``：用 :class:`atri_x.ops.concurrency.Limiter`，最多排队这么多等待者，
+      队满**立即**拒绝。1.1.8 起把 1.1.7 里"只解析、没有消费者"的
+      ``provider_queue_max_size`` / ``provider_wait_timeout_seconds`` 真正接上。
+    * ``<= 0``：保持旧语义（``asyncio.Semaphore``，最多等到
+      ``provider_wait_timeout_seconds`` 再拒绝），默认配置走这条，行为不变。
     """
     ops = getattr(agent, "ops", None)
     limit = int(getattr(ops, "provider_max_concurrent", 0) or 0)
     if limit <= 0:
         return _noop
+    queue_size = int(getattr(ops, "provider_queue_max_size", 0) or 0)
+    timeout = float(getattr(ops, "provider_wait_timeout_seconds", 0) or 0)
+    if queue_size > 0:
+        return await _acquire_provider_limiter(
+            agent, ctx, provider, limit, queue_size, timeout
+        )
+    return await _acquire_provider_semaphore(agent, ctx, provider, limit, timeout)
+
+
+async def _acquire_provider_semaphore(
+    agent: Any, ctx: Any, provider: str, limit: int, timeout: float
+) -> Any:
+    """旧路径：每个 provider 一个 :class:`asyncio.Semaphore`（无限等待者）。"""
     semaphores = getattr(agent, "_provider_semaphores", None)
     if semaphores is None:
         semaphores = {}
@@ -105,22 +127,13 @@ async def _acquire_provider_slot(agent: Any, ctx: Any, provider: str) -> Any:
     if semaphore is None:
         semaphore = asyncio.Semaphore(limit)
         semaphores[provider] = semaphore
-    timeout = float(getattr(ops, "provider_wait_timeout_seconds", 0) or 0)
     try:
         if timeout > 0:
             await asyncio.wait_for(semaphore.acquire(), timeout)
         else:
             await semaphore.acquire()
     except asyncio.TimeoutError as exc:
-        agent.audit(
-            "provider_concurrency_rejected",
-            "provider",
-            provider,
-            "error",
-            str(exc),
-            "result",
-            ResultFailed,
-        )
+        _audit_provider_rejected(agent, provider, str(exc))
         raise RuntimeError(f"provider {provider} 并发排队超时") from exc
 
     released = False
@@ -133,6 +146,44 @@ async def _acquire_provider_slot(agent: Any, ctx: Any, provider: str) -> Any:
         semaphore.release()
 
     return _release
+
+
+async def _acquire_provider_limiter(
+    agent: Any, ctx: Any, provider: str, limit: int, queue_size: int, timeout: float
+) -> Any:
+    """有界队列路径：队满立即拒绝，而不是让等待者无界堆积。"""
+    limiters = getattr(agent, "_provider_limiters", None)
+    if limiters is None:
+        limiters = {}
+        agent._provider_limiters = limiters
+    limiter = limiters.get(provider)
+    if limiter is None:
+        limiter = Limiter(
+            LimitConfig(max=limit, queue_size=queue_size, wait_timeout=timeout)
+        )
+        limiters[provider] = limiter
+    token = ctx if isinstance(ctx, CancelToken) else None
+    try:
+        return await limiter.acquire(token)
+    except (QueueFullError, QueueTimeoutError) as exc:
+        _audit_provider_rejected(agent, provider, str(exc))
+        raise RuntimeError(f"provider {provider} 并发排队失败：{exc}") from exc
+
+
+def _audit_provider_rejected(agent: Any, provider: str, error: str) -> None:
+    """记一条审计（审计不可用也不该盖住真正的并发错误）。"""
+    audit = getattr(agent, "audit", None)
+    if not callable(audit):
+        return
+    audit(
+        "provider_concurrency_rejected",
+        "provider",
+        provider,
+        "error",
+        error,
+        "result",
+        ResultFailed,
+    )
 
 
 def _noop() -> None:

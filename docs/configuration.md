@@ -1122,7 +1122,7 @@ chat_hard_limit_reserve_output_tokens = 0
 - 超限只有两种结果：**入队等待**或**直接拒绝**。只有"该 kind 出现在 `queue_wait_kinds` 里"**且** `queue_max_size > 0` 才会入队，否则立刻拒绝并抛 `ErrConcurrencyLimit`（计入 `/metrics.tasks` 的 `queue_busy_rejected`）；只写 `queue_wait_kinds` 而容量全为 0 等于不排队。没有配置这些旋钮（全 0）时，并发上限仍然生效，但超限一律直接拒绝——不排队。
 - 排队还受三层容量约束：`queue_max_size`（全局，默认 20）；`queue_max_per_user`（单个公平 key 含用户，默认 0 = 不限）与 `queue_max_per_scope`（单个 `平台:scope`，默认 0 = 不限）；任意一层先满都返回 `ErrQueueFull`，避免单个用户或单个群用等待队列撑爆全局容量。排队最长等 `queue_wait_timeout_seconds` 秒（默认 30，**0 表示不限时**，会一直等下去，生产环境应设一个明确上限），超时返回 `ErrQueueTimeout`，调用方主动取消返回 `ErrQueueCancelled`。拒绝原因分别计入 `/metrics.tasks`：并发满被拒 `queue_busy_rejected`、队满 `queue_full_rejected`、排队超时 `queue_timeout_rejected`、排队被取消 `queue_cancel_rejected`。
 - `queue_wait_kinds` 决定哪些请求类型在并发满时允许排队。`turn` 默认参与排队，所以并发满时用户是等待而不是被直接拒绝。
-- `provider_max_concurrent` 按 provider 用信号量限制真实 LLM 调用并发；等待超过 `provider_wait_timeout_seconds` 会拒绝本轮，而不是把并发压力透传给 provider。**`provider_queue_max_size` 目前只被解析、没有消费者**（provider 级等待队列尚未实现），可先留着不影响行为。
+- `provider_max_concurrent` 按 provider 限制真实 LLM 调用并发。**1.1.8 起 `provider_queue_max_size` 已接线**：`> 0` 时走有界等待队列，队满立即拒绝（`provider ... 并发排队失败`），有人释放后队首拿到槽位、最多等 `provider_wait_timeout_seconds`；`<= 0` 保持 1.1.7 的旧语义（信号量等待，等满超时才拒绝）。两条路径都不会把并发压力透传给 provider。并发上限/排队/监控的完整说明见 [性能与并发](performance.md)。
 - CPU 密集且会**阻塞**的工作（图片压缩、视觉预处理、view_image 解码校验）走独立的 `atrix-cpu` 线程池，阻塞 IO（HTTP / S3 / CLI 子进程 / stdin 读取）走独立的 `atrix-io` 线程池，两类互不抢占 asyncio 的默认池。**注意 GIL 下这不等于多核**：实测纯 Python 图片压缩 4 线程加速比 0.97x、`json.loads` 1.03x，拆池的目的是隔离与背压，不是提速；每个池的 `max_workers` 是硬上限而非并行度承诺。
 - `/metrics.tasks` 会返回队列指标：全局排队长度、最老等待时间、平均等待时间，以及并发拒绝 / `queue_full_rejected` / `queue_timeout_rejected` / `queue_cancel_rejected` 计数。
 - 熔断按 Provider 统计连接失败、首包超时、5xx 和 stream error；连续失败达到阈值后打开，冷却后放少量半开探测。用户取消和整轮 response timeout 不计入熔断。
@@ -1695,6 +1695,9 @@ trigger = "on_error"      # on_error（默认，仅模型拒图时兜底）/ alw
 probe_timeout_seconds = 4 # trigger = always 的短超时；3~5 秒拿不到就降级说“图没取到”
 allow_external_images = true   # 隐私总开关：false 时不把任何图片发给外部视觉 API
 allow_group_images = true      # 群聊隐私开关：false 时群图不送外部视觉 API
+max_concurrent_jobs = 10       # 同时在跑的上游视觉任务上限；0 = 内置默认 10，负数 = 不限
+max_job_queue = 16             # 等槽位的任务队列；0 = 内置默认 16，负数 = 不限
+max_job_waiters = 16           # 合并到同一在途任务的调用者上限；0 = 内置默认 16，负数 = 不限
 identity_enabled = false       # 用户明确问“这是谁/出自哪”且置信度低时，用 SauceNAO 搜一次
 identity_api_key_env = "SAUCENAO_API_KEY"
 identity_daily_limit = 100     # 每日上限（UTC 日切）；0 = 不限
@@ -1742,7 +1745,7 @@ identity_min_similarity = 0.7
 - 成功缓存默认 30 分钟、最多 128 条、单条上限 16 KiB（条目数 × 单条上限即总字节上界）。失败、空结果、截断结果都不进入成功缓存；大于单条上限但小于输出上限的结果会**完整返回但不缓存**，后续请求重新获取，绝不会返回被截短的缓存副本。
 - **负缓存**默认 30 秒，只缓存明确的确定性失败（如 `model_not_found`、明确的非法参数）。400 但无可靠错误码、401/403、429、408、5xx、网络错误、取消/超时一律不缓存；取消/超时的优先级高于状态码，即使网关先返回 4xx 再中断读取也不会污染负缓存。
 - 同一 key 的并发请求合并为一次上游调用；等待者各自取消不影响共享任务，但共享任务仍保留首个调用者的 deadline。共享任务有独立且有限的超时，并会随进程/服务上下文一起取消，进程退出后不会留下无限运行的上游请求。
-- 视觉引擎自身也有上限：默认同时最多 4 个上游任务、最多排队 16 个、同一任务最多 16 个等待者，超出的请求快速失败而不是无限排队；这三个默认值仅供内部保护，正常使用不需要调整。
+- 视觉引擎自身也有上限：默认同时最多 10 个上游任务、最多排队 16 个、同一任务最多 16 个等待者，超出的请求快速失败而不是无限排队。1.1.8 起这三项**可配置**：`[vision].max_concurrent_jobs` / `max_job_queue` / `max_job_waiters`（`0` = 上面这些内置默认，负数 = 不限；1.1.7 之前这三个字段只存在于引擎内部，配置里改不动）。
 - `[image_to_prompt]` 工具与 `[vision]` 兜底共用同一个 `atri_x/vision` 引擎，因此缓存键算法、负缓存规则、输出上限、并发与超时策略完全一致；两者各自持有独立的 service 实例（provider/model/超时不同即分开缓存）。
 
 隐私与日志：

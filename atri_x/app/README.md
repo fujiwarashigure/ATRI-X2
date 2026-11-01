@@ -21,11 +21,11 @@
 
 ## 模块清单（自动生成）
 
-共 **37** 个模块，被测试覆盖 **32** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **37** 个模块，被测试覆盖 **33** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
-| `atri_x.app` | ``atri_x.app`` —— 装配层。 | 428 | `test_app_bootstrap.py`、`test_app_doctor_capabilities.py`、`test_app_health.py`、`test_app_llm_adapters.py`、`test_app_ops_plugins.py`、`test_app_platforms.py`、`test_app_runner.py`、`test_app_runtime_agent.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py`、`test_comic_service.py`、`test_deploy_harness.py`、`test_llm_headers.py`、`test_main.py`、`test_member_profile.py`、`test_ops_health.py`、`test_packaging_tzdata.py`、`test_promptlib.py`、`test_safety_integration.py`、`test_session_lifecycle.py`、`test_time_config.py` |
+| `atri_x.app` | ``atri_x.app`` —— 装配层。 | 428 | `test_app_bootstrap.py`、`test_app_doctor_capabilities.py`、`test_app_health.py`、`test_app_llm_adapters.py`、`test_app_ops_plugins.py`、`test_app_platforms.py`、`test_app_runner.py`、`test_app_runtime_agent.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py`、`test_comic_service.py`、`test_deploy_harness.py`、`test_llm_headers.py`、`test_main.py`、`test_member_profile.py`、`test_ops_health.py`、`test_packaging_tzdata.py`、`test_promptlib.py`、`test_safety_integration.py`、`test_session_lifecycle.py`、`test_time_config.py`、`test_vision_concurrency.py` |
 | `atri_x.app.app` | 应用入口：运行模式、启动选项与 ``Run``。 | 87 | `test_app_bootstrap.py`、`test_app_runner.py` |
 | `atri_x.app.asr` | ASR（语音转写）服务装配。 | 175 | — |
 | `atri_x.app.breaker_llm` | 熔断 / 兜底包装的 LLM 客户端。 | 374 | `test_app_llm_adapters.py` |
@@ -61,7 +61,7 @@
 | `atri_x.app.time_check` | ``python -m atri_x.app.time_check``：时区数据与解析探针。 | 113 | `test_packaging_tzdata.py` |
 | `atri_x.app.tool_runtime` | 内置工具运行时的 app 侧装配。 | 575 | `test_app_runtime_agent.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
 | `atri_x.app.tool_runtime_comic` | 漫画服务的 app 侧装配（从 :mod:`atri_x.app.tool_runtime` 拆出）。 | 57 | `test_comic_service.py` |
-| `atri_x.app.vision` | 视觉服务装配：把共享 ``vision.Service`` 接到 Agent 的聊天视觉兜底接口。 | 261 | — |
+| `atri_x.app.vision` | 视觉服务装配：把共享 ``vision.Service`` 接到 Agent 的聊天视觉兜底接口。 | 267 | `test_vision_concurrency.py` |
 
 ## 对应上游 Go（自动生成）
 
@@ -71,4 +71,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 845 个 / 超线文件 78 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 853 个 / 超线文件 78 个）。

@@ -106,11 +106,8 @@ def parse_api_protocol(raw: str) -> tuple[APIProtocol, bool]:
     return APIProtocol.CHAT, False
 
 
-#: ``reasoning_effort`` 允许的取值（OpenAI 兼容上游的通用思考强度档位）。
-#:
-#: 语义是"把值放进请求 JSON"：chat 协议发顶层 ``reasoning_effort``；Responses
-#: 协议由适配器折成 ``reasoning.effort``（顶层字段会被严格校验的网关 400）。因此
-#: 只收各家都认的通用档位；个别网关的私有取值请走 ``extra_payload``（那里不做白名单）。
+#: ``reasoning_effort`` 允许的取值（OpenAI 兼容上游的通用思考强度档位）：chat 协议发顶层
+#: ``reasoning_effort``，Responses 协议折成 ``reasoning.effort``；私有取值走 ``extra_payload``。
 REASONING_EFFORT_VALUES: tuple[str, ...] = ("none", "minimal", "low", "medium", "high")
 
 
@@ -139,9 +136,8 @@ class ModelConfig(StrictConfig):
     vision: bool | None = None
     audio: bool | None = None
     api_mode: str = ""
-    #: 推理思考强度（``none`` / ``minimal`` / ``low`` / ``medium`` / ``high``）。
-    #: 空串 = 不发送；chat 协议发顶层 ``reasoning_effort``，Responses 协议发
-    #: ``reasoning.effort``；模型级覆盖 Provider 级。
+    #: 推理思考强度（``none`` / ``minimal`` / ``low`` / ``medium`` / ``high``）；空串 = 不发送。
+    #: chat 协议发顶层 ``reasoning_effort``，Responses 协议发 ``reasoning.effort``；模型级覆盖 Provider 级。
     reasoning_effort: str = ""
 
 
@@ -485,8 +481,7 @@ class ImageToPromptConfig(StrictConfig):
 class VisionConfig(StrictConfig):
     """``[vision]``：文本模型拒绝图片时的自动视觉兜底（默认关闭，避免隐性费用）。
 
-    1.0.3 起额外承担“两段式识图”：成功描述图片后可把结构化属性喂给主模型，
-    并可选在用户明确问“这是谁/出自哪”时用 SauceNAO 做一次以图搜图兜底。
+    1.0.3 起额外承担“两段式识图”，并可选 SauceNAO 以图搜图兜底。
     """
 
     enabled: bool | None = None
@@ -500,6 +495,11 @@ class VisionConfig(StrictConfig):
     language: str = ""
     cache_ttl_seconds: int = 1800
     negative_cache_ttl_seconds: int = 30
+
+    #: 1.1.8：上游视觉任务并发上限 / 等待队列 / 同一任务等待者；0 = 内置默认 10/16/16，负 = 不限。
+    max_concurrent_jobs: int = 0
+    max_job_queue: int = 0
+    max_job_waiters: int = 0
 
     # -- 1.0.3 两段式 / 隐私 / 观测 -----------------------------------------
     #: 传给上游图片段的 ``detail``：original（默认）/ high / auto / low。

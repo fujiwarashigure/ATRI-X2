@@ -126,6 +126,12 @@ def build_vision_describer(
             negative_ttl=float(
                 getattr(section, "negative_cache_ttl_seconds", 0) or 0
             ),
+            # 1.1.8：视觉并发旋钮接线（此前 Options 有字段、配置没有来源）。
+            max_concurrent_jobs=int(
+                getattr(section, "max_concurrent_jobs", 0) or 0
+            ),
+            max_job_queue=int(getattr(section, "max_job_queue", 0) or 0),
+            max_job_waiters=int(getattr(section, "max_job_waiters", 0) or 0),
             # 1.0.3：图片精度 / 前置描述短超时 / 隐私开关 / 以图搜图兜底。
             detail=_detail_value(section),
             probe_timeout_seconds=_probe_timeout_value(section),

@@ -52,9 +52,11 @@ from atri_x.gui.tabs import (
     LogsTab,
     MembersTab,
     ModelTab,
+    PerformanceTab,
     PermissionTab,
     PlatformTab,
     PromptLibTab,
+    SafetyTab,
     TimeTab,
     ToolPermTab,
     ResearchTab,  # [atri-research]
@@ -73,47 +75,11 @@ WINDOW_TITLE = "ATRI-X"
 #: 轮询回调间隔（毫秒）。
 POLL_INTERVAL_MS = 80
 
-#: 选项卡顺序（索引 → 名字）；菜单和 Ctrl+N 快捷键共用。
-_TABS = (
-    "对话",
-    "模型",
-    "人设卡",
-    "平台",
-    "在线",
-    "群友",
-    "知识库",
-    "进阶",
-    "时间",
-    "日志",
-    "功能",
-    "工具权限",
-    "研究",  # [atri-research]
-    "权限",
-    "提示词",
-)
-
-#: 选项卡名字 → 索引（供「功能」页双击跳转）。
-_TAB_INDEX = {name: index for index, name in enumerate(_TABS)}
-
-#: 「功能」页里的跳转键 → 选项卡名。
-_TAB_KEYS = {
-    "model": "模型",
-    "character": "人设卡",
-    "platform": "平台",
-    "advanced": "进阶",
-    "time": "时间",
-    "members": "群友",
-    "knowledge": "知识库",
-    "logs": "日志",
-    "toolperm": "工具权限",
-    # 「工具权限」页的第三个子选项卡「工具参数（全局）」：内容安全等全局参数在这里。
-    "toolperm_params": "工具权限",
-    # Python 版新增的子选项卡：工具进度预览（工具权限页）/ 表情图库（人设卡页）。
-    "toolperm_preview": "工具权限",
-    "character_reactions": "人设卡",
-    # 超级管理员名单 / 风险阈值 / 工具轮次 / 成员建卡开关。
-    "permission": "权限",
-}
+#: 选项卡顺序 / 名字索引 / 「功能」页跳转键（1.1.8 拆到 :mod:`atri_x.gui.taborder`，
+#: 主窗口本身太长，行数棘轮只许变短；测试仍按 ``app._TABS`` 等旧名字访问）。
+from atri_x.gui.taborder import TAB_INDEX as _TAB_INDEX
+from atri_x.gui.taborder import TAB_KEYS as _TAB_KEYS
+from atri_x.gui.taborder import TABS as _TABS
 
 
 class GuiApp:
@@ -254,6 +220,10 @@ class GuiApp:
                 parent, self.paths, on_restart=self._restart_backend
             ),
             14: lambda parent: PromptLibTab(parent, self.paths, on_restart=self._restart_backend),
+            15: lambda parent: SafetyTab(parent, self.paths, on_restart=self._restart_backend),
+            16: lambda parent: PerformanceTab(
+                parent, self.paths, on_restart=self._restart_backend
+            ),
         }
         #: 启动时就构建的页：对话（默认页）与功能（状态栏轮询要写它）。
         eager = (0, 10)

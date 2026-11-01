@@ -60,6 +60,27 @@
   `test_safety_async_guard`（共 63 个用例），既有 `test_safety_core` /
   `test_safety_integration` 保持全绿。
 
+同日追加（桌面端两个新选项卡 + 并发可调）：
+
+- **桌面端「内容安全」选项卡**（15 → 17 个选项卡）：六个子页——总览（一键创建默认
+  `safety.toml`、状态摘要）、策略（本地/远程/三档/媒体/成本/云厂商变量/阶段策略表单，
+  行级补丁不重写文件）、词表（`safety/wordlists/*.txt`、`safety/sensitive/*.regex`
+  在线编辑 + **离线试扫**）、复核（`review.db` 通过/驳回/标记过期）、审计
+  （`safety-audit.jsonl` 尾部筛选）、原始 TOML（整份编辑，保存前校验）。策略与词表
+  保存后 ≤1 秒热加载，不需要重启。
+- **桌面端「性能」选项卡**：三档并发预设（省资源 / 标准 / 高并发）一键填表、逐项并发
+  上限（turn/tool/hook/provider/排队/生图/QQ 预处理 worker）、实时并发实况（消费后台
+  `/metrics`：活跃回合、各 kind 排队、拒绝计数、生图闸门、provider 限速；5 秒自动刷新）。
+- **`provider_queue_max_size` 从死配置接上**：`> 0` 时有界等待队列、队满立即拒绝；
+  `<= 0` 保持旧信号量语义。此前它只被解析、没有消费者。
+- **`[vision]` 并发可配**：新增 `max_concurrent_jobs` / `max_job_queue` /
+  `max_job_waiters`，真正传进视觉引擎；此前引擎字段恒用内置默认值，配置里改不动。
+- **文档**：新增 [性能与并发](docs/performance.md)（并发模型、哪些事真并行、三档预设、
+  排队/拒绝语义、`/metrics` 观测、已知瓶颈）；`docs/safety.md` 补桌面端用法；
+  `docs/windows-app.md` 补两个选项卡。
+- **测试**：新增 `test_gui_safety`（数据层 + Tk）、`test_gui_perf`、`test_agent_provider_limit`、
+  `test_vision_concurrency`。
+
 配置与兼容：
 
 - 旧 `[safety]` 段（含 `[safety.chat]` / `[safety.work]`）继续有效：没有 `safety.toml` 时

@@ -17,7 +17,7 @@
 7. [图片反推提示词](configuration.md#图片反推提示词-image_to_prompt)：用 `image_to_prompt` 内置工具把参考图交给视觉模型，反推绘图提示词。
 8. [视觉兜底 vision](configuration.md#视觉兜底-vision)：纯文本主模型拒绝图片时，先用视觉模型把图片转写成描述再重试。
 9. [识图能力与两段式描述](vision.md)：图片精度（`detail`）、每轮带图先描述的两段式、SauceNAO 以图搜图兜底、隐私开关与失败原因。
-10. [内容安全（道德限制 + 敏感信息过滤）](safety.md)：词表拦截、敏感信息脱敏、审计日志与图片/文件出口策略。
+10. [内容安全（道德限制 + 敏感信息过滤）](safety.md)：词表拦截、敏感信息脱敏、审计日志与图片/文件出口策略；1.1.8 起支持独立 `safety.toml` 数据目录 + 热加载、云厂商双供应商、三档裁决与人工复核队列，桌面端有独立「内容安全」页。
 11. [定时报告](reports.md)：每天两次推送生图量、Token、费用、磁盘和内存；另有每日**会话总结**（`[maintenance.daily_summary]`）。
 12. [Hook](hooks.md)：规则 Hook 配置、action 类型、segments 多段输出、exec 脚本和表情提取示例。
 13. [Atrinis 监听枢纽](atrinis.md)：了解 Atrinis、Atriwisp、Atriena 和外部事件接入。
@@ -31,6 +31,7 @@
 21. [draw.io 图表能力（概览）](diagram.md)：超管专属工具 `drawio`——把代码 / Terraform / SQL / OpenAPI 等生成可编辑 `.drawio`，并用随包内置的 draw.io 32.6.1 无头渲染 PNG/SVG/PDF；含权限、隔离、体积与排障。
 22. [draw.io 使用说明（实操）](drawio-usage.md)：怎么用一句话出图、9 个动作与参数速查、代码目录 / Terraform / SQL / OpenAPI 等导入示例、产物位置、常见需求对照与排障，以及源码树启用和手工调用。
 23. [法务与合规注意事项](../LEGAL.md)：使用边界、法律法规与平台协议义务、第三方许可、免责与责任限制；使用前请先读。
+24. [性能与并发](performance.md)：ATRI-X 的并发模型（asyncio + 线程池）、哪些事真并行、三档并发预设与旋钮、排队/拒绝语义、`/metrics` 观测与已知瓶颈；桌面端对应「性能」页。
 
 ## 文档维护约定
 

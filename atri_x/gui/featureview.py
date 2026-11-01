@@ -64,8 +64,8 @@ def collect_features(paths: ConfigPaths) -> list[FeatureRow]:
         extra=_kv_detail(services.get("vision"), ("provider", "model")),
     ))
     rows.append(_section_row(
-        "safety", "内容安全（道德限制 + 敏感信息过滤）", app, default_on=False,
-        tab="toolperm_params", extra=_safety_detail(app.get("safety")),
+        "safety", "内容安全（本地词表 + 云审核 + 复核队列）", app, default_on=False,
+        tab="safety", extra=_safety_detail(app.get("safety")),
     ))
     rows.append(_section_row(
         "asr", "语音转写（ASR）", services, default_on=False, tab="advanced",
@@ -470,8 +470,8 @@ def _kv_detail(section: Any, keys: tuple[str, ...], *, sep: str = "；") -> str:
     return sep.join(parts)
 
 
-#: 内容安全的编辑入口提示：这一项**不在「进阶」页**，而在「工具权限」页的参数子选项卡里。
-_SAFETY_LOCATION = "在「工具权限 → 工具参数（全局）」的「全局参数」面板里改"
+#: 内容安全的编辑入口提示：1.1.8 起有独立页；旧 ``[safety]`` 段仍在工具参数里。
+_SAFETY_LOCATION = "在「内容安全」页改；旧的 [safety] 段也可在「工具权限 → 工具参数（全局）」改"
 
 #: 内容安全「按会话模式覆盖」的两个模式键：``app.toml`` 的 ``[safety.chat]`` / ``[safety.work]``。
 _SAFETY_MODES = ("chat", "work")

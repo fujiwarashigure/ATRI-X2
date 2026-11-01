@@ -15,6 +15,8 @@
 | :mod:`atri_x.gui.tabs.features` | 功能 | 只读状态 + 服务/日志入口 |
 | :mod:`atri_x.gui.tabs.toolperm` | 工具权限 | ``state.toml`` 的 ``[group_policy]`` 群工具白名单（纵向滚动菜单：激活按钮 + 状态 + 功能解释，chat / work 分两个子选项卡）+ 第三个子选项卡「工具参数（全局）」（每个工具一组可展开参数，写 ``app.toml`` / ``services.toml``）+ ``app.toml`` 的群聊工具进度开关 |
 | :mod:`atri_x.gui.tabs.permission` | 权限 | ``app.toml`` 的 ``[security]`` / ``[security.superadmins]`` / ``[tools]`` / ``[character_library]``（超级管理员名单 + 风险阈值 + 单轮工具轮次 + 允许成员建卡；1.1.3 修订新增） |
+| :mod:`atri_x.gui.tabs.safety` | 内容安全 | ``safety.toml`` + ``safety/`` 数据目录（词表/正则/复核库/审计；1.1.8 新增，热加载） |
+| :mod:`atri_x.gui.tabs.performance` | 性能 | ``app.toml`` 的 ``[ops]`` / ``[platform.qqonebot]`` 与 ``services.toml`` 的 ``[image_generation]``（并发预设 + 上限 + `/metrics` 实况；1.1.8 新增） |
 
 公共骨架在 :mod:`atri_x.gui.tabs.base`（底部状态行、错误弹窗、重启按钮、操作日志）。
 """
@@ -31,10 +33,12 @@ from atri_x.gui.tabs.link import LinkTab
 from atri_x.gui.tabs.logs import LogsTab
 from atri_x.gui.tabs.members import MembersTab
 from atri_x.gui.tabs.model import ModelTab
+from atri_x.gui.tabs.performance import PerformanceTab
 from atri_x.gui.tabs.permission import PermissionTab
 from atri_x.gui.tabs.platform import PlatformTab
 from atri_x.gui.tabs.promptlib import PromptLibTab
 from atri_x.gui.tabs.research import ResearchTab  # [atri-research]
+from atri_x.gui.tabs.safety import SafetyTab
 from atri_x.gui.tabs.timepanel import TimeTab
 from atri_x.gui.tabs.toolperm import ToolPermTab
 
@@ -49,10 +53,12 @@ __all__ = [
     "LogsTab",
     "MembersTab",
     "ModelTab",
+    "PerformanceTab",
     "PermissionTab",
     "PlatformTab",
     "PromptLibTab",
     "ResearchTab",  # [atri-research]
+    "SafetyTab",
     "TimeTab",
     "ToolPermTab",
 ]
