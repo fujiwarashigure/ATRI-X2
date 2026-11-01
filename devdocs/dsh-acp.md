@@ -1,8 +1,9 @@
 # 内置 DSH（DeepSeek Harness）ACP 编排
 
-> 定位：**最小闭环**。本文描述现在能跑通的部分：镜像内置 DSH、ATRI-X 侧纯标准库 ACP
-> 客户端、`session/new → prompt → usage → close` 的闭环冒烟。路由阈值、上下文交接、
-> 预算记账尚未接入对话链路，列在文末「后续」。
+> 定位：**生产可用的最小闭环 + 深度路由**。本文描述：镜像内置 DSH、ATRI-X 侧纯标准库
+> ACP 客户端、`session/new → prompt → usage → close` 闭环、任务打分/成本闸门/熔断、
+> 上下文交接与会话亲和、有界并发/看门狗/预热回收、凭据协议判定与预算记账。
+> 未做项列在 §6.6。
 
 ## 1. 为什么是 ACP
 
@@ -39,12 +40,18 @@ flowchart LR
 |---|---|
 | `atri_x/agent/dsh/types.py` | 协议常量、异常、`AcpSession` / `AcpEvent` / `AcpPromptResult` / `AcpUsage`，以及 `session/update` 与 `usage` 的纯解析函数 |
 | `atri_x/agent/dsh/transport.py` | 拉起子进程、NDJSON 帧收发、请求槽位、服务端请求分发、stderr 尾部、超时与进程退出 |
-| `atri_x/agent/dsh/client.py` | `AcpClient`：`initialize` / `session new|resume|list|close` / `set_config_option` / `prompt` / `cancel` |
+| `atri_x/agent/dsh/client.py` | `AcpClient`：`initialize` / `session new\|resume\|list\|close` / `set_config_option` / `prompt` / `cancel` |
+| `atri_x/agent/dsh/command.py` | 启动命令解析：显式 > `DSH_ACP_COMMAND` > 内置内核 > PATH 上的 `dsh` |
+| `atri_x/agent/dsh/credentials.py` | 凭据注入 + **协议判定**（内核只会说 Anthropic Messages；OpenAI 兼容网关判不可用） |
+| `atri_x/agent/dsh/workspace.py` | `workspace` / `DSH_HOME` 路径解析、子进程环境收敛、权限应答 |
+| `atri_x/agent/dsh/scheduler.py` | 有界并发槽、忙时回退、卡死看门狗、空闲回收触发、运行指标 |
+| `atri_x/agent/dsh/affinity.py` | 会话亲和：同一聊天连续路由时复用 DSH 会话、只发增量 |
+| `atri_x/agent/dsh/turn.py` | 轮次数据形状：`DshTurnPlan` / `DshRunResult` |
 | `atri_x/agent/dsh/smoke.py` | `python -m atri_x.agent.dsh.smoke`：闭环冒烟，打印 stopReason、input/output/cache token 与上下文占用 |
 | `tests/test_dsh_acp_client.py`、`tests/_dsh_fake_acp_server.py` | 离线测试（不依赖 Node/dsh）与可脚本化的假服务端 |
 
-客户端**不参与启动装配**：导入 `atri_x.agent.dsh` 没有副作用，也不被 `atri_x/app/` 引用；
-是否、何时拉起 DSH 由后续的路由模块决定。
+客户端**不参与启动装配**：导入 `atri_x.agent.dsh` 没有副作用；是否、何时拉起 DSH 由
+路由模块决定（见 §6）。1.1.8 起应用启动钩子会按 `[agent.dsh].prewarm` 后台预热内核。
 
 ## 3. 协议用法（客户端视角）
 
@@ -143,11 +150,17 @@ DSH 已经被接进对话链路：**普通聊天走 ATRI-X 原生低成本链路
 | 文件 | 职责 |
 |---|---|
 | `atri_x/agent/dsh/command.py` | 启动命令解析：显式 > `DSH_ACP_COMMAND` > 内置内核 > PATH 上的 `dsh`（冒烟与路由共用） |
+| `atri_x/agent/dsh/credentials.py` | 凭据注入与**协议判定**（官方 DeepSeek / `anthropic` 端点才允许注入；OpenAI 兼容网关判不可用） |
 | `atri_x/agent/dsh/router.py` | 任务特征打分 + 成本闸门 + 熔断（`[agent.dsh]`，纯函数可离线断言） |
 | `atri_x/agent/dsh/handoff.py` | **上下文交接**：系统设定 + 最近 N 轮 + 当前消息拼成一次性 prompt；ACP usage → 账本 `Usage` |
-| `atri_x/agent/dsh/runtime.py` | 长驻 `AcpClient` + 子进程环境收敛（凭据注入）+ 每次路由一个一次性会话 + asyncio/阻塞桥接 + 串行化 |
-| `atri_x/agent/dsh/route_call.py` | 接进 `call_llm`：凭据解析、预算预占/结算、流式回传、成功/失败/部分输出、熔断提示 |
-| `atri_x/agent/dsh/status.py` | `python -m atri_x.agent.dsh.status [--json] [--score 文本]`：内核/可用性/熔断/打分标定 |
+| `atri_x/agent/dsh/affinity.py` | 会话亲和：同一聊天连续路由时复用 DSH 会话、只发增量 |
+| `atri_x/agent/dsh/scheduler.py` | 有界并发槽 + 忙时回退 + 卡死看门狗 + 空闲回收 + 指标 |
+| `atri_x/agent/dsh/turn.py` | 轮次数据形状（`DshTurnPlan` / `DshRunResult`） |
+| `atri_x/agent/dsh/workspace.py` | 目录解析 + 子进程环境收敛 + 权限应答 |
+| `atri_x/agent/dsh/runtime.py` | 长驻 `AcpClient` + 并发执行器 + 预热/空闲回收 + 每轮 token 取消 |
+| `atri_x/agent/dsh/service.py` | 路由服务对象：懒创建运行时、凭据计划、预热入口、`/metrics` 的 `dsh` 段 |
+| `atri_x/agent/dsh/route_call.py` | 接进 `call_llm`：凭据闸门、预算预占/结算、流式回传、失败/部分输出、熔断提示 |
+| `atri_x/agent/dsh/status.py` | `python -m atri_x.agent.dsh.status [--json] [--score 文本]`：内核/可用性/熔断/凭据协议/打分标定 |
 
 ### 6.1 判定：特征打分 + 成本闸门 + 熔断
 
@@ -168,13 +181,22 @@ cost_pressure = (cost_ratio−1)/cost_ratio · min(1, est_tokens/cost_scale_toke
   `写一个 Python 脚本，读取 data.json，统计订单并导出 CSV` ≈0.53，
   `重构 utils.py 里的 parse 函数并补测试` ≈0.47。
 
-### 6.2 上下文交接（无状态）
+### 6.2 上下文交接（默认无状态 + 连续路由时亲和）
 
 `session/resume` 不回放历史，所以交接内容由 ATRI-X 自己拼：**每次路由新开一个 DSH
 会话、发一条一次性 prompt、拿到结果就关**。prompt = 系统设定 + 最近
 `max_history_messages` 轮 + 当前用户消息，总长受 `prompt_char_budget` 约束（超了从最旧
 的历史开始丢并在 prompt 里注明）。好处是路由轮次与非路由轮次混排不会串上下文，失败重试
 也不需要迁移状态；代价是每轮重新带一点历史（默认保守值，见配置注释）。
+
+1.1.8 起在此之上加了**会话亲和**（`[agent.dsh].session_affinity`，默认开）：同一聊天
+**连续**两轮都路由时，复用上一轮的 DSH 会话，只把「当前用户消息」作为增量发过去
+（省掉重复交接的输入 token）。正确性靠"历史连续性"校验：存亲和时记下当时
+`len(messages)` 与最后一条用户消息摘要；下一轮必须正好多出「助手回复 + 新用户消息」
+两条且锚点消息未变，否则放弃复用、退回完整交接（中间夹了原生轮次、工具轮次、历史裁剪
+或会话过期都会命中这条）。会话失效（失败、看门狗取消、内核重启、空闲回收）时关闭并
+清掉缓存；LRU 上限默认 4 个。跨内核重启时先尝试 `session/resume`（DSH 持久化了历史），
+失败再退回完整交接。
 
 `[agent.dsh].model` / `reasoning_effort` 会经 `session/set_config_option` 下发给内核，
 而内核**只接受它自己公布的取值**（复合值，例如 `deepseek/deepseek-v4-flash`）。可以用
@@ -203,7 +225,7 @@ cost_pressure = (cost_ratio−1)/cost_ratio · min(1, est_tokens/cost_scale_toke
 失败语义：一个字都没输出就失败 → 回退原生（用户只看到正常回答）；已经流出了部分文本 →
 保留部分内容收尾并提示，不重放、不双写。
 
-### 6.4 凭据注入与环境收敛
+### 6.4 凭据注入、环境收敛与协议判定（P0）
 
 子进程的凭据有两个来源问题要一起解决：
 
@@ -214,12 +236,24 @@ cost_pressure = (cost_ratio−1)/cost_ratio · min(1, est_tokens/cost_scale_toke
   `%APPDATA%\ATRI-X\.env`），而读 `.env` 的代码从不回写 `os.environ`，所以
   "子进程自己继承"这条路拿不到值，内核报 `MISSING_CREDENTIAL`。
 
-因此 `DshRouteService.ensure_runtime` 用 `resolve_credential_env` 从 `agent.providers`
+因此 `DshRouteService.prepare` 用 `resolve_credential_plan` 从 `agent.providers`
 里取出 ATRI-X 已经解析好的 `api_key`（`[agent.dsh].credential_provider` 指定用哪个
 provider，空则优先名字含 `deepseek` 的 provider、其次当前 work provider），把
 `DEEPSEEK_API_KEY`（`credential_env` 可改）与需要时的 `DEEPSEEK_BASE_URL`
-（`credential_base_url_env`，仅当 `base_url` 不是官方 `api.deepseek.com` 时）交给
-`DshRuntime(extra_env=...)`。
+（`credential_base_url_env`）交给 `DshRuntime(extra_env=...)`。
+
+**协议判定**（1.1.8 修复）：内核的 DeepSeek 适配器只实现 **Anthropic Messages** 协议，
+请求固定打到 `<base_url>/v1/messages`。而 ATRI-X 的 provider 表里常有 OpenAI 兼容网关
+（`.../openai/v1`），1.1.7 及以前会把它的 `base_url` 原样注入 `DEEPSEEK_BASE_URL`，于是每次
+路由都拿到 `404`（用户侧表现为"深度路由从未生效"，还白付一次冷启动）。现在：
+
+| `credential_protocol` | 行为 |
+|---|---|
+| `auto`（默认） | 只认官方 `api.deepseek.com`、`base_url` 含 `anthropic` 的端点，以及用户自己写在进程环境里的 `DEEPSEEK_BASE_URL`；其余判**不可用**：不注入、不拉起内核、审计 `dsh_route_credential_unusable` 一次，路由静默回原生 |
+| `anthropic` | 用户明确知道该网关支持 Anthropic Messages，强制注入 |
+| `openai` / `off` | 明确不路由（前者自述协议不兼容） |
+
+没有任何可注入凭据时不误判：内核可能用 `DSH_HOME` 下的 `.credentials.yaml`，交由它处理。
 
 同时做**环境收敛**（纵深防御）：`DshRuntime._ensure_client` 不再无脑
 `dict(os.environ)`，而是用 `atri_x.processenv.Environment.without_sensitive_keys()`
@@ -227,7 +261,32 @@ provider，空则优先名字含 `deepseek` 的 provider、其次当前 work pro
 最后以 `isolate_env=True` 起子进程（`JsonRpcStdio` 只用这份环境，不再往里补继承项）。
 ATRI-X 侧解析不到密钥时不注入空值，退回继承值（`.credentials.yaml` / 宿主环境仍可用）。
 
-### 6.5 仍未做（可选）
+### 6.5 并发调度、看门狗与运行指标（P1/P2）
+
+1.1.7 及以前 `DshRuntime` 用一把进程级锁把所有路由轮次串成 1 并发：第 2、3 个复杂任务
+只能排队，最坏等满 180 秒超时。但 DSH 内核的 ACP 连接本身就支持**多会话并发**
+（每个 `AcpSession` 自带 inflight 槽），串行是 ATRI-X 这层的限制。1.1.8 改为：
+
+- **有界并发**：`[agent.dsh].max_concurrent_prompts`（默认 2，1 = 旧的串行语义）个
+  prompt 槽；同一会话仍只允许一轮（内核与客户端双重保护）；
+- **忙时回退**：槽满时最多等 `busy_wait_seconds`（默认 2 秒），等不到就抛
+  `DshBusyError`，调用方**释放预算预占、不记熔断失败、静默回原生**（审计
+  `dsh_route_busy`）。用户不会为了一次"增强"排三分钟；
+- **provider 治理**：DSH 轮次与原生链路共用 `[ops].provider_max_concurrent` 闸门
+  （provider 名取凭据计划里的 provider；`0` 时是 no-op），并发化不会把上游打成 429；
+- **卡死看门狗**：每个在途轮次记录"最后一次事件"时间，超过
+  `stall_timeout_seconds`（默认 90 秒）没有任何 `session/update` 就发
+  `session/cancel`，让这一个 hang 不再占满槽位等整轮超时；
+- **预热与空闲回收**：`prewarm=true`（默认）时应用启动钩子后台 `spawn + initialize`
+  （首轮省 1.7~1.8 秒）；`idle_timeout_seconds`（默认 900 秒）没有在途轮次就关掉内核
+  进程（省约 170MB 常驻内存，下次路由重新冷启动）；
+- **按轮取消**：`run(cancel_token=...)` + `runtime.cancel(token)`，输出闸门关掉时只取消
+  自己这一轮，不再误伤其它并发轮次（`cancel_active()` 保留为"取消全部"）；
+- **指标**：`runtime.describe()["scheduler"]` 与 `/metrics` 的 `dsh` 段（放行/忙拒/
+  完成/失败/卡死/冷启动/空闲回收/预热/等待与运行耗时、并发占用、亲和条目与命中），
+  「性能」页的「并发实况」会把这些画成可读行。
+
+### 6.6 仍未做（可选）
 
 1. **工具回灌**：把 ATRI-X 的工具以 Streamable HTTP MCP 暴露给 DSH，让风险确认与预算
    仍由 ATRI-X 裁决。当前 DSH 使用自带工具，权限请求默认拒绝
@@ -241,8 +300,8 @@ ATRI-X 侧解析不到密钥时不注入空值，退回继承值（`.credentials
 ## 7. 验证
 
 ```bash
-python -m unittest tests.test_dsh_acp_client tests.test_dsh_route -v   # 离线，77 个用例
-python -m atri_x.agent.dsh.status --score "重构 utils.py 并补测试"     # 内核+路由状态
+python -m unittest tests.test_dsh_acp_client tests.test_dsh_route tests.test_dsh_scheduler -v
+python -m atri_x.agent.dsh.status --score "重构 utils.py 并补测试"     # 内核+路由+凭据协议
 python scripts/check_syntax.py
 python scripts/check_imports.py
 python scripts/check_integration.py

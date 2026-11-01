@@ -272,6 +272,11 @@ class AcpClient:
         result = self._transport.request("session/list", params)
         return dict(result) if isinstance(result, Mapping) else {}
 
+    def session(self, session_id: str) -> AcpSession | None:
+        """取本连接上仍登记的会话（亲和复用前先确认它还在，不走网络）。"""
+        with self._lock:
+            return self._sessions.get(session_id)
+
     def set_config_option(self, session_id: str, config_id: str, value: str) -> tuple[Mapping[str, Any], ...]:
         """串行更新会话的 ``model`` / ``reasoning_effort``，返回最新配置项。"""
         result = self._transport.request(

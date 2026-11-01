@@ -23,6 +23,7 @@
 | 图片压缩/解码 | 每 loop 10 槽 + `atrix-media` 线程池 10 | 10 | 代码内置 |
 | 视觉兜底识图 | 独立 runner | 10（1.1.8 起可配） | `services.toml` `[vision] max_concurrent_jobs` |
 | 语音转写 | 独立 runner | `[asr] max_concurrent = 2`（示例值） | `services.toml` |
+| DSH 深度路由 | 一条 ACP 连接上多会话并发 | `[agent.dsh] max_concurrent_prompts = 2` | `app.toml` |
 
 **同一群默认每人独立会话**（`thread-mode per-user`），所以群里两个人同时提问是
 两个并行回合。只有显式 `/grouppolicy thread-mode group` 或打开连续消息合并窗口
@@ -37,7 +38,8 @@
    点预设只填值，点「保存」才写盘；保存后需要**重启后台服务**（这些是启动期读取的）。
 2. **并发上限**：逐个调 turn / tool / hook / provider / 排队 / 生图 / QQ 预处理 worker。
 3. **并发实况**：从后台 `/metrics` 读活跃回合数、各 kind 排队数、并发拒绝/队满/超时计数、
-   生图闸门占用、provider 限速统计；可自动刷新（5 秒）。后台服务没起时只显示提示，不弹窗。
+   生图闸门占用、provider 限速统计，以及 **DSH 深度路由**的并发占用/忙拒/卡死/冷启动/
+   亲和命中；可自动刷新（5 秒）。后台服务没起时只显示提示，不弹窗。
 
 预设只是"一组数字"，没有隐藏开关；每档具体值见下表。
 
@@ -84,6 +86,33 @@
   `oldest_queued_wait`、`queue_average_wait_ms`；`image_limit.active/waiting`；`rate_limit`。
 - `GET /tasks`：只返回 `tasks` 段（更轻）。
 
+## DSH 深度路由的并发（1.1.8）
+
+DSH 是"第二个后端"：只有任务够复杂时才接管一轮，普通聊天仍走原生链路。1.1.7 及以前
+`DshRuntime` 用一把进程级锁把所有路由轮次串成 **1 并发**，第 2 个复杂任务只能排到
+180 秒超时；1.1.8 改成内核本来就支持的"一条连接上多会话并发"：
+
+| 旋钮 | 默认 | 说明 |
+| --- | ---: | --- |
+| `[agent.dsh] max_concurrent_prompts` | 2 | 同时运行的 DSH prompt 上限；1 = 旧的串行语义 |
+| `[agent.dsh] busy_wait_seconds` | 2 | 槽满最多等多久；超时直接回退原生（不排队） |
+| `[agent.dsh] stall_timeout_seconds` | 90 | 单轮无任何事件就取消（须小于 `timeout_seconds`） |
+| `[agent.dsh] idle_timeout_seconds` | 900 | 空闲时会回收内核进程（省约 170MB） |
+| `[agent.dsh] prewarm` | true | 启动后台预热（首轮省 1.7~1.8 秒） |
+| `[agent.dsh] session_affinity` | true | 同一聊天连续路由时复用会话、只发增量 |
+
+要点：
+
+- DSH 轮次与原生链路**共用** `[ops].provider_max_concurrent` 闸门（provider 名取凭据
+  计划里的 provider），并发化不会偷偷把上游打成 429；
+- 忙时的结果不是"排 3 分钟"，而是**立刻回退原生**；审计里是 `dsh_route_busy`，
+  不记熔断失败、不动预算；
+- 实测（本机内置内核 0.2.0-rc.2）：冷启动 1.7~1.8 秒、`session/new` 10~40ms、
+  4 个会话并发新建合计 20ms、4 个会话只多约 2MB 内存；贵的是 prompt 本身，不是进程；
+- 指标在 `/metrics` 的 `dsh` 段：`active / maxConcurrent`、`stats`（`admitted` /
+  `busy_rejected` / `completed` / `failed` / `stalled` / `cold_starts` /
+  `idle_closes` / `prewarmed`）、`affinity`（条目/命中）。
+
 ## 已知瓶颈（1.1.8 的边界）
 
 - **同步 SQLite 在事件循环里**：存储层是单连接 + 一把锁、全同步调用，回合越多，
@@ -97,10 +126,13 @@
 - **媒体线程池 10 槽**：十几个回合同时存大图会互相排队，属预期背压。
 - **共享会话（thread-mode group）**：全群严格串行，这是会话语义，不是配置能绕开的；
   要并行就让群保持默认 `per-user`。
+- **DSH 并发别贪高**：`max_concurrent_prompts` 调大只提升"同时有多少复杂任务交给
+  DSH"，不会让单轮变快；真正约束是上游 provider 的额度（`provider_max_concurrent`）
+  与内核单进程事件循环。建议先看 `/metrics` 的 `dsh.stats.busy_rejected` 再决定。
 
 ## 验证
 
 ```bash
 python -m unittest tests.test_gui_perf tests.test_agent_provider_limit \
-    tests.test_vision_concurrency -v
+    tests.test_vision_concurrency tests.test_dsh_scheduler -v
 ```

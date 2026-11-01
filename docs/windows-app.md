@@ -578,7 +578,7 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 > 生效时机：`safety.toml` 与词表都是**热加载**（后台按文件指纹跟随，≤1 秒），保存后
 > 不需要重启；只有"从完全未启用切到启用"建议顺手重启一次后台服务。
 
-### 4.12 性能与并发选项卡（1.1.8）
+### 4.12 性能与并发选项卡（1.1.8，含 DSH 实况）
 
 ATRI-X 本来就是 `asyncio` 并发（不同群/私聊的回合、同轮多图、HTTP 收发都是并行的），
 这一页不是"打开多线程开关"，而是给并发**设上限、排队策略和实况**：
@@ -587,9 +587,11 @@ ATRI-X 本来就是 `asyncio` 并发（不同群/私聊的回合、同轮多图�
   预设只填值，点「保存」才写盘；这些是启动期配置，保存后需要**重启后台服务**。
 - **并发上限**：`[ops]` 的 turn / tool / hook / provider 并发与排队、`[image_generation]`
   的生图并发与队列、`[platform.qqonebot]` 的入站预处理 worker（4 个默认值来自这里）。
-- **并发实况**：读后台 `/metrics` 的 `tasks` / `image_limit` / `rate_limit` 段，显示
-  活跃回合、各 kind 排队数、并发拒绝/队满/超时计数、最老排队时间、生图闸门占用，
-  可开 5 秒自动刷新；后台服务没起时只在状态行提示。
+- **并发实况**：读后台 `/metrics` 的 `tasks` / `image_limit` / `rate_limit` / `dsh` 段，
+  显示活跃回合、各 kind 排队数、并发拒绝/队满/超时计数、最老排队时间、生图闸门占用，
+  以及 **DSH 深度路由**的并发占用/忙拒/卡死/冷启动/空闲回收/亲和命中，可开 5 秒自动
+  刷新；后台服务没起时只在状态行提示。DSH 的并发旋钮在 `[agent.dsh]`（见 §8.1），
+  这一页只读实况、不改它。
 
 要点：**同一群默认每人独立会话**，所以群里多人同时提问是并行的；只有
 `/grouppolicy thread-mode group`（共享会话）或打开连续消息合并窗口时，同一 Session
@@ -958,6 +960,14 @@ allow_permissions = false   # 保持拒绝 DSH 的权限请求（群聊场景不
 credential_provider = ""    # 用哪个 provider 的密钥喂给 DSH；空=自动（优先名字含 deepseek 的）
 credential_env = "DEEPSEEK_API_KEY"        # 注入的凭据变量名（内核默认找它）
 credential_base_url_env = "DEEPSEEK_BASE_URL"  # base_url 非官方端点时一并下发的变量名
+credential_protocol = "auto"  # auto=只给 Anthropic Messages 端点注入；openai 兼容网关会被判
+                              # 不可用（不拉起内核、静默回原生）。网关支持 Anthropic 协议时填 "anthropic"
+max_concurrent_prompts = 2  # 同一条 ACP 连接上并发的 prompt 上限（1=串行；0=内置默认 2）
+busy_wait_seconds = 2       # 并发槽满时最多等多久；超时直接回退原生（0=不等）
+prewarm = true              # 启动时后台预热内核（首轮省 1.7~1.8 秒；用不到时别开省 170MB）
+idle_timeout_seconds = 900  # 空闲多久回收内核进程（0=不回收）
+stall_timeout_seconds = 90  # 单轮多久没有任何事件就取消（0=不启用；须小于 timeout_seconds）
+session_affinity = true     # 同一聊天连续路由时复用 DSH 会话、只发增量（省重复交接的 token）
 circuit_breaker_failures = 3
 circuit_breaker_cooldown_seconds = 300
 ```
@@ -970,8 +980,23 @@ atri-x.exe -m atri_x.agent.dsh.status --json
 atri-x.exe -m atri_x.agent.dsh.status --score "重构 utils.py 里的 parse 函数并补测试"
 ```
 
-输出里有内核是否可用、实际启动命令、熔断状态，以及每条样例的分数/是否路由/原因
-（`below_threshold` / `cost_gate` / `breaker_open` / `unavailable`）。
+输出里有内核是否可用、实际启动命令、熔断状态、**凭据协议判定**（是否可用 + 原因）与
+并发/看门狗配置，以及每条样例的分数/是否路由/原因（`below_threshold` / `cost_gate` /
+`breaker_open` / `unavailable` / `credential_unusable`）。
+
+**凭据协议（1.1.8 修复）**：DSH 内核只会说 **Anthropic Messages** 协议，请求固定打到
+`<base_url>/v1/messages`。`credential_protocol="auto"` 下只有官方
+`api.deepseek.com`、`base_url` 含 `anthropic` 的端点，或你自己写在进程环境里的
+`DEEPSEEK_BASE_URL` 才会被用于路由；OpenAI 兼容网关（`.../openai/v1`）会被判为
+**不可用**——不注入、不拉起内核、审计记一次原因，然后静默走原生。以前这里会把
+OpenAI 网关的地址原样注入，导致每次路由都 404、路由从未真正生效。网关确实支持
+Anthropic 协议时，显式设 `credential_protocol = "anthropic"` 再试。
+
+**并发与调度（1.1.8）**：同一进程最多同时跑 `max_concurrent_prompts` 轮 DSH；槽满时
+等 `busy_wait_seconds` 就回退原生（不排队、不记熔断失败）；单轮 `stall_timeout_seconds`
+没有任何事件会被看门狗取消；没在跑时 `idle_timeout_seconds` 回收内核进程；
+`prewarm=true` 让首轮少付冷启动。实际占用/忙拒/卡死/冷启动/亲和命中在
+「性能」页的「并发实况」里（读 `/metrics` 的 `dsh` 段）。
 
 **模型凭据**：ATRI-X 会把选中 provider 解析好的密钥（系统环境变量或配置目录 `.env` 都算）
 注入 DSH 子进程，所以桌面端把密钥写进 `%APPDATA%\ATRI-X\.env` 也能跑通路由；子进程**只拿到

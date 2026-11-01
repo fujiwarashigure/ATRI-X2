@@ -263,7 +263,7 @@ def _dsh_row(app: Mapping[str, Any]) -> FeatureRow:
     agent = _section(app, "agent")
     dsh = _section(agent, "dsh")
     enabled = bool(dsh.get("enabled"))
-    detail = _kv_detail(dsh, ("min_score", "model", "command"))
+    detail = _kv_detail(dsh, ("min_score", "max_concurrent_prompts", "model", "command"))
     if not enabled:
         detail = "未启用（[agent.dsh].enabled 未打开）"
     return FeatureRow("dsh", "内置 DSH 深度路由", _status_of(enabled, explicit=False), detail)

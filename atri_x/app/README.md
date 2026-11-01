@@ -25,7 +25,7 @@
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
-| `atri_x.app` | ``atri_x.app`` —— 装配层。 | 428 | `test_app_bootstrap.py`、`test_app_doctor_capabilities.py`、`test_app_health.py`、`test_app_llm_adapters.py`、`test_app_ops_plugins.py`、`test_app_platforms.py`、`test_app_runner.py`、`test_app_runtime_agent.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py`、`test_comic_service.py`、`test_deploy_harness.py`、`test_llm_headers.py`、`test_main.py`、`test_member_profile.py`、`test_ops_health.py`、`test_packaging_tzdata.py`、`test_promptlib.py`、`test_safety_integration.py`、`test_session_lifecycle.py`、`test_time_config.py`、`test_vision_concurrency.py` |
+| `atri_x.app` | ``atri_x.app`` —— 装配层。 | 428 | `test_app_bootstrap.py`、`test_app_doctor_capabilities.py`、`test_app_health.py`、`test_app_llm_adapters.py`、`test_app_ops_plugins.py`、`test_app_platforms.py`、`test_app_runner.py`、`test_app_runtime_agent.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py`、`test_comic_service.py`、`test_deploy_harness.py`、`test_dsh_route.py`、`test_llm_headers.py`、`test_main.py`、`test_member_profile.py`、`test_ops_health.py`、`test_packaging_tzdata.py`、`test_promptlib.py`、`test_safety_integration.py`、`test_session_lifecycle.py`、`test_time_config.py`、`test_vision_concurrency.py` |
 | `atri_x.app.app` | 应用入口：运行模式、启动选项与 ``Run``。 | 87 | `test_app_bootstrap.py`、`test_app_runner.py` |
 | `atri_x.app.asr` | ASR（语音转写）服务装配。 | 175 | — |
 | `atri_x.app.breaker_llm` | 熔断 / 兜底包装的 LLM 客户端。 | 374 | `test_app_llm_adapters.py` |
@@ -46,10 +46,10 @@
 | `atri_x.app.integrations` | 集成阶段：把平台运行时接到 Agent 上，并按需拉起 atrinis。 | 186 | `test_app_platforms.py`、`test_app_runner.py` |
 | `atri_x.app.models` | LLM 客户端装配：provider → 适配器（含协议路由、健康包装、熔断包装）。 | 323 | `test_app_llm_adapters.py`、`test_llm_headers.py` |
 | `atri_x.app.naming` | 会话命名事件的日志/审计记录器。 | 110 | `test_session_lifecycle.py` |
-| `atri_x.app.ops_health` | ``/metrics`` 与 ``/diagnostics`` 的载荷收集，以及两个延迟接线的 HTTP 组件。 | 619 | `test_app_health.py`、`test_app_ops_plugins.py`、`test_app_runtime_agent.py`、`test_member_profile.py`、`test_ops_health.py` |
+| `atri_x.app.ops_health` | ``/metrics`` 与 ``/diagnostics`` 的载荷收集，以及两个延迟接线的 HTTP 组件。 | 619 | `test_app_health.py`、`test_app_ops_plugins.py`、`test_app_runtime_agent.py`、`test_dsh_route.py`、`test_member_profile.py`、`test_ops_health.py` |
 | `atri_x.app.platform_caller` | 按平台名把运行时解析成"平台 API 调用器"。 | 71 | `test_app_platforms.py` |
 | `atri_x.app.platforms` | 平台装配与运行循环。 | 692 | `test_app_platforms.py`、`test_deploy_harness.py` |
-| `atri_x.app.runner` | 装配运行器：按固定顺序装配各阶段并保证逆序清理。 | 543 | `test_app_ops_plugins.py`、`test_app_runner.py` |
+| `atri_x.app.runner` | 装配运行器：按固定顺序装配各阶段并保证逆序清理。 | 550 | `test_app_ops_plugins.py`、`test_app_runner.py` |
 | `atri_x.app.runtime` | 运行期装配主链：媒体中心 → 工具运行时 → Hook → Agent → 生命周期。 | 619 | `test_app_runner.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py` |
 | `atri_x.app.runtime_agent` | Agent 装配。 | 610 | `test_app_runtime_agent.py`、`test_member_profile.py` |
 | `atri_x.app.runtime_hooks` | Hook 控制面装配。 | 120 | — |
@@ -71,4 +71,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 853 个 / 超线文件 78 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 859 个 / 超线文件 78 个）。

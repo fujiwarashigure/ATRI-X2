@@ -75,7 +75,7 @@ ATRI-X 使用以下环境来源：
 1. ATRI-X 进程环境。
 2. 配置根 `.env`。
 
-Docker Compose 的 `env_file`、`docker run -e`、systemd `EnvironmentFile` 注入的变量都属于 ATRI-X 进程环境。ATRI-X 会把名字含独立 `KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`PRIVATE` 词段的变量从 Shell / Go Skill 子进程环境中移除；内置 DSH 子进程同样只拿到 `[agent.dsh]` 显式注入的那一个模型凭据（见 [`docs/windows-app.md`](windows-app.md) §8.1），其余敏感变量一并过滤。但父进程和 Web 搜索、生图、媒体下载等工具仍可读取这些密钥；如果向群聊用户开放工具，不能只依赖“容器不是 root”来保护其中的 API Key。
+Docker Compose 的 `env_file`、`docker run -e`、systemd `EnvironmentFile` 注入的变量都属于 ATRI-X 进程环境。ATRI-X 会把名字含独立 `KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`PRIVATE` 词段的变量从 Shell / Go Skill 子进程环境中移除；内置 DSH 子进程同样只拿到 `[agent.dsh]` 显式注入的那一个模型凭据（见 [`docs/windows-app.md`](windows-app.md) §8.1），其余敏感变量一并过滤；`[agent.dsh].credential_protocol`（默认 `auto`）还会拒绝把 OpenAI 兼容网关的 `base_url` 喂给只支持 Anthropic Messages 的内核。但父进程和 Web 搜索、生图、媒体下载等工具仍可读取这些密钥；如果向群聊用户开放工具，不能只依赖“容器不是 root”来保护其中的 API Key。
 
 推荐把真实密钥放在系统环境或配置根 `.env`，不要直接写入 TOML 或提交到仓库。例如：
 

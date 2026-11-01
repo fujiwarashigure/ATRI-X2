@@ -105,6 +105,18 @@ def _payload() -> dict:
             "disabled_reason": "inbound rate limiting is not configured",
         },
         "image_limit": {"active": 2, "waiting": 1},
+        "dsh": {
+            "enabled": True, "available": True, "credentialUsable": True,
+            "credentialProtocol": "anthropic", "credentialProvider": "deepseek",
+            "running": True, "prewarmed": True, "active": 1, "maxConcurrent": 2,
+            "busyWaitSeconds": 2.0, "stallTimeoutSeconds": 90.0,
+            "idleTimeoutSeconds": 900.0, "affinityEnabled": True,
+            "stats": {
+                "admitted": 5, "busy_rejected": 2, "completed": 3, "failed": 1,
+                "stalled": 0, "cold_starts": 1, "idle_closes": 0,
+            },
+            "affinity": {"entries": 1, "maxEntries": 4, "hits": 3},
+        },
         "platforms": ["qqonebot", "cli"],
         "models": ["deepseek-v4", "gpt-4o"],
     }
@@ -279,6 +291,13 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(rows["生图闸门"], "active 2 / waiting 1")
         self.assertIn("放行 100 / 拒绝 3", rows["Provider 限速"])
         self.assertIn("未启用限流", rows["Provider 限速"])
+        self.assertIn("active 1 / max 2", rows["DSH 并发"])
+        self.assertEqual(rows["DSH 忙拒 / 卡死"], "2 / 0")
+        self.assertEqual(rows["DSH 完成 / 失败"], "3 / 1")
+        self.assertEqual(rows["DSH 冷启动 / 空闲回收"], "1 / 0")
+        self.assertEqual(rows["DSH 会话亲和"], "1 / 4 个（命中 3）")
+        self.assertEqual(rows["DSH 预热"], "已预热")
+        self.assertIn("deepseek", rows["DSH 凭据协议"])
         self.assertEqual(rows["平台"], "qqonebot、cli")
         self.assertEqual(rows["模型"], "2 个")
 
@@ -288,19 +307,21 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(rows["运行时长"], "—")
         self.assertEqual(rows["活跃 turn"], "0")
         self.assertEqual(rows["生图闸门"], "active 0 / waiting 0")
+        self.assertFalse(any(label.startswith("DSH") for label in rows))
         self.assertEqual(dict(perfconfig.metrics_summary(None))["版本"], "未知")
         rows = dict(
             perfconfig.metrics_summary(
                 {
                     "version": 5, "uptime_seconds": "soon", "tasks": "oops",
                     "rate_limit": 7, "image_limit": None, "platforms": 3,
-                    "models": {}, "collected_at": ["x"],
+                    "models": {}, "collected_at": ["x"], "dsh": "oops",
                 }
             )
         )
         self.assertEqual(rows["版本"], "未知")
         self.assertEqual(rows["模型"], "0 个")
         self.assertEqual(rows["平台"], "—")
+        self.assertFalse(any(label.startswith("DSH") for label in rows))
 
     def test_active_rows(self) -> None:
         rows = perfconfig.active_request_rows(_payload())

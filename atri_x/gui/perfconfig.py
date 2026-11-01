@@ -15,8 +15,9 @@
 * **实况**：``GET http://<ATRIX_HEALTH_ADDR>/metrics``（本机回环 + Bearer 令牌）。payload
   就是 :class:`atri_x.app.ops_health.OpsMetrics` 的 JSON，``tasks`` 是
   :class:`atri_x.request.Snapshot` 的字段（``count_by_kind`` / ``queued_by_kind`` /
-  ``oldest_age`` / ``active`` …）。这些字段带 Go 的 ``omitempty`` 语义：零值整个不出现，
-  所以每个字段都必须允许缺失，缺了显示占位符而不是抛异常。
+  ``oldest_age`` / ``active`` …），``dsh`` 是 DSH 深度路由的并发/忙拒/卡死/亲和统计
+  （1.1.8 新增，旧后台缺这段时整段跳过）。这些字段带 Go 的 ``omitempty`` 语义：零值整个
+  不出现，所以每个字段都必须允许缺失，缺了显示占位符而不是抛异常。
 
 并发口径（界面文案别误导用户）：ATRI-X 的并发是 asyncio 协程，不是多进程。不同群 /
 私聊的回合本来就在同一个事件循环里并行；真正串行的是**同一个群的会话**
@@ -394,9 +395,61 @@ def metrics_summary(payload: Any) -> list[tuple[str, str]]:
         ("请求超时计数", str(_num(tasks.get("timeouts")))),
         ("生图闸门", f"active {_num(image.get('active'))} / waiting {_num(image.get('waiting'))}"),
         ("Provider 限速", _rate_limit_text(rate)),
+    ]
+    rows += _dsh_rows(_section(data, "dsh"))
+    rows += [
         ("平台", _names_text(data.get("platforms"))),
         ("模型", _count_text(data.get("models"))),
     ]
+    return rows
+
+
+def _dsh_rows(dsh: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """``/metrics`` 的 ``dsh`` 段 → 可读行（旧后台没有该段时一行都不加）。"""
+    if not isinstance(dsh, Mapping) or not dsh:
+        return []
+    if not dsh.get("enabled"):
+        return [("DSH 深度路由", "未启用")]
+    stats = _section(dsh, "stats")
+    affinity = _section(dsh, "affinity")
+    credential = "可用" if dsh.get("credentialUsable") else "不可用"
+    provider = _text(dsh.get("credentialProvider"))
+    if provider:
+        credential += f"（{provider}）"
+    reason = _text(dsh.get("credentialReason"))
+    if reason:
+        credential += f"：{reason}"
+    rows = [
+        ("DSH 深度路由", "已启用（内核可用）" if dsh.get("available") else "已启用（内核不可用）"),
+        ("DSH 运行状态", "运行中" if dsh.get("running") else "未拉起"),
+        ("DSH 凭据协议", credential),
+        (
+            "DSH 并发",
+            f"active {_num(dsh.get('active'))} / max {_num(dsh.get('maxConcurrent'))}"
+            f"（队列等待 {format_duration(dsh.get('busyWaitSeconds'))}）",
+        ),
+        (
+            "DSH 忙拒 / 卡死",
+            f"{_num(stats.get('busy_rejected'))} / {_num(stats.get('stalled'))}",
+        ),
+        (
+            "DSH 完成 / 失败",
+            f"{_num(stats.get('completed'))} / {_num(stats.get('failed'))}",
+        ),
+        (
+            "DSH 冷启动 / 空闲回收",
+            f"{_num(stats.get('cold_starts'))} / {_num(stats.get('idle_closes'))}",
+        ),
+    ]
+    if dsh.get("affinityEnabled"):
+        rows.append(
+            (
+                "DSH 会话亲和",
+                f"{_num(affinity.get('entries'))} / {_num(affinity.get('maxEntries'))} 个"
+                f"（命中 {_num(affinity.get('hits'))}）",
+            )
+        )
+    rows.append(("DSH 预热", "已预热" if dsh.get("prewarmed") else "未预热"))
     return rows
 
 

@@ -1052,26 +1052,9 @@ class AgentDshConfig(StrictConfig):
     """``[agent.dsh]``：把复杂任务一次性交给内置 DSH 内核处理。
 
     **Python 版新增段**（Go 上游没有）：DSH 只在「任务够复杂」时接管一轮
-    ``session/prompt``，普通聊天仍走 ATRI-X 原生低成本链路。判定与成本闸门见
-    :mod:`atri_x.agent.dsh.router`，上下文交接见 :mod:`atri_x.agent.dsh.handoff`。
-
-    0 / 空串一律表示「用内置默认」，与其它段的口径一致：
-
-    - ``enabled``：总开关（内核缺失或命令找不到时自动视为不可用，不会报错）；
-    - ``min_score``：任务复杂度阈值 0..1，越大越保守；
-    - ``lambda_penalty``：成本闸门权重，``score - λ·cost_pressure`` 必须仍达标；
-    - ``cost_ratio``：DSH 单轮成本相对原生链路的估计倍数（用于 cost_pressure）；
-    - ``cost_scale_tokens``：cost_pressure 的归一化尺度（多少 token 算「一次大调用」）；
-    - ``command``：显式启动命令；空串按「``DSH_ACP_COMMAND`` → 内置内核 → PATH 上的 ``dsh``」；
-    - ``model`` / ``reasoning_effort``：下发 ``session/set_config_option`` 的会话配置；
-    - ``timeout_seconds``：单轮 prompt 超时；
-    - ``max_history_messages`` / ``prompt_char_budget``：交给 DSH 的历史消息条数与字符预算；
-    - ``workspace`` / ``home``：DSH 会话工作区与 ``DSH_HOME``；空串落在配置目录下；
-    - ``allow_permissions``：是否放行 DSH 的权限请求（默认拒绝，安全优先）；
-    - ``circuit_breaker_failures`` / ``circuit_breaker_cooldown_seconds``：连续失败熔断；
-    - ``credential_provider`` / ``credential_env`` / ``credential_base_url_env``：把
-      ATRI-X 解析好的模型凭据注入 DSH 子进程（见 :mod:`atri_x.agent.dsh.runtime` 的
-      环境收敛）。DSH 侧凭据不落盘也能跑通，Windows 图形端只写 ``.env`` 的场景尤其需要。
+    ``session/prompt``，普通聊天仍走原生低成本链路。判定见
+    :mod:`atri_x.agent.dsh.router`，并发/看门狗见 :mod:`atri_x.agent.dsh.scheduler`，
+    凭据协议见 :mod:`atri_x.agent.dsh.credentials`；0 / 空串表示「用内置默认」。
     """
 
     enabled: bool = True
@@ -1090,13 +1073,27 @@ class AgentDshConfig(StrictConfig):
     allow_permissions: bool = False
     circuit_breaker_failures: int = 3
     circuit_breaker_cooldown_seconds: float = 300.0
-    #: 用哪个 ATRI-X provider 的密钥喂给 DSH；空 = 自动（优先名字含 deepseek 的 provider，
-    #: 其次当前 work provider）。
+    #: 用哪个 ATRI-X provider 的密钥喂给 DSH；空 = 自动（优先名字含 deepseek 的 provider）。
     credential_provider: str = ""
     #: 注入的凭据环境变量名（内核默认找 DEEPSEEK_API_KEY）；空 = 内置默认。
     credential_env: str = "DEEPSEEK_API_KEY"
     #: 选中 provider 的 base_url 非官方默认时，一并注入的变量名；空 = 内置默认。
     credential_base_url_env: str = "DEEPSEEK_BASE_URL"
+    #: auto=只给 Anthropic Messages 端点注入（官方 DeepSeek / base_url 含 anthropic）；
+    #: anthropic=强制注入；openai/off=不路由。见 credentials 模块。
+    credential_protocol: str = "auto"
+    #: 同一条 ACP 连接上并发运行的 prompt 上限（1=串行；0=内置默认 2）。
+    max_concurrent_prompts: int = 2
+    #: 并发槽满时最多等多久（秒）；超时回退原生（0=不等）。
+    busy_wait_seconds: float = 2.0
+    #: 启动时后台预热内核（凭据不可用时不预热）。
+    prewarm: bool = True
+    #: 空闲多久回收内核进程（秒；0=不回收）。
+    idle_timeout_seconds: float = 900.0
+    #: 单轮多久没有任何事件就取消（秒；0=不启用）。
+    stall_timeout_seconds: float = 90.0
+    #: 同一聊天连续路由时复用 DSH 会话、只发增量。
+    session_affinity: bool = True
 
 
 @dataclass

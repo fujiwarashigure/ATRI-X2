@@ -2,12 +2,14 @@
 
 面向运维与排障（不启动 Agent、不起子进程）：
 
-- 读 ``app.toml``（``--config`` 可指定）里的 ``[agent.dsh]``；
-- 报告内核是否可用、解析出的启动命令、路由参数与熔断状态；
+- 读 ``app.toml``（``--config`` 可指定）里的 ``[agent.dsh]`` 与 ``services.toml`` 的
+  provider 表；
+- 报告内核是否可用、解析出的启动命令、路由参数、熔断状态与**凭据协议是否可用**
+  （``auto`` 下 OpenAI 兼容网关会被判为不可用，见 :mod:`atri_x.agent.dsh.credentials`）；
 - ``--score TEXT`` 可以对任意一段话跑打分/判定，用来标定 ``min_score``；
 - ``--json`` 输出机器可读结果（脚本/打包验证用）。
 
-退出码：0 表示"内核可用且路由已启用"；1 表示不可用/未启用/配置加载失败。
+退出码：0 表示"内核可用 + 路由启用 + 凭据可用"；1 表示不可用/未启用/配置加载失败。
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ def collect_status(config_path: str = "", scores: Sequence[str] = ()) -> dict[st
         "command": "",
         "kernel": {},
         "route": {},
+        "credential": {},
         "scores": [],
     }
     try:
@@ -68,7 +71,15 @@ def collect_status(config_path: str = "", scores: Sequence[str] = ()) -> dict[st
         "timeoutSeconds": config.timeout_seconds,
         "workspace": config.workspace,
         "home": config.home,
+        "maxConcurrentPrompts": config.max_concurrent_prompts,
+        "busyWaitSeconds": config.busy_wait_seconds,
+        "prewarm": config.prewarm,
+        "idleTimeoutSeconds": config.idle_timeout_seconds,
+        "stallTimeoutSeconds": config.stall_timeout_seconds,
+        "sessionAffinity": config.session_affinity,
+        "credentialProtocol": config.credential_protocol,
     }
+    report["credential"] = _credential_report(cfg, config)
     try:
         from atri_x.sidecar import describe as describe_kernel
 
@@ -89,6 +100,23 @@ def collect_status(config_path: str = "", scores: Sequence[str] = ()) -> dict[st
             }
         )
     return report
+
+
+def _credential_report(cfg: Any, config: DshRouteConfig) -> dict[str, Any]:
+    """凭据协议判定（只用已加载的 provider 表，不落密钥值）。"""
+    from types import SimpleNamespace
+
+    from atri_x.agent.dsh.credentials import resolve_credential_plan
+
+    agent = SimpleNamespace(
+        providers=dict(getattr(cfg, "providers", None) or {}),
+        mode_models=dict(getattr(cfg, "mode_models", None) or {}),
+    )
+    try:
+        plan = resolve_credential_plan(agent, config)
+    except Exception as exc:  # noqa: BLE001 - 状态自检不抛
+        return {"usable": False, "reason": f"{type(exc).__name__}: {exc}", "envKeys": []}
+    return plan.to_dict()
 
 
 def _print_human(report: dict[str, Any]) -> None:
@@ -131,6 +159,30 @@ def _print_human(report: dict[str, Any]) -> None:
         "breaker: failures=%s open=%s"
         % (breaker.get("failures", 0), str(bool(breaker.get("open"))).lower())
     )
+    credential = report.get("credential") or {}
+    _write(
+        "credential: usable=%s protocol=%s provider=%r env=%s"
+        % (
+            str(bool(credential.get("usable"))).lower(),
+            credential.get("protocol", ""),
+            credential.get("provider", ""),
+            ",".join(credential.get("envKeys") or []) or "<none>",
+        )
+    )
+    if credential.get("reason"):
+        _write("credential: " + str(credential["reason"]))
+    config = report.get("config") or {}
+    _write(
+        "schedule: maxConcurrent=%s busyWait=%ss stall=%ss idle=%ss prewarm=%s affinity=%s"
+        % (
+            config.get("maxConcurrentPrompts", 0),
+            config.get("busyWaitSeconds", 0),
+            config.get("stallTimeoutSeconds", 0),
+            config.get("idleTimeoutSeconds", 0),
+            str(bool(config.get("prewarm"))).lower(),
+            str(bool(config.get("sessionAffinity"))).lower(),
+        )
+    )
     for item in report.get("scores") or []:
         decision = item.get("decision") or {}
         _write(
@@ -158,14 +210,19 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """命令行入口；返回进程退出码。"""
+    """命令行入口；返回进程退出码（0 = 内核可用 + 路由启用 + 凭据可用）。"""
     args = _parse_args(argv)
     report = collect_status(args.config, args.score)
     if args.json:
         _write(json.dumps(report, ensure_ascii=False, sort_keys=True))
     else:
         _print_human(report)
-    return 0 if report.get("available") and report.get("enabled") else 1
+    credential_usable = bool((report.get("credential") or {}).get("usable", True))
+    return (
+        0
+        if report.get("available") and report.get("enabled") and credential_usable
+        else 1
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover - 命令行入口

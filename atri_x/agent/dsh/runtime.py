@@ -1,22 +1,26 @@
-"""DSH 运行时的进程与并发管理：长驻 AcpClient + 每次路由一个一次性会话。
+"""DSH 运行时的进程与并发管理：长驻 AcpClient + 有界并发 + 看门狗 + 会话亲和。
 
 为什么长驻：``dsh --profile acp`` 是 node 进程，冷启动要 1~2 秒；路由的收益是
-"复杂任务一次做对"，不是每轮都付启动成本。因此进程按需拉起、成功后复用；子进程
-死了下次调用自动重启。
+"复杂任务一次做对"，不是每轮都付启动成本。因此进程按需拉起（或启动期预热）、成功后
+复用；子进程死了下次调用自动重启。
 
-为什么每次路由新开会话：见 :mod:`atri_x.agent.dsh.handoff`（无状态交接）。会话
-在 ``session/close`` 里停稳后释放，不留跨轮状态。
+并发模型（1.1.8 起）：内核的 ACP 连接本来就支持**多会话并发**（每个会话自带 inflight
+槽），所以这里用 :class:`~atri_x.agent.dsh.scheduler.TurnScheduler` 开 N 个并发槽，
+槽满时短暂等待、等不到就回退原生（见 ``busy_wait_seconds``）。同一会话仍然只允许
+一轮 prompt（由内核保证，客户端也会拦）。
+
+会话复用（P2）：默认"每轮新会话 + 完整交接"，但同一聊天**连续**路由时走
+:mod:`atri_x.agent.dsh.affinity`，只发增量、省掉重复交接；连续性校验不通过就退回
+完整交接。
 
 线程模型：``AcpClient.prompt`` 是**同步阻塞**的（见 :mod:`atri_x.agent.dsh.client`），
 而对话链路是 asyncio。这里的桥接方式是：
 
-1. 把「建会话 → prompt → 关会话」整段丢进线程池执行；
+1. 把「取槽 → 建/续会话 → prompt → 关/留会话」整段丢进线程池执行；
 2. ACP 的 ``session/update`` 通知在读线程里触发回调，用
    ``loop.call_soon_threadsafe`` 塞进 :class:`asyncio.Queue`；
-3. 事件循环侧边收事件边把文本写进界面的 ``MessageStream``，等线程返回后再取结果。
-
-同一进程内用一把 ``threading.Lock`` 串行化 prompt（ACP 单会话不允许并发轮次，
-DSH 也未必扛得住多会话并发；串行是最保守也最可预测的选择）。
+3. 事件循环侧边收事件边把文本写进界面的 ``MessageStream``，等线程返回后再取结果；
+4. 监控线程（``dsh-monitor``）负责卡死取消与空闲回收，见 scheduler 模块。
 """
 
 from __future__ import annotations
@@ -25,18 +29,28 @@ import asyncio
 import os
 import threading
 import time
-from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
+from atri_x.agent.dsh.affinity import AffinityEntry, SessionAffinity
 from atri_x.agent.dsh.client import AcpClient
 from atri_x.agent.dsh.command import format_command, resolve_command
+from atri_x.agent.dsh.handoff import latest_user_text
 from atri_x.agent.dsh.router import DshRouteConfig
-from atri_x.agent.dsh.types import AcpError, AcpEvent, AcpUsage, as_text
-from atri_x.processenv import new as new_process_env
+from atri_x.agent.dsh.scheduler import TurnScheduler
+from atri_x.agent.dsh.turn import DshRunResult, DshTurnPlan
+from atri_x.agent.dsh.types import AcpError, AcpEvent, as_text
+from atri_x.agent.dsh.workspace import (
+    WorkspacePaths,
+    allow_permission,
+    child_environment,
+    config_dir_of,
+    resolve_paths,
+)
 
 __all__ = [
     "DshRunResult",
     "DshRuntime",
+    "DshTurnPlan",
     "WorkspacePaths",
     "allow_permission",
     "child_environment",
@@ -52,117 +66,8 @@ _MAX_QUEUED_EVENTS = 4096
 _MAX_TOOL_TITLES = 32
 
 
-@dataclass(frozen=True)
-class WorkspacePaths:
-    """DSH 需要的两个目录：会话工作区与 ``DSH_HOME``。"""
-
-    workspace: str
-    home: str
-
-
-def config_dir_of(agent: Any) -> str:
-    """本轮配置目录（``state.toml`` 所在目录；拿不到时退回当前目录）。"""
-    state_path = str(getattr(agent, "state_path", "") or "").strip()
-    if state_path:
-        return os.path.dirname(os.path.abspath(state_path))
-    return os.getcwd()
-
-
-def resolve_paths(agent: Any, config: DshRouteConfig) -> WorkspacePaths:
-    """解析工作区与 ``DSH_HOME``；相对路径按配置目录展开。"""
-    base = config_dir_of(agent)
-
-    def resolve(value: str, fallback: str) -> str:
-        text = (value or "").strip()
-        path = text if text else fallback
-        if not os.path.isabs(path):
-            path = os.path.join(base, path)
-        return os.path.abspath(path)
-
-    return WorkspacePaths(
-        workspace=resolve(config.workspace, os.path.join("dsh", "workspace")),
-        home=resolve(config.home, os.path.join("dsh", "home")),
-    )
-
-
-def allow_permission(params: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    """``[agent.dsh].allow_permissions=true`` 时的权限应答：选第一个 allow 选项。"""
-    options = params.get("options")
-    if isinstance(options, list):
-        for option in options:
-            if not isinstance(option, Mapping):
-                continue
-            if as_text(option.get("kind")).startswith("allow"):
-                option_id = as_text(option.get("optionId"))
-                if option_id:
-                    return {"outcome": {"outcome": "selected", "optionId": option_id}}
-    return None
-
-
-def child_environment(extra_env: Mapping[str, str] | None = None) -> dict[str, str]:
-    """给 DSH 子进程构造环境：先收敛掉继承来的凭据，再放回显式注入项。
-
-    子进程不该无脑继承整份 ``os.environ``（内核日志里就会出现宿主的密钥变量），
-    因此复用 :mod:`atri_x.processenv` 的 :meth:`Environment.without_sensitive_keys`
-    过滤 ``*_KEY`` / ``*_TOKEN`` / ``*SECRET*`` 之类的名字，再叠回调用方
-    **明确要注入**的变量（例如 ATRI-X 自己从 ``.env`` 解析出来的 provider 密钥）。
-    ``extra_env`` 的值覆盖继承值，空值不进环境。
-    """
-    entries = [f"{name}={value}" for name, value in os.environ.items()]
-    filtered = new_process_env(entries).without_sensitive_keys()
-    overlay = {
-        str(name): str(value)
-        for name, value in (extra_env or {}).items()
-        if str(name).strip() and str(value)
-    }
-    if overlay:
-        filtered = filtered.overlay(overlay)
-    out: dict[str, str] = {}
-    for entry in filtered.environ():
-        name, sep, value = entry.partition("=")
-        if sep and name:
-            out[name] = value
-    return out
-
-
-@dataclass
-class DshRunResult:
-    """一次路由执行的结果（与 ACP 结果解耦，便于测试构造）。"""
-
-    text: str = ""
-    thought: str = ""
-    usage: AcpUsage = field(default_factory=AcpUsage)
-    stop_reason: str = ""
-    session_id: str = ""
-    elapsed_seconds: float = 0.0
-    tool_titles: list[str] = field(default_factory=list)
-    server: str = ""
-    #: 内核是否真的回报了 ``usage``；为 ``False`` 时上面的 ``usage`` 只是全 0 占位。
-    usage_reported: bool = False
-    #: 本轮被内核拒绝的会话配置（例如 ``model`` 填了裸模型 id）：降级说明，供审计。
-    warnings: list[str] = field(default_factory=list)
-
-    @property
-    def ok(self) -> bool:
-        """是否正常结束（``end_turn``）。"""
-        return self.stop_reason == "end_turn"
-
-    def to_dict(self) -> dict[str, Any]:
-        """给审计用的普通字典（不展开事件）。"""
-        return {
-            "sessionId": self.session_id,
-            "stopReason": self.stop_reason,
-            "usage": self.usage.to_dict(),
-            "usageReported": self.usage_reported,
-            "elapsedSeconds": round(self.elapsed_seconds, 3),
-            "toolCalls": len(self.tool_titles),
-            "server": self.server,
-            "warnings": list(self.warnings),
-        }
-
-
 class DshRuntime:
-    """长驻 DSH ACP 客户端 + 串行 prompt 执行器。"""
+    """长驻 DSH ACP 客户端 + 有界并发执行器（线程安全）。"""
 
     def __init__(
         self,
@@ -172,9 +77,12 @@ class DshRuntime:
         paths: WorkspacePaths | None = None,
         client_factory: Callable[..., AcpClient] | None = None,
         extra_env: Mapping[str, str] | None = None,
+        provider: str = "",
+        monitor_interval: float = 0.0,
     ) -> None:
         self.config = config or DshRouteConfig()
         self._command = command
+        self.provider = str(provider or "").strip()
         self.paths = paths or WorkspacePaths(workspace=os.getcwd(), home="")
         self._client_factory = client_factory or AcpClient
         self._extra_env = {
@@ -182,13 +90,32 @@ class DshRuntime:
             for name, value in (extra_env or {}).items()
             if str(name).strip() and str(value)
         }
-        self._lock = threading.Lock()
+        self._client_lock = threading.RLock()
         self._client: AcpClient | None = None
-        self._active_session = ""
         self._closed = False
+        #: 正在"取槽后、登记在途轮次前"的 worker 数（空闲回收不能把它们的内核关掉）。
+        self._starting = 0
+        self._prewarmed = False
+        self._last_error = ""
         #: 会话配置覆盖被内核拒绝过一次之后就不再重试（见 :meth:`_apply_overrides`）。
         self._model_override_rejected = False
         self._effort_override_rejected = False
+        self._scheduler = TurnScheduler(
+            max_concurrent=max(1, int(self.config.max_concurrent_prompts or 2)),
+            busy_wait_seconds=float(self.config.busy_wait_seconds or 0.0),
+            stall_timeout_seconds=float(self.config.stall_timeout_seconds or 0.0),
+            idle_timeout_seconds=float(self.config.idle_timeout_seconds or 0.0),
+            on_idle=self._idle_close,
+            interval=float(monitor_interval or 5.0),
+        )
+        self._affinity: SessionAffinity | None = (
+            SessionAffinity(
+                max_entries=int(self.config.affinity_max_sessions or 4),
+                ttl_seconds=float(self.config.affinity_ttl_seconds or 0.0),
+            )
+            if self.config.session_affinity
+            else None
+        )
 
     # -- 生命周期 -------------------------------------------------------------
     @property
@@ -198,43 +125,86 @@ class DshRuntime:
             self._command = resolve_command(self.config.command)
         return self._command
 
+    @property
+    def prewarmed(self) -> bool:
+        """是否已成功预热过内核。"""
+        return self._prewarmed
+
     def _ensure_client(self) -> AcpClient:
         """取活着的客户端；没起或已死就重建（在调用线程里执行）。"""
-        client = self._client
-        if client is not None and client.alive:
+        with self._client_lock:
+            if self._closed:
+                raise RuntimeError("DSH 运行时已关闭")
+            client = self._client
+            if client is not None and client.alive:
+                return client
+            if client is not None:
+                try:
+                    client.stop()
+                except Exception:  # noqa: BLE001 - 旧进程收尸失败不影响重建
+                    pass
+                self._client = None
+                if self._affinity is not None:
+                    self._affinity.clear()  # 进程没了，会话也就不存在了
+            command = self.command
+            if not command:
+                raise RuntimeError("DSH 启动命令不可用（没有内置内核，PATH 上也没有 dsh）")
+            os.makedirs(self.paths.workspace, exist_ok=True)
+            env = child_environment(self._extra_env)
+            if self.paths.home:
+                os.makedirs(self.paths.home, exist_ok=True)
+                env["DSH_HOME"] = self.paths.home
+            client = self._client_factory(
+                command,
+                cwd=self.paths.workspace,
+                env=env,
+                isolate_env=True,
+                prompt_timeout=float(self.config.timeout_seconds or 180.0),
+                on_permission=(
+                    allow_permission if self.config.allow_permissions else None
+                ),
+            )
+            client.start()
+            self._client = client
+            self._scheduler.record_cold_start()
+            self._scheduler.mark_activity()
+            self._scheduler.start()
             return client
-        if client is not None:
+
+    def prewarm(self) -> bool:
+        """同步预热内核（spawn + initialize）；失败只记录、不抛。"""
+        if self._closed:
+            return False
+        try:
+            with self._client_lock:
+                self._starting += 1
             try:
-                client.stop()
-            except Exception:  # noqa: BLE001 - 旧进程收尸失败不影响重建
-                pass
-            self._client = None
-        command = self.command
-        if not command:
-            raise RuntimeError("DSH 启动命令不可用（没有内置内核，PATH 上也没有 dsh）")
-        os.makedirs(self.paths.workspace, exist_ok=True)
-        env = child_environment(self._extra_env)
-        if self.paths.home:
-            os.makedirs(self.paths.home, exist_ok=True)
-            env["DSH_HOME"] = self.paths.home
-        client = self._client_factory(
-            command,
-            cwd=self.paths.workspace,
-            env=env,
-            isolate_env=True,
-            prompt_timeout=float(self.config.timeout_seconds or 180.0),
-            on_permission=allow_permission if self.config.allow_permissions else None,
-        )
-        client.start()
-        self._client = client
-        return client
+                self._ensure_client()
+            finally:
+                with self._client_lock:
+                    self._starting -= 1
+        except Exception as exc:  # noqa: BLE001 - 预热失败回落到"首轮再拉"
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            return False
+        self._prewarmed = True
+        self._scheduler.record_prewarm()
+        return True
+
+    async def aprewarm(self) -> bool:
+        """异步预热（关停/测试路径复用）。"""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.prewarm)
 
     def close(self) -> None:
-        """终止子进程（幂等；可在任意线程调用）。"""
-        with self._lock:
+        """终止子进程并停止监控（幂等；可在任意线程调用）。"""
+        with self._client_lock:
             self._closed = True
             client, self._client = self._client, None
+        self._scheduler.cancel_all()
+        self._scheduler.stop()
         if client is not None:
+            if self._affinity is not None:
+                self._affinity.clear()
             try:
                 client.stop()
             except Exception:  # noqa: BLE001 - 退出路径不抛
@@ -245,23 +215,58 @@ class DshRuntime:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.close)
 
+    # -- 计划 -----------------------------------------------------------------
+    def plan_turn(
+        self, turn_key: str, messages: Sequence[Any], *, handoff_prompt: str
+    ) -> DshTurnPlan:
+        """决定本轮发完整交接还是只发增量（同步、快；不碰子进程）。"""
+        body = tuple(messages or ())
+        base = DshTurnPlan(
+            prompt=handoff_prompt,
+            fallback_prompt=handoff_prompt,
+            key=turn_key,
+            messages=body,
+        )
+        if self._affinity is None or not turn_key:
+            return base
+        entry, stale = self._affinity.consume(turn_key, body)
+        self._close_entries(stale)
+        if entry is None:
+            return base
+        incremental = latest_user_text(body)
+        return DshTurnPlan(
+            prompt=incremental or handoff_prompt,
+            fallback_prompt=handoff_prompt,
+            session_id=entry.session_id,
+            reused=True,
+            key=turn_key,
+            messages=body,
+        )
+
     # -- 执行 -----------------------------------------------------------------
     async def run(
         self,
-        prompt: str,
+        prompt: str = "",
         *,
+        plan: DshTurnPlan | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
         on_thought: Callable[[str], Awaitable[None]] | None = None,
         on_tool: Callable[[AcpEvent], Any] | None = None,
         timeout: float | None = None,
+        cancel_token: object | None = None,
     ) -> DshRunResult:
-        """跑一轮 prompt；流式文本经 ``on_chunk`` 回调（在事件循环里 await）。"""
+        """跑一轮 prompt；流式文本经 ``on_chunk`` 回调（在事件循环里 await）。
+
+        ``cancel_token`` 给出后，可以用 :meth:`cancel` 只取消这一轮（不再"取消所有"）。
+        """
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[Any] = asyncio.Queue()
         dropped = 0
+        token = cancel_token if cancel_token is not None else object()
 
         def emit(event: AcpEvent) -> None:
             nonlocal dropped
+            self._scheduler.touch(token)
             if queue.qsize() >= _MAX_QUEUED_EVENTS:
                 dropped += 1
                 return
@@ -272,8 +277,13 @@ class DshRuntime:
 
         def work() -> DshRunResult:
             try:
-                with self._lock:
-                    return self._prompt_once(prompt, emit, timeout)
+                waited = self._scheduler.admit()
+                try:
+                    return self._prompt_once(
+                        prompt, emit, timeout, token=token, plan=plan, waited=waited
+                    )
+                finally:
+                    self._scheduler.release()
             finally:
                 try:
                     loop.call_soon_threadsafe(queue.put_nowait, _SENTINEL)
@@ -314,16 +324,13 @@ class DshRuntime:
             result.stop_reason = result.stop_reason or "dropped_events"
         return result
 
-    def cancel_active(self) -> None:
-        """取消在途 prompt（best-effort；ACP 只有这一条取消路径）。"""
-        client = self._client
-        session_id = self._active_session
-        if client is None or not session_id:
-            return
-        try:
-            client.cancel(session_id)
-        except Exception:  # noqa: BLE001 - 取消失败由 prompt 超时兜底
-            pass
+    def cancel(self, token: object) -> bool:
+        """取消某一轮（``run(cancel_token=...)``）；返回是否真的发了 cancel。"""
+        return self._scheduler.cancel(token)
+
+    def cancel_active(self) -> int:
+        """取消所有在途 prompt（关停/兼容路径）；返回取消了几轮。"""
+        return self._scheduler.cancel_all()
 
     # -- 内部 -----------------------------------------------------------------
     def _prompt_once(
@@ -331,50 +338,187 @@ class DshRuntime:
         prompt: str,
         emit: Callable[[AcpEvent], None],
         timeout: float | None,
+        *,
+        token: object,
+        plan: DshTurnPlan | None,
+        waited: float,
     ) -> DshRunResult:
-        """线程池里执行的同步一次：建会话 → prompt → 关会话。"""
-        if self._closed:
-            raise RuntimeError("DSH 运行时已关闭")
-        client = self._ensure_client()
-        info = client.server_info
-        started = time.monotonic()
-        session = client.new_session(self.paths.workspace)
-        self._active_session = session.session_id
-        tool_titles: list[str] = []
-        warnings: list[str] = []
+        """线程池里执行的同步一次：取槽后建/续会话 → prompt → 关/留会话。"""
+        plan = plan or DshTurnPlan(prompt=prompt, fallback_prompt=prompt)
+        with self._client_lock:
+            self._starting += 1
         try:
-            warnings = self._apply_overrides(client, session)
-            result = client.prompt(
-                session.session_id,
-                prompt,
-                timeout=timeout if timeout is not None else None,
-                on_event=emit,
+            client = self._ensure_client()
+            info = client.server_info
+            started = time.monotonic()
+            session, live, created = self._acquire_session(client, plan)
+            warnings: list[str] = []
+            if created:
+                prompt_text = plan.fallback_prompt or plan.prompt or prompt
+                warnings = self._apply_overrides(client, session)
+            else:
+                prompt_text = plan.prompt or prompt
+                if not live:
+                    warnings = self._apply_overrides(client, session)
+            self._scheduler.register(
+                token, session.session_id, lambda: client.cancel(session.session_id)
             )
+        finally:
+            with self._client_lock:
+                self._starting -= 1
+        return self._execute_prompt(
+            client, session, prompt_text, emit, timeout, token, plan, waited,
+            started, info, warnings, created,
+        )
+
+    def _execute_prompt(
+        self,
+        client: AcpClient,
+        session: Any,
+        prompt_text: str,
+        emit: Callable[[AcpEvent], None],
+        timeout: float | None,
+        token: object,
+        plan: DshTurnPlan,
+        waited: float,
+        started: float,
+        info: Any,
+        warnings: list[str],
+        created: bool,
+    ) -> DshRunResult:
+        """真正发 prompt 并收尾（异常时关闭会话、记账失败）。"""
+        session_id = session.session_id
+        recorded = False
+        keep = False
+        turn = None
+        try:
+            result = client.prompt(
+                session_id, prompt_text, timeout=timeout, on_event=emit
+            )
+            elapsed = max(0.0, time.monotonic() - started)
+            turn = self._scheduler.unregister(token)
+            stalled = bool(turn and turn.stalled)
+            stop_reason = as_text(result.stop_reason)
+            tool_titles: list[str] = []
             for event in result.events:
                 if event.kind in ("tool_call", "tool_call_update") and event.tool_title:
                     title = f"{event.tool_title} [{event.tool_status or 'pending'}]"
                     if title not in tool_titles and len(tool_titles) < _MAX_TOOL_TITLES:
                         tool_titles.append(title)
-            return DshRunResult(
+            out = DshRunResult(
                 text=result.text,
                 thought=result.thought,
                 usage=result.usage,
-                stop_reason=result.stop_reason,
-                session_id=session.session_id,
-                elapsed_seconds=time.monotonic() - started,
+                stop_reason=stop_reason,
+                session_id=session_id,
+                elapsed_seconds=elapsed,
                 tool_titles=tool_titles,
                 server=(
                     f"{info.agent_name}/{info.agent_version}" if info is not None else ""
                 ),
                 usage_reported=bool(result.usage_reported),
                 warnings=warnings,
+                queue_wait_seconds=waited,
+                session_reused=not created,
+                stalled=stalled,
             )
+            if stalled:
+                self._scheduler.record_failure(elapsed)
+                recorded = True
+                raise RuntimeError(
+                    f"DSH 轮次卡死：{self.config.stall_timeout_seconds:g}s 内没有任何事件，已取消"
+                )
+            if stop_reason == "end_turn":
+                self._scheduler.record_success(elapsed)
+                recorded = True
+                keep = self._store_affinity(plan, session_id)
+            else:
+                self._scheduler.record_failure(elapsed)
+                recorded = True
+            return out
+        except BaseException:
+            if not recorded:
+                self._scheduler.record_failure(max(0.0, time.monotonic() - started))
+            raise
         finally:
-            self._active_session = ""
+            self._scheduler.unregister(token)
+            if not keep:
+                self._forget_session(client, plan, session_id)
+
+    def _acquire_session(
+        self, client: AcpClient, plan: DshTurnPlan
+    ) -> tuple[Any, bool, bool]:
+        """返回 ``(session, live, created)``：live = 复用本连接上已打开的会话。"""
+        if plan.reused and plan.session_id:
+            existing = client.session(plan.session_id)
+            if existing is not None:
+                return existing, True, False
             try:
-                client.close_session(session.session_id)
-            except Exception:  # noqa: BLE001 - 关会话失败不覆盖本轮结果
-                pass
+                resumed = client.resume_session(plan.session_id, self.paths.workspace)
+            except AcpError:
+                resumed = None
+            if resumed is not None:
+                return resumed, False, False
+        return client.new_session(self.paths.workspace), False, True
+
+    def _store_affinity(self, plan: DshTurnPlan, session_id: str) -> bool:
+        """把会话登记为可复用；返回是否保留会话（``False`` 时调用方负责关闭）。"""
+        if self._affinity is None or not plan.key or not plan.messages:
+            return False
+        evicted = [
+            entry
+            for entry in self._affinity.store(plan.key, session_id, plan.messages)
+            if entry.session_id != session_id
+        ]
+        self._close_entries(evicted)
+        return True
+
+    def _forget_session(
+        self, client: AcpClient, plan: DshTurnPlan, session_id: str
+    ) -> None:
+        """失败/不保留时：从亲和缓存移除并关闭会话（best-effort）。"""
+        stale: list[AffinityEntry] = []
+        if self._affinity is not None and plan.key:
+            entry = self._affinity.pop(plan.key)
+            if entry is not None:
+                stale.append(entry)
+        for entry in stale:
+            if entry.session_id != session_id:
+                self._close_entry(client, entry)
+        try:
+            client.close_session(session_id)
+        except Exception:  # noqa: BLE001 - 关会话失败不覆盖本轮结果
+            pass
+
+    def _close_entries(self, entries: Sequence[AffinityEntry]) -> None:
+        client = self._client
+        if client is None or not client.alive:
+            return
+        for entry in entries:
+            self._close_entry(client, entry)
+
+    def _close_entry(self, client: AcpClient, entry: AffinityEntry) -> None:
+        try:
+            client.close_session(entry.session_id)
+        except Exception:  # noqa: BLE001 - 淘汰/失效路径不抛
+            pass
+
+    def _idle_close(self) -> bool:
+        """空闲回收：关掉内核进程（监控线程调用）；有 worker 正在启动时跳过。"""
+        with self._client_lock:
+            if self._closed or self._starting > 0:
+                return False
+            client, self._client = self._client, None
+        if client is None:
+            return False
+        if self._affinity is not None:
+            self._affinity.clear()
+        try:
+            client.stop()
+        except Exception:  # noqa: BLE001 - 回收失败不影响后续轮次
+            pass
+        self._scheduler.record_idle_close()
+        return True
 
     def _apply_overrides(self, client: AcpClient, session: Any) -> list[str]:
         """下发 ``model`` / ``reasoning_effort``；被内核拒绝时**一次性降级**。
@@ -411,7 +555,7 @@ class DshRuntime:
 
     # -- 诊断 -----------------------------------------------------------------
     def describe(self) -> dict[str, Any]:
-        """运行时状态快照（doctor/测试）。"""
+        """运行时状态快照（doctor/测试/metrics）。"""
         client = self._client
         command = self.command
         return {
@@ -420,6 +564,11 @@ class DshRuntime:
             "workspace": self.paths.workspace,
             "home": self.paths.home,
             "closed": self._closed,
+            "prewarmed": self._prewarmed,
+            "lastError": self._last_error,
+            "provider": self.provider,
             # 只报变量名，不回显任何凭据值。
             "extraEnvKeys": sorted(self._extra_env),
+            "scheduler": self._scheduler.snapshot(),
+            "affinity": None if self._affinity is None else self._affinity.snapshot(),
         }

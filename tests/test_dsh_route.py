@@ -21,6 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from atri_x.agent.dsh.credentials import resolve_credential_plan
 from atri_x.agent.dsh.handoff import (
     build_handoff_prompt,
     latest_user_text,
@@ -38,6 +39,8 @@ from atri_x.agent.dsh.runtime import (
     child_environment,
     resolve_paths,
 )
+from atri_x.agent.dsh.scheduler import DshBusyError
+from atri_x.agent.dsh.service import ensure_service
 from atri_x.agent.dsh.types import AcpUsage
 from atri_x.config import AgentDshConfig
 from atri_x.errors import InvalidError
@@ -226,6 +229,13 @@ class RouterDecisionTest(unittest.TestCase):
                 credential_provider="deepseek",
                 credential_env="MY_DSH_KEY",
                 credential_base_url_env="MY_DSH_BASE_URL",
+                credential_protocol="anthropic",
+                max_concurrent_prompts=3,
+                busy_wait_seconds=0.5,
+                prewarm=False,
+                idle_timeout_seconds=60.0,
+                stall_timeout_seconds=30.0,
+                session_affinity=False,
             )
         )
         self.assertFalse(config.enabled)
@@ -234,6 +244,13 @@ class RouterDecisionTest(unittest.TestCase):
         self.assertEqual(config.credential_provider, "deepseek")
         self.assertEqual(config.credential_env, "MY_DSH_KEY")
         self.assertEqual(config.credential_base_url_env, "MY_DSH_BASE_URL")
+        self.assertEqual(config.credential_protocol, "anthropic")
+        self.assertEqual(config.max_concurrent_prompts, 3)
+        self.assertEqual(config.busy_wait_seconds, 0.5)
+        self.assertFalse(config.prewarm)
+        self.assertEqual(config.idle_timeout_seconds, 60.0)
+        self.assertEqual(config.stall_timeout_seconds, 30.0)
+        self.assertFalse(config.session_affinity)
 
     def test_config_credential_defaults(self) -> None:
         """空串仍是「内置默认」口径：变量名回落由 ``resolve_credential_env`` 兜底。"""
@@ -354,13 +371,15 @@ class CredentialEnvTest(unittest.TestCase):
         self.assertEqual(env, {"DEEPSEEK_API_KEY": "k-deepseek"})
 
     def test_auto_falls_back_to_work_provider(self) -> None:
+        """OpenAI 兼容网关在 auto 下**不可用**（内核只会说 Anthropic Messages）。"""
         agent = self._agent(
             {"openai": SimpleNamespace(api_key="k-openai", base_url="https://api.openai.com/v1")},
             work="openai",
         )
-        env = resolve_credential_env(agent, DshRouteConfig())
-        self.assertEqual(env["DEEPSEEK_API_KEY"], "k-openai")
-        self.assertEqual(env["DEEPSEEK_BASE_URL"], "https://api.openai.com/v1")
+        plan = resolve_credential_plan(agent, DshRouteConfig())
+        self.assertFalse(plan.usable)
+        self.assertEqual(dict(plan.env), {})
+        self.assertIn("Anthropic", plan.reason)
 
     def test_named_provider_and_custom_env_names(self) -> None:
         agent = self._agent(
@@ -373,6 +392,7 @@ class CredentialEnvTest(unittest.TestCase):
             credential_provider="proxy",
             credential_env="MY_KEY",
             credential_base_url_env="MY_BASE_URL",
+            credential_protocol="anthropic",  # 用户明确声明该网关支持 Anthropic 协议
         )
         env = resolve_credential_env(agent, config)
         self.assertEqual(env, {"MY_KEY": "k-proxy", "MY_BASE_URL": "https://gw.example.com/v1"})
@@ -406,6 +426,112 @@ class CredentialEnvTest(unittest.TestCase):
                 resolve_credential_env(agent, DshRouteConfig()),
                 {"DEEPSEEK_API_KEY": "from-env"},
             )
+
+
+class CredentialPlanTest(unittest.TestCase):
+    """凭据协议判定：只有 Anthropic Messages 端点才允许注入/路由。"""
+
+    def _agent(self, providers: dict[str, object], work: str = "") -> SimpleNamespace:
+        return SimpleNamespace(
+            providers=providers,
+            mode_models={SessionModeWork: SimpleNamespace(provider=work)} if work else {},
+        )
+
+    def test_official_deepseek_is_usable_and_injects_only_key(self) -> None:
+        agent = self._agent(
+            {"deepseek": SimpleNamespace(api_key="k-deepseek", base_url="https://api.deepseek.com")}
+        )
+        plan = resolve_credential_plan(agent, DshRouteConfig())
+        self.assertTrue(plan.usable)
+        self.assertEqual(dict(plan.env), {"DEEPSEEK_API_KEY": "k-deepseek"})
+        self.assertEqual(plan.provider, "deepseek")
+
+    def test_anthropic_gateway_is_usable(self) -> None:
+        agent = self._agent(
+            {
+                "gw": SimpleNamespace(
+                    api_key="k-gw", base_url="https://gw.example.com/anthropic"
+                )
+            }
+        )
+        plan = resolve_credential_plan(agent, DshRouteConfig(credential_provider="gw"))
+        self.assertTrue(plan.usable)
+        self.assertEqual(
+            dict(plan.env),
+            {"DEEPSEEK_API_KEY": "k-gw", "DEEPSEEK_BASE_URL": "https://gw.example.com/anthropic"},
+        )
+
+    def test_openai_gateway_is_unusable_with_explanation(self) -> None:
+        agent = self._agent(
+            {"gw": SimpleNamespace(api_key="k", base_url="https://gw.example.com/openai/v1")}
+        )
+        plan = resolve_credential_plan(agent, DshRouteConfig(credential_provider="gw"))
+        self.assertFalse(plan.usable)
+        self.assertEqual(dict(plan.env), {})
+        self.assertIn("Anthropic", plan.reason)
+        self.assertIn("404", plan.reason)
+
+    def test_forced_anthropic_overrides_detection(self) -> None:
+        agent = self._agent(
+            {"gw": SimpleNamespace(api_key="k", base_url="https://gw.example.com/openai/v1")}
+        )
+        plan = resolve_credential_plan(
+            agent, DshRouteConfig(credential_provider="gw", credential_protocol="anthropic")
+        )
+        self.assertTrue(plan.usable)
+        self.assertEqual(plan.env["DEEPSEEK_BASE_URL"], "https://gw.example.com/openai/v1")
+
+    def test_explicit_openai_or_off_never_routes(self) -> None:
+        agent = self._agent(
+            {"deepseek": SimpleNamespace(api_key="k", base_url="https://api.deepseek.com")}
+        )
+        for protocol in ("openai", "off"):
+            with self.subTest(protocol=protocol):
+                plan = resolve_credential_plan(
+                    agent, DshRouteConfig(credential_protocol=protocol)
+                )
+                self.assertFalse(plan.usable)
+                self.assertEqual(dict(plan.env), {})
+
+    def test_inherited_base_url_wins_without_override(self) -> None:
+        agent = self._agent(
+            {"gw": SimpleNamespace(api_key="k", base_url="https://gw.example.com/openai/v1")}
+        )
+        with mock.patch.dict(
+            os.environ,
+            {"DEEPSEEK_BASE_URL": "https://my-anthropic-proxy.example.com"},
+            clear=False,
+        ):
+            plan = resolve_credential_plan(agent, DshRouteConfig(credential_provider="gw"))
+        self.assertTrue(plan.usable)
+        self.assertEqual(dict(plan.env), {"DEEPSEEK_API_KEY": "k"})
+
+    def test_no_credential_is_left_to_kernel(self) -> None:
+        """没有任何可注入凭据时不误判：内核可能用 DSH_HOME 下的 .credentials.yaml。"""
+        agent = self._agent({})
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}, clear=False):
+            plan = resolve_credential_plan(agent, DshRouteConfig())
+        self.assertTrue(plan.usable)
+        self.assertEqual(dict(plan.env), {})
+
+    def test_plan_snapshot_never_leaks_key_values(self) -> None:
+        import json
+
+        agent = self._agent(
+            {"deepseek": SimpleNamespace(api_key="sk-secret", base_url="https://api.deepseek.com")}
+        )
+        plan = resolve_credential_plan(agent, DshRouteConfig())
+        snapshot = json.dumps(plan.to_dict(), ensure_ascii=False)
+        self.assertNotIn("sk-secret", snapshot)
+        self.assertEqual(snapshot.count("DEEPSEEK_API_KEY"), 1)
+
+    def test_empty_base_url_uses_provider_name(self) -> None:
+        openai = self._agent({"openai": SimpleNamespace(api_key="k", base_url="")}, work="openai")
+        self.assertFalse(resolve_credential_plan(openai, DshRouteConfig()).usable)
+        deepseek = self._agent(
+            {"deepseek": SimpleNamespace(api_key="k", base_url="")}, work="deepseek"
+        )
+        self.assertTrue(resolve_credential_plan(deepseek, DshRouteConfig()).usable)
 
 
 class CredentialWiringTest(unittest.TestCase):
@@ -754,6 +880,120 @@ class RouteCallTest(unittest.TestCase):
         decision = router.decide("重构 utils.py 里的 parse 函数并补测试")
         self.assertFalse(decision.use_dsh)
         self.assertEqual(decision.reason, "unavailable")
+
+
+class CredentialGateTest(unittest.TestCase):
+    """P0：凭据协议不可用时**不拉起内核、不花冷启动**，只在审计里记一次原因。"""
+
+    def test_openai_provider_skips_routing_without_spawning(self) -> None:
+        agent = _FakeAgent(_config(min_score=0.0))
+        agent.providers = {
+            "opencode-go": SimpleNamespace(
+                api_key="k", base_url="https://opencode.ai/inference/go/openai/v1"
+            )
+        }
+        agent.mode_models = {
+            SessionModeWork: SimpleNamespace(provider="opencode-go")
+        }
+        stream = _FakeStream()
+        result = asyncio.run(
+            maybe_route_to_dsh(
+                agent,
+                None,
+                "sess-1",
+                SimpleNamespace(provider="opencode-go", model="deepseek-v4-flash"),
+                _messages("重构 utils.py 里的 parse 函数并补测试"),
+                stream,
+                _FakeOut(),
+            )
+        )
+        self.assertIsNone(result)
+        self.assertEqual(stream.chunks, [])
+        service = ensure_service(agent)
+        self.assertIsNone(service.runtime)  # 没有拉起任何子进程
+        self.assertTrue(agent.has_audit("dsh_route_credential_unusable"))
+        decision = agent.audit_attrs("dsh_route_decision")
+        self.assertEqual(decision.get("reason"), "credential_unusable")
+        self.assertIn("Anthropic", str(agent.audit_attrs("dsh_route_credential_unusable")))
+
+
+class BusyFallbackTest(unittest.TestCase):
+    """P1：并发槽忙时回退原生——不算熔断失败、释放预算预占、不写流。"""
+
+    def test_busy_falls_back_without_breaker(self) -> None:
+        agent = _FakeAgent(_config(min_score=0.0))
+        service = ensure_service(agent)
+        service.prepare(agent)
+        runtime = service.ensure_runtime(agent)
+        try:
+            with mock.patch.object(
+                runtime, "run", new=mock.AsyncMock(side_effect=DshBusyError("busy"))
+            ):
+                stream = _FakeStream()
+                result = asyncio.run(
+                    maybe_route_to_dsh(
+                        agent,
+                        None,
+                        "sess-1",
+                        SimpleNamespace(provider="deepseek", model="deepseek-v4-flash"),
+                        _messages("重构 utils.py 里的 parse 函数并补测试"),
+                        stream,
+                        _FakeOut(),
+                    )
+                )
+        finally:
+            runtime.close()
+        self.assertIsNone(result)
+        self.assertEqual(stream.chunks, [])
+        self.assertTrue(agent.has_audit("dsh_route_busy"))
+        self.assertEqual(agent.settled[0][2], True)  # 预占按"未受理"释放
+        self.assertFalse(service.router.breaker_open())
+
+    def test_service_injects_provider_credential(self) -> None:
+        agent = _FakeAgent(_config(min_score=0.0))
+        agent.providers = {
+            "deepseek": SimpleNamespace(api_key="sk-live", base_url="https://api.deepseek.com")
+        }
+        service = ensure_service(agent)
+        plan = service.prepare(agent)
+        self.assertTrue(plan.usable)
+        runtime = service.ensure_runtime(agent)
+        try:
+            self.assertEqual(runtime._extra_env, {"DEEPSEEK_API_KEY": "sk-live"})
+            self.assertEqual(runtime.provider, "deepseek")
+        finally:
+            runtime.close()
+
+
+class MetricsTest(unittest.TestCase):
+    """``/metrics`` 的 ``dsh`` 段（1.1.8）：有服务才有段，字段可直接给性能页。"""
+
+    def test_metrics_expose_dsh_section(self) -> None:
+        from atri_x.app.ops_health import collect_ops_metrics, marshal
+
+        agent = _FakeAgent(_config(min_score=0.0))
+        ensure_service(agent).prepare(agent)
+        payload = marshal(collect_ops_metrics(None, None, agent))
+        dsh = payload["dsh"]
+        self.assertTrue(dsh["enabled"])
+        self.assertEqual(dsh["maxConcurrent"], 2)
+        self.assertTrue(dsh["credentialUsable"])
+        self.assertEqual(dsh["stats"].get("busy_rejected", 0), 0)
+        self.assertIn("affinity", dsh)
+
+    def test_metrics_omit_dsh_without_service(self) -> None:
+        from atri_x.app.ops_health import collect_ops_metrics, marshal
+
+        payload = marshal(collect_ops_metrics(None, None, SimpleNamespace()))
+        self.assertNotIn("dsh", payload)
+
+    def test_metrics_omit_dsh_when_disabled(self) -> None:
+        from atri_x.app.ops_health import collect_ops_metrics, marshal
+
+        agent = _FakeAgent(_config(enabled=False))
+        ensure_service(agent)
+        payload = marshal(collect_ops_metrics(None, None, agent))
+        self.assertNotIn("dsh", payload)
 
 
 class StatusTest(unittest.TestCase):

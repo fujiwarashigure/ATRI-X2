@@ -66,6 +66,21 @@ DEFAULT_BREAKER_COOLDOWN = 300.0
 DEFAULT_CREDENTIAL_ENV = "DEEPSEEK_API_KEY"
 #: 非官方 base_url 时一并注入的变量名（内核识别 ``DEEPSEEK_BASE_URL``）。
 DEFAULT_CREDENTIAL_BASE_URL_ENV = "DEEPSEEK_BASE_URL"
+#: 凭据协议判定（见 :mod:`atri_x.agent.dsh.credentials`）。
+DEFAULT_CREDENTIAL_PROTOCOL = "auto"
+#: 同时运行的 prompt 上限（1 = 串行；0 在 from_section 里归一为 1）。
+DEFAULT_MAX_CONCURRENT_PROMPTS = 2
+#: 并发槽满时最多等多久（秒）；超时直接回退原生。
+DEFAULT_BUSY_WAIT_SECONDS = 2.0
+#: 服务启动时是否预热内核（只在凭据可用时真正拉起）。
+DEFAULT_PREWARM = True
+#: 空闲多久回收内核进程（秒；0 = 不回收）。
+DEFAULT_IDLE_TIMEOUT_SECONDS = 900.0
+#: 单个 prompt 多久没有任何事件就取消（秒；0 = 不启用）。
+DEFAULT_STALL_TIMEOUT_SECONDS = 90.0
+#: 会话亲和缓存上限与 TTL。
+DEFAULT_AFFINITY_MAX_SESSIONS = 4
+DEFAULT_AFFINITY_TTL_SECONDS = 1800.0
 
 #: 代码痕迹（子串；大小写敏感的部分按原样匹配）。
 _CODE_MARKERS = (
@@ -251,6 +266,24 @@ class DshRouteConfig:
     credential_env: str = DEFAULT_CREDENTIAL_ENV
     #: 非官方 ``base_url`` 时同时注入的变量名；空 = :data:`DEFAULT_CREDENTIAL_BASE_URL_ENV`。
     credential_base_url_env: str = DEFAULT_CREDENTIAL_BASE_URL_ENV
+    #: ``auto`` / ``anthropic`` / ``openai`` / ``off``（见 credentials 模块）。
+    credential_protocol: str = DEFAULT_CREDENTIAL_PROTOCOL
+    #: 同一条 ACP 连接上并发运行的 prompt 上限（0 = 内置默认 2）。
+    max_concurrent_prompts: int = DEFAULT_MAX_CONCURRENT_PROMPTS
+    #: 并发槽满时最多等待多久（秒）；超时回退原生（0 = 不等待）。
+    busy_wait_seconds: float = DEFAULT_BUSY_WAIT_SECONDS
+    #: 服务启动时预热内核。
+    prewarm: bool = DEFAULT_PREWARM
+    #: 空闲多久回收内核进程（秒；0 = 不回收）。
+    idle_timeout_seconds: float = DEFAULT_IDLE_TIMEOUT_SECONDS
+    #: 单轮多久没有任何事件就取消（秒；0 = 不启用）。
+    stall_timeout_seconds: float = DEFAULT_STALL_TIMEOUT_SECONDS
+    #: 同一聊天连续路由时复用 DSH 会话、只发增量（见 affinity 模块）。
+    session_affinity: bool = True
+    #: 亲和缓存最多保留几个会话。
+    affinity_max_sessions: int = DEFAULT_AFFINITY_MAX_SESSIONS
+    #: 亲和会话空闲多久失效（秒；0 = 不失效）。
+    affinity_ttl_seconds: float = DEFAULT_AFFINITY_TTL_SECONDS
 
     @classmethod
     def from_section(cls, section: Any) -> "DshRouteConfig":
@@ -299,6 +332,25 @@ class DshRouteConfig:
             credential_env=pick("credential_env", defaults.credential_env),
             credential_base_url_env=pick(
                 "credential_base_url_env", defaults.credential_base_url_env
+            ),
+            credential_protocol=pick("credential_protocol", defaults.credential_protocol),
+            max_concurrent_prompts=pick(
+                "max_concurrent_prompts", defaults.max_concurrent_prompts
+            ),
+            busy_wait_seconds=pick("busy_wait_seconds", defaults.busy_wait_seconds),
+            prewarm=pick("prewarm", defaults.prewarm),
+            idle_timeout_seconds=pick(
+                "idle_timeout_seconds", defaults.idle_timeout_seconds
+            ),
+            stall_timeout_seconds=pick(
+                "stall_timeout_seconds", defaults.stall_timeout_seconds
+            ),
+            session_affinity=pick("session_affinity", defaults.session_affinity),
+            affinity_max_sessions=pick(
+                "affinity_max_sessions", defaults.affinity_max_sessions
+            ),
+            affinity_ttl_seconds=pick(
+                "affinity_ttl_seconds", defaults.affinity_ttl_seconds
             ),
         )
 
@@ -361,6 +413,9 @@ class DshRouter:
         self._notified = False
         self._command: Sequence[str] | str | None = None
         self._available: bool | None = None
+        #: 凭据协议判定的结果（``None`` = 还没判定，按可用处理）。
+        self._credential_usable: bool | None = None
+        self._credential_detail = ""
 
     # -- 可用性 ---------------------------------------------------------------
     def available(self, *, refresh: bool = False) -> bool:
@@ -381,6 +436,22 @@ class DshRouter:
         if self._available is None:
             self.available()
         return self._command
+
+    # -- 凭据可用性 -----------------------------------------------------------
+    def set_credential(self, usable: bool, detail: str = "") -> None:
+        """记录凭据协议判定（见 :func:`atri_x.agent.dsh.credentials.resolve_credential_plan`）。"""
+        with self._lock:
+            self._credential_usable = bool(usable)
+            self._credential_detail = "" if usable else str(detail or "").strip()
+
+    def credential_state(self) -> dict[str, Any]:
+        """凭据判定快照（``checked=False`` 表示还没判定过）。"""
+        with self._lock:
+            return {
+                "checked": self._credential_usable is not None,
+                "usable": self._credential_usable is not False,
+                "detail": self._credential_detail,
+            }
 
     # -- 熔断 -----------------------------------------------------------------
     def breaker_open(self) -> bool:
@@ -446,6 +517,9 @@ class DshRouter:
         if not self.available():
             decision.reason = "unavailable"
             return decision
+        if self.credential_state()["usable"] is False:
+            decision.reason = "credential_unusable"
+            return decision
         threshold = max(0.0, min(1.0, float(self.config.min_score)))
         if score < threshold:
             decision.reason = "below_threshold"
@@ -472,6 +546,7 @@ class DshRouter:
             "costRatio": self.config.cost_ratio,
             "model": self.config.model,
             "breaker": self.breaker_state(),
+            "credential": self.credential_state(),
         }
 
 

@@ -388,6 +388,16 @@ text = ""
 #                                  # empty = auto (provider whose name contains "deepseek", else the work provider)
 # credential_env = "DEEPSEEK_API_KEY"        # env var name the key is injected as
 # credential_base_url_env = "DEEPSEEK_BASE_URL"  # injected too when the provider base_url is not official
+# credential_protocol = "auto"     # auto = only inject Anthropic-Messages endpoints (official api.deepseek.com,
+#                                  # base_url containing "anthropic", or DEEPSEEK_BASE_URL from the process env).
+#                                  # OpenAI-compatible gateways are treated as unusable (routing silently falls
+#                                  # back); set "anthropic" only when the gateway really speaks that protocol.
+# max_concurrent_prompts = 2        # concurrent prompts on the single ACP connection (1 = serialize)
+# busy_wait_seconds = 2             # wait for a free slot at most this long, then fall back to native
+# prewarm = true                    # spawn the kernel in the background at startup (saves ~1.7s on turn 1)
+# idle_timeout_seconds = 900        # close the kernel process after this much idle time (0 = never)
+# stall_timeout_seconds = 90        # cancel a prompt that sends no event for this long (0 = disabled)
+# session_affinity = true           # reuse the DSH session for consecutive routed turns (send increment only)
 
 [ops]
 # 单次工具 / Hook / 上下文压缩的超时。0 表示不限时；生产建议设置明确上限。

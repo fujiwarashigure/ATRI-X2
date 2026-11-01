@@ -9,11 +9,14 @@
 
 - ``__PERMISSION__``：先发 ``session/request_permission`` 请求，把客户端应答回显在文本里；
 - ``__UNKNOWN__``：先发一个客户端不认识的请求（``fs/read_text_file``），回显其错误码；
-- ``__HANG__``：不回本轮响应，等 ``session/cancel`` 到达后再以 ``cancelled`` 收尾；
+- ``__HANG__``：不回本轮响应，等 ``session/cancel`` 到达后再以 ``cancelled`` 收尾
+  （服务端继续读下一帧，因此可用来验证"多会话并发"）；
 - ``__CRASH__``：``os._exit(3)`` 模拟服务端崩溃；
 - ``__CRASH_AFTER_CHUNK__``：先流出一段正文再 ``os._exit(3)``（模拟"有部分输出的崩溃"）；
 - ``__NO_USAGE__``：以 ``end_turn`` 收尾但**不带** ``usage`` 字段（DSH 内核的真实行为，
-  用于验证"内核不回 usage → 记账按不确定处理"）。
+  用于验证"内核不回 usage → 记账按不确定处理"）；
+- ``__ECHO_PROMPT__``：把本轮 prompt 原文当作回答（验证会话亲和只发增量）；
+- ``__SLOW__``：先睡 0.4 秒再正常回答（验证并发槽/排队，而不是被串行锁住）。
 
 其余情况正常流式返回两段文本 + ``tool_call`` + ``usage_update`` + ``usage``。
 
@@ -31,6 +34,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 
 _MODEL = "fake-model"
 
@@ -208,6 +212,12 @@ def main() -> int:
             if "__HANG__" in text:
                 pending_prompts[session_id] = request_id
                 continue
+            if "__ECHO_PROMPT__" in text:
+                _text_chunk(session_id, text)
+                _finish_prompt(session_id, request_id)
+                continue
+            if "__SLOW__" in text:
+                time.sleep(0.4)
             if "__NO_USAGE__" in text:
                 _text_chunk(session_id, "没有 usage 的回答")
                 _finish_prompt(session_id, request_id, usage=False)

@@ -262,6 +262,13 @@ class Runner:
                 await maybe_await(foundation.start_cron(cctx, runtime.cron_service))
             # 校验循环独立于 cron：cron 关闭时网络时间校验仍可工作。
             await start_time_verifier(cctx)
+            # Python 版新增：DSH 深度路由预热（后台线程；未启用/凭据不可用时不拉起内核）。
+            try:
+                from atri_x.agent.dsh.service import prewarm_route_service
+
+                prewarm_route_service(agent)
+            except Exception:  # noqa: BLE001 - 预热是增强能力，失败不影响启动
+                pass
 
         heartbeat = health_state.beat if health_state is not None else None
 

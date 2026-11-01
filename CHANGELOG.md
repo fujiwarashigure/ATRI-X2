@@ -6,7 +6,64 @@
 
 ---
 
-## [1.1.8] - 2026-11-01 — 内容安全彻底升级（本地可编辑 + 远程双供应商 + 三档裁决）
+## [1.1.8] - 2026-11-01 — 内容安全彻底升级 + DSH 深度路由调度（同一发行版）
+
+> 这一版有两条互不相干的改动线，都不改原生聊天链路、工具 schema、会话/数据库格式：
+> ① **DSH 深度路由**（本节；没有 `[agent.dsh]` 时按内置默认值，默认值即新默认）；
+> ② **内容安全**（下一节；没有 `safety.toml` 时行为与 1.1.7 完全一致）。
+
+旧状态（1.1.7，DSH 线）：
+
+- **路由实际打不通**：内核的 DeepSeek 适配器只说 **Anthropic Messages** 协议
+  （`<base_url>/v1/messages`），而 `resolve_credential_env` 会把任意非官方 provider 的
+  `base_url` 注入 `DEEPSEEK_BASE_URL`。真实实例上唯一能用的 provider 是 OpenAI 兼容网关，
+  于是每次复杂消息都先付一次冷启动、再拿一个必然的 `404`，然后回退原生——审计里 3 条
+  `dsh_route_failed`（`turn failed: DeepSeek Messages request failed (404)`）就是这件事。
+- **并发被一把锁压成 1**：`DshRuntime` 用进程级 `threading.Lock` 串行所有 prompt，第二个
+  "复杂任务"只能排到单轮 180 秒超时；而内核的 ACP 连接本来就支持一条连接多会话并发。
+- **没有忙时回退/看门狗/预热/回收**：槽满只能干等；内核 hang 时整轮占着锁到超时；
+  首轮必付 1.7~1.8 秒冷启动；空闲时内核常驻约 170MB。
+- **无法观测**：`/metrics` 没有 DSH 段，「性能」页看不到 DSH 占用；`status` 只报
+  内核/熔断，不报"凭据能不能用"。
+- **每轮重复交接**：同一聊天连续路由时，每轮都把系统设定 + 最近 8 条历史重新拼进 prompt。
+
+新状态：
+
+- **P0 协议判定（修 404）**：新增 `atri_x/agent/dsh/credentials.py`。`credential_protocol`
+  默认 `auto`：只认官方 `api.deepseek.com`、`base_url` 含 `anthropic` 的端点，或用户
+  自己写在进程环境里的 `DEEPSEEK_BASE_URL`；OpenAI 兼容网关判**不可用**——不注入、
+  不拉起内核、审计 `dsh_route_credential_unusable` 一次，然后静默回原生（不再白付冷启动）。
+  网关确实支持 Anthropic 协议时显式设 `credential_protocol="anthropic"`；`openai` / `off`
+  表示明确不路由。没有任何可注入凭据时不误判（内核可能用 `DSH_HOME/.credentials.yaml`）。
+- **P1 有界并发 + 忙时回退**：新增 `scheduler.py`。`max_concurrent_prompts`（默认 2，1 =
+  旧的串行）个 prompt 槽；槽满最多等 `busy_wait_seconds`（默认 2 秒），等不到抛
+  `DshBusyError` → 释放预算预占、**不记熔断失败**、静默回原生（审计 `dsh_route_busy`）。
+  同一会话仍只允许一轮（内核与客户端双重保护）。DSH 轮次同时占用
+  `[ops].provider_max_concurrent` 闸门（provider 名取凭据计划），并发化不会把上游打成 429。
+- **P1 卡死看门狗**：单轮超过 `stall_timeout_seconds`（默认 90 秒）没有任何
+  `session/update` 就发 `session/cancel`，不再让一次 hang 占满槽位等整轮超时；
+  按轮取消（`run(cancel_token=...)` / `runtime.cancel(token)`）不再误伤并发轮次。
+- **P1 指标**：`/metrics` 新增 `dsh` 段（并发占用、`admitted` / `busy_rejected` /
+  `completed` / `failed` / `stalled` / `cold_starts` / `idle_closes` / `prewarmed`、
+  亲和条目与命中、凭据协议、熔断）；「性能」页「并发实况」按段渲染可读行。
+- **P2 预热与空闲回收**：应用启动钩子（runner 的 `after_start`）按 `prewarm`（默认 true）
+  后台预热内核，首轮省 1.7~1.8 秒；`idle_timeout_seconds`（默认 900 秒）没有在途轮次就
+  关掉内核进程，省约 170MB 常驻内存（下次路由重新冷启动）。
+- **P2 会话亲和**：新增 `affinity.py`。同一聊天**连续**两轮都路由时复用上一轮 DSH 会话、
+  只发「当前用户消息」（省掉重复交接的 1~3k 输入 token）；用"历史长度 + 锚点消息摘要"
+  校验连续性，中间夹了原生轮次/工具轮次/历史裁剪/会话过期就退回完整交接。失败、看门狗
+  取消、空闲回收都会关闭并清缓存；LRU 默认 4 个。内核重启时先尝试 `session/resume`。
+- **结构**：`runtime.py` 从 425 行拆成 574 行并抽出 `workspace.py` / `turn.py`；
+  `route_call.py` 从 596 行缩到 472 行，抽出 `service.py`（服务对象/预热/指标）；
+  新增 `tests/test_dsh_scheduler.py`（并发槽/看门狗/亲和/真子进程并发等 22 个用例），
+  `tests/_dsh_fake_acp_server.py` 增加 `__ECHO_PROMPT__` / `__SLOW__` 标记；
+  `test_dsh_route` 补凭据协议、凭据闸门、忙回退用例。
+- **文档**：`devdocs/dsh-acp.md` §6 重写（凭据协议 / 并发调度 / 亲和 / 指标）；
+  `docs/windows-app.md` §8.1 补新配置键与 404 修复说明；
+  `docs/performance.md` 增加 DSH 并发一节；`python -m atri_x.agent.dsh.status` 输出
+  凭据协议判定（`credential_unusable` 时退出码为 1）。
+
+### 内容安全彻底升级（本地可编辑 + 远程双供应商 + 三档裁决）
 
 > 只动内容安全这一条线：**不改**已有配置键、工具 schema、会话/数据库格式；没有
 > `safety.toml` 时行为与 1.1.7 完全一致。远程审核默认关闭，凭据只从 `.env` 读。

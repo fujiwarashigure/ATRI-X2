@@ -7,10 +7,8 @@ JSON 键名**逐字照抄** Go struct tag（``collected_at`` / ``uptime_seconds`
 空列表/字典一律不出现在输出里，与 Go 的 ``encoding/json`` 行为一致
 （注意 Go 的 ``omitempty`` 对 ``int64`` 的 0 也生效，这里照抄）。
 
-两个 Go 类型在 Python 里换成了 ``http.server`` 风格的 handler：
-
-* :class:`LazyJSONProvider` —— Go ``lazyJSONProvider``，``GET`` 返回 ``fn()``；
-* :class:`LazyHTTPHandler` —— Go ``lazyHTTPHandler``，``GET`` 交给 ``fn``。
+两个 Go 类型在 Python 里换成了 ``http.server`` 风格 handler：:class:`LazyJSONProvider`
+（``GET`` 返回 ``fn()``）与 :class:`LazyHTTPHandler`（``GET`` 交给 ``fn``）。
 """
 
 from __future__ import annotations
@@ -46,8 +44,7 @@ __all__ = [
     "marshal",
 ]
 
-#: 与 ``atri_x.config.OMITEMPTY`` 同义；这里单独给一份常量，避免 app 层
-#: 为了一个哨兵值去 import config 的私有细节。
+#: 与 ``atri_x.config.OMITEMPTY`` 同义（单独给一份常量，避免 app 层 import config 私有细节）。
 OMITEMPTY = None
 
 
@@ -116,9 +113,7 @@ def format_time(value: datetime) -> str:
 class RateLimitMetrics:
     """``/metrics`` / ``/diagnostics`` 里的限速统计。对应 Go ``rateLimitMetrics``。
 
-    ``configured`` 区分「未配置」（``False``：``rejected=0`` 只代表没有限流）与
-    「已配置但零拒绝」。``configured=False`` 按 ``omitempty`` 不入 JSON，所以未配置时
-    另带一条非空 ``disabled_reason``。
+    ``configured`` 区分「未配置」与「已配置但零拒绝」；未配置时另带 ``disabled_reason``。
     """
 
     allowed: int = 0
@@ -158,10 +153,7 @@ class VisionRunnerStats:
 
 @dataclass
 class VisionMetrics:
-    """``/metrics`` 里的图片描述引擎统计。对应 Go ``visionMetrics``。
-
-    只包含计数、上限与占用，不含图片内容、媒体 ID、缓存键或凭据。
-    """
+    """``/metrics`` 里的图片描述引擎统计（不含图片内容/媒体 ID/缓存键/凭据）。"""
 
     cache: dict[str, int] = field(default_factory=dict)
     coalesced: int = 0
@@ -176,9 +168,8 @@ class VisionMetrics:
 class OpsDiagnostics:
     """``/diagnostics`` 载荷。对应 Go ``opsDiagnostics``。
 
-    Python 版新增三段"能力装上了吗"（Go 没有）：``agent_services`` 是启动期
-    :class:`atri_x.agent.bootstrap.AgentServicesReport` 的机器可读快照，
-    ``redaction`` 是日志脱敏接线的自检，``image_backend`` 是实际生效的图像后端。
+    Python 版新增 ``agent_services``（启动期装配报告）、``redaction``（日志脱敏自检）、
+    ``image_backend``（实际生效的图像后端）三段能力快照。
     """
 
     collected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -193,8 +184,7 @@ class OpsDiagnostics:
     #: 日志脱敏自检快照（见 :func:`atri_x.logging.logging.redact_status`）。
     redaction: dict[str, Any] | None = None
     image_backend: dict[str, Any] | None = None  # backend_probe 探测：pillow/stdlib + 版本号
-    #: Python 版新增（1.0.10）：时间段（时区 / tzdata / 网络校验状态）。
-    #: **只进 /diagnostics，绝不进 /ready**：网络抖动不得触发容器重启。
+    #: Python 版新增（1.0.10）：时间段；**只进 /diagnostics，绝不进 /ready**。
     time: dict[str, Any] = field(default_factory=dict)
 
 
@@ -213,6 +203,8 @@ class OpsMetrics:
     rate_limit: RateLimitMetrics = field(default_factory=RateLimitMetrics)
     image_limit: ImageLimitMetrics = field(default_factory=ImageLimitMetrics)
     vision: VisionMetrics | None = None
+    #: DSH 深度路由统计（1.1.8；未启用/没有服务时省略）。
+    dsh: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -221,10 +213,7 @@ class OpsMetrics:
 
 
 class VisionMetricsState:
-    """共享计数器 + 每个角色的运行器占用。对应 Go ``visionMetricsState``。
-
-    启动期写入一次，之后只被 metrics handler 读。
-    """
+    """共享计数器 + 每个角色的运行器占用（启动期写入一次，之后只读）。"""
 
     def __init__(self, counters: Any = None) -> None:
         self.counters = counters
@@ -470,6 +459,7 @@ def collect_ops_metrics(
             metrics.vision = vision_stats()
         except Exception:  # noqa: BLE001
             metrics.vision = None
+    metrics.dsh = _dsh_metrics(agent)
     started_at = getattr(health_snapshot, "started_at", None)
     if isinstance(started_at, datetime) and started_at != _GO_ZERO:
         metrics.uptime_seconds = int((now - started_at).total_seconds())
@@ -477,6 +467,16 @@ def collect_ops_metrics(
     metrics.platforms = list(getattr(health_snapshot, "platforms", None) or [])
     metrics.models = list(getattr(health_snapshot, "models", None) or [])
     return metrics
+
+
+def _dsh_metrics(agent: Any) -> dict[str, Any] | None:
+    """DSH 深度路由统计（懒 import，app 层不硬依赖 agent.dsh）。"""
+    try:
+        from atri_x.agent.dsh.service import dsh_metrics
+
+        return dsh_metrics(agent)
+    except Exception:  # noqa: BLE001 - 缺一段指标不影响其余段
+        return None
 
 
 def _unpack_stats(stats: Any) -> tuple[int, int]:
