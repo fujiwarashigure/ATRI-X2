@@ -12,7 +12,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.1.7`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
+| 版本 | `1.1.8`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -52,7 +52,7 @@
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
 | 测试 | `tests/` 253 个 Python 文件（其中 243 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
 | 门禁 | 代码 7 道 + 文档 1 道（`check_docs`）+ 索引 1 道（`gen_index --check`）+ 复杂度预算，全部可在 CI 跑 |
-| 规模 | 1513 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
+| 规模 | 1514 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
 
 ## 功能特性
 
@@ -174,24 +174,24 @@ python -m atri_x --config path/to/app.toml   # 指定主配置
 
 ## 发行版、容器镜像与部署
 
-当前版本 **`1.1.7`**（正式发行版）：**后台服务断线自愈 + 服务退出诊断**。桌面端连不上本机
-后台服务时不再停在「已断开」等用户处理：断线 8 秒后自动探测并重启 `atri-x service run`
-（失败按 15/30/60/120 秒退避，最多 5 次，状态栏显示「正在自动重启后台服务…」），恢复后自动
-重连；只对 `ws://127.0.0.1` / `localhost` / `[::1]` 的本地服务生效，`--no-service` 与用户
-显式「停止后台服务」不会触发。服务的启动/退出（pid、退出码、运行时长）写进 `gui.log`，便于
-定位「服务是怎么没的」。同一版本还包含：CI 全量单测拆 6 片并行、本地全量单测不再要求先停
-后台服务。详见 [`docs/release-notes/1.1.7.md`](docs/release-notes/1.1.7.md)、
-[CHANGELOG.md](CHANGELOG.md)；上一版（提示词库 GUI 化 + 聊天漫画）见
-[`docs/release-notes/1.1.6.md`](docs/release-notes/1.1.6.md)。
+当前版本 **`1.1.8`**（正式发行版）：**内容安全彻底升级 + DSH 深度路由调度**（另有安装版
+「数据与配置目录」可选）。内容安全从进程内词表升级为可编辑数据目录 + 热加载 + 远程双供应商
+（腾讯云 / 阿里云）+ 三档裁决（放行 / 待复核 / 拦截），入站媒体、模型输出、发送边界与生图
+提示词统一走一条审核线，没有 `safety.toml` 时行为与 1.1.7 一致；DSH 修掉「每轮白付冷启动
+再吃 404」的凭据协议问题，补齐有界并发 / 忙时回退 / 卡死看门狗 / 预热与空闲回收 / 会话亲和 /
+网关头代理，官方 DeepSeek 与不需要额外请求头的端点仍然直连。安装向导新增数据与配置目录页
+（默认安装目录下 `data`，可自动迁移旧 `%APPDATA%\ATRI-X` 数据）。详见
+[`docs/release-notes/1.1.8.md`](docs/release-notes/1.1.8.md)、[CHANGELOG.md](CHANGELOG.md)；
+上一版（后台服务断线自愈）见 [`docs/release-notes/1.1.7.md`](docs/release-notes/1.1.7.md)。
 历史版发行说明见 [`docs/release-notes/`](docs/release-notes/)。
 
-当前线上版：[**GitHub Release v1.1.7**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.7)
-（tag `v1.1.7` 指向 1.1.7 发行提交；安装包 / 便携版 / 源码归档 / `SHA256SUMS.txt` 均为 Release 附件）；
-上一版 [v1.1.6](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.6)。
+当前线上版：[**GitHub Release v1.1.8**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.8)
+（tag `v1.1.8` 指向 1.1.8 发行提交；安装包 / 便携版 / 源码归档 / `SHA256SUMS.txt` 均为 Release 附件）；
+上一版 [v1.1.7](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.7)。
 
 | 产物 | 位置 |
 | --- | --- |
-| Windows 安装包 | `ATRI-X-<版本>-setup.exe`：用户级安装（不弹 UAC），含桌面端、托盘、开机自启、内置 DSH 内核与内置 QQ 协议端 |
+| Windows 安装包 | `ATRI-X-<版本>-setup.exe`：用户级安装（不弹 UAC），含桌面端、托盘、开机自启、内置 DSH 内核与内置 QQ 协议端；1.1.8 起安装时可选择数据与配置目录（默认 `<安装目录>\data`，可自动迁移旧 `%APPDATA%\ATRI-X`） |
 | Windows 便携版 | `ATRI-X-<版本>-portable-win64.zip`：解压即用；便携模式下配置/会话/日志都留在解压目录 `data\` 里，整个文件夹可拷走排查（构建见 [`packaging/README.md`](packaging/README.md) §8） |
 | 源码归档 | `ATRI-X-<版本>-repo.zip` / `.tar.gz`、`-repo-entries.txt`、`SHA256SUMS.txt`，以及发行说明 / 自检报告 / 兼容性报告 |
 | 容器镜像 | `ghcr.io/fujiwarashigure/atri-x2`：`:<版本>` 与 `:latest`，由 [`.github/workflows/release-image.yml`](.github/workflows/release-image.yml) 在打 tag 时构建并回拉冒烟 |
