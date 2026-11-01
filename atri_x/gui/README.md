@@ -52,7 +52,7 @@
 | `atri_x.gui.memberdata` | 群友角色数据：成员档案的 GUI 适配层 + 群友发现。 | 222 | `test_gui_members.py`、`test_gui_promptlib.py`、`test_gui_tabs.py` |
 | `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型，并把「备注名」缓存在本地。 | 437 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
 | `atri_x.gui.perfconfig` | 「性能 / 并发」页的数据层（无 Tk）：读写并发上限，拉后台 ``/metrics`` 实况。 | 578 | `test_gui_perf.py` |
-| `atri_x.gui.process` | 进程与路径助手：程序目录、状态目录、后台服务的 pid 记录与终止、单实例。 | 363 | `test_gui_diagnostics.py` |
+| `atri_x.gui.process` | 进程与路径助手：程序目录、状态目录、后台服务的 pid 记录与终止、单实例。 | 375 | `test_gui_diagnostics.py` |
 | `atri_x.gui.promptedit` | 「提示词」选项卡的模板编辑面板：左分类列表 + 右正文编辑器 + 只读预览。 | 416 | `test_gui_promptlib.py` |
 | `atri_x.gui.proto_manager` | 协议端管理层：按配置选后端（NapCat / SnowLuma），统一 prepare/launch/stop/status。 | 190 | `test_gui_proto_manager.py` |
 | `atri_x.gui.proto_process` | 协议端进程托管：启动、停止、PID 归属校验。 | 387 | `test_gui_proto_manager.py` |
@@ -118,4 +118,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 860 个 / 超线文件 78 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 863 个 / 超线文件 78 个）。

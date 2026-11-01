@@ -21,7 +21,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from atri_x.config import APP_DIR_NAME, ENV_CONFIG_FILE, XDG_APP_DIR_NAME, load
+from atri_x.config import APP_DIR_NAME, ENV_CONFIG_FILE, XDG_APP_DIR_NAME, load, user_home_dir
 from atri_x.llm.llm import ToolSchema
 from atri_x.tool.builder import Builder
 from atri_x.tool.runtimeinfo import atriyph_rule_card
@@ -167,6 +167,12 @@ def find_atriwisp_creator_app_config_path(info: RuntimeInfo) -> tuple[str, bool]
     env_path = (os.environ.get(ENV_CONFIG_FILE, "") or "").strip()
     if env_path != "":
         return os.path.normpath(env_path), True
+    # 先按用户数据根找（安装器可以把数据放在安装目录，或设了 ATRIX_HOME）。
+    home = user_home_dir()
+    if home:
+        path = os.path.join(home, "app.toml")
+        if file_exists(path):
+            return path, True
     directory = user_config_dir()
     if directory:
         name = APP_DIR_NAME if os.name == "nt" else XDG_APP_DIR_NAME

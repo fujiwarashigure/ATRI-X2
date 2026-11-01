@@ -202,8 +202,9 @@ def _acp_handshake(kernel: Any, timeout: float) -> dict[str, Any]:
 def _verify_root() -> str:
     """核验用的工作目录：按可写性挑第一个候选。
 
-    候选顺序：``ATRIX_SIDECAR_VERIFY_DIR`` → ``<发行包>/build/sidecar-verify``
-    → ``%LOCALAPPDATA%\\ATRI-X\\sidecar-verify``。
+    候选顺序：``ATRIX_SIDECAR_VERIFY_DIR`` → ``<数据根>/cache/sidecar-verify``（安装版
+    把数据放在安装目录时，核验产物也跟着走，不往 ``%LOCALAPPDATA%`` 写）
+    → ``<发行包>/build/sidecar-verify`` → ``%LOCALAPPDATA%\\ATRI-X\\sidecar-verify``。
 
     为什么程序目录优先：DSH 自己带 ACL 沙箱，把 ``DSH_HOME`` 放到「工作目录之外的
     另一个盘/被策略限制的目录」时会在建 profile 时收到 ``EPERM``；放在同一棵树里最稳。
@@ -213,6 +214,14 @@ def _verify_root() -> str:
     explicit = (os.environ.get("ATRIX_SIDECAR_VERIFY_DIR") or "").strip()
     if explicit:
         candidates.append(os.path.abspath(os.path.expanduser(explicit)))
+    try:
+        from atri_x.config import user_home_dir  # noqa: PLC0415 - 只有核验路径需要
+
+        home = user_home_dir()
+    except Exception:  # noqa: BLE001 - 配置层不可用时保持旧行为
+        home = ""
+    if home:
+        candidates.append(os.path.join(home, "cache", "sidecar-verify"))
     from atri_x.sidecar.registry import bundle_root  # noqa: PLC0415 - 只在这里用
 
     bundle = bundle_root()

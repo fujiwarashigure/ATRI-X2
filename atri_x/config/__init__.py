@@ -12,6 +12,8 @@
 - :mod:`atri_x.config.state`：``state.toml`` 运行态 + 热加载（mtime 门限 + 分区合并）。
 - :mod:`atri_x.config.tool_tags`：``tool_tags.toml``。
 - :mod:`atri_x.config.loader`：查找顺序、``.env``、相对路径、整体 ``load()``。
+- :mod:`atri_x.config.home`：用户数据根的解析（``ATRIX_HOME`` → 安装器
+  ``install.json`` 的 ``dataDir`` → 平台默认），配置/数据/DSH 状态/技能共用。
 - :mod:`atri_x.config.inspect`：未知键与内置 Skill 漂移。
 - :mod:`atri_x.config.assets`：内置默认资产（由 ``scripts/extract_assets.py`` 生成）。
 
@@ -29,6 +31,7 @@ from atri_x.config import (
     app_sections as app_sections,
     assets as assets,
     comic as comic,
+    home as home,
     inspect as inspect,
     loader as loader,
     services as services,
@@ -48,6 +51,7 @@ from atri_x.config.assets import (
     default_config_asset,
 )
 from atri_x.config.assets import ensure_platform_defaults as ensure_platform_defaults_in_dir
+from atri_x.config.home import *  # noqa: F403
 from atri_x.config.inspect import *  # noqa: F403
 from atri_x.config.loader import *  # noqa: F403
 from atri_x.config.services import *  # noqa: F403
@@ -68,6 +72,7 @@ __all__ = sorted(
         "copy_asset_tree",
         "default_config_asset",
         "ensure_platform_defaults_in_dir",
+        "home",
         "inspect",
         "loader",
         "services",
@@ -78,6 +83,7 @@ __all__ = sorted(
     | set(app.__all__)
     | set(app_sections.__all__)
     | set(comic.__all__)
+    | set(home.__all__)
     | set(inspect.__all__)
     | set(loader.__all__)
     | set(services.__all__)

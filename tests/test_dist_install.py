@@ -112,14 +112,29 @@ class InstallerTestCase(unittest.TestCase):
         report = self.do_install()
         self.assertTrue(report.ok)
         target = Path(report.target)
-        self.assertTrue((target / "atri-x.cmd").is_file())
+        launcher = target / "atri-x.cmd"
+        self.assertTrue(launcher.is_file())
+        self.assertIn("ATRIX_HOME=", launcher.read_text(encoding="utf-8"))
         marker = json.loads((target / installer.INSTALL_MARKER).read_text(encoding="utf-8"))
         self.assertEqual(marker["app"], installer.APP_NAME)
         self.assertFalse(marker["frozen"])
+        self.assertEqual(marker["dataDir"], str(target / "data"))
+        self.assertEqual(report.data_dir, str(target / "data"))
+        self.assertTrue((target / "data").is_dir())
         self.assertEqual(len(report.shortcuts), 2)
         self.assertEqual(len(self.shortcuts.created), 2)
         self.assertEqual(len(self.registry.uninstall_payloads), 1)
         self.assertTrue(report.registry)
+
+    def test_install_uses_explicit_data_dir(self) -> None:
+        custom = self.root / "custom-data"
+        report = self.do_install(data_dir=str(custom))
+        self.assertEqual(report.data_dir, str(custom))
+        self.assertTrue(custom.is_dir())
+        marker = json.loads(
+            (Path(report.target) / installer.INSTALL_MARKER).read_text(encoding="utf-8")
+        )
+        self.assertEqual(marker["dataDir"], str(custom))
 
     def test_frozen_install_copies_bundle_and_uses_gui_exe(self) -> None:
         source = self.root / "bundle"
@@ -158,14 +173,14 @@ class InstallerTestCase(unittest.TestCase):
         report = self.do_install(dry_run=True)
         self.assertTrue(report.ok)
         self.assertFalse(Path(report.target).exists())
+        self.assertFalse(Path(report.data_dir).exists())
         self.assertEqual(self.shortcuts.created, [])
         self.assertEqual(self.registry.uninstall_payloads, [])
 
-    def test_uninstall_removes_app_but_keeps_user_data(self) -> None:
-        report = self.do_install()
+    def test_uninstall_removes_app_but_keeps_external_user_data(self) -> None:
+        data_dir = self.root / "legacy-data"
+        report = self.do_install(data_dir=str(data_dir))
         target = Path(report.target)
-        data_dir = self.appdata / installer.APP_NAME
-        data_dir.mkdir(parents=True, exist_ok=True)
         (data_dir / "app.toml").write_text("x", encoding="utf-8")
 
         result = installer.uninstall(
@@ -177,13 +192,14 @@ class InstallerTestCase(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertTrue(data_dir.is_dir())
         self.assertTrue(result.kept_data)
+        self.assertEqual(result.data_dir, str(data_dir))
         self.assertEqual(self.registry.deleted, 1)
         self.assertEqual(len(self.shortcuts.removed), 2)
 
-    def test_uninstall_purge_data_removes_user_data(self) -> None:
-        self.do_install()
-        data_dir = self.appdata / installer.APP_NAME
-        data_dir.mkdir(parents=True, exist_ok=True)
+    def test_uninstall_purge_data_removes_external_user_data(self) -> None:
+        data_dir = self.root / "legacy-data"
+        self.do_install(data_dir=str(data_dir))
+        (data_dir / "app.toml").write_text("x", encoding="utf-8")
         result = installer.uninstall(
             yes=True,
             purge_data=True,
@@ -203,12 +219,35 @@ class InstallerTestCase(unittest.TestCase):
         self.assertIn("未执行", plan.detail)
 
     def test_status_reports_install(self) -> None:
-        self.do_install()
+        report = self.do_install()
         info = installer.status()
         self.assertTrue(info["installed"])
         self.assertTrue(info["targetExists"])
         self.assertEqual(len(info["shortcuts"]), 2)
         self.assertTrue(all(item["exists"] for item in info["shortcuts"]))
+        self.assertEqual(info["dataDir"], str(Path(report.target) / "data"))
+        self.assertTrue(info["dataDirExists"])
+        self.assertIn("runtime", info)
+        self.assertEqual(info["runtime"]["homeDir"], str(self.appdata / "ATRI-X"))
+
+    def test_status_runtime_follows_env_override(self) -> None:
+        self.do_install()
+        chosen = self.root / "chosen-data"
+        chosen.mkdir()
+        with mock.patch.dict(os.environ, {"ATRIX_HOME": str(chosen)}, clear=False):
+            info = installer.status()
+        self.assertEqual(info["runtime"]["homeDir"], str(chosen))
+        self.assertEqual(info["runtime"]["source"], "env")
+
+    def test_uninstall_default_data_inside_app_is_removed_with_app(self) -> None:
+        report = self.do_install()
+        target = Path(report.target)
+        self.assertTrue((target / "data").is_dir())
+        result = installer.uninstall(
+            yes=True, shortcut_remover=self.shortcuts.remove, registry=self.registry
+        )
+        self.assertTrue(result.ok)
+        self.assertFalse(target.exists())
 
     def test_status_reports_installer_kind(self) -> None:
         self.do_install()

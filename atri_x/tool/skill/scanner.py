@@ -20,6 +20,7 @@ from typing import Any
 
 from atri_x.atriyph import FORMAT as ATRIYPH_FORMAT
 from atri_x.atriyph import SKILL_FILE_NAME, parse_header
+from atri_x.config import user_home_dir
 from atri_x.tool.skill.agent_manifest import load_agent_skill_manifest
 from atri_x.tool.skill.catalog import Catalog, Kind, Record, new_catalog
 from atri_x.tool.skill.command_tool import CommandTool, new_command_tool
@@ -71,7 +72,11 @@ def default_root() -> str:
 
     Windows：``%AppData%/ATRI-X/skills``；其它平台：``$XDG_DATA_HOME/atri-x/skills``，
     再退回 ``~/.local/share/atri-x/skills``，最后是相对路径 ``skills``。
+    安装器把数据放在安装目录 / 设了 ``ATRIX_HOME`` 时，先跟用户数据根走。
     """
+    home = user_home_dir()
+    if home:
+        return os.path.join(home, "skills")
     if IS_WINDOWS:
         try:
             directory = user_config_dir()

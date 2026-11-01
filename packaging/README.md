@@ -307,10 +307,19 @@ dist\windows\atri-x\atri-x.exe -m atri_x.sidecar verify --acp
 
 # 安装到 %LOCALAPPDATA%（快捷方式 + 卸载项 + 可选自启）
 dist\windows\atri-x\atri-x.exe -m atri_x.dist.install install --autostart
+
+# 安装时把配置与用户数据放进安装目录（自包含；默认就是 <安装目录>\data）
+dist\windows\atri-x\atri-x.exe -m atri_x.dist.install install --data-dir "D:\ATRI-X\data"
+
+# 把旧数据搬到新位置（复制 + 逐文件核对通过后才删旧目录）
+dist\windows\atri-x\atri-x.exe -m atri_x.dist.install migrate --from "%APPDATA%\ATRI-X" --to "D:\ATRI-X\data" --move
 ```
 
-配置与数据：`%APPDATA%\ATRI-X`（首次运行自动生成 `app.toml` / `services.toml` /
-`state.toml` / `SOUL.md` / `.env.example`），日志按天写到同一目录下。
+配置与数据：默认 `%APPDATA%\ATRI-X`（首次运行自动生成 `app.toml` / `services.toml` /
+`state.toml` / `SOUL.md` / `.env.example`），日志按天写到同一目录下。安装版/脚本安装
+可以把它改到安装目录（`--data-dir` 或安装器页面），运行期统一按
+`ATRIX_HOME` → `install.json` 的 `dataDir` → `%APPDATA%\ATRI-X` 解析（见
+`atri_x/config/home.py`）。
 桌面端首次启动会自动把 `[platform.cli.server].enabled` 置 `true`（写前留 `.bak`），
 并把本地 token 写进同目录 `.env` 的 `ATRIX_CLI_LOCAL_TOKEN`。
 QQ OneBot 的配置与协议端（NapCat / LLOneBot）步骤见
@@ -340,20 +349,24 @@ dist/installer/ATRI-X-<版本>-setup.exe
 | 项 | 值 |
 |---|---|
 | 安装目录 | `%LOCALAPPDATA%\ATRI-X\app`（与 `atri-x -m atri_x.dist.install` 一致） |
-| 用户数据 | `%APPDATA%\ATRI-X`（卸载默认保留；交互式卸载会问一次） |
+| 数据与配置目录 | 向导「选择程序目录」后多一页，默认 `<安装目录>\data`（自包含）；升级时预填上次 `install.json` 的 `dataDir`，想留在 `%APPDATA%\ATRI-X` 就选它 |
+| 旧数据迁移 | 旧位置有数据、新目录为空且不同 → 安装后询问一次；静默安装自动迁移（`atri-x -m atri_x.dist.install migrate --move`，复制核对通过才删旧目录） |
 | 权限 | `PrivilegesRequired=lowest`：全程 HKCU，不触发 UAC |
 | 快捷方式 | 开始菜单 `ATRI-X`（指向 `atri-x-gui.exe`）+ 开始菜单卸载项；桌面图标是**可选**任务 |
 | 开机自启 | **默认勾选**，写 HKCU `Run\ATRI-X`（与 `atri_x/gui/autostart.py` 同值名）；卸载自动删 |
-| 安装标记 | 安装器在 `{app}\install.json` 写 `"installer":"inno"`；`atri-x ... status` 因此能提示用 `unins000.exe` 卸载，而不是脚本强删 |
-| 卸载 | Inno 自带 `unins000.exe`；卸载前 `taskkill` 掉可能还在跑的 GUI/后台服务（后台服务不持有 GUI 互斥量） |
+| 安装标记 | 安装器在 `{app}\install.json` 写 `"installer":"inno"` 与 `"dataDir"`；`data-dir.txt` 是卸载器读的纯文本副本。`atri-x ... status --json` 的 `runtime` 显示运行期实际解析的数据根 |
+| 卸载 | Inno 自带 `unins000.exe`；卸载前 `taskkill` 掉可能还在跑的 GUI/后台服务（后台服务不持有 GUI 互斥量）。数据目录在安装目录内 → 随目录一起删；在外面 → 交互式问一次，静默保留 |
 | 安装包图标 | `SetupIconFile=..\atri_x\gui\brand\app.ico`：与 exe / 窗口 / 托盘**同一份**多尺寸 ico（见 §3.6） |
 | 向导宣传图 | `WizardImageFile`（左侧，欢迎页 + 完成页）/ `WizardSmallImageFile`（右上角小图），素材见 §3.6 |
 | 欢迎页 | 显式 `DisableWelcomePage=no`——Inno 6/7 默认跳过欢迎页，不打开的话左侧宣传图基本看不到 |
 
 `build_installer.py --verify` 做的事：把安装包**复制到本地临时目录**、静默装到短路径
-（默认 `C:\Users\<user>\AtriXVerify`）、断言两个 exe + `install.json` + `unins000.exe`
-都在、跑一次 `atri-x.exe --version`、再静默卸载并等目录被清空。实测 0.9.10（含内置内核与
-内置协议端的 1,535.6 MB onedir → 436.2 MB 安装包）：安装 65.4 s / 27032 个文件，卸载 8.3 s。
+（默认 `C:\Users\<user>\AtriXVerify`），先在安装目录旁的临时 `%APPDATA%`（`<verify-dir>-appdata`）
+里造一份旧数据，然后断言两个 exe + `install.json` + `unins000.exe` 都在、数据目录已建好、
+**旧数据已迁移到 `<安装目录>\data`**（旧目录被移走）、`atri-x.exe --version` 与
+`status --json` 的 `runtime.homeDir` 指向新数据目录、再静默卸载并等目录（含安装目录内的
+数据目录）被清空。实测 0.9.10（含内置内核与内置协议端的 1,535.6 MB onedir → 436.2 MB
+安装包）：安装 65.4 s / 27032 个文件，卸载 8.3 s。
 
 ### 7.1 构建环境的两个坑（实测）
 
@@ -378,7 +391,44 @@ dist/installer/ATRI-X-<版本>-setup.exe
    重定向到几十层目录），请用 `/DIR=` 指一个短路径，或给 `--verify-dir` 指短目录。
    `--verify` 默认会优先选短目录。
 
-### 7.2 Inno Setup 6 / 7
+### 7.2 数据与配置目录（1.1.8）
+
+安装向导在「选择程序目录」之后多一页「数据与配置目录」：
+
+- 默认 `<安装目录>\data`：配置（`app.toml` / `services.toml` / `state.toml` / `.env`）、
+  会话数据库、成员档案、DSH 的 `DSH_HOME`、技能、研究/draw.io 数据、GUI 状态与日志
+  全部落在安装目录里，整个 ATRI-X 文件夹自包含（备份/迁移/拷走只需一个目录）；
+- 升级时预填上一次安装写进 `HKCU\Software\ATRI-X\DataDir` 的选择；想继续用
+  `%APPDATA%\ATRI-X` 就在该页用「浏览」选它；
+- 选择由 **Python 助手**写盘：`atri-x.exe -m atri_x.dist.install finalize --data-dir <目录>`
+  写 `{app}\install.json`（`"installer":"inno"`、`"dataDir"`、`"dataMigrated"`）与
+  `{app}\data-dir.txt`（人读副本），同时 `{app}\install.json` 的 UTF-8 JSON 由 Python 写
+  （Inno 的 `[Code]` 只有 ANSI 字符串，写不了带中文路径的 UTF-8）；卸载器读
+  `HKCU\Software\ATRI-X\DataDir`（注册表字符串是 Unicode，路径含中文也安全）；
+- 运行期解析在 `atri_x/config/home.py`：`ATRIX_HOME` 环境变量 → `install.json` 的
+  `dataDir` → `%APPDATA%\ATRI-X`。同一套解析覆盖配置层、GUI 状态、研究/draw.io、
+  技能目录、sidecar 核验目录与安装状态查询（`status --json` 的 `runtime` 字段）。
+
+旧数据迁移：安装后（`ssPostInstall`）若旧位置 `%APPDATA%\ATRI-X` 有数据、新目录为空
+且两者不同，就询问一次；静默安装自动迁移。迁移调
+`atri-x.exe -m atri_x.dist.install migrate --from <旧> --to <新> --move`：**先完整复制并
+逐文件核对存在性/大小，成功后才删除旧目录**；失败保留旧目录，安装器回退成使用旧位置。
+
+卸载：数据目录在安装目录内（自包含）→ 随安装目录一起删；在安装目录外 → 交互式卸载
+询问一次「是否同时删除用户数据」，静默卸载保留。
+
+手工迁移/回退（不重装）::
+
+    # 把数据从 %APPDATA% 搬到安装目录
+    atri-x.exe -m atri_x.dist.install migrate --from "%APPDATA%\ATRI-X" --to "<安装目录>\data" --move
+
+    # 临时用环境变量覆盖数据根（便携/排障；优先级高于 install.json）
+    set ATRIX_HOME=<某个目录>
+
+    # 看运行期实际用的是哪个数据根
+    atri-x.exe -m atri_x.dist.install status --json
+
+### 7.3 Inno Setup 6 / 7
 
 `.iss` 同时兼容 6.7+ 与 7.x（`ArchitecturesAllowed=x64compatible` 需要 6.3+）。
 简体中文界面依赖编译器自带的 `Languages\ChineseSimplified.isl`：Inno 7 自带，Inno 6.7
@@ -416,9 +466,9 @@ ATRI-X-<版本>/
 |---|---|---|
 | 交付形态 | 解压即用（绿色版） | 用户级安装（不弹 UAC） |
 | 程序位置 | 解压目录 | `%LOCALAPPDATA%\ATRI-X\app` |
-| 用户数据 | 便携模式 `<解压目录>\data\appdata\ATRI-X`；标准模式 `%APPDATA%\ATRI-X` | `%APPDATA%\ATRI-X` |
+| 用户数据 | 便携模式 `<解压目录>\data\appdata\ATRI-X`；标准模式 `%APPDATA%\ATRI-X` | 安装时选择：默认 `<安装目录>\data`，也可留在 `%APPDATA%\ATRI-X`（旧数据可自动迁移） |
 | 注册表 | 不写（除非用户在桌面端自己开自启） | HKCU 卸载项 + 可选开机自启 |
-| 卸载 | 直接删文件夹（便携模式下不残留数据） | `unins000.exe`；用户数据默认保留 |
+| 卸载 | 直接删文件夹（便携模式下不残留数据） | `unins000.exe`；数据目录在安装目录内随目录删除，在外则询问（静默保留） |
 | 适合 | 快速试跑、拷给别人复现问题、绿色部署 | 普通用户长期使用 |
 
 `--portable-verify` 做的事：把 zip **解压到本地短路径**（默认

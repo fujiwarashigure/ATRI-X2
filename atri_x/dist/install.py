@@ -4,10 +4,13 @@
 
 - **安装**：把发行包（PyInstaller onedir）复制到 ``%LOCALAPPDATA%\\ATRI-X\\app``，
   建开始菜单/桌面快捷方式，写 ``HKCU`` 的「应用和功能」卸载项，可选开机自启；
+  用户数据与配置默认落在 ``<安装目录>\\data``（自包含，可用 ``data_dir`` 改到别处，
+  或显式传 ``%APPDATA%\\ATRI-X`` 保持旧布局）；
 - **卸载**：删快捷方式、卸载项、自启动项，删除程序目录；**默认保留用户数据**
-  （``%APPDATA%\\ATRI-X``：配置、记忆、SQLite、日志），要连数据一起删得显式
+  （``<安装标记里的 dataDir>``：配置、记忆、SQLite、日志），要连数据一起删得显式
   ``--purge-data``；
-- **状态**：读 ``install.json`` 报告装在哪、快捷方式在哪、是否自启。
+- **状态**：读 ``install.json`` 报告装在哪、快捷方式在哪、是否自启、数据目录是哪个
+  （``runtime`` 给出运行期实际解析结果）。
 
 三条边界：
 
@@ -19,8 +22,6 @@
 
 from __future__ import annotations
 
-import argparse
-import json
 import os
 import shutil
 import sys
@@ -38,6 +39,7 @@ from atri_x.dist.paths import (
     data_dir,
     default_target,
     desktop_dir,
+    home_snapshot,
     is_frozen,
     source_root,
     start_menu_dir,
@@ -94,6 +96,8 @@ class InstallReport:
     registry: bool = False
     autostart: bool = False
     kept_data: bool = True
+    #: 用户数据目录（安装时选择的位置；卸载 ``--purge-data`` 删的就是它）。
+    data_dir: str = ""
     detail: str = ""
     warnings: list[str] = field(default_factory=list)
 
@@ -110,6 +114,7 @@ class InstallReport:
             "registry": self.registry,
             "autostart": self.autostart,
             "kept_data": self.kept_data,
+            "dataDir": self.data_dir,
             "detail": self.detail,
             "warnings": list(self.warnings),
         }
@@ -123,6 +128,7 @@ class InstallReport:
 def install(
     target: str = "",
     *,
+    data_dir: str = "",
     desktop: bool = True,
     autostart: bool = False,
     add_path: bool = False,
@@ -135,11 +141,28 @@ def install(
 ) -> InstallReport:
     """安装到用户目录；返回 :class:`InstallReport`。
 
+    ``data_dir`` 是**用户数据与配置目录**（安装器页面选择/``ATRIX_HOME`` 同口径）：
+    留空时落在 ``<安装目录>/data``（自包含，整个安装目录可以直接拷走/备份）；
+    传绝对路径则用它。快捷方式、卸载项、``install.json`` 的 ``dataDir``
+    都按这个选择来。
+
     ``shortcut_writer`` / ``registry`` 可注入（测试用假实现，避免碰真注册表/桌面）。
     """
     frozen = is_frozen()
     destination = os.path.abspath(os.path.expanduser(target or default_target()))
-    report = InstallReport(ok=False, action="install", target=destination, frozen=frozen, dry_run=dry_run)
+    selected_data = (
+        os.path.abspath(os.path.expanduser(data_dir.strip()))
+        if data_dir.strip()
+        else os.path.join(destination, "data")
+    )
+    report = InstallReport(
+        ok=False,
+        action="install",
+        target=destination,
+        frozen=frozen,
+        dry_run=dry_run,
+        data_dir=selected_data,
+    )
     writer = shortcut_writer or _default_shortcut_writer()
     registry_impl = registry if registry is not None else _registry_backend()
 
@@ -155,7 +178,13 @@ def install(
         report.detail = "源码模式：不复制代码，只写启动器与快捷方式"
         if not dry_run:
             os.makedirs(destination, exist_ok=True)
-            _write_launcher(destination)
+            _write_launcher(destination, selected_data)
+
+    if not dry_run:
+        try:
+            os.makedirs(selected_data, exist_ok=True)
+        except OSError as exc:  # noqa: BLE001 - 数据目录建不出来不阻断程序安装
+            report.warnings.append(f"创建用户数据目录失败：{selected_data}：{exc}")
 
     target_exe, arguments, working_dir = _launch_command(destination, frozen)
     links: list[str] = []
@@ -190,6 +219,7 @@ def install(
         "shortcuts": links,
         "desktop": bool(desktop),
         "autostart": bool(autostart),
+        "dataDir": selected_data,
     }
     if not dry_run:
         _write_marker(destination, marker)
@@ -238,7 +268,15 @@ def uninstall(
     """
     marker = _read_marker()
     target = str(marker.get("target") or default_target())
-    report = InstallReport(ok=False, action="uninstall", target=target, frozen=is_frozen(), dry_run=dry_run)
+    stored_data = str(marker.get("dataDir") or "").strip()
+    report = InstallReport(
+        ok=False,
+        action="uninstall",
+        target=target,
+        frozen=is_frozen(),
+        dry_run=dry_run,
+        data_dir=stored_data or data_dir(),
+    )
     if marker.get("installer") == "inno" and not force:
         report.detail = (
             "该安装由 Inno Setup 安装包创建，请用「设置 → 应用 → 已安装的应用」"
@@ -288,7 +326,7 @@ def uninstall(
         if leftover:
             report.warnings.append(leftover)
     if purge_data:
-        directory = data_dir()
+        directory = report.data_dir
         if directory and os.path.isdir(directory):
             try:
                 shutil.rmtree(directory)
@@ -300,9 +338,16 @@ def uninstall(
 
 
 def status() -> dict[str, Any]:
-    """安装状态快照（``--json`` 输出）。"""
+    """安装状态快照（``--json`` 输出）。
+
+    ``dataDir`` 是**安装时选择**的用户数据目录（``install.json`` 的 ``dataDir``）；
+    ``runtime`` 是**运行期实际解析结果**（``ATRIX_HOME`` → 安装标记 → 平台默认），
+    两者不一致说明环境变量覆盖了安装选择，排查「数据到底写去哪了」时看这里。
+    """
     marker = _read_marker()
     target = str(marker.get("target") or "")
+    stored_data = str(marker.get("dataDir") or "").strip()
+    runtime = home_snapshot()
     return {
         "installed": bool(marker),
         "installer": str(marker.get("installer") or "portable"),
@@ -315,7 +360,9 @@ def status() -> dict[str, Any]:
             for path in (marker.get("shortcuts") or [])
         ],
         "autostart": _read_autostart(),
-        "dataDir": data_dir(),
+        "dataDir": stored_data or data_dir(),
+        "dataDirExists": bool((stored_data or data_dir()) and os.path.isdir(stored_data or data_dir())),
+        "runtime": runtime,
         "marker": marker,
     }
 
@@ -335,11 +382,17 @@ def _copy_tree(source: str, destination: str) -> None:
     shutil.copytree(source, destination, dirs_exist_ok=True, ignore=_ignore)
 
 
-def _write_launcher(directory: str) -> None:
-    """源码模式：写一个 ``atri-x.cmd`` 启动器（不带 BOM、CRLF 不重要但用 CRLF 更稳）。"""
+def _write_launcher(directory: str, data_directory: str = "") -> None:
+    """源码模式：写一个 ``atri-x.cmd`` 启动器（不带 BOM、CRLF 不重要但用 CRLF 更稳）。
+
+    安装时选了自定义数据目录的话，启动器里钉住 ``ATRIX_HOME``：源码模式没有
+    ``install.json``，只能靠环境变量让运行期找到同一份数据。
+    """
+    data_line = f'set "ATRIX_HOME={data_directory}"\r\n' if data_directory else ""
     content = (
         "@echo off\r\n"
         f'cd /d "%~dp0"\r\n'
+        f"{data_line}"
         f'"{sys.executable}" -m atri_x.gui %*\r\n'
     )
     with open(os.path.join(directory, "atri-x.cmd"), "w", encoding="utf-8", newline="") as handle:
@@ -493,90 +546,16 @@ def _now() -> str:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+# 命令行解析与文本输出放在 :mod:`atri_x.dist.cli`：本模块已经有安装/卸载/状态三套
+# 逻辑，再塞 CLI 会超单文件行数上限（600）。``python -m atri_x.dist.install`` 的行为
+# 不变，这里只做转发。
 
 
 def main(argv: list[str] | None = None) -> int:
-    """``python -m atri_x.dist.install install|uninstall|status``。"""
-    parser = argparse.ArgumentParser(prog="python -m atri_x.dist.install", description="ATRI-X 安装器")
-    parser.add_argument("--json", action="store_true", help="输出一行 JSON")
-    common = argparse.ArgumentParser(add_help=False)
-    # 允许 ``--json`` 写在子命令后面（argparse 的全局选项默认只能写在前面）。
-    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="输出一行 JSON")
-    sub = parser.add_subparsers(dest="command", required=True)
+    """``python -m atri_x.dist.install install|uninstall|status|migrate``。"""
+    from atri_x.dist.cli import main as _cli_main  # noqa: PLC0415 - 转发层保持轻量
 
-    install_parser = sub.add_parser("install", parents=[common], help="安装到用户目录")
-    install_parser.add_argument("--target", default="", help="安装目录（默认 %%LOCALAPPDATA%%\\ATRI-X\\app）")
-    install_parser.add_argument("--no-desktop", action="store_true", help="不建桌面快捷方式")
-    install_parser.add_argument("--autostart", action="store_true", help="同时开启开机自启")
-    install_parser.add_argument("--add-path", action="store_true", help="把安装目录加进用户 PATH")
-    install_parser.add_argument("--force", action="store_true", help="目标目录非空也覆盖")
-    install_parser.add_argument("--dry-run", action="store_true", help="只打印计划，不落盘")
-
-    uninstall_parser = sub.add_parser("uninstall", parents=[common], help="卸载")
-    uninstall_parser.add_argument("--yes", action="store_true", help="确认执行（否则只打印计划）")
-    uninstall_parser.add_argument("--purge-data", action="store_true", help="连用户数据一起删")
-    uninstall_parser.add_argument("--keep-app", action="store_true", help="保留程序目录")
-    uninstall_parser.add_argument(
-        "--force", action="store_true", help="Inno Setup 安装的包也用脚本强删（不推荐）"
-    )
-
-    sub.add_parser("status", parents=[common], help="显示安装状态")
-
-    args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
-    try:
-        if args.command == "install":
-            report = install(
-                args.target,
-                desktop=not args.no_desktop,
-                autostart=args.autostart,
-                add_path=args.add_path,
-                force=args.force,
-                dry_run=args.dry_run,
-            )
-            return _emit(report.to_dict(), args.json)
-        if args.command == "uninstall":
-            report = uninstall(
-                yes=args.yes,
-                purge_data=args.purge_data,
-                keep_app=args.keep_app,
-                force=args.force,
-            )
-            return _emit(report.to_dict(), args.json)
-        return _emit(status(), args.json)
-    except InstallError as exc:
-        sys.stderr.write(f"atri-x install: {exc}\n")
-        return 1
-
-
-def _emit(payload: dict[str, Any], as_json: bool) -> int:
-    if as_json:
-        text = json.dumps(payload, ensure_ascii=False)
-    elif payload.get("action") == "uninstall":
-        text = str(payload.get("detail") or "")
-        for path in payload.get("shortcuts") or []:
-            text += "\n  删除快捷方式：" + path
-        for warning in payload.get("warnings") or []:
-            text += "\n  警告：" + warning
-    elif payload.get("action") == "install":
-        text = str(payload.get("detail") or "安装完成")
-        text += f"\n  安装目录：{payload.get('target')}"
-        for path in payload.get("shortcuts") or []:
-            text += "\n  快捷方式：" + path
-        if payload.get("autostart"):
-            text += "\n  开机自启：已启用"
-        for warning in payload.get("warnings") or []:
-            text += "\n  警告：" + warning
-    elif "installed" in payload:
-        text = json.dumps(payload, ensure_ascii=False, indent=2)
-    else:  # pragma: no cover - 兜底
-        text = json.dumps(payload, ensure_ascii=False)
-    try:
-        sys.stdout.write(text + "\n")
-    except UnicodeEncodeError:
-        sys.stdout.write(text.encode("ascii", "backslashreplace").decode("ascii") + "\n")
-    sys.stdout.flush()
-    # 计划性结果（dry-run/未确认）是 ok=True；被拒绝（例如 Inno 安装包）是 ok=False。
-    return 0 if payload.get("ok", True) else 1
+    return _cli_main(argv)
 
 
 if __name__ == "__main__":  # pragma: no cover - 进程入口

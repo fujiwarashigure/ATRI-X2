@@ -52,8 +52,8 @@ REFRESH_INTERVAL_MS = 2000
 #: 部署提示：默认 SnowLuma（外置）与内置 NapCat 两条路都要说清楚。
 DEPLOY_HINT = (
     "换电脑部署（照顺序）：① 复制本程序目录（内置 NapCat 的发行版自带 NapCat + 便携 QQ，"
-    "首次启动自动生成令牌与端口）；② 复制配置目录（%APPDATA%\\ATRI-X，"
-    "或用便携版 start-portable.bat 时在包内 data\\ 下）→ 新机器上先启动桌面端。"
+    "首次启动自动生成令牌与端口）；② 复制数据与配置目录（默认 %APPDATA%\\ATRI-X；"
+    "安装时选了「安装目录下的 data」或便携版时就是程序目录里的 data\\）→ 新机器上先启动桌面端。"
     "用 SnowLuma（1.1.0 起新装默认，外置接入）：先自行安装 SnowLuma，"
     "在「平台」页确认协议端是 SnowLuma，再回本页启动并连接上线；"
     "用内置 NapCat：在「平台」页把协议端切成 NapCat、重启桌面端，"

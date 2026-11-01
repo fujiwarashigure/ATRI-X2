@@ -3,9 +3,10 @@
 规则只有三条，顺序固定：
 
 1. 环境变量 ``ATRIX_RESEARCH_HOME`` 显式指定 → 直接用它（安装器与测试用这个）；
-2. 否则 ``<ATRI-X 配置目录>/research``；
-3. 配置目录本身按平台默认：Windows ``%APPDATA%/ATRI-X``，其它平台
-   ``$XDG_CONFIG_HOME/atri-x``（没有 XDG 时退回 ``~/.config/atri-x``）。
+2. 否则 ``<ATRI-X 用户数据根>/research``；
+3. 用户数据根由 :func:`atri_x.config.home.user_home_dir` 解析：``ATRIX_HOME`` →
+   安装器写进 ``install.json`` 的 ``dataDir`` → 平台默认（Windows
+   ``%APPDATA%/ATRI-X``，其它平台 ``$XDG_CONFIG_HOME/atri-x``）。
 
 为什么单独一个模块：``/research`` 命令、桌面「研究」页、技能子进程三处必须看到
 **同一个目录**；三份各写一遍时，任何一处改了平台判断都会让 GUI 显示"没有运行"
@@ -15,6 +16,8 @@
 from __future__ import annotations
 
 import os
+
+from atri_x.config import user_home_dir
 
 __all__ = ["APP_DIR_NAME", "ENV_HOME", "XDG_APP_DIR_NAME", "default_config_dir", "research_home"]
 
@@ -27,21 +30,12 @@ ENV_HOME = "ATRIX_RESEARCH_HOME"
 
 
 def default_config_dir() -> str:
-    """平台默认的 ATRI-X 配置目录（``%APPDATA%\\ATRI-X`` 或 ``~/.config/atri-x``）。
+    """ATRI-X 用户数据根（``%APPDATA%\\ATRI-X``，或安装器/``ATRIX_HOME`` 选择的位置）。
 
     环境变量都拿不到时返回空串，由调用方决定退到哪里（通常是当前目录下的
     ``research``，与引擎的兜底一致）。
     """
-    if os.name == "nt":
-        base = (os.environ.get("APPDATA") or os.environ.get("AppData") or "").strip()
-        name = APP_DIR_NAME
-    else:
-        base = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
-        if not base:
-            user_home = (os.environ.get("HOME") or "").strip()
-            base = os.path.join(user_home, ".config") if user_home else ""
-        name = XDG_APP_DIR_NAME
-    return os.path.join(base, name) if base else ""
+    return user_home_dir()
 
 
 def research_home(config_dir: str = "") -> str:

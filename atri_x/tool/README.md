@@ -34,7 +34,7 @@
 | `atri_x.tool.builtin.artist_extract` | ``artist_extract``：从提示词文本或图片自身的生成参数里提取画师串。 | 456 | `test_builtin_character_artist.py` |
 | `atri_x.tool.builtin.artist_library` | ``artist_library_*``：画师串组合的检索、读取、保存与删除。 | 817 | `test_builtin_character_artist.py` |
 | `atri_x.tool.builtin.artist_tools` | 画师串工具的共享依赖、身份视图与错误文案。 | 206 | `test_builtin_character_artist.py`、`test_builtin_imagegen.py`、`test_builtin_tools4.py` |
-| `atri_x.tool.builtin.atriwisp_creator` | ``atriwisp_creator``：给出一份创建 Atriwisp 监听器的精简任务卡。 | 343 | `test_builtin_tools4.py` |
+| `atri_x.tool.builtin.atriwisp_creator` | ``atriwisp_creator``：给出一份创建 Atriwisp 监听器的精简任务卡。 | 349 | `test_builtin_tools4.py` |
 | `atri_x.tool.builtin.character` | ``character_*``：角色素材库的列表、读取、检索、管理与删除。 | 1117 | `test_builtin_character_artist.py`、`test_builtin_imagegen.py`、`test_member_persona.py` |
 | `atri_x.tool.builtin.chat_history` | 聊天历史工具族：关键词检索、上下文窗口、引用回复。 | 598 | `test_builtin_tools2.py` |
 | `atri_x.tool.builtin.comic` | 聊天漫画工具：``comic_plan``（只规划、预览）与 ``comic_render``（真正生成）。 | 435 | `test_builtin_comic.py` |
@@ -107,7 +107,7 @@
 | `atri_x.tool.skill.parser` | SKILL.md 的 front matter 解析与风险等级解析。 | 175 | — |
 | `atri_x.tool.skill.process` | 子进程启动、超时/取消与进程树终止。 | 244 | — |
 | `atri_x.tool.skill.runner` | Go skill 运行器：把 payload 写进子进程 stdin 并解析 stdout。 | 333 | — |
-| `atri_x.tool.skill.scanner` | 文件系统 skill 扫描器。 | 399 | — |
+| `atri_x.tool.skill.scanner` | 文件系统 skill 扫描器。 | 404 | — |
 | `atri_x.tool.tool` | Tool Runtime 核心类型：工具契约、风险等级、注册表与工具发现。 | 502 | `test_agent_assembly.py`、`test_agent_cron.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_tool_discover.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
 | `atri_x.tool.workspace` | 工具 workspace 上下文与路径解析。 | 229 | `test_builtin_files.py`、`test_toolrun.py` |
 
@@ -119,4 +119,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 860 个 / 超线文件 78 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 863 个 / 超线文件 78 个）。

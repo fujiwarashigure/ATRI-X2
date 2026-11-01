@@ -6,7 +6,10 @@
 约定：
 
 - **安装目录**在 ``%LOCALAPPDATA%\\ATRI-X\\app``（用户级，不需要管理员）；
-- **数据目录**在 ``%APPDATA%\\ATRI-X``（与运行期一致，卸载默认保留）；
+- **数据目录**默认在 ``%APPDATA%\\ATRI-X``（与运行期一致，卸载默认保留）；安装器
+  允许改到「安装目录下的 data」或任意目录，运行期由
+  :func:`atri_x.config.home.user_home_dir` 统一解析（``ATRIX_HOME`` → 安装标记
+  ``dataDir`` → 平台默认），本模块的 :func:`data_dir` 与它保持同一口径；
 - **开始菜单/桌面**都按当前用户的 ``%APPDATA%`` / ``%USERPROFILE%`` 推。
 """
 
@@ -14,7 +17,9 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Any
 
+from atri_x.config import describe_home, user_home_dir
 from atri_x.errors import AtriXError
 
 __all__ = [
@@ -24,6 +29,7 @@ __all__ = [
     "data_dir",
     "default_target",
     "desktop_dir",
+    "home_snapshot",
     "is_frozen",
     "source_root",
     "start_menu_dir",
@@ -68,11 +74,22 @@ def default_target() -> str:
 
 
 def data_dir() -> str:
-    """用户数据目录（卸载默认保留）。"""
+    """用户数据目录（卸载默认保留）。
+
+    与运行期同口径：``ATRIX_HOME`` → 安装标记 ``dataDir`` → ``%APPDATA%\\ATRI-X``。
+    """
+    selected = user_home_dir()
+    if selected:
+        return selected
     base = _appdata()
     if not base:
         return ""
     return os.path.join(base, DATA_DIR_NAME)
+
+
+def home_snapshot() -> dict[str, Any]:
+    """运行期数据根的完整快照（来源/环境变量名/安装器选择），给 ``status`` 用。"""
+    return describe_home()
 
 
 def start_menu_dir() -> str:

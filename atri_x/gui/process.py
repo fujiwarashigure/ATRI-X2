@@ -87,19 +87,31 @@ def application_paths() -> tuple[str, str]:
 
 
 def config_dir_hint() -> str:
-    """尽量不触发「补齐默认配置」的配置目录（状态目录以它为基准）。"""
+    """尽量不触发「补齐默认配置」的配置目录（状态目录以它为基准）。
+
+    顺序：显式 ``ATRIX_CONFIG_FILE`` → 配置层的平台默认路径（已含 ``ATRIX_HOME`` /
+    安装器选择的「数据与配置目录」）→ ``%APPDATA%\\ATRI-X`` 兜底（配置层不可用时）。
+    安装版把数据放在安装目录时，GUI 的 pid/日志/窗口位置也必须跟着走，所以这里不能
+    再直接按 ``%APPDATA%`` 拼。
+    """
     env_path = (os.environ.get("ATRIX_CONFIG_FILE") or "").strip()
     if env_path:
         return os.path.dirname(os.path.normpath(env_path))
+    try:
+        from atri_x.config.loader import platform_default_config_path as _default_config_path
+    except Exception:  # noqa: BLE001 - 配置层不可用时给兜底
+        _default_config_path = None  # type: ignore[assignment]
+    if _default_config_path is not None:
+        try:
+            path = _default_config_path() or ""
+        except Exception:  # noqa: BLE001 - 同上
+            path = ""
+        if path:
+            return os.path.dirname(os.path.normpath(path))
     appdata = (os.environ.get("AppData") or os.environ.get("APPDATA") or "").strip()
     if appdata:
         return os.path.join(appdata, "ATRI-X")
-    try:
-        from atri_x.config.loader import platform_default_config_path
-    except Exception:  # noqa: BLE001 - 配置层不可用时给空串
-        return ""
-    path = platform_default_config_path() or ""
-    return os.path.dirname(os.path.normpath(path)) if path else ""
+    return ""
 
 
 def state_dir() -> str:

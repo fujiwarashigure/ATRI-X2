@@ -26,8 +26,11 @@
 
 **平台默认目录**（:func:`platform_default_config_path` / :func:`platform_default_data_dir`）
 也放在这里：它们是查找顺序的第 3 步，Windows 用 ``%AppData%\\ATRI-X``，其他平台用
-``$XDG_CONFIG_HOME/atri-x``（缺省 ``~/.config``）。:mod:`atri_x.config.app` 需要数据目录
-来填默认 SQLite/sandbox 路径，那里用**函数内延迟导入**取用，避免两模块循环导入。
+``$XDG_CONFIG_HOME/atri-x``（缺省 ``~/.config``）。**具体路径由
+:mod:`atri_x.config.home` 解析**：它额外识别 ``ATRIX_HOME`` 与安装器写进
+``install.json`` 的 ``dataDir``（安装时选择「数据放在安装目录」的情况），本模块只做
+``app.toml`` / ``data/`` 的拼接。:mod:`atri_x.config.app` 需要数据目录来填默认
+SQLite/sandbox 路径，那里用**函数内延迟导入**取用，避免两模块循环导入。
 """
 
 from __future__ import annotations
@@ -38,7 +41,6 @@ from pathlib import Path
 from atri_x.config import assets as _assets
 from atri_x.config.app import (
     APP_DIR_NAME,
-    XDG_APP_DIR_NAME,
     AppConfig,
     resolve_relative,
 )
@@ -48,6 +50,8 @@ from atri_x.config.app_sections import (
     MissingConfigFileError,
     load_toml,
 )
+from atri_x.config.home import user_data_dir as _user_data_dir
+from atri_x.config.home import user_home_dir as _user_home_dir
 from atri_x.config.services import ServicesConfig
 from atri_x.config.state import load_state
 from atri_x.config.tool_tags import load_tool_tags
@@ -79,46 +83,26 @@ PLUGIN_CONFIG_DIR_NAME = "plugins"
 def platform_default_config_path() -> str | None:
     """平台默认 ``app.toml`` 路径；取不到用户配置目录时返回 ``None``。
 
-    对应 Go ``platformDefaultConfigPath``。
+    对应 Go ``platformDefaultConfigPath``。用户数据根由
+    :func:`atri_x.config.home.user_home_dir` 解析（``ATRIX_HOME`` → 安装器
+    ``install.json`` 的 ``dataDir`` → 平台默认），这里只拼 ``app.toml``。
     """
-    directory = _user_config_dir()
+    directory = _user_home_dir()
     if not directory:
         return None
-    name = APP_DIR_NAME if os.name == "nt" else XDG_APP_DIR_NAME
-    return os.path.join(directory, name, "app.toml")
+    return os.path.join(directory, "app.toml")
 
 
 def platform_default_data_dir() -> str:
-    """平台默认数据目录。对应 Go ``platformDefaultDataDir``。"""
-    if os.name == "nt":
-        directory = _user_config_dir()
-        if directory:
-            return os.path.join(directory, APP_DIR_NAME, "data")
-        return os.path.join(APP_DIR_NAME, "data")
-    directory = (os.environ.get("XDG_DATA_HOME") or "").strip()
-    if directory:
-        return os.path.join(directory, XDG_APP_DIR_NAME)
-    home = _user_home_dir()
-    if home:
-        return os.path.join(home, ".local", "share", XDG_APP_DIR_NAME)
-    return "data"
+    """平台默认数据目录。对应 Go ``platformDefaultDataDir``。
 
-
-def _user_config_dir() -> str:
-    """``os.UserConfigDir()`` 的等价实现。"""
-    if os.name == "nt":
-        return (os.environ.get("AppData") or os.environ.get("APPDATA") or "").strip()
-    directory = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
+    有数据根覆盖（``ATRIX_HOME`` / 安装器选择）时是 ``<数据根>/data``；否则保持
+    平台默认（Windows ``%APPDATA%\\ATRI-X\\data``，其它平台 XDG 数据目录）。
+    """
+    directory = _user_data_dir()
     if directory:
         return directory
-    home = _user_home_dir()
-    return os.path.join(home, ".config") if home else ""
-
-
-def _user_home_dir() -> str:
-    if os.name == "nt":
-        return (os.environ.get("USERPROFILE") or "").strip()
-    return (os.environ.get("HOME") or "").strip()
+    return os.path.join(APP_DIR_NAME, "data") if os.name == "nt" else "data"
 
 
 def resolve_path(path: str | os.PathLike[str] | None = "") -> str:

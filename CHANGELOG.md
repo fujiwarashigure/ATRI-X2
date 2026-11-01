@@ -11,6 +11,8 @@
 > 这一版有两条互不相干的改动线，都不改原生聊天链路、工具 schema、会话/数据库格式：
 > ① **DSH 深度路由**（本节；没有 `[agent.dsh]` 时按内置默认值，默认值即新默认）；
 > ② **内容安全**（下一节；没有 `safety.toml` 时行为与 1.1.7 完全一致）。
+> 另有一条**安装版**改动：安装器可以选择「配置与用户数据目录」（默认安装目录下的
+> `data`），并能把旧的 `%APPDATA%\ATRI-X` 自动迁移过去（见 P2 之后的条目）。
 
 旧状态（1.1.7，DSH 线）：
 
@@ -61,14 +63,27 @@
   只发「当前用户消息」（省掉重复交接的 1~3k 输入 token）；用"历史长度 + 锚点消息摘要"
   校验连续性，中间夹了原生轮次/工具轮次/历史裁剪/会话过期就退回完整交接。失败、看门狗
   取消、空闲回收都会关闭并清缓存；LRU 默认 4 个。内核重启时先尝试 `session/resume`。
+- **安装版数据目录可迁移（新增）**：新增 `atri_x/config/home.py` 作为**用户数据根的唯一
+  出处**（`ATRIX_HOME` → 安装标记 `install.json` 的 `dataDir` → `%APPDATA%\ATRI-X`），
+  配置层、GUI 状态/日志、研究/draw.io 数据、技能目录、sidecar 核验目录与 `dist.status`
+  全部改走它。安装器在「选择程序目录」后新增**数据与配置目录**页（默认 `<安装目录>\data`，
+  升级时预填上次选择）；安装后若旧位置有数据、新目录为空则提示迁移，调用新增的
+  `atri-x -m atri_x.dist.install migrate --from ... --to ... --move`（先复制并逐文件
+  核对存在性/大小，成功后才删旧目录）。脚本安装加 `--data-dir`，`status --json` 新增
+  `dataDir` / `dataDirExists` / `runtime`（运行期实际解析结果）。卸载时数据目录在安装
+  目录内则随目录一起删、在外则交互式询问（静默保留）。
 - **结构**：`runtime.py` 从 425 行拆成 574 行并抽出 `workspace.py` / `turn.py`；
   `route_call.py` 从 596 行缩到 472 行，抽出 `service.py`（服务对象/预热/指标）；
   新增 `tests/test_dsh_scheduler.py`（并发槽/看门狗/亲和/真子进程并发等 22 个用例），
   `tests/test_dsh_gateway.py`（头代理转发/流式/注入/降级/运行时接线 13 个用例），
   `tests/_dsh_fake_acp_server.py` 增加 `__ECHO_PROMPT__` / `__SLOW__` 标记；
   `test_dsh_route` 补凭据协议、凭据闸门、忙回退用例。
+  安装线拆出 `atri_x/dist/migrate.py`（迁移）与 `atri_x/dist/cli.py`（命令行，`install.py`
+  回到 600 行内），新增 `tests/test_config_home.py`（11 个用例）、`tests/test_dist_migrate.py`
+  （10 个）、`tests/test_dist_cli.py`（5 个），`test_dist_install` 补数据目录/status 用例。
 - **文档**：`devdocs/dsh-acp.md` §6 重写（凭据协议 / 网关头代理 / 并发调度 / 亲和 / 指标）；
-  `docs/windows-app.md` §8.1 补新配置键、404 修复与网关头代理示例；
+  `docs/windows-app.md` §7 补数据与配置目录、迁移命令与卸载语义，§8.1 补新配置键、404
+  修复与网关头代理示例；`packaging/README.md` §7.2 新增数据目录一节（含安装包自检范围）；
   `docs/performance.md` 增加 DSH 并发一节；`python -m atri_x.agent.dsh.status` 输出
   凭据协议判定与网关头代理（`credential_unusable` 时退出码为 1）。
 

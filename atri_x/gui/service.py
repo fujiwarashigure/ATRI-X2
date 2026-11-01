@@ -132,7 +132,7 @@ class GuiSettings:
 
     @property
     def data_dir(self) -> str:
-        """ATRI-X 的用户数据目录（``%APPDATA%\\ATRI-X``）。"""
+        """用户数据根（默认 ``%APPDATA%\\ATRI-X``；安装器可改到安装目录下）。"""
         return self.config_dir
 
 

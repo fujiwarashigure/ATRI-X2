@@ -13,7 +13,9 @@ ISCC 查找顺序：``--iscc`` → ``ATRIX_ISCC`` 环境变量 → ``packaging/t
 
 **不修改** ``dist/`` 里的产物：安装包只是把 onedir 目录打进去。自检（``--verify``）
 把安装包真的静默装到 ``build/installer/verify``（可用 ``--verify-dir`` 改），断言文件、
-``install.json`` 标记、卸载器都在，然后再静默卸载并断言目录被清空。
+``install.json`` 标记、数据目录（默认 ``<安装目录>\\data``）、旧数据迁移、卸载器都在，
+然后再静默卸载并断言目录被清空。自检用的 ``%APPDATA%`` 是安装目录旁的临时目录
+（``<verify-dir>-appdata``），不会碰真实用户数据。
 """
 
 from __future__ import annotations
@@ -313,6 +315,58 @@ def _short_verify_dir() -> Path:
     return candidates[0]
 
 
+#: 自检前要临时清掉的「安装器状态」注册表键（安装版用它记数据目录；自检会写它）。
+APP_REGISTRY_KEY = r"Software\ATRI-X"
+
+
+def _read_app_registry() -> dict[str, str]:
+    """读 HKCU 下安装器的数据目录状态（自检前备份、结束后还原）。"""
+    try:
+        import winreg
+    except ImportError:  # pragma: no cover - 只在 Windows 构建机跑
+        return {}
+    values: dict[str, str] = {}
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, APP_REGISTRY_KEY) as key:
+            index = 0
+            while True:
+                try:
+                    name, value, _kind = winreg.EnumValue(key, index)
+                except OSError:
+                    break
+                values[str(name)] = str(value)
+                index += 1
+    except OSError:
+        return {}
+    return values
+
+
+def _clear_app_registry() -> None:
+    """删掉安装器状态键（自检开始前调用，避免读到上一次自检/真实安装的旧路径）。"""
+    try:
+        import winreg
+    except ImportError:  # pragma: no cover
+        return
+    try:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, APP_REGISTRY_KEY)
+    except OSError:
+        pass
+
+
+def _restore_app_registry(values: dict[str, str]) -> None:
+    """还原自检前备份的安装器状态（空字典表示原来就没有键）。"""
+    if not values:
+        return
+    try:
+        import winreg
+
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, APP_REGISTRY_KEY) as key:
+            for name, value in values.items():
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+    except OSError:  # pragma: no cover - 还原失败不该让自检失败
+        pass
+
+
 def verify(installer: Path, verify_dir: Path, timeout: float = VERIFY_TIMEOUT) -> dict[str, Any]:
     """把安装包静默装到 ``verify_dir``，断言产物，再静默卸载。
 
@@ -321,10 +375,23 @@ def verify(installer: Path, verify_dir: Path, timeout: float = VERIFY_TIMEOUT) -
     受限令牌或直接被 SmartScreen/执行策略挡掉 —— 表现为无日志的退出码 1，或
     ``RegCreateKeyEx code 5``（连 HKCU 卸载项都建不出来）。真实用户从下载目录
     （本地盘）安装不受影响。
+
+    数据目录自检用**独立的临时用户 profile**（``<verify-dir>-profile``）：先在它的
+    ``AppData\\Roaming\\ATRI-X`` 造一份「旧版数据」，静默安装应自动 ``--move`` 到
+    ``<verify-dir>\\data``，卸载时因为这个目录在安装目录内而一起清掉。``USERPROFILE`` /
+    ``APPDATA`` / ``LOCALAPPDATA`` 都指过去——实测 Inno 的 ``{userappdata}`` 跟随
+    ``USERPROFILE`` 环境变量，不受 ``APPDATA`` 单独影响。
     """
     if verify_dir.exists():
         shutil.rmtree(verify_dir, ignore_errors=True)
     verify_dir.mkdir(parents=True, exist_ok=True)
+    verify_profile = verify_dir.parent / (verify_dir.name + "-profile")
+    if verify_profile.exists():
+        shutil.rmtree(verify_profile, ignore_errors=True)
+    legacy_data = verify_profile / "AppData" / "Roaming" / "ATRI-X"
+    (legacy_data / "data").mkdir(parents=True, exist_ok=True)
+    (legacy_data / "app.toml").write_text("# legacy app.toml（自检用）\n", encoding="utf-8")
+    (legacy_data / "data" / "sentinel.db").write_bytes(b"legacy-db")
     work = verify_dir.parent
     import tempfile
 
@@ -338,6 +405,16 @@ def verify(installer: Path, verify_dir: Path, timeout: float = VERIFY_TIMEOUT) -
     # HKCU 写一律 RegCreateKeyEx code 5（实测；卸载项因此建不出来）。默认 TEMP 是本地
     # 盘，保持继承即可。
     env = dict(os.environ)
+    # 隔离用户目录：自检的「旧数据迁移」不能读写真实用户配置。
+    env["USERPROFILE"] = str(verify_profile)
+    env["APPDATA"] = str(verify_profile / "AppData" / "Roaming")
+    env["AppData"] = str(verify_profile / "AppData" / "Roaming")
+    env["LOCALAPPDATA"] = str(verify_profile / "AppData" / "Local")
+    # 自检会写 HKCU\Software\ATRI-X（安装器用来记住数据目录）：先备份再清空，
+    # 避免读到上一次自检留下的旧路径；成功后还原（失败时保持清空也安全：
+    # 下一次自检本来就会重新清）。
+    saved_registry = _read_app_registry()
+    _clear_app_registry()
     install_log = work / "install.log"
     uninstall_log = work / "uninstall.log"
     common = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/NOICONS"]
@@ -365,6 +442,7 @@ def verify(installer: Path, verify_dir: Path, timeout: float = VERIFY_TIMEOUT) -
             pass
     report: dict[str, Any] = {
         "verifyDir": str(verify_dir),
+        "verifyProfile": str(verify_profile),
         "installSeconds": round(time.time() - started, 1),
         "installLog": str(install_log),
         "files": [],
@@ -401,10 +479,31 @@ def verify(installer: Path, verify_dir: Path, timeout: float = VERIFY_TIMEOUT) -
         raise InstallerError(
             f"install.json 的 target 与安装目录不一致：{marker.get('target')!r} != {verify_dir}"
         )
+    report["marker"] = marker
+    # ---- 数据与配置目录 / 旧数据迁移 ----
+    data_dir = Path(str(marker.get("dataDir") or ""))
+    if not str(data_dir) or not data_dir.is_absolute():
+        raise InstallerError(f"install.json 缺少合法的 dataDir：{marker.get('dataDir')!r}")
+    if os.path.normcase(str(data_dir)) != os.path.normcase(str(verify_dir / "data")):
+        raise InstallerError(
+            f"默认数据目录应为 <安装目录>\\data，实际：{data_dir}"
+        )
+    if not data_dir.is_dir():
+        raise InstallerError(f"安装后数据目录没有创建：{data_dir}")
+    if not (data_dir / "app.toml").is_file() or not (data_dir / "data" / "sentinel.db").is_file():
+        raise InstallerError(f"旧数据没有迁移到新数据目录：{data_dir}")
+    if legacy_data.exists():
+        raise InstallerError(f"静默安装应把旧数据移动走，但旧目录仍在：{legacy_data}")
+    if not marker.get("dataMigrated"):
+        raise InstallerError(f"install.json 的 dataMigrated 应为 true：{marker!r}")
+    data_flag = verify_dir / "data-dir.txt"
+    if not data_flag.is_file() or os.path.normcase(data_flag.read_text(encoding="utf-8").strip()) != os.path.normcase(str(data_dir)):
+        raise InstallerError(f"data-dir.txt 内容与 dataDir 不一致：{data_flag}")
+    report["dataDir"] = str(data_dir)
+    report["legacyMigrated"] = True
     uninstaller = verify_dir / "unins000.exe"
     if not uninstaller.is_file():
         raise InstallerError(f"安装后缺少卸载器：{uninstaller}")
-    report["marker"] = marker
     report["fileCount"] = sum(1 for path in verify_dir.rglob("*") if path.is_file())
 
     # 程序本体能否运行（版本命令必须可用；防止把空壳打进去）。
@@ -423,6 +522,41 @@ def verify(installer: Path, verify_dir: Path, timeout: float = VERIFY_TIMEOUT) -
             f"安装后的 atri-x.exe --version 失败：{(version_run.stderr or '').strip()[:500]}"
         )
     report["versionOutput"] = (version_run.stdout or "").strip().splitlines()[-1:]
+    # 运行期数据根必须和安装器选择一致（证明 install.json 的 dataDir 真的被读到）。
+    status_run = subprocess.run(  # noqa: S603
+        [str(exe), "-m", "atri_x.dist.install", "status", "--json"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        cwd=str(verify_dir),
+        env=env,
+    )
+    status_payload: dict[str, Any] = {}
+    for line in reversed((status_run.stdout or "").strip().splitlines()):
+        try:
+            status_payload = json.loads(line)
+            break
+        except ValueError:
+            continue
+    if status_run.returncode != 0 or not status_payload:
+        raise InstallerError(
+            "安装后的 atri-x status --json 失败："
+            f"{(status_run.stderr or status_run.stdout or '').strip()[:500]}"
+        )
+    runtime = status_payload.get("runtime") or {}
+    if os.path.normcase(str(runtime.get("homeDir") or "")) != os.path.normcase(str(data_dir)):
+        raise InstallerError(
+            f"运行期数据根与安装选择不一致：runtime={runtime.get('homeDir')!r} dataDir={data_dir}"
+        )
+    if str(runtime.get("source") or "") != "installer":
+        raise InstallerError(f"运行期数据根来源应为 installer：{runtime!r}")
+    report["runtime"] = {
+        "homeDir": runtime.get("homeDir"),
+        "dataDir": runtime.get("dataDir"),
+        "source": runtime.get("source"),
+    }
     try:
         _run_installer(
             uninstaller,
@@ -436,6 +570,13 @@ def verify(installer: Path, verify_dir: Path, timeout: float = VERIFY_TIMEOUT) -
     if leftover:
         names = ", ".join(path.name for path in leftover[:8])
         raise InstallerError(f"卸载后仍有残留文件（{len(leftover)} 个）：{names}")
+    # 自包含安装：数据目录在安装目录内，卸载必须一起清掉。
+    if data_dir.exists():
+        raise InstallerError(f"卸载后安装目录内的数据目录仍在：{data_dir}")
+    if legacy_data.exists():
+        raise InstallerError(f"卸载后旧数据目录被意外重建：{legacy_data}")
+    shutil.rmtree(verify_profile, ignore_errors=True)
+    _restore_app_registry(saved_registry)
     report["uninstalled"] = True
     report["uninstallSeconds"] = round(time.time() - started - report["installSeconds"], 1)
     return report
@@ -522,7 +663,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _log(
                 "[installer] verify ok: "
                 f"install={report['installSeconds']}s fileCount={report['fileCount']} "
-                f"uninstall={report['uninstallSeconds']}s"
+                f"dataDir={report.get('dataDir')} uninstall={report['uninstallSeconds']}s"
             )
         if args.json:
             _log(json.dumps(summary, ensure_ascii=False, sort_keys=True))

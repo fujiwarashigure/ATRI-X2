@@ -8,15 +8,21 @@
 本包负责“把它装进用户环境”的那部分：复制到 ``%LOCALAPPDATA%``、建开始菜单/桌面
 快捷方式、写「应用和功能」卸载项、以及安装状态查询。
 
+用户数据默认在 ``%APPDATA%\\ATRI-X``，但安装器允许把它放到安装目录（自包含）或任意
+目录：选择写进安装标记的 ``dataDir``，运行期由 :mod:`atri_x.config.home` 统一解析。
+
 | 模块 | 职责 |
 |---|---|
 | :mod:`atri_x.dist.shell_link` | ``ctypes`` 调 COM 创建/读取 ``.lnk`` |
 | :mod:`atri_x.dist.install` | ``install`` / ``uninstall`` / ``status``（``python -m atri_x.dist.install``） |
+| :mod:`atri_x.dist.migrate` | 旧数据目录 → 新数据目录（复制/移动 + 逐文件核对） |
+| :mod:`atri_x.dist.cli` | ``python -m atri_x.dist.install`` 的命令行解析与文本输出 |
 
 入口::
 
     python -m atri_x.dist.install status
     python -m atri_x.dist.install install --autostart
+    python -m atri_x.dist.install migrate --from "%APPDATA%\\ATRI-X" --to D:\\ATRI-X\\data --move
     python -m atri_x.dist.install uninstall --yes
 
 > 导出名故意叫 ``install_app`` / ``uninstall_app``：函数名 ``install`` 会和子模块
