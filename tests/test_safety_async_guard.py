@@ -212,6 +212,20 @@ class TestRemoteImage(AsyncCase):
         self.assertTrue(decision.allowed)
         self.assertEqual(decision.action, "pass")
 
+    def test_trusted_actor_skips_remote_image(self) -> None:
+        self.engine.settings.media.skip_actors = ["trusted-user"]
+        self.provider.tier = "block"
+        decision = self.run_async(
+            self.guard.aallow_media_output(
+                "image",
+                stage="send",
+                data=b"\x89PNG",
+                scope={"platform": "qq", "scope_id": "group:g1", "actor": "trusted-user"},
+            )
+        )
+        self.assertTrue(decision.allowed)
+        self.assertEqual(self.provider.calls, 0)
+
     def test_file_kind_not_sent_to_remote(self) -> None:
         self.provider.tier = "block"
         decision = self.run_async(

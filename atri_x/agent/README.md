@@ -137,7 +137,7 @@
 | `atri_x.agent.notice_queue` | 按平台的通知发送队列与背压。 | 232 | `test_agent_core.py` |
 | `atri_x.agent.ops` | 运维可见的请求快照。 | 22 | — |
 | `atri_x.agent.options` | 构造期依赖与配置容器，以及若干 setter。 | 239 | `test_agent_core.py` |
-| `atri_x.agent.output` | 出站：发送管理器的装配、部分失败记账与平台消息映射。 | 413 | `test_safety_integration.py` |
+| `atri_x.agent.output` | 出站：发送管理器的装配、部分失败记账与平台消息映射。 | 419 | `test_safety_integration.py` |
 | `atri_x.agent.participation` | 群聊参与状态机 MVP（评估 §D）：只做**抑制**，不主动找话题。 | 345 | `test_agent_participation.py` |
 | `atri_x.agent.platform_signals` | 平台连接信号的订阅与按平台执行队列。 | 249 | — |
 | `atri_x.agent.prefix` | 命令前缀的读取与取消命令识别。 | 47 | — |

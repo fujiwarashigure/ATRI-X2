@@ -147,8 +147,15 @@ class RemoteModerationMixin:
         platform: str = "",
         scope_id: str = "",
         tool: str = "",
+        actor: str = "",
     ) -> RemoteOutcome | None:
-        """图片远程审核；``data`` 与 ``url`` 至少给一个。"""
+        """图片远程审核；``data`` 与 ``url`` 至少给一个。
+
+        ``actor`` 命中 ``[media].skip_actors`` 时直接放行（只走本地层）——用于
+        "只审非白名单用户"的成本策略。
+        """
+        if actor and actor in self.settings.media.skip_actors:
+            return None
         scope = self.scope_for(platform, scope_id)
         if self.images_mode(scope) == "off":
             return None

@@ -3,7 +3,7 @@
 
 # 模块索引（自动生成）
 
-共 **845** 个模块 / **245795** 物理行 / **71** 个一级域。被测试直接覆盖 **530** 个（62.7%）。
+共 **845** 个模块 / **245873** 物理行 / **71** 个一级域。被测试直接覆盖 **530** 个（62.7%）。
 
 查模块：`rg -n "atri_x\.tool\.builtin" devdocs/generated/module-map.md`。
 
@@ -122,7 +122,7 @@
 | `atri_x.agent.notice_queue` | 按平台的通知发送队列与背压。 | NOTICE_QUEUE_CAPACITY, NOTICE_QUEUE_CONCURRENCY, NoticeQueu… | 232 | `test_agent_core.py` |
 | `atri_x.agent.ops` | 运维可见的请求快照。 | active_requests | 22 | — |
 | `atri_x.agent.options` | 构造期依赖与配置容器，以及若干 setter。 | Options, session_idle_expiration_config, validate_model_sel… | 239 | `test_agent_core.py` |
-| `atri_x.agent.output` | 出站：发送管理器的装配、部分失败记账与平台消息映射。 | AgentOutputSender, ContextTextSender, NoticeDispatch, map_s… | 413 | `test_safety_integration.py` |
+| `atri_x.agent.output` | 出站：发送管理器的装配、部分失败记账与平台消息映射。 | AgentOutputSender, ContextTextSender, NoticeDispatch, map_s… | 419 | `test_safety_integration.py` |
 | `atri_x.agent.participation` | 群聊参与状态机 MVP（评估 §D）：只做**抑制**，不主动找话题。 | EchoState, ParticipationState, cooldown_active, cooldown_se… | 345 | `test_agent_participation.py` |
 | `atri_x.agent.platform_signals` | 平台连接信号的订阅与按平台执行队列。 | PlatformSubscriptions, begin_close_platform_events, close_p… | 249 | — |
 | `atri_x.agent.prefix` | 命令前缀的读取与取消命令识别。 | command_prefix, command_prefixes, is_cancel_command | 47 | — |
@@ -644,9 +644,9 @@
 | `atri_x.safety` | 内置内容安全闸门：本地词表/正则 + 远程审核 + 三档裁决 + 人工复核。 | ACTION_BLOCK, ACTION_FLAG, ACTION_PASS, ACTION_REDACT, ACTI… | 197 | `test_safety_async_guard.py`、`test_safety_core.py`、`test_safety_engine.py`、`test_safety_integration.py`、`test_safety_providers.py`、`test_safety_settings.py` |
 | `atri_x.safety.audit` | 审计日志：``safety-audit.jsonl`` 的追加写入。 | AuditLog, DEFAULT_AUDIT_MAX_BYTES, utc_now | 142 | — |
 | `atri_x.safety.engine` | 内容安全引擎：本地层 + 远程层 + 三档裁决 + 双供应商 + 熔断 + 缓存 + 预算。 | RemoteOutcome, SafetyEngine, build_engine, safety_dirs | 429 | `test_safety_async_guard.py`、`test_safety_engine.py`、`test_safety_settings.py` |
-| `atri_x.safety.engine_remote` | 远程审核的编排：双供应商仲裁、失败策略、预算、缓存、熔断。 | RemoteModerationMixin, RemoteOutcome | 453 | — |
+| `atri_x.safety.engine_remote` | 远程审核的编排：双供应商仲裁、失败策略、预算、缓存、熔断。 | RemoteModerationMixin, RemoteOutcome | 460 | — |
 | `atri_x.safety.guard` | 安全闸门：文本审核 / 脱敏、媒体出口判定与审计的唯一入口。 | DEFAULT_BLOCK_REPLACEMENT, MEDIA_BLOCK_TEXT, SafetyDecision… | 575 | — |
-| `atri_x.safety.guard_async` | guard 的异步三档接口（从 :mod:`atri_x.safety.guard` 抽出）。 | aallow_media_output, afilter_text | 285 | — |
+| `atri_x.safety.guard_async` | guard 的异步三档接口（从 :mod:`atri_x.safety.guard` 抽出）。 | aallow_media_output, afilter_text | 347 | — |
 | `atri_x.safety.mode_ctx` | 安全闸门的"归属"与"按会话模式绑定"（从 :mod:`atri_x.safety.guard` 抽出）。 | ModeBoundGuard, SESSION_MODES, SafetyScope, guard_from_cont… | 263 | — |
 | `atri_x.safety.normalize` | 文本归一化：把"绕过写法"折叠回可匹配的骨架。 | INVISIBLE_CHARS, normalize_skeleton, strip_invisible | 94 | — |
 | `atri_x.safety.policy` | 安全策略：``[safety]`` 段 → :class:`SafetyPolicy`，以及内置类别的默认值。 | ACTION_BLOCK, ACTION_FLAG, ACTION_PASS, ACTION_REDACT, DEFA… | 379 | — |
@@ -657,7 +657,7 @@
 | `atri_x.safety.review_queue` | 人工复核队列：``<config_dir>/safety/review.db``（sqlite）。 | ReviewQueue, STATUS_APPROVED, STATUS_EXPIRED, STATUS_PENDIN… | 314 | — |
 | `atri_x.safety.rules` | 规则与词表的唯一出处：内置词表 + 用户词表 + 敏感信息正则。 | CATEGORY_IDS, CATEGORY_LABELS, CATEGORY_SEVERITIES, RuleHit… | 594 | `test_safety_settings.py` |
 | `atri_x.safety.scope_policy` | 按 scope（群 / 用户）覆盖策略：``<config_dir>/safety/scopes/*.toml``。 | ScopePolicies, ScopeSettings, scope_file_key | 159 | — |
-| `atri_x.safety.settings` | 用户可编辑的策略文件 ``safety.toml``：结构、装载与归一化。 | CostSettings, DEFAULT_AUDIT_FILE_NAME, DEFAULT_SAFETY_FILE,… | 384 | `test_safety_providers.py`、`test_safety_settings.py` |
+| `atri_x.safety.settings` | 用户可编辑的策略文件 ``safety.toml``：结构、装载与归一化。 | CostSettings, DEFAULT_AUDIT_FILE_NAME, DEFAULT_SAFETY_FILE,… | 387 | `test_safety_providers.py`、`test_safety_settings.py` |
 | `atri_x.safety.types` | 内容安全的公共值对象：处置档位、审核结果、阶段名与标签归一化。 | FAIL_CLOSED, FAIL_OPEN, LABEL_MAP, STAGES, STAGE_AUDIO, STA… | 202 | — |
 | `atri_x.security` | 工具权限与风险策略。 | ACTOR_CONTEXT_KEY, Actor, ActorFromContext, ActorID, Compar… | 121 | `agent_commands_fakes.py`、`agent_fakes.py`、`test_agent_admission.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_agent_core.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_group_policy.py`、`test_agent_participation.py`、`test_agent_risk.py`、`test_app_runtime_agent.py`、`test_background.py`、`test_builtin_cron.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_cron.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_platform_qq_onebot.py`、`test_resident_memory.py`、`test_security_grants.py`、`test_tool_discover.py`、`test_tool_skill.py`、`test_toolrun.py` |
 | `atri_x.security.context` | Actor / Policy 在取消令牌上的传播。 | ACTOR_CONTEXT_KEY, POLICY_CONTEXT_KEY, actor_from_context, … | 125 | — |

@@ -57,7 +57,7 @@
   `guard_async.py`）；引擎拆成 `engine.py`（热加载/裁决）+ `engine_remote.py`（远程编排）；
   新增 `types` / `normalize` / `settings` / `scope_policy` / `review_queue` / `providers/*`。
 - **测试**：新增 `test_safety_settings` / `test_safety_providers` / `test_safety_engine` /
-  `test_safety_async_guard`（共 59 个用例），既有 `test_safety_core` /
+  `test_safety_async_guard`（共 63 个用例），既有 `test_safety_core` /
   `test_safety_integration` 保持全绿。
 
 配置与兼容：

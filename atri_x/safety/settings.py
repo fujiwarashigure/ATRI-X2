@@ -179,6 +179,8 @@ class MediaSettings(StrictConfig):
     video: str = "async"
     async_poll_seconds: int = 60
     quarantine_ttl_seconds: int = 3600
+    #: 这些 actor（用户 id）的图片不送远程审（只走本地层），用于"只审非白名单用户"。
+    skip_actors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -289,6 +291,7 @@ def _sanitize(settings: SafetySettings) -> SafetySettings:
             setattr(tiers, name, "hold" if name == "inbound_review" else "send_and_queue")
 
     media = settings.media
+    media.skip_actors = [str(item).strip() for item in media.skip_actors if str(item).strip()]
     if (media.images or "").strip().lower() not in ("sync", "async", "off"):
         media.images = "sync"
     else:

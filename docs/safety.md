@@ -127,6 +127,7 @@ audio = "async"
 video = "async"
 async_poll_seconds = 60
 quarantine_ttl_seconds = 3600
+skip_actors = []                     # 这些用户 id 的图片不送远程审（成本策略）
 
 [cost]
 daily_budget_cny = 0.0                # 0 = 不限

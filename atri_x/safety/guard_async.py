@@ -210,6 +210,7 @@ async def aallow_media_output(
             data=data,
             mime=mime,
             url=url,
+            actor=scope_view.actor,
         )
     if decision.action == ACTION_PASS:
         return decision
@@ -234,6 +235,7 @@ async def _apply_remote_image(
     data: bytes,
     mime: str,
     url: str,
+    actor: str = "",
 ) -> SafetyDecision:
     try:
         outcome = await engine.moderate_image(
@@ -244,6 +246,7 @@ async def _apply_remote_image(
             platform=platform,
             scope_id=scope_id,
             tool=tool,
+            actor=actor,
         )
     except Exception as exc:  # noqa: BLE001
         guard._warn("远程图片审核不可用：%s: %s" % (type(exc).__name__, exc))

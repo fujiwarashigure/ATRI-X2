@@ -338,6 +338,22 @@ class TestImageModeration(EngineCase):
         self.assertEqual(provider.images, 1)
 
 
+class TestImageSkipActors(EngineCase):
+    def test_trusted_actor_skips_remote_image(self) -> None:
+        self.engine.settings.media.skip_actors = ["trusted-user"]
+        self.inject(FakeProvider("tencent", tier="block"))
+        self.assertIsNone(
+            asyncio.run(
+                self.engine.moderate_image(b"\x89PNG", stage="image", actor="trusted-user")
+            )
+        )
+        outcome = asyncio.run(
+            self.engine.moderate_image(b"\x89PNG", stage="image", actor="other-user")
+        )
+        assert outcome is not None
+        self.assertEqual(outcome.tier, "block")
+
+
 class TestReviewQueue(EngineCase):
     def test_enqueue_and_resolve(self) -> None:
         item_id = self.engine.enqueue_review(
