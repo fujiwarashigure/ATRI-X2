@@ -25,7 +25,7 @@ from atri_x.hook import (
     PointLLMResponseReceived,
     SessionContext,
 )
-from atri_x.agent.safety_llm import filter_llm_text
+from atri_x.agent.safety_llm import afilter_llm_text
 from atri_x.llm import (
     ChatRequest,
     LLMMessage,
@@ -469,7 +469,7 @@ async def _stream_chat(
         tool_calls = list(event.llm.tool_calls or []) if tools_enabled else []
         # safety-guard: 模型输出文本（PointLLMResponseReceived 之后）过一遍安全闸门。
         # 结果写回 event.llm.text，后续落库 / 展示 / 发送看到的是同一份文本。
-        event.llm.text = filter_llm_text(agent, ctx, event.llm.text or "")
+        event.llm.text = await afilter_llm_text(agent, ctx, event.llm.text or "")
         log_llm_output(
             agent,
             ctx,

@@ -1,21 +1,23 @@
-"""规则与词表的唯一出处：词表数据文件 + 词表匹配 + 敏感信息正则。
+"""规则与词表的唯一出处：内置词表 + 用户词表 + 敏感信息正则。
 
-对应 1.0.2 外挂 PoC 的 ``policy.json``（``categories[]`` / ``sensitive[]`` /
-``allowlist[]``）与 ``wordlists/*.txt``。这里把数据落在包内 ``wordlists/`` 下：
+1.0.3 起本模块是"内置词表 + 十类敏感信息正则"；1.1.8 起加三件事：
 
-* 每个类别一个 ``<类别 id>.txt``，UTF-8、一行一条、``#`` 开头为注释；
-* 词表是**纯数据**，改词表不需要改代码（也不新增依赖）；
-* 类别的标签 / 严重级 / 默认动作在本模块里定义，因为它们要参与决策文案。
+1. **用户可编辑**：``<config_dir>/safety/wordlists/<类别>.txt`` 与内置同名文件**合并**
+   （用户在前的优先），新文件名自动成为一个自定义类别（默认动作 ``block``）；
+   ``<config_dir>/safety/sensitive/*.regex`` 一行一条自定义正则（``名字 = /正则/flags``）。
+2. **归一化匹配**：词表匹配跑在 :func:`atri_x.safety.normalize.normalize_skeleton` 折出
+   的骨架上（NFKC / 去零宽 / 去 CJK 间分隔符 / 大小写折叠），敏感信息仍在**原文**上
+   跑正则（替换必须落在原文，才不会错位）。
+3. **分块扫描**：``max_scan_chars`` 从"只扫前 N 字符"改成"扫前 N×4 字符、按 N 分块"，
+   超长工具结果不再只检查开头一小段。
 
-敏感信息（PII / 凭据）用**独立实现的正则**，不 import :mod:`atri_x.redact`
-的私有细节（那是错误/日志脱敏的另一条链路）。两条硬性约束：
+两条硬性约束（1.0.2 沿袭下来的）：
 
-1. **幂等**：``inspect(inspect(text))`` 的文本必须与一次相同。所有替换文本里
-   都不含会被自身正则再次命中的形态（无数字、无 ``@``、无 ``BEGIN``），
-   且 ``password`` 规则带 ``(?!\\[已脱敏)`` 先行断言——踩过这个坑的说明见
-   :mod:`atri_x.redact.redact` 末尾注释。
-2. **不落原文**：命中片段只用于内存判定；审计预览走 :meth:`RuleSet.mask`，
-   把**所有**敏感命中（含只 ``flag`` 的类别）与词表命中都替换掉。
+1. **幂等**：``inspect(inspect(text))`` 的文本必须与一次相同。所有替换文本里都不含会被
+   自身正则再次命中的形态（无数字、无 ``@``、无 ``BEGIN``），``password`` 规则带
+   ``(?!\\[已脱敏)`` 先行断言。
+2. **不落原文**：命中片段只用于内存判定；审计预览走 :meth:`RuleSet.mask`，把**所有**
+   敏感命中（含只 ``flag`` 的类别）与词表命中都替换掉。
 """
 
 from __future__ import annotations
@@ -23,7 +25,9 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping, Sequence
+
+from atri_x.safety.normalize import normalize_skeleton
 
 __all__ = [
     "CATEGORY_IDS",
@@ -39,6 +43,8 @@ __all__ = [
     "WORDLIST_DIR",
     "available_wordlists",
     "load_all_wordlists",
+    "load_custom_patterns",
+    "load_user_wordlists",
     "load_wordlist",
     "wordlist_path",
 ]
@@ -46,7 +52,7 @@ __all__ = [
 #: 词表目录（包内数据文件）。
 WORDLIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wordlists")
 
-#: 八个词表类别，顺序固定（配置里的 ``categories`` 也按这个顺序归一）。
+#: 八个内置词表类别，顺序固定（配置里的 ``categories`` 也按这个顺序归一）。
 CATEGORY_IDS: tuple[str, ...] = (
     "hate_speech",
     "illegal_method",
@@ -189,6 +195,12 @@ _SENSITIVE_PATTERNS: dict[str, str] = {
 #: ``password`` 规则有捕获组 ``\1``：替换时保留字段名，只吃掉取值。
 _SENSITIVE_TEMPLATES: dict[str, str] = {"password": r"\1=[已脱敏]"}
 
+#: 扫描窗口倍数：``max_scan_chars`` 的多少倍参与扫描（分块，见 :meth:`RuleSet.split_scan`）。
+SCAN_BUDGET_FACTOR = 4
+
+#: 分块下限（太小会让正则调用开销占比过高）。
+MIN_CHUNK_CHARS = 256
+
 
 @dataclass(frozen=True)
 class RuleHit:
@@ -205,16 +217,12 @@ class RuleHit:
 # 词表装载
 # ---------------------------------------------------------------------------
 def wordlist_path(name: str) -> str:
-    """某个类别词表的绝对路径（不保证存在）。"""
+    """某个内置类别词表的绝对路径（不保证存在）。"""
     return os.path.join(WORDLIST_DIR, f"{(name or '').strip().lower()}.txt")
 
 
-def load_wordlist(name: str) -> list[str]:
-    """读一个词表文件：一行一条、``#`` 注释、空行忽略、去重保序。
-
-    文件缺失或不可读时返回空列表（词表缺一份不该让整条链路失败）。
-    """
-    path = wordlist_path(name)
+def _read_terms(path: str) -> list[str]:
+    """读一个词表文件：一行一条、``#`` 注释、空行忽略、去重保序；读不到返回空表。"""
     try:
         with open(path, "r", encoding="utf-8") as handle:
             lines = handle.read().splitlines()
@@ -229,6 +237,11 @@ def load_wordlist(name: str) -> list[str]:
     return out
 
 
+def load_wordlist(name: str) -> list[str]:
+    """读一个内置词表文件（缺失/不可读时返回空列表，词表缺一份不该让链路失败）。"""
+    return _read_terms(wordlist_path(name))
+
+
 def available_wordlists() -> tuple[str, ...]:
     """包内实际存在的词表类别（按 :data:`CATEGORY_IDS` 的顺序）。"""
     return tuple(name for name in CATEGORY_IDS if os.path.isfile(wordlist_path(name)))
@@ -239,6 +252,91 @@ def load_all_wordlists() -> dict[str, list[str]]:
     return {name: load_wordlist(name) for name in CATEGORY_IDS}
 
 
+def load_user_wordlists(directory: str) -> dict[str, list[str]]:
+    """读用户词表目录：``<类别>.txt``，一行一条。
+
+    目录不存在/不可读 → 空字典（用户不建这个目录就等于"不覆盖"）。
+    ``#`` 注释与空行忽略；文件名（去 ``.txt``）就是类别名；新类别自动生效。
+    """
+    base = (directory or "").strip()
+    if not base or not os.path.isdir(base):
+        return {}
+    out: dict[str, list[str]] = {}
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return {}
+    for filename in names:
+        if not filename.lower().endswith(".txt"):
+            continue
+        category = filename[: -len(".txt")].strip().lower()
+        if not category:
+            continue
+        terms = _read_terms(os.path.join(base, filename))
+        if terms:
+            out[category] = terms
+    return out
+
+
+#: 自定义正则行：``名字 = /正则/flags``（名字允许中文等非空白字符）。
+_CUSTOM_PATTERN_RE = re.compile(
+    r"^\s*(?P<name>[^\s=/]{1,40})\s*=\s*/(?P<body>.+)/(?P<flags>[a-z]*)\s*$"
+)
+
+_FLAG_BITS: dict[str, int] = {
+    "i": re.IGNORECASE,
+    "m": re.MULTILINE,
+    "s": re.DOTALL,
+}
+
+
+def load_custom_patterns(directory: str) -> tuple[tuple[str, str, str], ...]:
+    """读用户自定义敏感信息正则目录（``*.regex``）。
+
+    返回 ``((名字, 正则源码, 替换文本), ...)``；非法行/非法正则**整条跳过**（不出现在返回
+    里，调用方据此告警）。替换文本固定为 ``[已脱敏:<名字>]``（不含可再次命中的形态）。
+    """
+    base = (directory or "").strip()
+    if not base or not os.path.isdir(base):
+        return ()
+    out: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return ()
+    for filename in names:
+        if not filename.lower().endswith(".regex"):
+            continue
+        path = os.path.join(base, filename)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                lines = handle.read().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            matched = _CUSTOM_PATTERN_RE.match(text)
+            if not matched:
+                continue
+            name = matched.group("name").strip().lower()
+            if not name or name in seen:
+                continue
+            body = matched.group("body")
+            flags = 0
+            for char in matched.group("flags"):
+                flags |= _FLAG_BITS.get(char, 0)
+            try:
+                re.compile(body, flags)
+            except re.error:
+                continue
+            seen.add(name)
+            out.append((name, body, f"[已脱敏:{name}]"))
+    return tuple(out)
+
+
 # ---------------------------------------------------------------------------
 # 编译后的规则集
 # ---------------------------------------------------------------------------
@@ -247,9 +345,9 @@ def _escape_terms(terms: Iterable[str]) -> str:
     return "|".join(re.escape(term) for term in terms if term)
 
 
-def _compile(pattern: str) -> re.Pattern[str] | None:
+def _compile(pattern: str, flags: int = 0) -> re.Pattern[str] | None:
     try:
-        return re.compile(pattern)
+        return re.compile(pattern, flags)
     except re.error:
         return None
 
@@ -279,20 +377,45 @@ class RuleSet:
 
     ``policy`` 是鸭子类型：只用到 ``enabled_categories()`` / ``enabled_sensitive()``
     / ``action_for()`` / ``allowlist`` / ``max_scan_chars`` 这几处。
+
+    1.1.8 新增的可选参数（默认值保持 1.1.7 行为）：
+
+    * ``extra_terms`` —— 用户词表 ``{类别: [词条, ...]}``，与内置合并（用户在前）；
+    * ``custom_patterns`` —— 用户自定义正则 ``((名字, 源码, 替换), ...)``；
+    * ``normalize`` —— 词表匹配是否跑归一化骨架（由 ``[local].normalize`` 控制）。
     """
 
-    def __init__(self, policy: Any) -> None:
+    def __init__(
+        self,
+        policy: Any,
+        *,
+        extra_terms: Mapping[str, Sequence[str]] | None = None,
+        custom_patterns: Sequence[tuple[str, str, str]] = (),
+        normalize: bool = True,
+    ) -> None:
         self.allowlist: tuple[str, ...] = tuple(getattr(policy, "allowlist", ()) or ())
         self.max_scan_chars = int(getattr(policy, "max_scan_chars", 8000) or 8000)
+        self.normalize = bool(normalize)
         self.warnings: list[str] = []
         self._actions: dict[str, str] = {}
         self.categories: list[_CategoryRule] = []
-        for name in policy.enabled_categories():
-            terms = tuple(load_wordlist(name))
+        builtin = dict(load_all_wordlists())
+        user = {str(k).strip().lower(): list(v) for k, v in (extra_terms or {}).items()}
+        enabled = list(policy.enabled_categories())
+        for name in user:
+            if name not in enabled:
+                enabled.append(name)
+        for name in enabled:
+            terms: list[str] = []
+            for term in list(user.get(name, ())) + list(builtin.get(name, ())):
+                cleaned = str(term).strip()
+                if cleaned and cleaned not in terms:
+                    terms.append(cleaned)
             if not terms:
                 self.warnings.append(f"词表为空或缺失，已跳过：{name}")
                 continue
-            regex = _compile(_escape_terms(terms))
+            normalized = self._normalize_terms(terms)
+            regex = _compile(_escape_terms(normalized))
             if regex is None:
                 self.warnings.append(f"词表无法编译，已跳过：{name}")
                 continue
@@ -302,7 +425,7 @@ class RuleSet:
                     label=CATEGORY_LABELS.get(name, name),
                     severity=CATEGORY_SEVERITIES.get(name, "high"),
                     action=CATEGORY_ACTION_BLOCK,
-                    terms=terms,
+                    terms=tuple(terms),
                     regex=regex,
                 )
             )
@@ -328,6 +451,33 @@ class RuleSet:
                     regex=regex,
                 )
             )
+        for name, source, replacement in custom_patterns:
+            regex = _compile(source)
+            if regex is None:
+                self.warnings.append(f"自定义正则无法编译，已跳过：{name}")
+                continue
+            self._actions[name] = "redact"
+            self.sensitive.append(
+                _SensitiveRule(
+                    id=name,
+                    label=name,
+                    severity="medium",
+                    replacement=replacement,
+                    template="",
+                    regex=regex,
+                )
+            )
+
+    # -- 内部 ---------------------------------------------------------------
+    def _normalize_terms(self, terms: Iterable[str]) -> list[str]:
+        if not self.normalize:
+            return [term for term in terms if term]
+        out: list[str] = []
+        for term in terms:
+            skeleton = normalize_skeleton(term)
+            if skeleton and skeleton not in out:
+                out.append(skeleton)
+        return out
 
     # -- 匹配 ---------------------------------------------------------------
     def allowlisted(self, value: str) -> bool:
@@ -347,8 +497,15 @@ class RuleSet:
         out = head
         hits: list[RuleHit] = []
         # 1) 词表类：命中即 block（不替换正文，留给调用方的统一文案）。
+        skeleton = normalize_skeleton(out) if self.normalize else out
         for rule in self.categories:
-            matched = [m.group(0) for m in rule.regex.finditer(out) if not self.allowlisted(m.group(0))]
+            if rule.regex is None:
+                continue
+            matched = [
+                m.group(0)
+                for m in rule.regex.finditer(skeleton)
+                if not self.allowlisted(m.group(0))
+            ]
             if not matched:
                 continue
             hits.append(
@@ -360,7 +517,7 @@ class RuleSet:
                     match=matched[0],
                 )
             )
-        # 2) 敏感信息：按类别动作 redact / flag / block。
+        # 2) 敏感信息：按类别动作 redact / flag / block（在**原文**上跑，替换位置才准）。
         for rule in self.sensitive:
             if rule.regex is None:
                 continue
@@ -400,21 +557,33 @@ class RuleSet:
         return out
 
     def split_scan(self, text: str) -> tuple[str, str]:
-        """按 ``max_scan_chars`` 切出"要扫描的头"与"原样保留的尾"。
+        """按扫描预算切出"要扫描的头"与"原样保留的尾"。
 
-        截断只影响**是否扫描**，不影响文本：尾部原样拼回，绝不丢字符。
-        边界说明：头部的替换可能让文本变短，于是下一次扫描的窗口相对前移，
-        新暴露的尾部区域会再次被检查（那是真实内容，不是"啃尾巴"）。
-        需要严格的一次性判定时请把 ``max_scan_chars`` 设得足够大。
+        1.1.8 起预算从 ``max_scan_chars`` 放宽到 ``max_scan_chars × 4``
+        （``SCAN_BUDGET_FACTOR``）：旧实现只扫前 8000 字符，实测 2 万字符的工具结果
+        有 6 成完全没检查。截断只影响**是否扫描**，不影响文本：尾部原样拼回，绝不丢字符。
         """
-        limit = self.max_scan_chars
+        limit = self.max_scan_chars * SCAN_BUDGET_FACTOR
         if limit <= 0 or len(text) <= limit:
             return text, ""
         return text[:limit], text[limit:]
 
-    # -- 内部 ---------------------------------------------------------------
+    def scan_chunks(self, text: str) -> list[str]:
+        """把"要扫描的头"按 ``max_scan_chars`` 切成多块（供排障与统计用）。"""
+        head, _tail = self.split_scan(text)
+        size = max(MIN_CHUNK_CHARS, self.max_scan_chars)
+        if len(head) <= size:
+            return [head] if head else []
+        return [head[i : i + size] for i in range(0, len(head), size)]
+
+    # -- 动作 ---------------------------------------------------------------
     def _action_for(self, rule: _SensitiveRule) -> str:
         return self._actions.get(rule.id, SENSITIVE_DEFAULT_ACTIONS.get(rule.id, "redact"))
+
+    def action_for(self, category: str) -> str:
+        """某个敏感类别的生效动作（供引擎裁决层查询）。"""
+        name = (category or "").strip().lower()
+        return self._actions.get(name, SENSITIVE_DEFAULT_ACTIONS.get(name, "redact"))
 
     def _redact(self, rule: _SensitiveRule, text: str) -> str:
         def _sub(match: re.Match[str]) -> str:

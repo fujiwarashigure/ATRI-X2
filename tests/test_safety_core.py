@@ -497,14 +497,24 @@ class TestStats(TempCase):
 
 
 class TestMaxScanChars(TempCase):
-    def test_tail_is_preserved_and_not_scanned(self) -> None:
-        guard = self.guard(max_scan_chars=20)
-        text = "前缀很短" + ("x" * 20) + " 尾部 key sk-abcdefghijklmnopqrstuvwx 结束"
+    def test_tail_beyond_budget_is_preserved_and_not_scanned(self) -> None:
+        # 1.1.8 起扫描预算是 max_scan_chars × 4（RuleSet.split_scan）
+        guard = self.guard(max_scan_chars=10)
+        text = ("x" * 40) + " 尾部 key sk-abcdefghijklmnopqrstuvwx 结束"
         filtered, decision = guard.filter_text(text, stage="send")
-        # 超出扫描窗口的密钥不被处理，但文本长度与尾部必须原样保留
+        # 超出扫描预算的密钥不被处理，但文本长度与尾部必须原样保留
         self.assertEqual(filtered, text)
         self.assertEqual(decision.action, "pass")
         self.assertEqual(len(filtered), len(text))
+
+    def test_budget_is_four_times_max_scan_chars(self) -> None:
+        # 旧实现只扫前 max_scan_chars 个字符；1.1.8 放宽到 4 倍（修复超长工具结果漏扫）
+        guard = self.guard(max_scan_chars=20)
+        text = "前缀很短" + ("x" * 20) + " 尾部 key sk-abcdefghijklmnopqrstuvwx 结束"
+        self.assertLess(len(text), 80)
+        filtered, decision = guard.filter_text(text, stage="send")
+        self.assertEqual(decision.action, "redact")
+        self.assertNotIn("sk-abcdefghijklmnopqrstuvwx", filtered)
 
     def test_head_is_scanned(self) -> None:
         guard = self.guard(max_scan_chars=40)

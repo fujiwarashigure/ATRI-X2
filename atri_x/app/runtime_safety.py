@@ -119,21 +119,36 @@ def safety_guard_needed(section: Any) -> bool:
 
 
 def build_safety_guard(cfg: Any, logger: Any) -> Any:
-    """构造内容安全 guard；未启用/依赖缺失时返回 ``None``（fail-open，不阻断启动）。"""
+    """构造内容安全 guard；未启用/依赖缺失时返回 ``None``（fail-open，不阻断启动）。
+
+    两条装配路径：
+
+    * **旧路径**：``app.toml`` 的 ``[safety]`` 段（1.0.3~1.1.7 语义），没有
+      ``safety.toml`` 时走它——行为与 1.1.7 完全一致；
+    * **新路径**：``<config_dir>/safety.toml`` 存在 → 先建 :class:`SafetyEngine`
+      （热加载 + 远程审核 + 复核队列），本地层由引擎统一提供。
+    """
+    config_dir = os.path.dirname(str(getattr(cfg, "config_path", "") or ""))
     section = getattr(cfg, "safety", None)
-    if not safety_guard_needed(section):
+    engine = build_safety_engine(config_dir, logger)
+    legacy_needed = safety_guard_needed(section)
+    if engine is None and not legacy_needed:
         return None
     try:
         from atri_x.safety import SafetyGuard, policy_from_section
 
-        policy = policy_from_section(section)
-        config_dir = os.path.dirname(str(getattr(cfg, "config_path", "") or ""))
+        policy = (
+            engine.policy
+            if engine is not None and getattr(engine, "active", False)
+            else policy_from_section(section)
+        )
         return SafetyGuard(
             policy,
             logger=logger,
             config_dir=config_dir,
             chat=getattr(section, "chat", None),
             work=getattr(section, "work", None),
+            engine=engine,
         )
     except Exception as exc:  # noqa: BLE001 - 安全层不可用不应让整个服务起不来
         if logger is not None:
@@ -143,6 +158,28 @@ def build_safety_guard(cfg: Any, logger: Any) -> Any:
                 error="%s: %s" % (type(exc).__name__, exc),
             )
         return None
+
+
+def build_safety_engine(config_dir: str, logger: Any) -> Any:
+    """构造 1.1.8 的内容安全引擎；没有 ``safety.toml`` 或构造失败 → ``None``。
+
+    ``None`` 表示"完全走 1.1.7 的旧路径"：不读 safety.toml、不调远程、不写复核队列。
+    """
+    if not (config_dir or "").strip():
+        return None
+    try:
+        from atri_x.safety import build_engine
+
+        engine = build_engine(config_dir=config_dir, logger=logger)
+    except Exception as exc:  # noqa: BLE001 - 新引擎坏了不能拖垮旧路径
+        if logger is not None:
+            logger.warn(
+                "safety engine unavailable; falling back to legacy filtering",
+                event="safety_engine_unavailable",
+                error="%s: %s" % (type(exc).__name__, exc),
+            )
+        return None
+    return engine
 
 
 #: 兼容旧名（1.1.7 及更早的测试与排障脚本按 ``_build_safety_guard`` 取）。

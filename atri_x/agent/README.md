@@ -126,7 +126,7 @@
 | `atri_x.agent.member_persona_prompt` | 成员专属人设的系统提示词来源。 | 73 | `test_member_persona.py` |
 | `atri_x.agent.member_profile_prompt` | 群友档案提示词来源：把**当前发言人**的档案注入系统提示词。 | 72 | `test_member_profile.py` |
 | `atri_x.agent.memory_learning_admin` | 后台记忆/学习的管理查询门面。 | 47 | — |
-| `atri_x.agent.message` | 入站消息总入口：命令派发与聊天。 | 257 | `test_safety_integration.py` |
+| `atri_x.agent.message` | 入站消息总入口：命令派发与聊天。 | 311 | `test_safety_integration.py` |
 | `atri_x.agent.model` | 模型运行时状态、模式模型选择、客户端查找与重试通知。 | 484 | `test_agent_bootstrap.py`、`test_agent_context_runtime.py`、`test_agent_model.py` |
 | `atri_x.agent.model_agent` | ``ModelMixin``：``internal/agent/model.go`` 里挂在 ``*Agent`` 上的模型方法。 | 428 | `test_agent_context_runtime.py`、`test_agent_model.py` |
 | `atri_x.agent.model_list` | 模型列表：缓存、并发合并、按 provider 聚合与命名模型档。 | 448 | `test_agent_model.py` |
@@ -137,7 +137,7 @@
 | `atri_x.agent.notice_queue` | 按平台的通知发送队列与背压。 | 232 | `test_agent_core.py` |
 | `atri_x.agent.ops` | 运维可见的请求快照。 | 22 | — |
 | `atri_x.agent.options` | 构造期依赖与配置容器，以及若干 setter。 | 239 | `test_agent_core.py` |
-| `atri_x.agent.output` | 出站：发送管理器的装配、部分失败记账与平台消息映射。 | 408 | `test_safety_integration.py` |
+| `atri_x.agent.output` | 出站：发送管理器的装配、部分失败记账与平台消息映射。 | 413 | `test_safety_integration.py` |
 | `atri_x.agent.participation` | 群聊参与状态机 MVP（评估 §D）：只做**抑制**，不主动找话题。 | 345 | `test_agent_participation.py` |
 | `atri_x.agent.platform_signals` | 平台连接信号的订阅与按平台执行队列。 | 249 | — |
 | `atri_x.agent.prefix` | 命令前缀的读取与取消命令识别。 | 47 | — |
@@ -146,7 +146,7 @@
 | `atri_x.agent.reactions` | 表情反应层与 Agent 回合输出的接线（Python 侧新增，无 Go 对应）。 | 164 | `test_agent_chat.py`、`test_agent_reactions.py` |
 | `atri_x.agent.request_context` | 回合请求 ID 在 ctx 上的读写。 | 32 | `test_agent_core.py` |
 | `atri_x.agent.risk_confirmation` | 高风险工具确认的文案与指令识别。对应 Go：``internal/agent/risk_confirmation.go``。 | 366 | `test_agent_risk.py` |
-| `atri_x.agent.safety_llm` | 模型输出侧的内容安全接线（从 :mod:`atri_x.agent.chat_llm` 抽出）。 | 37 | — |
+| `atri_x.agent.safety_llm` | 模型输出侧的内容安全接线（从 :mod:`atri_x.agent.chat_llm` 抽出）。 | 51 | — |
 | `atri_x.agent.safety_tools` | 工具链路上的内容安全接线（从 :mod:`atri_x.agent.toolrun_adapter` 抽出）。 | 91 | — |
 | `atri_x.agent.seams` | Agent 的可选能力接缝（seam）。 | 595 | `test_agent_bootstrap.py` |
 | `atri_x.agent.segments` | 入站消息段在 ctx / LLM / 平台三种表示之间的搬运。 | 299 | `test_agent_segments.py`、`test_platform_cli_remote.py` |
@@ -169,7 +169,7 @@
 | `atri_x.agent.tools` | 工具运行时状态装配。对应 Go：``internal/agent/tools.go``。 | 525 | `test_agent_assembly.py`、`test_agent_risk.py`、`test_agent_tools.py` |
 | `atri_x.agent.tools_service` | ``agent.services["tools"]`` / ``command_deps.tools`` 的装配对象。 | 60 | — |
 | `atri_x.agent.turn_gate` | 回合输出的"最后一公里"闸门。 | 75 | — |
-| `atri_x.agent.turn_output` | 回合输出端口：前台流式输出与后台静默输出。 | 273 | `test_agent_chat.py`、`test_platform_cli.py`、`test_platform_cli_remote.py` |
+| `atri_x.agent.turn_output` | 回合输出端口：前台流式输出与后台静默输出。 | 291 | `test_agent_chat.py`、`test_platform_cli.py`、`test_platform_cli_remote.py` |
 | `atri_x.agent.turn_override` | 单回合指令：``@model:`` / ``@image:`` / ``@use:`` 的解析、裁决与剥离。 | 337 | `test_agent_assembly.py`、`test_agent_chat.py` |
 | `atri_x.agent.user_prompt_source` | 用户自建提示词的系统提示词来源。 | 42 | `test_promptlib.py` |
 | `atri_x.agent.vision` | 多图兜底：把图片段换成模型生成的文字描述。 | 518 | `test_vision_prechat.py`、`test_vision_privacy.py` |
@@ -184,4 +184,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 833 个 / 超线文件 78 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 845 个 / 超线文件 78 个）。

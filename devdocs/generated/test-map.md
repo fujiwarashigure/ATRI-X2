@@ -3,8 +3,8 @@
 
 # 测试地图（自动生成）
 
-- 模块 **833** 个，其中被测试直接/间接覆盖 **523** 个（62.8%）；无覆盖 **310** 个。
-- 测试文件 **240** 个。
+- 模块 **845** 个，其中被测试直接/间接覆盖 **530** 个（62.7%）；无覆盖 **315** 个。
+- 测试文件 **244** 个。
 
 口径：测试文件 import 了某模块（或其子模块）就算覆盖该模块；「无覆盖」不代表没测过，但**改那个模块时没有同名测试可跑**，只能靠调用方测试。
 
@@ -420,7 +420,14 @@
 | `atri_x.runtime` | `tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_core.py`、`tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py`、`tests/test_turn_manager.py` |
 | `atri_x.runtime.status` | `tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py` |
 | `atri_x.safecontext` | `tests/test_agent_chat.py`、`tests/test_agent_core.py`、`tests/test_atrinis_http.py`、`tests/test_fileops.py`、`tests/test_groupanalysis.py`、`tests/test_maintenance.py`、`tests/test_maintenance_dsh.py`、`tests/test_media_image.py`、`tests/test_media_manager.py`、`tests/test_media_worker.py`、`tests/test_ops.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py`、`tests/test_request_manager.py`、`tests/test_selflearning.py`、`tests/test_signal.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_turn_manager.py`、`tests/test_vision.py`、`tests/test_vision_privacy.py` |
-| `atri_x.safety` | `tests/test_safety_core.py`、`tests/test_safety_integration.py` |
+| `atri_x.safety` | `tests/test_safety_async_guard.py`、`tests/test_safety_core.py`、`tests/test_safety_engine.py`、`tests/test_safety_integration.py`、`tests/test_safety_providers.py`、`tests/test_safety_settings.py` |
+| `atri_x.safety.engine` | `tests/test_safety_async_guard.py`、`tests/test_safety_engine.py`、`tests/test_safety_settings.py` |
+| `atri_x.safety.providers` | `tests/test_safety_async_guard.py`、`tests/test_safety_engine.py`、`tests/test_safety_providers.py` |
+| `atri_x.safety.providers.aliyun` | `tests/test_safety_providers.py` |
+| `atri_x.safety.providers.base` | `tests/test_safety_async_guard.py`、`tests/test_safety_engine.py`、`tests/test_safety_providers.py` |
+| `atri_x.safety.providers.tencent` | `tests/test_safety_providers.py` |
+| `atri_x.safety.rules` | `tests/test_safety_settings.py` |
+| `atri_x.safety.settings` | `tests/test_safety_providers.py`、`tests/test_safety_settings.py` |
 | `atri_x.security` | `tests/agent_commands_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_admission.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_services.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_participation.py`、`tests/test_agent_risk.py`、`tests/test_app_runtime_agent.py`、`tests/test_background.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_cron.py`、`tests/test_hook_runtime.py`、`tests/test_long_memory_scope.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_platform_qq_onebot.py`、`tests/test_resident_memory.py`、`tests/test_security_grants.py`、`tests/test_tool_discover.py`、`tests/test_tool_skill.py`、`tests/test_toolrun.py` |
 | `atri_x.selflearning` | `tests/test_app_ops_plugins.py`、`tests/test_selflearning.py` |
 | `atri_x.selflearning.service` | `tests/test_app_ops_plugins.py` |
@@ -662,9 +669,9 @@
 
 `atri_x.redact.redact`
 
-### safety（5）
+### safety（10）
 
-`atri_x.safety.audit`、`atri_x.safety.guard`、`atri_x.safety.mode_ctx`、`atri_x.safety.policy`、`atri_x.safety.rules`
+`atri_x.safety.audit`、`atri_x.safety.engine_remote`、`atri_x.safety.guard`、`atri_x.safety.guard_async`、`atri_x.safety.mode_ctx`、`atri_x.safety.normalize`、`atri_x.safety.policy`、`atri_x.safety.review_queue`、`atri_x.safety.scope_policy`、`atri_x.safety.types`
 
 ### security（3）
 

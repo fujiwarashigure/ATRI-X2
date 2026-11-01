@@ -134,7 +134,7 @@ class SendFileTool:
         guard = guard_from_context(ctx)
         if guard is not None:
             kind = "image" if out.kind == KindImage else "file"
-            decision = guard.allow_media_output(
+            decision = await guard.aallow_media_output(
                 kind,
                 stage="tool",
                 scope=scope_from_context(ctx),

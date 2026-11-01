@@ -58,7 +58,7 @@ def filter_image_prompt(
     return positive_text, negative_text
 
 
-def gate_image_output(ctx: Any, result: Any, *, tool_name: str) -> None:
+async def gate_image_output(ctx: Any, result: Any, *, tool_name: str) -> None:
     """图片输出边界：``block_image_output`` 生效时清空输出并补一条文本说明。
 
     **不做内容识别**，只按策略在出口丢弃；发送边界还会再兜一次（幂等）。
@@ -66,7 +66,7 @@ def gate_image_output(ctx: Any, result: Any, *, tool_name: str) -> None:
     guard = guard_from_context(ctx)
     if guard is None or not getattr(result, "outputs", None):
         return
-    decision = guard.allow_media_output(
+    decision = await guard.aallow_media_output(
         "image", stage="tool", scope=scope_from_context(ctx), meta={"tool": tool_name}
     )
     if decision.allowed:

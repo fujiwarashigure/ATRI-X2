@@ -243,8 +243,14 @@ async def replace_stream_output(
 
 
 def start_message_stream(agent: Any, ctx: Any) -> MessageStream | None:
-    """开一条流式消息（平台不支持则返回 ``None``）。对应 Go ``startMessageStream``。"""
+    """开一条流式消息（平台不支持则返回 ``None``）。对应 Go ``startMessageStream``。
+
+    1.1.8：远程内容审核开启时**关闭流式**——流式 delta 在发送边界之前就到平台了，
+    没法在发出去之后收回；宁可没有打字机效果，也不发未经审核的正文。
+    """
     if buffer_assistant_output(ctx):
+        return None
+    if _safety_stream_blocked(agent):
         return None
     msg, ok = message_context_from(ctx)
     if ok and msg.sender is not None and isinstance(msg.sender, StreamingMessageSender):
@@ -253,6 +259,18 @@ def start_message_stream(agent: Any, ctx: Any) -> MessageStream | None:
     if platform is not None and isinstance(platform, StreamingMessageSender):
         return _try_start_stream(platform, ctx)
     return None
+
+
+def _safety_stream_blocked(agent: Any) -> bool:
+    """远程审核生效时不走流式（见 :func:`start_message_stream`）。"""
+    guard = getattr(agent, "safety_guard", None)
+    engine = getattr(guard, "engine", None) if guard is not None else None
+    if engine is None or not getattr(engine, "active", False):
+        return False
+    try:
+        return bool(engine.settings.remote.enabled and engine.providers)
+    except Exception:  # noqa: BLE001 - 引擎异常不阻断流式
+        return False
 
 
 def _try_start_stream(sender: Any, ctx: Any) -> MessageStream | None:

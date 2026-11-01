@@ -6,6 +6,70 @@
 
 ---
 
+## [1.1.8] - 2026-11-01 — 内容安全彻底升级（本地可编辑 + 远程双供应商 + 三档裁决）
+
+> 只动内容安全这一条线：**不改**已有配置键、工具 schema、会话/数据库格式；没有
+> `safety.toml` 时行为与 1.1.7 完全一致。远程审核默认关闭，凭据只从 `.env` 读。
+
+旧状态（1.1.7）：
+
+- 内容安全是"进程内词表 + 宽正则"的单层过滤器：8 类词表共 54 条中文词条（子串匹配、
+  无归一化），10 类敏感信息正则。实测在一台真实实例上，11 条审计**全部来自工具结果、
+  11/11 都是误报**，其中 5 条 `redact` 真的改写了搜索/网页内容；`inbound` / `llm` / `send`
+  三个阶段 0 命中。
+- 词表与正则打在包内 `atri_x/safety/wordlists/`，用户改不了、改完要重启、升级会被覆盖。
+- 只有 pass / flag / redact / block 四档，没有"待人工复核"的中间档；没有远程/语义审核，
+  无法判断语境；图片/文件**不做内容识别**，只在出口整体丢弃。
+- 流式 delta（`stream.append`）在发送边界之前就到平台了，**完全绕过** guard；
+  入站图片/语音/文件不审核；`max_scan_chars` 只扫前 N 字符（2 万字的工具结果有 6 成没检查）。
+
+新状态：
+
+- **数据目录 + 热加载**：新增 `<config_dir>/safety.toml`、`safety/wordlists/*.txt`（与内置同名
+  合并、新文件名自动成为新类别）、`safety/sensitive/*.regex`（`名字 = /正则/flags`）、
+  `safety/scopes/*.toml`（按群/按用户覆盖）。按 `(mtime_ns, size)` 指纹热加载；坏配置**保留
+  上一份可用策略**并告警，不会静默失效。
+- **本地层升级**：词表匹配先做归一化骨架（NFKC、去零宽/变体选择符、去 CJK 间分隔符、
+  大小写折叠），`制 毒` / `ｍｉｎｏｒ` 这类绕过写法不再漏；扫描预算从 `max_scan_chars`
+  放宽到 4 倍（分块），超长工具结果不再只检查开头。
+- **三档裁决**：`block` / `review` / `pass`。`review` 默认"照发 + 入队"（高敏群可配
+  `hold` 先压住），人工队列落 `<config_dir>/safety/review.db`（sqlite，状态机
+  `pending → approved / rejected / expired`）。
+- **按群/按工具差异化**：`[tools]` 配某工具的远程策略（`sync` / `cache_only` /
+  `local_only` / `off`），`safety/scopes/*.toml` 按 `platform + scope_id` 覆盖失败策略、
+  图片模式、强制/豁免工具、档位映射。工具结果默认只走本地层（这是 1.1.7 的误报重灾区）。
+- **远程审核层（腾讯云 + 阿里云）**：TC3-HMAC-SHA256 / ACS3-HMAC-SHA256 用标准库手写，
+  不引 SDK；双供应商按 `quorum`（`any_block` / `both_pass` / `primary_only`）仲裁，
+  主供应商失败自动切备；熔断（连续 5 次失败冷却 60 秒、认证错误冷却 10 分钟）、
+  内容级缓存（TTL + LRU）、当日预算熔断（`daily_budget_cny`）。
+- **多模态分路**：文本同步（超时 800 ms，受 `[remote].timeout_ms` 控制）；图片同步送审
+  （本地字节 base64；超阈值且有对象存储时走 URL）；语音先审 ASR 转写文本；音视频走异步
+  任务（当前只留接口与配置，轮询在 P4 接）。
+- **失败开放/关闭**：`fail_mode = "open"` 默认"放行 + 告警 + 审计标 `fail_open`"，
+  `fail_close_scopes` 或 scope 文件可把高敏群改成"拦"。
+- **双向审核**：入站文本 + 入站图片、模型输出、发送边界（正文/通知/图片/文件）、生图提示词
+  都接在同一条 guard 线上；远程审核开启时**关闭流式**（`stream.append` 的 delta 无法
+  事后收回），宁可没有打字机效果也不发未经审核的正文。
+- **留痕 v2**：审计每行多 `schema=2` / `tier` / `provider` / `request_id` / `score` /
+  `degraded` / `fail_mode` / `latency_ms` / `hold`；仍然**只存 `sha256` + 脱敏预览**，
+  不落原文。
+- **结构**：`guard.py` 从 635 行拆到 575（模式上下文 → `mode_ctx.py`、异步三档 →
+  `guard_async.py`）；引擎拆成 `engine.py`（热加载/裁决）+ `engine_remote.py`（远程编排）；
+  新增 `types` / `normalize` / `settings` / `scope_policy` / `review_queue` / `providers/*`。
+- **测试**：新增 `test_safety_settings` / `test_safety_providers` / `test_safety_engine` /
+  `test_safety_async_guard`（共 59 个用例），既有 `test_safety_core` /
+  `test_safety_integration` 保持全绿。
+
+配置与兼容：
+
+- 旧 `[safety]` 段（含 `[safety.chat]` / `[safety.work]`）继续有效：没有 `safety.toml` 时
+  走的还是 1.1.7 那条路径。
+- 有了 `safety.toml` 后，本地层改由它统一提供（按模式的旧覆盖不再参与），远程层才可能开启。
+- 远程凭据只认环境变量名（`secret_id_env` 等），密钥放 `.env` 或系统环境变量；
+  `scripts/check_secrets.py` 会扫仓库，不要把密钥写进 `safety.toml`。
+- ⚠️ 腾讯云/阿里云适配器**尚未用真实账号联调**：签名与响应解析有离线用例覆盖（假传输 +
+  录制响应），字段以官方文档为准；联调是 1.1.8 之后的第一项验收。
+
 ## [1.1.7] - 2026-10-31 — 后台服务断线自愈 + 服务退出诊断（稳定性补丁版）
 
 > 只修稳定性：**不改**配置格式、工具 schema、会话/数据库格式；不新增配置项，1.1.6 的配置与

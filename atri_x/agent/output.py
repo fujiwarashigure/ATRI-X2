@@ -190,7 +190,7 @@ async def send_outputs(agent: Any, ctx: Any, outputs: list[Output] | None) -> No
     if not outputs:
         return
     # safety-guard: 发送边界的最后一道（文本脱敏幂等重扫；图片/文件按策略丢弃）
-    outputs = _safety_guard_outputs(agent, ctx, list(outputs))
+    outputs = await _asafety_guard_outputs(agent, ctx, list(outputs))
     if not outputs:
         return
     manager = agent.outputs
@@ -251,12 +251,15 @@ async def prepare_assistant_output(agent: Any, ctx: Any, point: str, text: str) 
     guard = getattr(agent, "safety_guard", None)
     if guard is None:
         return prepared
-    filtered, _decision = guard.filter_text(
+    filtered, decision = await guard.afilter_text(
         prepared,
-        stage="output",
+        stage="send",
         scope=scope_from_host(agent, ctx),
         mode=mode_from_host(agent, ctx),
     )
+    if decision.action == "review" and decision.hold:
+        # 高敏群：review 档先压住，不发；返回空串让调用方跳过本次发送。
+        return ""
     return filtered
 
 
@@ -270,6 +273,9 @@ async def send_chat_with_receipt(agent: Any, ctx: Any, text: str) -> Receipt:
     if not (text or "").strip() and buffer_assistant_output(ctx):
         return Receipt()
     prepared = await prepare_assistant_output(agent, ctx, PointAgentOutputPrepared, text)
+    if not (prepared or "").strip():
+        # safety-guard: review + hold 时正文被压住，不发空消息也不记"已发送"。
+        return Receipt()
     manager = agent.outputs
     manager.sender = AgentOutputSender(agent, ctx)
     if manager.logger is None:
@@ -357,7 +363,7 @@ async def send_notice_public(agent: Any, ctx: Any, notice: Notice) -> Receipt:
     ):
         return Receipt()
     # safety-guard: 系统通知 / 错误提示也是外发文本，走同一套判定
-    guarded = _safety_guard_outputs(agent, ctx, list(notice.outputs or []))
+    guarded = await _asafety_guard_outputs(agent, ctx, list(notice.outputs or []))
     if not guarded and notice.outputs:
         return Receipt()
     if guarded != list(notice.outputs or []):
@@ -369,7 +375,9 @@ async def send_notice_public(agent: Any, ctx: Any, notice: Notice) -> Receipt:
     return await manager.send_notice(ctx, notice)
 
 
-def _safety_guard_outputs(agent: Any, ctx: Any, outputs: list[Output]) -> list[Output]:
+async def _asafety_guard_outputs(
+    agent: Any, ctx: Any, outputs: list[Output]
+) -> list[Output]:
     """逐个输出过安全闸门；被拦下的图片 / 文件换成一条文本说明。
 
     * ``KindText`` / ``KindReply``：文本再过一次（幂等，二次扫描不会继续啃文本）；
@@ -387,17 +395,20 @@ def _safety_guard_outputs(agent: Any, ctx: Any, outputs: list[Output]) -> list[O
     for out in outputs:
         kind = (out.kind or "").strip().lower()
         if kind in (KindImage, KindFile):
-            decision = guard.allow_media_output(
+            decision = await guard.aallow_media_output(
                 kind, stage="send", scope=scope, meta={"name": out.name}, mode=mode
             )
             if not decision.allowed:
                 if decision.text:
                     notes.append(decision.text)
                 continue
+            if decision.action == "review" and decision.hold:
+                # review + hold：先压住（已在 guard 里入队），不发出。
+                continue
             kept.append(out)
             continue
         if kind in (KindText, KindReply) and (out.text or "").strip():
-            filtered, _decision = guard.filter_text(
+            filtered, decision = await guard.afilter_text(
                 out.text, stage="send", scope=scope, mode=mode
             )
             if filtered != out.text:

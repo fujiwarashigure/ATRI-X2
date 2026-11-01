@@ -571,7 +571,7 @@ class ImageGenerateTool:
         append_warnings(result, *artist_warnings)
         append_warnings(result, *composition.warnings)
         # safety-guard: 图片输出边界（不做图片内容识别，只按策略在出口丢弃）。
-        gate_image_output(ctx, result, tool_name=self.name())
+        await gate_image_output(ctx, result, tool_name=self.name())
         return result
 
 

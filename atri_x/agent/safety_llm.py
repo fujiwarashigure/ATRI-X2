@@ -16,7 +16,21 @@ from typing import Any
 
 from atri_x.safety import mode_from_host, scope_from_host
 
-__all__ = ["filter_llm_text"]
+__all__ = ["afilter_llm_text", "filter_llm_text"]
+
+
+async def afilter_llm_text(agent: Any, ctx: Any, text: str) -> str:
+    """异步版：本地层 + 远程层 + 三档裁决（1.1.8 起模型输出的主路径）。"""
+    guard = getattr(agent, "safety_guard", None)
+    if guard is None:
+        return text
+    filtered, _decision = await guard.afilter_text(
+        text,
+        stage="llm",
+        scope=scope_from_host(agent, ctx),
+        mode=mode_from_host(agent, ctx),
+    )
+    return filtered
 
 
 def filter_llm_text(agent: Any, ctx: Any, text: str) -> str:

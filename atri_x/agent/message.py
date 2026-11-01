@@ -19,7 +19,7 @@ from atri_x.hook import (
 )
 from atri_x.llm import RoleUser, SegmentType, segments_text_only, set_segment_text, text_segments
 from atri_x.logging import ResultFailed
-from atri_x.safety import mode_from_host, scope_from_host
+from atri_x.safety import REVIEW_HOLD_TEXT, mode_from_host, scope_from_host
 from atri_x.security import with_actor, with_policy
 
 from atri_x.agent.errors import (
@@ -175,6 +175,9 @@ async def _handle_message_inner(
     # 时整轮结束、不进模型；audit 只记审计、不改文本。
     if await _safety_guard_inbound(agent, ctx, event):
         return
+    # safety-guard: 入站图片内容审核（1.1.8；无图片/未配置时零开销）。
+    if await _safety_guard_inbound_images(agent, ctx, event):
+        return
     if event.outputs:
         await agent.send_outputs(ctx, event.outputs)
     if event.control.consume:
@@ -206,6 +209,51 @@ async def _handle_message_inner(
     await agent.handle_input(ctx, text)
 
 
+async def _safety_guard_inbound_images(agent: Any, ctx: Any, event: Any) -> bool:
+    """入站图片内容审核（1.1.8）。
+
+    只看 ``IMAGE`` 段：取 media 字节 → ``await guard.aallow_media_output``。命中
+    ``block`` 时用 ``block_reply`` 回复并结束本轮；``review`` + ``hold`` 时压住。
+    没有 guard / 没有图片 / 媒体读取失败 → 直接放行（fail-open，不阻断对话）。
+    """
+    guard = getattr(agent, "safety_guard", None)
+    if guard is None:
+        return False
+    images = [
+        segment for segment in (event.message.segments or []) if segment.type == SegmentType.IMAGE
+    ]
+    if not images:
+        return False
+    media = getattr(agent, "media", None)
+    if media is None:
+        return False
+    mode = mode_from_host(agent, ctx)
+    scope = scope_from_host(agent, ctx)
+    for segment in images:
+        media_id = str(getattr(segment, "media", "") or "")
+        if not media_id:
+            continue
+        try:
+            data, info = await media.read(ctx, media_id)
+        except Exception:  # noqa: BLE001 - 读不到图片就放行（图片另有平台侧兜底）
+            continue
+        decision = await guard.aallow_media_output(
+            "image",
+            stage="inbound",
+            scope=scope,
+            mode=mode,
+            data=data,
+            mime=str(getattr(info, "mime_type", "") or ""),
+        )
+        if decision.action == "block" and guard.enforcing_for(mode):
+            await agent.send_chat(ctx, guard.block_reply_for(mode))
+            return True
+        if decision.action == "review" and decision.hold:
+            await agent.send_chat(ctx, REVIEW_HOLD_TEXT)
+            return True
+    return False
+
+
 async def _safety_guard_inbound(agent: Any, ctx: Any, event: Any) -> bool:
     # safety-guard: 入站用户消息审核。返回 True 表示"本轮已被拦下"，调用方应立即结束。
     #
@@ -224,13 +272,19 @@ async def _safety_guard_inbound(agent: Any, ctx: Any, event: Any) -> bool:
     )
     if not text.strip():
         return False
-    filtered, decision = guard.filter_text(
+    filtered, decision = await guard.afilter_text(
         text,
         stage="inbound",
         scope=scope_from_host(agent, ctx),
         block_text=guard.block_reply_for(mode),
         mode=mode,
     )
+    if decision.action == "review":
+        # 1.1.8：review 档默认放行（照常进模型），高敏群配置 hold 时先压住。
+        if decision.hold:
+            await agent.send_chat(ctx, REVIEW_HOLD_TEXT)
+            return True
+        return False
     if decision.action == "block" and guard.enforcing_for(mode):
         await agent.send_chat(ctx, guard.block_reply_for(mode))
         return True

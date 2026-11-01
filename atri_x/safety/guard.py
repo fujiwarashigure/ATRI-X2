@@ -24,7 +24,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Callable, Mapping
 
@@ -45,6 +45,12 @@ from atri_x.safety.mode_ctx import (
     ModeBoundGuard,
     SafetyScope,
     _coerce_scope,
+)
+from atri_x.safety.types import (
+    TIER_BLOCK,
+    TIER_PASS,
+    TIER_REVIEW,
+    most_severe,
 )
 
 __all__ = [
@@ -73,10 +79,18 @@ _STAT_KEYS = (
     "flag",
     "redact",
     "block",
+    "review",
     "media_blocked",
     "audit_written",
     "audit_errors",
 )
+
+#: 人工复核档的动作名（既不是 pass 也不是 block/redact）。
+ACTION_REVIEW = "review"
+
+#: ``review`` 档"先压住"时入站的回复（高敏群 / ``hold`` 配置）。
+REVIEW_HOLD_TEXT = "（这条消息正在人工复核，稍后处理。）"
+
 
 @dataclass(frozen=True)
 class SafetyDecision:
@@ -87,6 +101,17 @@ class SafetyDecision:
     action: str = ACTION_PASS
     labels: tuple[str, ...] = ()
     reason: str = ""
+    #: 1.1.8：``block`` / ``review`` / ``pass`` 三档；空串表示"只有本地判定，不分档"。
+    tier: str = ""
+    #: 远程审核的留痕字段（本地判定时为空）。
+    provider: str = ""
+    request_id: str = ""
+    score: float | None = None
+    degraded: bool = False
+    fail_mode: str = ""
+    latency_ms: int = 0
+    #: ``review`` 档且配置为"先压住"时为真（调用方据此暂缓发送/送模型）。
+    hold: bool = False
 
 
 class SafetyGuard:
@@ -107,10 +132,15 @@ class SafetyGuard:
         *,
         chat: Any = None,
         work: Any = None,
+        engine: Any = None,
     ) -> None:
         self.policy: SafetyPolicy = (
             policy if isinstance(policy, SafetyPolicy) else policy_from_section(policy)
         )
+        #: 1.1.8 的内容安全引擎（``safety.toml`` 存在时才有；``None`` = 1.1.7 纯本地路径）。
+        self.engine = engine
+        if engine is not None and getattr(engine, "active", False):
+            self.policy = engine.policy
         self.logger = logger
         self.config_dir = config_dir or ""
         self._now = now if callable(now) else utc_now
@@ -155,6 +185,15 @@ class SafetyGuard:
         return text if text in SESSION_MODES else ""
 
     def _variant(self, mode: Any = None) -> tuple[SafetyPolicy, RuleSet]:
+        """取某个会话模式的 ``(策略, 规则集)``。
+
+        1.1.8：``safety.toml`` 生效时，本地层由引擎统一提供（热加载、用户词表、
+        自定义正则都在引擎里），此时按模式的旧覆盖不参与；否则沿用 1.0.3 的
+        ``[safety.chat]`` / ``[safety.work]`` 覆盖。
+        """
+        engine = self.engine
+        if engine is not None and getattr(engine, "active", False):
+            return engine.policy_for(mode), engine.rules_for(mode)
         key = self.normalize_mode(mode)
         return self._variants.get(key) or self._variants[""]
 
@@ -261,6 +300,78 @@ class SafetyGuard:
             return decision.text, decision
         return original, decision
 
+    # -- 异步（1.1.8：本地层 + 远程层 + 三档裁决） ---------------------------
+    async def afilter_text(
+        self,
+        text: str,
+        *,
+        stage: str,
+        scope: Any = None,
+        block_text: str = "",
+        meta: Mapping[str, Any] | None = None,
+        mode: Any = None,
+        tool: str = "",
+        platform: str = "",
+        scope_id: str = "",
+    ) -> tuple[str, SafetyDecision]:
+        """``filter_text`` 的异步版本：本地层判定后再问远程层，最后按三档裁决。
+
+        返回值契约与 :meth:`filter_text` 一致（``audit`` / ``off`` 下永远返回原文），
+        但 ``decision`` 额外带 ``tier`` / ``provider`` / ``request_id`` / ``score`` /
+        ``degraded`` / ``hold``，供调用方决定"发 / 压住 / 进队列"。实现见
+        :func:`atri_x.safety.guard_async.afilter_text`。
+        """
+        from atri_x.safety import guard_async
+
+        return await guard_async.afilter_text(
+            self,
+            text,
+            stage=stage,
+            scope=scope,
+            block_text=block_text,
+            meta=meta,
+            mode=mode,
+            tool=tool,
+            platform=platform,
+            scope_id=scope_id,
+        )
+
+    async def aallow_media_output(
+        self,
+        kind: str,
+        *,
+        stage: str = "send",
+        scope: Any = None,
+        meta: Mapping[str, Any] | None = None,
+        mode: Any = None,
+        data: bytes = b"",
+        mime: str = "",
+        url: str = "",
+        platform: str = "",
+        scope_id: str = "",
+        tool: str = "",
+    ) -> SafetyDecision:
+        """``allow_media_output`` 的异步版本：图片会额外走远程内容识别。
+
+        实现见 :func:`atri_x.safety.guard_async.aallow_media_output`。
+        """
+        from atri_x.safety import guard_async
+
+        return await guard_async.aallow_media_output(
+            self,
+            kind,
+            stage=stage,
+            scope=scope,
+            meta=meta,
+            mode=mode,
+            data=data,
+            mime=mime,
+            url=url,
+            platform=platform,
+            scope_id=scope_id,
+            tool=tool,
+        )
+
     # -- 媒体出口 -----------------------------------------------------------
     def allow_media_output(
         self,
@@ -271,13 +382,12 @@ class SafetyGuard:
         meta: Mapping[str, Any] | None = None,
         mode: Any = None,
     ) -> SafetyDecision:
-        """图片 / 文件出口判定。
+        """图片 / 文件出口判定（**同步、只看本地策略**）。
 
-        ``kind`` 为 ``"image"`` / ``"file"``。**不做内容识别**：只看
-        ``block_image_output`` / ``block_file_output``，命中就在发送边界丢弃该输出。
-        ``enforce`` 下返回 ``allowed = False``；``audit`` 下返回 ``allowed = True``
-        但 ``action = flag``（调用方据此知道"本会被拦"）。``mode`` 为 ``chat`` /
-        ``work`` 时用该模式的覆盖策略。
+        ``kind`` 为 ``"image"`` / ``"file"``。只看 ``block_image_output`` /
+        ``block_file_output``，命中就在发送边界丢弃该输出。``enforce`` 下返回
+        ``allowed = False``；``audit`` 下返回 ``allowed = True`` 但 ``action = flag``。
+        需要"图片内容识别"时用 :meth:`aallow_media_output`。
         """
         name = (kind or "").strip().lower()
         if name not in ("image", "file"):
@@ -285,6 +395,20 @@ class SafetyGuard:
         policy = self.policy_for(mode)
         if not policy.active:
             return SafetyDecision(allowed=True, text="", action=ACTION_PASS)
+        decision = self._local_media_decision(name, policy)
+        if decision.action == ACTION_PASS:
+            # 未配置出口拦截且没有远程结论 → 完全空操作（不计数、不写审计）。
+            return decision
+        payload = {"kind": name}
+        for key, value in (meta or {}).items():
+            if value not in (None, ""):
+                payload[str(key)] = str(value)
+        self._record(decision, "", stage=stage, scope=scope, meta=payload, policy=policy)
+        self._tally(decision.action, media=decision.action == ACTION_BLOCK)
+        return decision
+
+    def _local_media_decision(self, name: str, policy: SafetyPolicy) -> SafetyDecision:
+        """本地媒体出口判定（不写审计，异步/同步两条路径共用）。"""
         configured = (
             policy.block_image_output if name == "image" else policy.block_file_output
         )
@@ -293,36 +417,35 @@ class SafetyGuard:
         labels = ("media." + name,)
         note = MEDIA_BLOCK_TEXT[name]
         if policy.enforcing:
-            decision = SafetyDecision(
+            return SafetyDecision(
                 allowed=False,
                 text=note,
                 action=ACTION_BLOCK,
                 labels=labels,
                 reason=name + " 输出被内容安全策略拦截",
+                tier=TIER_BLOCK,
             )
-        else:
-            decision = SafetyDecision(
-                allowed=True,
-                text=note,
-                action=ACTION_FLAG,
-                labels=labels,
-                reason=name + " 输出会被内容安全策略拦截（audit：只记录）",
-            )
-        payload = {"kind": name}
-        for key, value in (meta or {}).items():
-            if value not in (None, ""):
-                payload[str(key)] = str(value)
-        self._record(decision, "", stage=stage, scope=scope, meta=payload, policy=policy)
-        self._tally(decision.action, media=True)
-        return decision
+        return SafetyDecision(
+            allowed=True,
+            text=note,
+            action=ACTION_FLAG,
+            labels=labels,
+            reason=name + " 输出会被内容安全策略拦截（audit：只记录）",
+        )
 
     # -- 统计 ---------------------------------------------------------------
-    def stats(self) -> dict[str, int]:
-        """累计计数（进程内、加锁读取）。"""
+    def stats(self) -> dict[str, Any]:
+        """累计计数（进程内、加锁读取）；引擎生效时附带引擎统计。"""
         with self._lock:
-            out = dict(self._counts)
+            out: dict[str, Any] = dict(self._counts)
         out["audit_written"] = self.audit.written
         out["audit_errors"] = self.audit.write_errors
+        engine = self.engine
+        if engine is not None:
+            try:
+                out["engine"] = engine.stats()
+            except Exception:  # noqa: BLE001 - 统计失败不影响主流程
+                out["engine"] = {}
         return out
 
     # -- 内部 ---------------------------------------------------------------
@@ -376,15 +499,22 @@ class SafetyGuard:
         meta: Mapping[str, Any] | None = None,
         policy: SafetyPolicy | None = None,
     ) -> None:
-        """写一条审计（``pass`` 不记；**只写指纹与脱敏预览**）。"""
+        """写一条审计（``pass`` 不记；**只写指纹与脱敏预览**）。
+
+        1.1.8 起升到 ``schema=2``：额外记 ``tier`` / ``provider`` / ``request_id`` /
+        ``score`` / ``degraded`` / ``fail_mode`` / ``latency_ms``（留痕用于申诉与调阈值）。
+        **仍然不存原文**：``preview`` 走 :meth:`RuleSet.mask`，``sha256`` 只是指纹。
+        """
         if decision.action == ACTION_PASS:
             return
         effective = policy or self.policy
         info = _coerce_scope(scope)
         preview = self.rules.mask(decision.text or "")[: effective.audit_preview_chars]
         record: dict[str, Any] = {
+            "schema": 2,
             "stage": stage or "",
             "action": decision.action,
+            "tier": decision.tier or "",
             "mode": effective.effective_mode(),
             "labels": list(decision.labels),
             "reason": decision.reason,
@@ -395,6 +525,20 @@ class SafetyGuard:
             "scope": info.scope_id,
             "actor": info.actor,
         }
+        if decision.provider:
+            record["provider"] = decision.provider
+        if decision.request_id:
+            record["request_id"] = decision.request_id
+        if decision.score is not None:
+            record["score"] = decision.score
+        if decision.degraded:
+            record["degraded"] = True
+        if decision.fail_mode:
+            record["fail_mode"] = decision.fail_mode
+        if decision.latency_ms:
+            record["latency_ms"] = decision.latency_ms
+        if decision.hold:
+            record["hold"] = True
         if meta:
             record["meta"] = {str(k): str(v) for k, v in meta.items() if v not in (None, "")}
         self.audit.append(record)
@@ -404,12 +548,22 @@ class SafetyGuard:
             ACTION_BLOCK: "block",
             ACTION_REDACT: "redact",
             ACTION_FLAG: "flag",
+            ACTION_REVIEW: "review",
         }.get(action, "pass")
         with self._lock:
             self._counts["evaluated"] += 1
             self._counts[key] = self._counts.get(key, 0) + 1
             if media and action == ACTION_BLOCK:
                 self._counts["media_blocked"] += 1
+
+    def _notify_local(self) -> None:
+        """把"本地层命中"告诉引擎（成本/统计里区分"本地结案"和"远程调用"）。"""
+        engine = self.engine
+        if engine is not None and hasattr(engine, "notify_local_hit"):
+            try:
+                engine.notify_local_hit()
+            except Exception:  # noqa: BLE001 - 统计失败不影响判定
+                pass
 
     def _warn(self, message: str) -> None:
         logger = self.logger

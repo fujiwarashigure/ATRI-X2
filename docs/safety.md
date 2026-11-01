@@ -1,239 +1,288 @@
-# 内容安全（道德限制 + 敏感信息过滤）
+# 内容安全（道德限制 + 敏感信息过滤 + 远程审核）
 
 ATRI-X 内置的**内容安全闸门**：用词表拦"道德 / 合规"类内容，用正则拦**敏感信息**
-（凭据、PII、内网地址、本机路径），并在**发送边界**按策略丢弃图片 / 文件出口。
+（凭据、PII、内网地址、本机路径），可选地把文本/图片送到**云厂商内容审核**做语义判断，
+并按 `block` / `review` / `pass` 三档决定"拦 / 进人工队列 / 放行"。
 
-它是 1.0.2 外挂 PoC（`ATRI-X-safety-gate`，Node Hook 插件 + 每次调用拉起一个
-`node.exe` 子进程）的**原生 Python 内置化**：不再需要 Node 运行时、不再有
-50~150 ms 的进程冷启动，配置落在 `app.toml` 的 `[safety]` 段。
+它和 `[security]`（工具风险与权限）是两件事：内容安全管**内容**，`[security]` 管**能力**。
 
 > 定位：这类过滤只能**降低风险**，不替代平台侧审核与人工运营。面向公众服务时，
 > 生成式 AI 标识、举报入口、未成年人保护等要求仍需按当地法规单独实现。
+>
+> ⚠️ **远程审核会把你送审的文本/图片发给云厂商**。默认关闭；开启前请确认合规与
+> 数据出境要求。
 
-## 快速开始
+## 两层配置：`app.toml` 的 `[safety]` 与独立的 `safety.toml`
 
-`app.toml`：
+| 用法 | 读哪里 | 说明 |
+| --- | --- | --- |
+| **旧路径（1.0.3 ~ 1.1.7）** | `app.toml` 的 `[safety]` / `[safety.chat]` / `[safety.work]` | 只有本地词表 + 正则；**没有 `safety.toml` 时行为与 1.1.7 完全一致** |
+| **新路径（1.1.8+）** | `<配置目录>/safety.toml` + `safety/` 数据目录 | 本地层可编辑 + 热加载 + 远程审核 + 三档 + 复核队列 |
 
-```toml
-[safety]
-enabled = false      # 总开关：默认关，不配置就完全不改变既有行为
-mode = "audit"       # off | audit | enforce
+`safety.toml` **存在**时，本地层由它统一提供（旧的按模式覆盖不再参与）；不存在时完全走旧
+路径。删掉 `safety.toml` 即可一键回到 1.1.7 行为（热加载生效，不需要重启）。
+
+## 五层结构
+
+```
+本地规则层（词表 / 正则 / 归一化 / 白名单）
+        │  命中即结案（零成本）
+        ▼
+远程审核层（腾讯云 / 阿里云；双供应商仲裁、缓存、熔断、预算）
+        │  归一化成 verdict
+        ▼
+裁决层（block / review / pass；按群、按工具覆盖；fail-open / fail-close）
+        │
+        ├─▶ 处置（拦截 / 脱敏 / 丢弃 / 先压住）
+        └─▶ 人工复核队列（sqlite）
+                    │
+                    ▼
+             留痕（safety-audit.jsonl，v2）
 ```
 
-上线分两步走（和 PoC 的建议一致）：
+设计原则：**默认关闭**、**fail-open 不阻断对话**、**审计不存原文**、**纯标准库**、
+**本地优先**（本地命中即结案，不花钱）。
 
-1. `enabled = true` + `mode = "audit"`：**只记审计、不改任何输出**。观察一到两天，
-   看 `safety-audit.jsonl` 里的 `labels` 与 `preview` 有多少误杀。
-2. 误杀可以接受后改成 `mode = "enforce"`：词表命中整体拦截、敏感信息脱敏、
-   按策略丢弃图片 / 文件出口。
+## 数据目录
 
-改完配置重启服务（或在 GUI 里重载配置）即可生效；策略在启动时编译一次，
-运行期不重新读盘。
+```
+<配置目录>/                       # 例：%APPDATA%\ATRI-X
+├── safety.toml                   # 主策略（用户可编辑，热加载）
+├── safety/
+│   ├── wordlists/<类别>.txt      # 用户词表：同名与内置合并，新名字自动成为新类别
+│   ├── sensitive/<名字>.regex    # 一行一条：名字 = /正则/flags
+│   ├── scopes/<任意名>.toml      # 按群 / 按用户覆盖
+│   ├── review.db                 # 人工复核队列（自动建）
+│   └── quarantine/               # 异步待审媒体的暂存位置（P4 使用）
+└── safety-audit.jsonl            # 审计（v2）
+```
 
-## 桌面端（GUI）设置
+**热加载**：按 `(mtime_ns, size)` 指纹检测；`safety.toml`、词表、正则、scope 文件任一变化
+→ 重建规则集（1 秒节流）。配置写坏了（TOML 语法错 / 正则非法）**保留上一份可用策略**并
+写 WARN，不会让内容安全静默失效。
 
-内容安全**不在「进阶」页**，而在「工具权限」页里：
-
-1. 主窗口「工具权限」选项卡 → 第三个子选项卡「**工具参数（全局）**」；
-2. 「**全局参数（所有工具）**」面板默认展开，往下翻到「内容安全」这一段（全局默认的 8 项）；
-3. 同一个子选项卡里还有两个覆盖面板：「**内容安全：chat 模式覆盖**」「**内容安全：work 模式覆盖**」；
-4. **chat / work 两个子选项卡里也各有一份同样的覆盖面板**——切到该模式就能直接改，不用再绕到工具参数页；
-5. 改完点面板里的「保存本组」或页面顶部的「保存全部改动」，再点右下角「重启后台服务」生效。
-
-覆盖面板里的「（默认）」= **继承全局**；「启用内容安全」是三态，因此可以在全局关闭时只给某个模式单独打开。
-审计路径只保留在全局默认面板（审计文件全局唯一，记录里的 `mode` 字段写该模式实际生效的模式）。
-
-「功能」页里的「内容安全（道德限制 + 敏感信息过滤）」一行是只读状态（显示全局 `enabled` / `mode`
-与 chat/work 覆盖摘要），双击它会跳到工具参数页并展开全局面板。词表类别 `categories`、
-敏感信息类别 `sensitive`、`sensitive_actions`、`allowlist`、`audit_preview_chars` 这些
-**逐类细调项仍只在 `app.toml` 里配**，GUI 没有为它们做控件。
-
-## 按会话模式覆盖（chat / work）
-
-1.0.3 热修起，同一份内容安全策略可以按**会话模式**各覆盖一份：`[safety.chat]` 管 chat 模式
-（闲聊 / 低成本模型槽位），`[safety.work]` 管 work 模式（工作 / 工具模型槽位）。
+## `safety.toml` 参考
 
 ```toml
-[safety]
+version = 1
+
+[local]                      # 本地规则层（语义与旧 [safety] 一致）
 enabled = true
-mode = "audit"            # 全局默认
+mode = "enforce"             # off | audit | enforce
+categories = []              # 空 = 全部 8 类内置词表（用户词表的新类别总是启用）
+sensitive = []               # 空 = 全部 10 类敏感信息
+sensitive_actions = {}       # 逐类 redact / flag
+allowlist = []               # 命中豁免（子串匹配，只放过那一处）
+max_scan_chars = 8000        # 扫描预算 = 这个值 × 4，分块扫
+normalize = true             # NFKC / 去零宽 / 去 CJK 间分隔符 / 大小写折叠
+wordlist_dir = "safety/wordlists"
+sensitive_dir = "safety/sensitive"
+strip_tool_images = false
+block_image_output = false
+block_file_output = false
+audit_path = ""              # 空 = <配置目录>/safety-audit.jsonl
 
-[safety.chat]
-mode = "off"              # chat 模式不跑过滤（其余字段继续继承全局）
+[remote]                     # 远程审核层（默认关闭）
+enabled = false
+providers = ["tencent", "aliyun"]     # 顺序即优先级
+quorum = "any_block"                  # any_block | both_pass | primary_only
+timeout_ms = 800
+retries = 1
+fail_mode = "open"                    # open | closed
+fail_close_scopes = []                # 例 ["qq:group:9299***42"]
+degraded_alert = true
+cache_ttl_seconds = 600
+cache_max_entries = 2000
+redact_before_submit = true           # 先本地脱敏 PII/凭据，再送云
+stages = { inbound = "sync", llm = "sync", send = "sync", tool = "cache_only", image_prompt = "local_only" }
 
-[safety.work]
-mode = "enforce"          # work 模式真正拦截 / 脱敏
-block_image_output = true
+[remote.tencent]
+secret_id_env = "TENCENT_SECRET_ID"       # 变量名，不是密钥本身
+secret_key_env = "TENCENT_SECRET_KEY"
+region = "ap-guangzhou"
+service = "tms"                           # 文本走 tms，图片走 ims
+biz_type = ""                             # 天御 BizType（可选）
+
+[remote.aliyun]
+access_key_id_env = "ALIYUN_ACCESS_KEY_ID"
+access_key_secret_env = "ALIYUN_ACCESS_KEY_SECRET"
+endpoint = "green-cip.cn-shanghai.aliyuncs.com"
+region = "cn-shanghai"
+service = "comment_detection"
+
+[tiers]                      # 档位 → 处置
+local_wordlist = "block"              # 词表命中（默认拦）
+remote_block = "block"
+remote_review = "review"
+inbound_review = "pass_and_queue"     # 入站 review：送模型 + 入队；改成 hold 则先压住
+outbound_review = "send_and_queue"    # 出站 review：照发 + 入队；改成 hold 则先压住
+high_risk_scopes_hold = []            # 这些 scope 的 review 一律 hold
+
+[media]
+images = "sync"                       # sync | async | off
+image_max_bytes = 4194304
+image_base64_max_bytes = 1048576      # 超阈值且有对象存储走 URL，否则跳过并告警
+object_store = "s3"
+audio = "async"
+video = "async"
+async_poll_seconds = 60
+quarantine_ttl_seconds = 3600
+
+[cost]
+daily_budget_cny = 0.0                # 0 = 不限
+on_budget_exceeded = "local_only"     # local_only | pass_open | fail_close
+text_price_cny_per_10k = 22.0
+
+[tools]                      # 某工具的远程策略（覆盖 [remote].stages）
+web_search = "local_only"
+web_extract = "local_only"
+image_generate = "sync"
 ```
 
-- **没写的键继承全局默认**：不写 `[safety.chat]` / `[safety.work]` 时行为与 1.0.3 之前完全一致。
-- 可覆盖：`enabled` / `mode` / `categories` / `sensitive` / `sensitive_actions` / `allowlist` /
-  `block_reply` / `strip_tool_images` / `block_image_output` / `block_file_output` / `max_scan_chars`。
-  字符串/列表类的**空值也算继承**（例如覆盖段里 `block_reply = ""` 仍然用全局的拦截文案）。
-- **不可覆盖**：`audit_path` / `audit_preview_chars`（审计文件全局唯一）。
-- 全局 `enabled = false` 时，覆盖段里写 `enabled = true` 可以让**只有该模式**跑过滤；
-  两个覆盖段都没打开时 guard 根本不会装配，行为与不配置一致。
-- 运行时按当前会话的 `session.mode` 选策略。入站消息在会话创建前按「群默认模式 → 服务默认模式
-  （默认 `work`）」逐级推断，因此首条消息与后续轮次用的是同一套覆盖。
-- 工具链路（`image_generate` 提示词、`send_file`、工具结果剥离/脱敏）也按当前会话模式生效。
+### 阶段策略
 
-## 模式语义
+| 值 | 含义 |
+| --- | --- |
+| `sync` | 同步调远程（受 `timeout_ms` 约束，100~300 ms 量级） |
+| `cache_only` | 只复用缓存结论；未命中就当 pass（零额外延迟） |
+| `local_only` | 完全不调远程，只走本地层 |
+| `off` | 该阶段不审核 |
 
-| mode | 词表命中 | 敏感信息 | 图片 / 文件出口 | 审计 |
-| --- | --- | --- | --- | --- |
-| `off`（含 `enabled = false`） | 不判定 | 不判定 | 不判定 | 不写 |
-| `audit` | 判定，但**不改文本** | 判定，但**不脱敏** | 不丢弃，只记录"本会拦" | 写 |
-| `enforce` | 整段换成拦截文案 | `redact` 类替换、`flag` 类只记 | 丢弃 + 补文本说明 | 写 |
+默认：`inbound` / `llm` / `send` 同步；`tool` 缓存优先；`image_prompt` 只走本地；
+`web_search` / `web_extract` 只走本地（1.1.7 的误报重灾区）。
 
-`enabled = false` 与 `mode = "off"` 等价；非法 `mode` 值回落到 `audit`
-（宁可只记录，不静默变成拦截）。
-
-**硬约束**：`enabled = false` 时所有集成点都走"完全无行为变化"的短路，
-不读词表命中、不写审计、不动文本。
-
-## 配置项
-
-| 键 | 默认值 | 说明 |
-| --- | --- | --- |
-| `enabled` | `false` | 总开关 |
-| `mode` | `"audit"` | `off` / `audit` / `enforce` |
-| `categories` | 空 = 全部 8 类 | 启用的词表类别，见下表 |
-| `sensitive` | 空 = 全部 10 类 | 启用的敏感信息类别 |
-| `sensitive_actions` | 空 = 内置默认 | 覆盖单个敏感类别的动作：`flag` / `redact` |
-| `allowlist` | 空 | 命中豁免：命中片段**包含**其中任一条就放过**这一处** |
-| `block_reply` | 内置文案 | 入站消息被拦截时回复用户的话（可改成"安抚 + 求助热线"等） |
-| `audit_path` | 空 = `<配置目录>/safety-audit.jsonl` | 审计文件路径 |
-| `audit_preview_chars` | `120` | 审计预览保留的字符数 |
-| `strip_tool_images` | `false` | 把工具结果里的图片段剥离成文字（模型看不到图） |
-| `block_image_output` | `false` | 出站图片丢弃并补文本说明 |
-| `block_file_output` | `false` | 出站文件丢弃并补文本说明 |
-| `max_scan_chars` | `8000` | 单次扫描上限；超出部分不扫描、原样保留 |
-| `chat` / `work` | 空 | 按会话模式覆盖的**子段**（`[safety.chat]` / `[safety.work]`），见下节 |
-
-### 词表类别（`categories`）
-
-词表是包内的数据文件（`atri_x/safety/wordlists/<类别>.txt`，UTF-8、一行一条、
-`#` 开头为注释）。改词表不需要改代码。
-
-| 类别 id | 含义 | 动作 |
-| --- | --- | --- |
-| `minor_sexual` | 涉及未成年人的性内容 | block |
-| `sexual_explicit` | 露骨色情 | block |
-| `violence_gore` | 暴力血腥与虐待 | block |
-| `terror_extremism` | 恐怖主义与极端主义 | block |
-| `illegal_method` | 违法犯罪方法（制毒 / 制枪 / 爆炸物 / 诈骗话术） | block |
-| `self_harm` | 自伤自杀 | block |
-| `hate_speech` | 仇恨与歧视 | block |
-| `privacy_violation` | 人肉开盒与隐私侵害 | block |
-
-内置词表刻意保守（`hate_speech` / `sexual_explicit` 只放了明确短语）。**这类过滤一定
-会误杀**，请先把你们已有的合规词表 / 第三方审核类别导进去，再用 `audit` 灰度。
-
-### 敏感信息类别（`sensitive` / `sensitive_actions`）
-
-| 类别 id | 匹配对象 | 默认动作 |
-| --- | --- | --- |
-| `private_key` | PEM 私钥块（多行） | `redact` |
-| `api_key` | `sk-…` / `oc_sk_…` / `ghp_…` / `github_pat_…` / `xox?-…` / `AKIA…` / `Bearer …` | `redact` |
-| `jwt` | 三段式 JWT | `redact` |
-| `password` | `password=` / `api_key:` / `client_secret=` 这类赋值 | `redact` |
-| `id_card` | 18 位身份证号 | `flag` |
-| `bank_card` | 16~19 位卡号 | `flag` |
-| `phone` | 中国大陆手机号 | `flag` |
-| `email` | 邮箱地址 | `flag` |
-| `internal_ip` | `10.` / `192.168.` / `172.16~31.` 内网地址 | `flag` |
-| `local_path` | `C:\…` 这类本机绝对路径 | `flag` |
-
-PII 默认只 `flag`（记审计、不改文本）：工程群、客服场景里手机号 / 内网 IP / 本机路径
-常常是**正常内容**，直接替换会大面积误杀。确认要改：
+### 按群 / 按用户覆盖
 
 ```toml
-[safety.sensitive_actions]
-phone = "redact"
-email = "redact"
+# safety/scopes/qq__group__9299xxxx42.toml
+platform = "qq"
+scope_id = "9299xxxx42"
+
+fail_mode = "closed"            # 高敏群：审核失败就拦
+images = "sync"
+tools = ["image_generate"]      # 该群额外强制远程审的工具
+allow_tools = ["web_search"]    # 该群豁免远程审核的工具
+
+[tiers]
+remote_block = "review"
+outbound_review = "hold"
 ```
 
-**脱敏是幂等的**：同一段文本过两遍不会继续啃掉尾巴（替换文本里不含会被自身正则
-再次命中的形态）。发送边界会再扫一遍，因此二次扫描必须安全——这条有专门的回归测试。
+匹配：`platform + scope_id` 精确优先，`scope_id = "*"` 是该平台兜底；一个坏文件只跳过自己。
 
-### 白名单（`allowlist`）
+## 本地规则层
 
-只豁免**这一处命中**，不是整段文本。常用写法：示例密钥、`127.0.0.1`、
-`[已脱敏`（避免把自己产出占位符再扫一遍）。
+- 8 类内置词表（`atri_x/safety/wordlists/*.txt`，共 54 条中文词条）+ 用户词表合并；
+  新文件名（如 `my_terms.txt`）自动成为一个类别，默认动作 `block`。
+- 10 类敏感信息：`private_key` / `api_key` / `jwt` / `password`（默认 `redact`）、
+  `id_card` / `bank_card` / `phone` / `email` / `internal_ip` / `local_path`（默认 `flag`）。
+- 自定义正则：`safety/sensitive/*.regex`，格式 `名字 = /正则/flags`，非法行整条跳过。
+- **归一化**：词表匹配跑在折叠骨架上（全角→半角、去零宽/变体选择符、去 CJK 之间分隔符、
+  大小写折叠），敏感信息仍在**原文**上跑正则（替换位置才对）。
+- **幂等**：同一段文本重复扫描不会继续啃尾巴。
+- **扫描预算**：`max_scan_chars × 4` 字符，超出的尾部原样保留。
 
-```toml
-[safety]
-allowlist = ["sk-test", "AKIAIOSFODNN7EXAMPLE", "example.com"]
-```
+## 远程审核层
 
-## 处理链路
+| 供应商 | 文本 | 图片 | 认证 |
+| --- | --- | --- | --- |
+| 腾讯云天御 | `TextModeration`（`tms.tencentcloudapi.com`） | `ImageModeration` | TC3-HMAC-SHA256 |
+| 阿里云内容安全 2.0 | `TextModeration`（`green-cip.*`） | `ImageModeration`（需 URL） | ACS3-HMAC-SHA256 |
+
+- 凭据只认**环境变量名**：系统环境优先，其次 `<配置目录>/.env`；没配凭据的供应商自动跳过。
+- **双供应商仲裁**：`any_block`（任一 block 即 block，默认）/ `both_pass` / `primary_only`；
+  主供应商失败自动切备，结果标 `degraded`。
+- **失败策略**：`open` 放行 + 告警 + 审计 `fail_open`；`closed` 按 block 处置。
+- **熔断**：连续 5 次失败冷却 60 秒；认证类错误冷却 10 分钟。
+- **缓存**：按内容 `sha256` 缓存结论（TTL 600 秒、LRU 2000 条）。
+- **预算**：`daily_budget_cny` 超限后按 `on_budget_exceeded` 降级（默认只跑本地层）。
+- **送审前脱敏**：`redact_before_submit = true` 时先本地脱敏 PII/凭据再送云。
+
+> ⚠️ **未联调**：适配器按官方文档实现，签名/解析有离线用例（假传输 + 录制响应）覆盖，
+> 但**还没有用真实账号跑过**。联调时先用 `[remote] enabled = true` + `[local] mode = "audit"`
+> 观察审计里的 `provider` / `request_id` / `score`，再逐群切 `enforce`。
+
+## 三档与人工复核
+
+| 档位 | 入站 | 模型输出 / 发送边界 | 图片 / 文件 |
+| --- | --- | --- | --- |
+| `block` | 回复 `block_reply` 并结束本轮 | 整段换拦截文案 | 丢弃 + 补文本说明 |
+| `review` | 默认送模型 + 入队；`hold` 时先压住 | 默认照发 + 入队；`hold` 时先压住 | 同左 |
+| `pass` | 放行 | 放行 | 放行 |
+
+复核队列：`<配置目录>/safety/review.db`（sqlite），`pending → approved / rejected / expired`；
+每条含 `provider` / `request_id` / `labels` / `score` / `sha256` / 脱敏预览 / 处置动作。
+
+## 处理链路（接线点）
 
 | # | 位置 | 行为 |
 | --- | --- | --- |
-| 1 | 入站用户消息（`platform.message.received` Hook 之后） | 词表命中且 `enforce` → 用 `block_reply` 回复并**结束本轮**（不进模型、不落库成正常对话）；只命中可脱敏项时把脱敏后的文本写回消息段 |
-| 2 | 模型输出文本（`llm.response.received` Hook 之后） | 结果写回 `event.llm.text`，后续落库 / 展示 / 发送看到同一份文本 |
-| 3 | 工具结果（`tool.call.completed`） | 文本段逐段脱敏；`strip_tool_images = true` 时图片段换成文字占位 |
-| 4 | 发送边界（`agent.output.prepared` / `send_outputs` / `send_notice`） | 正文与通知文本再过一遍（幂等）；图片 / 文件按 `block_*_output` 丢弃并补一条文本说明 |
-| 5 | 生图提示词（`image_generate` 请求 provider 之前） | 拼接后的正向 / 负向提示词命中词表且 `enforce` → 直接返回失败，不发起请求 |
-| 6 | 文件出口（`send_file`） | 按 `block_file_output` / `block_image_output` 在出口拦截 |
+| 1 | 入站文本 | 本地 + 远程；`block` 回复并结束本轮；`review` 入队 / `hold` 压住 |
+| 2 | 入站图片 | 取 media 字节 → 远程图片审核；`block` 回复并结束本轮 |
+| 3 | 模型输出 | 结果写回 `event.llm.text`，落库/展示/发送看到同一份 |
+| 4 | 工具结果 | 默认只走本地层；`strip_tool_images` 时图片换成文字占位 |
+| 5 | 发送边界 | 文本再扫一遍（幂等）；图片/文件按策略丢弃或 hold |
+| 6 | 生图提示词 | 本地层拦截（不发起请求） |
+| 7 | 生图结果 / `send_file` | 图片远程审核后决定发 / 丢 / 压住 |
+| 8 | 流式 delta | **远程审核开启时关闭流式**（delta 无法事后收回），退化成整条发送 |
 
-图片 / 文件**不做内容识别**：只按策略在出口丢弃（换来的是零第三方依赖、零额外延迟）。
-要"看图片内容是否违规"，属于另一件事（本地 NSFW 模型或云审核），不在本功能范围内。
-
-## 审计日志
+## 审计（v2）
 
 默认 `<配置目录>/safety-audit.jsonl`，一行一条 JSON：
 
 ```json
-{"stage":"inbound","action":"block","mode":"enforce","labels":["illegal_method"],
- "reason":"命中：违法犯罪方法(illegal_method)","chars":42,
- "sha256":"…","preview":"…","platform":"qq","scope":"group:42","actor":"10001",
- "ts":"2026-01-01T00:00:00+00:00"}
+{"schema":2,"ts":"…","stage":"send","action":"review","tier":"review","mode":"enforce",
+ "labels":["porn"],"reason":"远程：tencent(porn) 0.93","chars":42,
+ "sha256":"…","preview":"…","platform":"qq","scope":"group:…","actor":"…",
+ "provider":"tencent","request_id":"…","score":0.93,"latency_ms":187,
+ "hold":true,"meta":{"tool":"image_generate"}}
 ```
 
-- **不存原文**：只有 `sha256`（原文指纹）+ **脱敏预览**。预览里连"只 flag"的手机号、
-  邮箱、内网地址也已被替换，词表命中替换成 `[已过滤]`——避免"做了内容安全反而把
-  敏感内容二次落盘"。
-- `pass` 判定不写记录；`audit` / `enforce` 两种模式写的是同一种结构（用 `mode` 区分）。
-- 单文件超过 1 MiB 自动滚动为 `.1`（只保留一份历史）。
-- 写入用 `threading.Lock` 串行；**写失败只记日志 + 计数，不阻断消息发送**
-  （磁盘满、目录不可写都不会让对话失败）。
+- **不存原文**：只有 `sha256` 指纹 + `RuleSet.mask()` 之后的脱敏预览。
+- `pass` 不记；`audit` / `enforce` 写同一种结构（用 `mode` 区分）。
+- 单文件超 1 MiB 自动滚动成 `.1`；写失败只记日志 + 计数，不阻断发送。
 
-## 灰度与误杀处理
+## 灰度与回滚
 
-1. `mode = "audit"` 跑一两天。
-2. 看审计里的 `labels` / `preview`，确认哪些是误杀。
-3. 误杀的处理顺序：先加 `allowlist`（只豁免那一处），再把不合适的词条从
-   `wordlists/*.txt` 删掉，最后才是整类 `categories` 关闭。
-4. 确认可以接受后切 `mode = "enforce"`。
+1. **只开本地层**：`[local] mode = "audit"` → 看审计里的误报。
+2. **远程只记录**：`[tiers] remote_block = "pass"`、`remote_review = "pass"` → 只留痕不处置。
+3. **review 档生效**：`remote_review = "review"`（进队列、不拦）。
+4. **逐群放开 block**：scope 文件按群覆盖。
+5. **回滚**：`[remote] enabled = false` + `[local] mode = "off"`（热加载生效）；
+   最坏情况删掉 `safety.toml` 即回到 1.1.7 行为。
+
+## 成本
+
+按腾讯云套餐价（10–22 元/万条）估算文本量：
+
+| 群消息量 | 月条数 | 月成本（10–22 元/万） |
+| --- | --- | --- |
+| 500 条/日 | 1.5 万 | 15 – 33 元 |
+| 2,000 条/日 | 6 万 | 60 – 132 元 |
+| 10,000 条/日 | 30 万 | 300 – 660 元 |
+| 50,000 条/日 | 150 万 | 1,500 – 3,300 元 |
+
+省钱杠杆：本地层先判 → 缓存 → 工具结果不上远程 → 图片只审非白名单用户 → 预算熔断。
 
 ## 已知限制
 
-- **词表一定误杀**：`hate_speech` / `sexual_explicit` 这类边界高度依赖语境，
-  内置词表只覆盖"明确"的短语；请按运营规范补充或接第三方审核。
-- **没有二级语义审核**：PoC 里可选的 `reviewer`（调一个 OpenAI 兼容模型做
-  PASS/REJECT 分类）**未内置**。确实需要时建议走外挂 Hook，不要塞进主链路
-  （会把每条外发消息都变成一次模型请求）。
-- **不做图片 / 文件内容识别**：出口只按策略整体丢弃。
-- **`max_scan_chars` 之外的文本不扫描**（原样保留），超长文档里的敏感信息可能漏过；
-  需要时调大这个值，代价是延迟。
-- **流式预览 / 思维链**（`send_preview` / `send_reasoning`）不在 guard 链路上：
-  它们在发送边界之前就到平台了。`send_notice` 与最终正文已覆盖。
-- **入站拦截只作用于文本**：入站图片 / 文件不审核。
-- 词表 / 正则是在启动时编译的；改词表文件后需要重启（或重载配置）。
+- **词表一定误杀**：内置词表只覆盖"明确"写法；请补词表或依赖远程语义审核。
+- **远程适配器未联调**：签名/解析有离线用例，真实账号联调是下一步。
+- **音视频异步**：配置与接口已留（`[media] audio/video`、`quarantine/`），轮询任务尚未接入。
+- **不做文件内容解析**：文件按策略整体放行/拦截。
+- **`max_scan_chars × 4` 之外不扫描**（原样保留）。
+- **思维链**（`send_reasoning`）只在 CLI 通道，不进平台。
+- 词表/正则在重建时编译；改文件后最多 1 秒生效。
 
 ## 验证
 
 ```bash
-python -m unittest tests.test_safety_core tests.test_safety_integration -v
+python -m unittest tests.test_safety_core tests.test_safety_integration \
+    tests.test_safety_settings tests.test_safety_providers \
+    tests.test_safety_engine tests.test_safety_async_guard -v
 ```
 
-- `tests/test_safety_core.py`：策略装载、词表命中、脱敏与**幂等**、`audit` 不改输出、
-  `enforce` 拦截、白名单、审计不存原文、`mode = off` 无变化、媒体出口、审计写失败不抛。
-- `tests/test_safety_integration.py`：逐个集成点的假宿主验证（入站 / 模型输出 /
-  工具结果 / 发送边界 / 通知 / 文件出口 / 生图提示词）。
+## 桌面端
 
-## 回滚
-
-把 `[safety]` 的 `enabled` 改回 `false`（或把整段删掉）即恢复 1.0.2 行为；
-审计文件可以保留也可以删除（`<配置目录>/safety-audit.jsonl`）。
+「功能」页的「内容安全」一行是只读状态；「工具权限 → 工具参数（全局）」里可以改
+`app.toml` 的旧 `[safety]` 段。`safety.toml` 目前**手改文件 + 热加载**（GUI 面板在 1.1.9）。

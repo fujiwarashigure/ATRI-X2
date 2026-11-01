@@ -3,7 +3,7 @@
 
 # 模块索引（自动生成）
 
-共 **833** 个模块 / **242132** 物理行 / **71** 个一级域。被测试直接覆盖 **523** 个（62.8%）。
+共 **845** 个模块 / **245795** 物理行 / **71** 个一级域。被测试直接覆盖 **530** 个（62.7%）。
 
 查模块：`rg -n "atri_x\.tool\.builtin" devdocs/generated/module-map.md`。
 
@@ -111,7 +111,7 @@
 | `atri_x.agent.member_persona_prompt` | 成员专属人设的系统提示词来源。 | MemberPersonaSystemPromptSource | 73 | `test_member_persona.py` |
 | `atri_x.agent.member_profile_prompt` | 群友档案提示词来源：把**当前发言人**的档案注入系统提示词。 | MEMBER_PROFILE_PROMPT_HEADER, MEMBER_PROFILE_TRUST_NOTE, Me… | 72 | `test_member_profile.py` |
 | `atri_x.agent.memory_learning_admin` | 后台记忆/学习的管理查询门面。 | angel_memory_count, self_learning_stats | 47 | — |
-| `atri_x.agent.message` | 入站消息总入口：命令派发与聊天。 | CommandInfos, command_infos, handle_message, is_cancellatio… | 257 | `test_safety_integration.py` |
+| `atri_x.agent.message` | 入站消息总入口：命令派发与聊天。 | CommandInfos, command_infos, handle_message, is_cancellatio… | 311 | `test_safety_integration.py` |
 | `atri_x.agent.model` | 模型运行时状态、模式模型选择、客户端查找与重试通知。 | AgentService, INSTALLABLE_MODEL_METHODS, MAX_USER_ERROR_RUN… | 484 | `test_agent_bootstrap.py`、`test_agent_context_runtime.py`、`test_agent_model.py` |
 | `atri_x.agent.model_agent` | ``ModelMixin``：``internal/agent/model.go`` 里挂在 ``*Agent`` 上的模型方法。 | ModelMixin, ensure_context_runtime | 428 | `test_agent_context_runtime.py`、`test_agent_model.py` |
 | `atri_x.agent.model_list` | 模型列表：缓存、并发合并、按 provider 聚合与命名模型档。 | FetchModels, MODEL_LIST_ERROR_TTL, MODEL_LIST_FETCH_TIMEOUT… | 448 | `test_agent_model.py` |
@@ -122,7 +122,7 @@
 | `atri_x.agent.notice_queue` | 按平台的通知发送队列与背压。 | NOTICE_QUEUE_CAPACITY, NOTICE_QUEUE_CONCURRENCY, NoticeQueu… | 232 | `test_agent_core.py` |
 | `atri_x.agent.ops` | 运维可见的请求快照。 | active_requests | 22 | — |
 | `atri_x.agent.options` | 构造期依赖与配置容器，以及若干 setter。 | Options, session_idle_expiration_config, validate_model_sel… | 239 | `test_agent_core.py` |
-| `atri_x.agent.output` | 出站：发送管理器的装配、部分失败记账与平台消息映射。 | AgentOutputSender, ContextTextSender, NoticeDispatch, map_s… | 408 | `test_safety_integration.py` |
+| `atri_x.agent.output` | 出站：发送管理器的装配、部分失败记账与平台消息映射。 | AgentOutputSender, ContextTextSender, NoticeDispatch, map_s… | 413 | `test_safety_integration.py` |
 | `atri_x.agent.participation` | 群聊参与状态机 MVP（评估 §D）：只做**抑制**，不主动找话题。 | EchoState, ParticipationState, cooldown_active, cooldown_se… | 345 | `test_agent_participation.py` |
 | `atri_x.agent.platform_signals` | 平台连接信号的订阅与按平台执行队列。 | PlatformSubscriptions, begin_close_platform_events, close_p… | 249 | — |
 | `atri_x.agent.prefix` | 命令前缀的读取与取消命令识别。 | command_prefix, command_prefixes, is_cancel_command | 47 | — |
@@ -131,7 +131,7 @@
 | `atri_x.agent.reactions` | 表情反应层与 Agent 回合输出的接线（Python 侧新增，无 Go 对应）。 | build_reaction_service, conversation_kind, finalize_turn_re… | 164 | `test_agent_chat.py`、`test_agent_reactions.py` |
 | `atri_x.agent.request_context` | 回合请求 ID 在 ctx 上的读写。 | TurnRequestID, turn_request_id_from_context, with_turn_requ… | 32 | `test_agent_core.py` |
 | `atri_x.agent.risk_confirmation` | 高风险工具确认的文案与指令识别。对应 Go：``internal/agent/risk_confirmation.go``。 | REDACTED_ARGUMENTS_TEXT, RiskConfirmationCommand, confirmat… | 366 | `test_agent_risk.py` |
-| `atri_x.agent.safety_llm` | 模型输出侧的内容安全接线（从 :mod:`atri_x.agent.chat_llm` 抽出）。 | filter_llm_text | 37 | — |
+| `atri_x.agent.safety_llm` | 模型输出侧的内容安全接线（从 :mod:`atri_x.agent.chat_llm` 抽出）。 | afilter_llm_text, filter_llm_text | 51 | — |
 | `atri_x.agent.safety_tools` | 工具链路上的内容安全接线（从 :mod:`atri_x.agent.toolrun_adapter` 抽出）。 | _safety_guard_segments, attach_safety_ctx, guard_segments | 91 | — |
 | `atri_x.agent.seams` | Agent 的可选能力接缝（seam）。 | AgentSeams, DirectiveOutcome | 595 | `test_agent_bootstrap.py` |
 | `atri_x.agent.segments` | 入站消息段在 ctx / LLM / 平台三种表示之间的搬运。 | InboundTurnInput, file_segment_text, has_inbound_non_text_s… | 299 | `test_agent_segments.py`、`test_platform_cli_remote.py` |
@@ -154,7 +154,7 @@
 | `atri_x.agent.tools` | 工具运行时状态装配。对应 Go：``internal/agent/tools.go``。 | AgentService, SkillLifecycle, ToolRuntimeMixin, ToolRuntime… | 525 | `test_agent_assembly.py`、`test_agent_risk.py`、`test_agent_tools.py` |
 | `atri_x.agent.tools_service` | ``agent.services["tools"]`` / ``command_deps.tools`` 的装配对象。 | AgentToolsService, new_tools_service | 60 | — |
 | `atri_x.agent.turn_gate` | 回合输出的"最后一公里"闸门。 | clear_turn_state, mark_turn_canceled, turn_output_allowed | 75 | — |
-| `atri_x.agent.turn_output` | 回合输出端口：前台流式输出与后台静默输出。 | BackgroundTurnOutput, ForegroundTurnOutput, TurnOutput, buf… | 273 | `test_agent_chat.py`、`test_platform_cli.py`、`test_platform_cli_remote.py` |
+| `atri_x.agent.turn_output` | 回合输出端口：前台流式输出与后台静默输出。 | BackgroundTurnOutput, ForegroundTurnOutput, TurnOutput, buf… | 291 | `test_agent_chat.py`、`test_platform_cli.py`、`test_platform_cli_remote.py` |
 | `atri_x.agent.turn_override` | 单回合指令：``@model:`` / ``@image:`` / ``@use:`` 的解析、裁决与剥离。 | TURN_OVERRIDE_METHODS, TurnDirectiveMatch, TurnDirectiveRes… | 337 | `test_agent_assembly.py`、`test_agent_chat.py` |
 | `atri_x.agent.user_prompt_source` | 用户自建提示词的系统提示词来源。 | UserPromptsSystemPromptSource | 42 | `test_promptlib.py` |
 | `atri_x.agent.vision` | 多图兜底：把图片段换成模型生成的文字描述。 | DEFAULT_VISION_FALLBACK_BUDGET_SECONDS, DEFAULT_VISION_FALL… | 518 | `test_vision_prechat.py`、`test_vision_privacy.py` |
@@ -193,7 +193,7 @@
 | `atri_x.app.runtime` | 运行期装配主链：媒体中心 → 工具运行时 → Hook → Agent → 生命周期。 | DefaultRuntimeFactory, HookRuntimeLifecycle, audit_func, bu… | 619 | `test_app_runner.py`、`test_app_runtime_resident.py`、`test_app_tool_runtime_wiring.py` |
 | `atri_x.app.runtime_agent` | Agent 装配。 | buildAgent, build_agent | 610 | `test_app_runtime_agent.py`、`test_member_profile.py` |
 | `atri_x.app.runtime_hooks` | Hook 控制面装配。 | buildHookService, build_hook_service | 120 | — |
-| `atri_x.app.runtime_safety` | 内容安全与识图的宿主装配（从 :mod:`atri_x.app.runtime_agent` 抽出）。 | _build_safety_guard, build_safety_guard, configure_vision_p… | 149 | `test_safety_integration.py` |
+| `atri_x.app.runtime_safety` | 内容安全与识图的宿主装配（从 :mod:`atri_x.app.runtime_agent` 抽出）。 | _build_safety_guard, build_safety_guard, configure_vision_p… | 186 | `test_safety_integration.py` |
 | `atri_x.app.runtime_support` | 运行期装配的共享助手：审计入口、凭据解析、cron 服务、Hook 生命周期。 | HookRuntimeLifecycle, audit_func, build_cron_service, confi… | 366 | — |
 | `atri_x.app.service_marker` | 服务实例标记：防止同一台机器上跑起第二个 ``atri-x`` service。 | ServiceMarker, ServiceMarkerError, claim_service_marker, re… | 226 | `test_app_bootstrap.py` |
 | `atri_x.app.service_types` | app 内部使用的服务侧数据类型。 | AudioTranscriptionRequest, AudioTranscriptionResult, ImageP… | 94 | `test_app_platforms.py` |
@@ -641,12 +641,24 @@
 | `atri_x.runtime` | 运行状态快照与展示格式化。 | — | 27 | `test_agent_assembly.py`、`test_agent_chat.py`、`test_agent_core.py`、`test_gui_protocol.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_platform_cli_tui.py`、`test_turn_manager.py` |
 | `atri_x.runtime.status` | 运行状态快照与展示格式化。 | Phase, PhaseDone, PhaseError, PhaseIdle, PhaseLLM, PhasePre… | 200 | `test_gui_protocol.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_platform_cli_tui.py` |
 | `atri_x.safecontext` | 上下文块渲染与取消令牌。 | CancelToken, CancelledError, DeadlineExceededError, ErrCanc… | 476 | `test_agent_chat.py`、`test_agent_core.py`、`test_atrinis_http.py`、`test_fileops.py`、`test_groupanalysis.py`、`test_maintenance.py`、`test_maintenance_dsh.py`、`test_media_image.py`、`test_media_manager.py`、`test_media_worker.py`、`test_ops.py`、`test_platform_cli.py`、`test_platform_cli_remote.py`、`test_platform_cli_tui.py`、`test_request_manager.py`、`test_selflearning.py`、`test_signal.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_turn_manager.py`、`test_vision.py`、`test_vision_privacy.py` |
-| `atri_x.safety` | 内置安全闸门：道德 / 合规词表过滤 + 敏感信息（PII / 凭据）脱敏。 | ACTION_BLOCK, ACTION_FLAG, ACTION_PASS, ACTION_REDACT, Audi… | 119 | `test_safety_core.py`、`test_safety_integration.py` |
+| `atri_x.safety` | 内置内容安全闸门：本地词表/正则 + 远程审核 + 三档裁决 + 人工复核。 | ACTION_BLOCK, ACTION_FLAG, ACTION_PASS, ACTION_REDACT, ACTI… | 197 | `test_safety_async_guard.py`、`test_safety_core.py`、`test_safety_engine.py`、`test_safety_integration.py`、`test_safety_providers.py`、`test_safety_settings.py` |
 | `atri_x.safety.audit` | 审计日志：``safety-audit.jsonl`` 的追加写入。 | AuditLog, DEFAULT_AUDIT_MAX_BYTES, utc_now | 142 | — |
-| `atri_x.safety.guard` | 安全闸门：文本审核 / 脱敏、媒体出口判定与审计的唯一入口。 | DEFAULT_BLOCK_REPLACEMENT, MEDIA_BLOCK_TEXT, ModeBoundGuard… | 435 | — |
+| `atri_x.safety.engine` | 内容安全引擎：本地层 + 远程层 + 三档裁决 + 双供应商 + 熔断 + 缓存 + 预算。 | RemoteOutcome, SafetyEngine, build_engine, safety_dirs | 429 | `test_safety_async_guard.py`、`test_safety_engine.py`、`test_safety_settings.py` |
+| `atri_x.safety.engine_remote` | 远程审核的编排：双供应商仲裁、失败策略、预算、缓存、熔断。 | RemoteModerationMixin, RemoteOutcome | 453 | — |
+| `atri_x.safety.guard` | 安全闸门：文本审核 / 脱敏、媒体出口判定与审计的唯一入口。 | DEFAULT_BLOCK_REPLACEMENT, MEDIA_BLOCK_TEXT, SafetyDecision… | 575 | — |
+| `atri_x.safety.guard_async` | guard 的异步三档接口（从 :mod:`atri_x.safety.guard` 抽出）。 | aallow_media_output, afilter_text | 285 | — |
 | `atri_x.safety.mode_ctx` | 安全闸门的"归属"与"按会话模式绑定"（从 :mod:`atri_x.safety.guard` 抽出）。 | ModeBoundGuard, SESSION_MODES, SafetyScope, guard_from_cont… | 263 | — |
+| `atri_x.safety.normalize` | 文本归一化：把"绕过写法"折叠回可匹配的骨架。 | INVISIBLE_CHARS, normalize_skeleton, strip_invisible | 94 | — |
 | `atri_x.safety.policy` | 安全策略：``[safety]`` 段 → :class:`SafetyPolicy`，以及内置类别的默认值。 | ACTION_BLOCK, ACTION_FLAG, ACTION_PASS, ACTION_REDACT, DEFA… | 379 | — |
-| `atri_x.safety.rules` | 规则与词表的唯一出处：词表数据文件 + 词表匹配 + 敏感信息正则。 | CATEGORY_IDS, CATEGORY_LABELS, CATEGORY_SEVERITIES, RuleHit… | 425 | — |
+| `atri_x.safety.providers` | 远程审核供应商的装配入口。 | AliyunProvider, HttpTransport, ModerationProvider, Provider… | 132 | `test_safety_async_guard.py`、`test_safety_engine.py`、`test_safety_providers.py` |
+| `atri_x.safety.providers.aliyun` | 阿里云内容安全 2.0 适配器：文本（TextModeration）+ 图片（ImageModeration）。 | AliyunProvider, DEFAULT_ENDPOINT, DEFAULT_VERSION | 235 | `test_safety_providers.py` |
+| `atri_x.safety.providers.base` | 远程审核供应商的公共契约：传输层、错误分类、签名工具、归一化入口。 | HttpTransport, ModerationProvider, ProviderConfig, Provider… | 221 | `test_safety_async_guard.py`、`test_safety_engine.py`、`test_safety_providers.py` |
+| `atri_x.safety.providers.tencent` | 腾讯云内容安全适配器：文本（天御 TMS）+ 图片（IMS）。 | TENCENT_IMAGE_HOST, TENCENT_TEXT_HOST, TencentProvider | 240 | `test_safety_providers.py` |
+| `atri_x.safety.review_queue` | 人工复核队列：``<config_dir>/safety/review.db``（sqlite）。 | ReviewQueue, STATUS_APPROVED, STATUS_EXPIRED, STATUS_PENDIN… | 314 | — |
+| `atri_x.safety.rules` | 规则与词表的唯一出处：内置词表 + 用户词表 + 敏感信息正则。 | CATEGORY_IDS, CATEGORY_LABELS, CATEGORY_SEVERITIES, RuleHit… | 594 | `test_safety_settings.py` |
+| `atri_x.safety.scope_policy` | 按 scope（群 / 用户）覆盖策略：``<config_dir>/safety/scopes/*.toml``。 | ScopePolicies, ScopeSettings, scope_file_key | 159 | — |
+| `atri_x.safety.settings` | 用户可编辑的策略文件 ``safety.toml``：结构、装载与归一化。 | CostSettings, DEFAULT_AUDIT_FILE_NAME, DEFAULT_SAFETY_FILE,… | 384 | `test_safety_providers.py`、`test_safety_settings.py` |
+| `atri_x.safety.types` | 内容安全的公共值对象：处置档位、审核结果、阶段名与标签归一化。 | FAIL_CLOSED, FAIL_OPEN, LABEL_MAP, STAGES, STAGE_AUDIO, STA… | 202 | — |
 | `atri_x.security` | 工具权限与风险策略。 | ACTOR_CONTEXT_KEY, Actor, ActorFromContext, ActorID, Compar… | 121 | `agent_commands_fakes.py`、`agent_fakes.py`、`test_agent_admission.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_agent_core.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_group_policy.py`、`test_agent_participation.py`、`test_agent_risk.py`、`test_app_runtime_agent.py`、`test_background.py`、`test_builtin_cron.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_cron.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_platform_qq_onebot.py`、`test_resident_memory.py`、`test_security_grants.py`、`test_tool_discover.py`、`test_tool_skill.py`、`test_toolrun.py` |
 | `atri_x.security.context` | Actor / Policy 在取消令牌上的传播。 | ACTOR_CONTEXT_KEY, POLICY_CONTEXT_KEY, actor_from_context, … | 125 | — |
 | `atri_x.security.grants` | 授权登记表（grant registry）：把"这次 / 这个会话后续"的放行变成有生命周期的凭据。 | Grant, GrantRegistry | 326 | — |
