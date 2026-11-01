@@ -301,6 +301,23 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(rows["平台"], "qqonebot、cli")
         self.assertEqual(rows["模型"], "2 个")
 
+    def test_summary_renders_dsh_gateway_row(self) -> None:
+        """DSH 网关头代理：只有 /metrics 报了才出现，且只显示状态与头名字。"""
+        payload = _payload()
+        payload["dsh"] = dict(payload["dsh"])
+        payload["dsh"].update(
+            {
+                "credentialGateway": True,
+                "gatewayRunning": True,
+                "gatewayHeaderNames": ["x-opencode-session"],
+            }
+        )
+        rows = dict(perfconfig.metrics_summary(payload))
+        self.assertEqual(rows["DSH 网关头代理"], "运行中（补 x-opencode-session）")
+        payload["dsh"]["gatewayRunning"] = False
+        rows = dict(perfconfig.metrics_summary(payload))
+        self.assertEqual(rows["DSH 网关头代理"], "未启动（补 x-opencode-session）")
+
     def test_summary_tolerates_missing_and_wrong_types(self) -> None:
         rows = dict(perfconfig.metrics_summary({}))
         self.assertEqual(rows["版本"], "未知")
