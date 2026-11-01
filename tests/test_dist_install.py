@@ -87,6 +87,9 @@ class InstallerTestCase(unittest.TestCase):
                 "LOCALAPPDATA": str(self.local_appdata),
                 "APPDATA": str(self.appdata),
                 "USERPROFILE": str(self.home),
+                # POSIX 上「用户数据根」走 XDG（~/.config/atri-x），固定住便于跨平台断言。
+                "HOME": str(self.home),
+                "XDG_CONFIG_HOME": str(self.root / "xdg-config"),
             },
             clear=False,
         )
@@ -228,7 +231,11 @@ class InstallerTestCase(unittest.TestCase):
         self.assertEqual(info["dataDir"], str(Path(report.target) / "data"))
         self.assertTrue(info["dataDirExists"])
         self.assertIn("runtime", info)
-        self.assertEqual(info["runtime"]["homeDir"], str(self.appdata / "ATRI-X"))
+        if os.name == "nt":
+            expected_home = str(self.appdata / "ATRI-X")
+        else:
+            expected_home = str(self.root / "xdg-config" / "atri-x")
+        self.assertEqual(info["runtime"]["homeDir"], expected_home)
 
     def test_status_runtime_follows_env_override(self) -> None:
         self.do_install()
