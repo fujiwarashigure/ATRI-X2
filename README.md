@@ -44,15 +44,15 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行 |
-| 本仓库 | 平铺布局的 `atri_x/`：865 个 `.py` 模块，约 25.3 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.8 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：870 个 `.py` 模块，约 25.5 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.8 万行） |
 | 研究引擎 | 随包 `research_pack/`：38 个模块、约 8.7k 行纯标准库引擎 + 15 个原创 AgentSkill；安装版 / 便携版首启自动装进配置目录 |
 | 图表能力 | 随包 `drawio_pack/`（drawio-skill 3.4.2，47 个纯标准库脚本 + 20 篇参考 + shape 索引）+ 内置 draw.io 32.6.1 无头渲染器；工具 `drawio` 仅超管可用，安装版 / 便携版开箱出 PNG/SVG/PDF |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 253 个 Python 文件（其中 243 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
+| 测试 | `tests/` 254 个 Python 文件（其中 244 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
 | 门禁 | 代码 7 道 + 文档 1 道（`check_docs`）+ 索引 1 道（`gen_index --check`）+ 复杂度预算，全部可在 CI 跑 |
-| 规模 | 1516 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
+| 规模 | 1522 个受版本控制文件（不含 `.git`；与源码归档条目数一致） |
 
 ## 功能特性
 
@@ -70,7 +70,7 @@
 ### 平台与前端
 
 - **CLI**：本地 TUI（聊天区、通知区、滚动、copy mode、补全）；也可作为服务端，任意电脑用 CLI 客户端远程连接（默认 `32172`）。
-- **Windows 桌面端**：Tk 窗口 + 托盘常驻 + 后台服务自动拉起，17 个选项卡覆盖模型 / 平台 / 人设卡 / 群友 / 知识库 / 时间 / 日志 / 工具权限 / 提示词 / 运行状态 / 研究 / 内容安全 / 性能等全部配置；提示词模板、生图档案、工具标签与标签词表都能在「提示词」页改（内置模板只存改动、下一轮生效）；密钥可显示隐藏，配置改动自动留备份，模型页保存后从磁盘回读逐字段校验。详见 [Windows 桌面端](docs/windows-app.md)。
+- **Windows 桌面端**：Tk 窗口 + 托盘常驻 + 后台服务自动拉起，18 个选项卡覆盖模型 / 平台 / 人设卡 / 群友 / 知识库 / 时间 / 日志 / 工具权限 / 提示词 / 运行状态 / 研究 / 内容安全 / 性能 / 内置 DSH 等全部配置；提示词模板、生图档案、工具标签与标签词表都能在「提示词」页改（内置模板只存改动、下一轮生效）；密钥可显示隐藏，配置改动自动留备份，模型页保存后从磁盘回读逐字段校验。详见 [Windows 桌面端](docs/windows-app.md)。
 - **Windows 两种交付形态**：安装包（开始菜单/自启/卸载项）与便携版 zip（解压即用，数据留在解压目录）；一条 `python packaging/build.py --release` 同时产出并各自自检。
 - **即时通信平台**：Telegram、QQ OneBot、QQ Official，统一平台层与输出层，便于扩展。
 - **前端自由定制**：远程 CLI 走 WebSocket，协议见 [前端 API](docs/frontend-api.md)。
@@ -174,12 +174,14 @@ python -m atri_x --config path/to/app.toml   # 指定主配置
 
 ## 发行版、容器镜像与部署
 
-当前版本 **`1.1.9`**（正式发行版）：**上下文窗口桌面端可配置 + `/resources` 统计子进程**。
+当前版本 **`1.1.9`**（正式发行版）：**上下文窗口桌面端可配置 + `/resources` 统计子进程 + 桌面端「DSH」配置页**。
 桌面端「模型 → 上下文窗口」子页可以改默认窗口、按 Provider + 模型覆盖，并能一次扫描上游
 `/models` 把该 Provider 的全部模型与上游上报的理论窗口列进「模型窗口总览」表（「自定义覆盖」
 列可直接点单元格修改）；`/resources` 与 `runtime_resources` 现在同时统计后台服务拉起的
 **子进程**（DSH 内核 `node.exe`、draw.io 渲染链、研究 runner、agent 启动的 shell / MCP / hook
-等）与**同安装目录的相关进程**（桌面端、QQ 协议端），给出内存 / CPU / 合计。窗口解析顺序与
+等）与**同安装目录的相关进程**（桌面端、QQ 协议端），给出内存 / CPU / 合计；桌面端新增
+**「DSH」选项卡**，把原先只能手改 `app.toml` 的 `[agent.dsh]`（路由 / 凭据 / 内核模型目录）
+做成表单，带凭据诊断与端到端自检，换机器或重装后「一键配置」即可恢复。窗口解析顺序与
 配置格式未变。详见 [`docs/release-notes/1.1.9.md`](docs/release-notes/1.1.9.md)、
 [CHANGELOG.md](CHANGELOG.md)；上一版（内容安全彻底升级 + DSH 深度路由调度）见
 [`docs/release-notes/1.1.8.md`](docs/release-notes/1.1.8.md)。
@@ -312,8 +314,8 @@ server`，拆片后不再出现。
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 1133 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=865 imported=865`，0 失败 |
+| `check_syntax` | 1139 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=870 imported=870`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径，不衡量行为正确性） |
 | `check_except` | 与位置级基线一致（0 个新增位置） |

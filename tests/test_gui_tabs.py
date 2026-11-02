@@ -300,8 +300,8 @@ class LayoutCase(unittest.TestCase):
     """不建窗口：选项卡清单、「功能」页跳转键、关于文案。"""
 
     def test_tab_list_and_keys(self) -> None:
-        self.assertEqual(len(gui_app._TABS), 17)
-        self.assertEqual(len(set(gui_app._TABS)), 17)
+        self.assertEqual(len(gui_app._TABS), 18)
+        self.assertEqual(len(set(gui_app._TABS)), 18)
         self.assertIn("在线", gui_app._TABS)
         self.assertIn("时间", gui_app._TABS)
         self.assertIn("工具权限", gui_app._TABS)
@@ -309,9 +309,11 @@ class LayoutCase(unittest.TestCase):
         self.assertIn("权限", gui_app._TABS)
         self.assertIn("内容安全", gui_app._TABS)
         self.assertIn("性能", gui_app._TABS)
+        self.assertIn("DSH", gui_app._TABS)
         self.assertLess(gui_app._TABS.index("平台"), gui_app._TABS.index("在线"))
         self.assertLess(gui_app._TABS.index("进阶"), gui_app._TABS.index("时间"))
         self.assertLess(gui_app._TABS.index("权限"), gui_app._TABS.index("内容安全"))
+        self.assertLess(gui_app._TABS.index("内容安全"), gui_app._TABS.index("DSH"))
         for key in (
             "model",
             "character",
@@ -325,6 +327,7 @@ class LayoutCase(unittest.TestCase):
             "toolperm_params",
             "safety",
             "performance",
+            "dsh",
         ):
             self.assertIn(key, gui_app._TAB_KEYS)
             self.assertIn(gui_app._TAB_KEYS[key], gui_app._TABS)
@@ -337,6 +340,8 @@ class LayoutCase(unittest.TestCase):
             self.assertEqual(rows["logs"].tab, "logs")
             self.assertEqual(rows["knowledge"].tab, "knowledge")
             self.assertEqual(rows["members"].status, "未建档")
+            # 内置 DSH 行双击跳到「DSH」页（1.1.9 起可配置）。
+            self.assertEqual(rows["dsh"].tab, "dsh")
         finally:
             shutil.rmtree(TEMP_ROOT, ignore_errors=True)
 

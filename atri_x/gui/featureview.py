@@ -265,8 +265,12 @@ def _dsh_row(app: Mapping[str, Any]) -> FeatureRow:
     enabled = bool(dsh.get("enabled"))
     detail = _kv_detail(dsh, ("min_score", "max_concurrent_prompts", "model", "command"))
     if not enabled:
-        detail = "未启用（[agent.dsh].enabled 未打开）"
-    return FeatureRow("dsh", "内置 DSH 深度路由", _status_of(enabled, explicit=False), detail)
+        detail = "未启用（[agent.dsh].enabled 未打开；到「DSH」页打开）"
+    else:
+        detail += "（「DSH」页可改凭据 / 模型目录 / 自检）"
+    return FeatureRow(
+        "dsh", "内置 DSH 深度路由", _status_of(enabled, explicit=False), detail, tab="dsh"
+    )
 
 
 def _maintenance_row(app: Mapping[str, Any]) -> FeatureRow:

@@ -100,6 +100,26 @@ def run_selftest() -> int:
         assert params.footer_label.cget("text").strip(), (
             "工具参数子选项卡缺少『其余工具没有可调参数』说明"
         )
+        # 「DSH」页（1.1.9）：路由 / 凭据 / 内核模型目录 / 状态与自检四个区块都要建出来。
+        # 该页是"内置 DSH 在桌面上唯一可配置的地方"，冻结版少一个控件都会被卡住。
+        dsh = app.dsh_tab
+        for name in (
+            "enabled_var",
+            "min_score_var",
+            "prewarm_var",
+            "provider_box",
+            "protocol_box",
+            "hint_var",
+            "model_box",
+            "model_tree",
+            "catalog_state_var",
+            "score_var",
+            "_smoke_button",
+        ):
+            assert hasattr(dsh, name), f"DSH 页缺少控件：{name}"
+        assert dsh._status_text is not None, "DSH 页没有状态区"
+        assert str(dsh.enabled_var.get()) in ("True", "False"), "DSH 页启用开关状态异常"
+        assert dsh.protocol_box.cget("values"), "DSH 页协议下拉没有候选"
         app.notebook.select(0)
         root.update_idletasks()
         root.update()

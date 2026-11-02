@@ -6,12 +6,14 @@
 
 ---
 
-## [1.1.9] - 2026-11-02 — 上下文窗口桌面端可配置 + /resources 统计子进程（同一发行版）
+## [1.1.9] - 2026-11-02 — 上下文窗口桌面端可配置 + /resources 统计子进程 + 桌面端 DSH 配置页（同一发行版）
 
-> 这一版有两条互不相干的改动线，都不改配置格式、工具 schema、会话 / 数据库格式：
+> 这一版有三条互不相干的改动线，都不改配置格式、工具 schema、会话 / 数据库格式：
 > ① **上下文窗口桌面端可配置**（模型页新子页，只读写 `services.toml` 的既有字段
 > `[model_metadata].default_context_window` 与 `model_configs.<model>.context_window`）；
-> ② **`/resources` 统计子进程**（只新增输出段与 `runtime_resources` 的 JSON 字段）。
+> ② **`/resources` 统计子进程**（只新增输出段与 `runtime_resources` 的 JSON 字段）；
+> ③ **内置 DSH 可在桌面端配置**（新增「DSH」页，只读写 `app.toml` 本来就存在的
+> `[agent.dsh]` 与内核的 `cordis.patch.yml`，不新增配置键）。
 > 面向用户的摘要见 `docs/release-notes/1.1.9.md`。
 
 ### 上下文窗口可在桌面端配置
@@ -66,6 +68,39 @@
 隐私边界不变：明细只出现**可执行文件名**（如 `node.exe`、`draw.io.exe`），不出现
 命令行、路径、用户名；`runtime_resources` 的 JSON 结果新增 `children` / `related` /
 `software_total` 三个字段。
+
+---
+
+### 内置 DSH 可在桌面端配置
+
+旧状态：`[agent.dsh]` 与内置内核的模型目录补丁（`DSH_HOME/profiles/acp/cordis.patch.yml`）
+在桌面端**没有任何入口**，只能手改文件。后果有三类：① 缺 `[agent.dsh]` 时凭据自动落到
+work provider（常见是 OpenAI 兼容网关），被协议判定为不可用，表现为"深度路由从没生效"；
+② 网关提供的模型 id 与内核自带目录不一致时，`session/prompt` 直接 400；③ 换机器 / 重装后
+只能重新翻文档手改，容易漏。
+
+新状态：桌面端新增「DSH」选项卡（`atri_x/gui/tabs/dsh.py` + `dshpanels.py`，数据层
+`dshconfig.py` / `dshcatalog.py` / `dshsmoke.py`）：
+
+- 路由表单（`enabled` / `min_score` / `prewarm` / 并发上限 / 空闲回收 / 单轮超时 / 会话复用）
+  写 `app.toml` 的 `[agent.dsh]`，走行级补丁 + `.gui.bak` + 回读严格解码；
+- 凭据表单：Provider 下拉 + 协议下拉，选中即给诊断（base_url 是否 Anthropic Messages 端点、
+  密钥是否已配置、声明了几个自定义请求头），不是 Messages 端点时给出「同一网关的
+  Anthropic 地址」建议并可一键复制；
+- 内核模型目录：按所选 Provider 的 `models` 生成 `cordis.patch.yml`（上下文窗口取
+  `model_configs.<model>.context_window` → 默认窗口），旧文件备份为 `.gui.bak`；
+  也可清空（回内核自带目录，官方 DeepSeek 密钥场景用）；
+- 状态与自检：「刷新状态」等价于 `atri_x.agent.dsh.status`；「端到端自检」真的拉起内核
+  跑一轮 `session/prompt`，把 `stopReason` / 回答 / 内核 stderr 尾部显示在页面上；
+- 「一键配置（推荐）」= 选 Provider → 生成内核模型目录 → 写 `[agent.dsh]` → 询问重启，
+  换机器或重装后点一次即可恢复（端点不兼容时先弹确认，不静默强改）；
+- 顺带修掉一个真实缺陷：ACP `session/set_config_option` 的 `model` 取值必须是**紧凑 JSON**
+  （`["<provider>","<model>"]`，逗号后不能有空格），带空格会被内核判
+  `[-32602] unknown model option`；页面统一按紧凑 JSON 写入并回读规范化。
+
+配套：`--selftest` 增加「DSH」页控件断言；`tests/test_gui_dsh.py` 覆盖设置往返、模型目录
+渲染/解析往返、按 Provider 生成、保存/清空与页面按钮路径；「功能」页的 DSH 行双击可跳到
+「DSH」页；`docs/windows-app.md` §8.1 补了本页说明。
 
 ---
 

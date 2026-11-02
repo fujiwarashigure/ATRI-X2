@@ -21,19 +21,19 @@
 
 ## 模块清单（自动生成）
 
-共 **88** 个模块，被测试覆盖 **62** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **93** 个模块，被测试覆盖 **67** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
-| `atri_x.gui` | ``atri_x.gui``：Windows 桌面端（Tk 前端 + 托盘 + 后台服务管理）。 | 76 | `test_cli_sessions.py`、`test_gui_client.py`、`test_gui_configedit.py`、`test_gui_diagnostics.py`、`test_gui_extractconfig.py`、`test_gui_icon.py`、`test_gui_imagemount.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_members.py`、`test_gui_modelcatalog.py`、`test_gui_perf.py`、`test_gui_promptlib.py`、`test_gui_proto_manager.py`、`test_gui_protocol.py`、`test_gui_qqproto.py`、`test_gui_safety.py`、`test_gui_searchconfig.py`、`test_gui_service.py`、`test_gui_supervisor.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
+| `atri_x.gui` | ``atri_x.gui``：Windows 桌面端（Tk 前端 + 托盘 + 后台服务管理）。 | 76 | `test_cli_sessions.py`、`test_gui_client.py`、`test_gui_configedit.py`、`test_gui_diagnostics.py`、`test_gui_dsh.py`、`test_gui_extractconfig.py`、`test_gui_icon.py`、`test_gui_imagemount.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_members.py`、`test_gui_modelcatalog.py`、`test_gui_perf.py`、`test_gui_promptlib.py`、`test_gui_proto_manager.py`、`test_gui_protocol.py`、`test_gui_qqproto.py`、`test_gui_safety.py`、`test_gui_searchconfig.py`、`test_gui_service.py`、`test_gui_supervisor.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
 | `atri_x.gui.__main__` | ``python -m atri_x.gui``：桌面端进程入口。 | 220 | `test_gui_diagnostics.py` |
 | `atri_x.gui.about` | 「关于 ATRI-X」窗口：版本、项目简介、仓库地址、推荐语与署名。 | 139 | `test_gui_tabs.py` |
 | `atri_x.gui.actions` | 主窗口的「服务」动作：启动 / 重启 / 停止后台服务、打开目录/日志、关于。 | 196 | `test_gui_diagnostics.py` |
-| `atri_x.gui.app` | Tk 主窗口：选项卡（对话/模型/人设卡/平台/群友/知识库/进阶/日志/功能）+ 状态栏 + 托盘常驻。 | 830 | `test_gui_diagnostics.py`、`test_gui_tabs.py` |
+| `atri_x.gui.app` | Tk 主窗口：选项卡（对话/模型/人设卡/平台/群友/知识库/进阶/日志/功能）+ 状态栏 + 托盘常驻。 | 836 | `test_gui_diagnostics.py`、`test_gui_tabs.py` |
 | `atri_x.gui.autostart` | 开机自启：写用户注册表 ``Run`` 项（``HKCU\…\CurrentVersion\Run``）。 | 104 | — |
 | `atri_x.gui.avatars` | 群友头像：拼平台头像 URL、下载、解码缩放成统一的本地 PNG 缓存。 | 180 | `test_gui_members.py`、`test_gui_tabs.py` |
 | `atri_x.gui.client` | GUI 的 WS 客户端：连 ``ws://…/cli/v1/ws``、握手、收发帧、断线重连。 | 301 | `test_gui_client.py` |
-| `atri_x.gui.configedit` | 桌面端的配置读写底座：路径解析、TOML 行级补丁、``.env``、文本文件。 | 678 | `test_gui_configedit.py`、`test_gui_extractconfig.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_modelcatalog.py`、`test_gui_perf.py`、`test_gui_promptlib.py`、`test_gui_proto_manager.py`、`test_gui_qqproto.py`、`test_gui_safety.py`、`test_gui_searchconfig.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
+| `atri_x.gui.configedit` | 桌面端的配置读写底座：路径解析、TOML 行级补丁、``.env``、文本文件。 | 678 | `test_gui_configedit.py`、`test_gui_dsh.py`、`test_gui_extractconfig.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_modelcatalog.py`、`test_gui_perf.py`、`test_gui_promptlib.py`、`test_gui_proto_manager.py`、`test_gui_qqproto.py`、`test_gui_safety.py`、`test_gui_searchconfig.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
 | `atri_x.gui.configmodel` | 桌面端「模型」页的数据模型：LLM Provider、上下文窗口与模型分配。 | 772 | `test_gui_configedit.py`、`test_gui_modelcatalog.py`、`test_gui_tabs.py` |
 | `atri_x.gui.cronschedule` | 界面上的 cron 小工具：「每天 / 每周 / 每月」结构 ↔ 5 段表达式。 | 227 | `test_gui_maintenance.py` |
 | `atri_x.gui.dialogs` | 「进阶」页的二级设置窗口（自学习 / HOOK 插件 / 定时维护任务）。 | 55 | `test_gui_maintenance.py`、`test_gui_tabs.py` |
@@ -42,8 +42,11 @@
 | `atri_x.gui.dialogs.maintenance` | 「定时维护任务」子窗口：编辑 ``app.toml`` 的 ``[maintenance.*]``。 | 521 | — |
 | `atri_x.gui.dialogs.selflearning` | 「自学习设置」子窗口：编辑 ``app.toml`` 的 ``[self_learning]``。 | 116 | — |
 | `atri_x.gui.dialogs.tasks` | 维护任务清单 + 「界面状态 ↔ cron」翻译（无 Tk，便于单独测试）。 | 180 | `test_gui_maintenance.py` |
+| `atri_x.gui.dshcatalog` | 内置 DSH 内核的模型目录补丁（``cordis.patch.yml``）读写。 | 346 | `test_gui_dsh.py` |
+| `atri_x.gui.dshconfig` | 内置 DSH 内核的桌面端配置（``app.toml`` 的 ``[agent.dsh]``）。 | 432 | `test_gui_dsh.py` |
+| `atri_x.gui.dshsmoke` | 内置 DSH 内核的端到端自检（真的拉起内核跑一轮 ACP prompt）。 | 119 | `test_gui_dsh.py` |
 | `atri_x.gui.extractconfig` | 桌面端「模型 → 抓取服务」页的数据层：读写 ``services.toml`` 的 ``[web_extract]``。 | 222 | `test_gui_extractconfig.py`、`test_gui_tabs.py` |
-| `atri_x.gui.featureview` | 「功能」页的数据来源：把配置文件里能看出来的功能开关汇总成一张表。 | 594 | `test_gui_configedit.py`、`test_gui_tabs.py`、`test_gui_timepanel.py` |
+| `atri_x.gui.featureview` | 「功能」页的数据来源：把配置文件里能看出来的功能开关汇总成一张表。 | 598 | `test_gui_configedit.py`、`test_gui_tabs.py`、`test_gui_timepanel.py` |
 | `atri_x.gui.icon` | 品牌图标素材的运行时解析。 | 45 | `test_gui_icon.py` |
 | `atri_x.gui.imagemount` | 本地生图服务的「挂载」：把端口映射 / SSL 链接翻译成 OpenAI 兼容 Base URL。 | 357 | `test_gui_imagemount.py`、`test_gui_tabs.py` |
 | `atri_x.gui.imageprofileedit` | 「提示词」页的「生图档案」子页：编辑 ``services.toml`` 的命名生图 profile。 | 317 | `test_gui_promptlib.py` |
@@ -67,18 +70,20 @@
 | `atri_x.gui.safetyviews` | 「内容安全」页的三个只读/半只读子页：复核队列、审计日志、原始 TOML。 | 425 | — |
 | `atri_x.gui.safetywordedit` | 「内容安全 → 词表」子页：用户词表 / 自定义正则的编辑与离线试扫。 | 304 | — |
 | `atri_x.gui.searchconfig` | 桌面端「模型 → 搜索服务」页的数据层：读写 ``services.toml`` 的 ``[web_search]``。 | 249 | `test_gui_searchconfig.py`、`test_gui_tabs.py` |
-| `atri_x.gui.selftest` | 桌面端自检：不连服务、不建托盘，只验证 Tk 侧能构建与渲染。 | 115 | — |
+| `atri_x.gui.selftest` | 桌面端自检：不连服务、不建托盘，只验证 Tk 侧能构建与渲染。 | 135 | — |
 | `atri_x.gui.service` | GUI 的「服务侧」准备：配置、token、后台服务的探测与拉起。 | 624 | `test_gui_link.py`、`test_gui_qqproto.py`、`test_gui_service.py`、`test_gui_tabs.py` |
 | `atri_x.gui.servicelog` | 后台服务的生命周期日志：启动头、启动/退出记录。 | 76 | `test_gui_service.py` |
 | `atri_x.gui.sessions` | 会话侧边栏：会话列表 + 新建/刷新（GUI 的"会话列表/历史"入口）。 | 156 | `test_cli_sessions.py` |
 | `atri_x.gui.snowluma_proto` | SnowLuma 协议端环境的探测与托管（可选的备用协议端，外置，**不内置分发**）。 | 261 | `test_gui_proto_manager.py` |
 | `atri_x.gui.supervisor` | 桌面端的后台服务看护：断线后自动探测 → 重启 → 退避重试。 | 273 | `test_gui_supervisor.py` |
-| `atri_x.gui.taborder` | 主窗口选项卡顺序、名字索引与「功能」页跳转键（1.1.8 从 ``app.py`` 拆出）。 | 62 | — |
-| `atri_x.gui.tabs` | 桌面端的选项卡集合。 | 64 | `test_gui_link.py`、`test_gui_perf.py`、`test_gui_promptlib.py`、`test_gui_qqproto.py`、`test_gui_safety.py`、`test_gui_tabs.py`、`test_gui_timepanel.py` |
+| `atri_x.gui.taborder` | 主窗口选项卡顺序、名字索引与「功能」页跳转键（1.1.8 从 ``app.py`` 拆出）。 | 65 | — |
+| `atri_x.gui.tabs` | 桌面端的选项卡集合。 | 67 | `test_gui_dsh.py`、`test_gui_link.py`、`test_gui_perf.py`、`test_gui_promptlib.py`、`test_gui_qqproto.py`、`test_gui_safety.py`、`test_gui_tabs.py`、`test_gui_timepanel.py` |
 | `atri_x.gui.tabs.advanced` | 「进阶」选项卡：生图/视觉/语音、记忆与群功能开关、日志级别。 | 544 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.base` | 配置选项卡的公共骨架：底部状态行、错误弹窗、"需要重启"提示。 | 136 | — |
 | `atri_x.gui.tabs.character` | 「人设卡」选项卡：角色库编辑 + 系统人设（SOUL.md）。 | 775 | `test_gui_promptlib.py`、`test_gui_tabs.py` |
 | `atri_x.gui.tabs.chat` | 「对话」选项卡：会话列表 + 聊天记录 + 输入框。 | 165 | — |
+| `atri_x.gui.tabs.dsh` | 「DSH」选项卡：内置 DSH 内核的深度路由配置 + 状态自检。 | 308 | `test_gui_dsh.py` |
+| `atri_x.gui.tabs.dshpanels` | 「DSH」页的三个子区块：内核模型目录、状态与自检、一键配置。 | 431 | `test_gui_dsh.py` |
 | `atri_x.gui.tabs.extractpanel` | 「模型 → 抓取服务」子页：``web_extract`` 的通道列表、表单、顺序与密钥。 | 418 | — |
 | `atri_x.gui.tabs.features` | 「功能」选项卡：功能状态一览 + 服务/日志面板。 | 219 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.knowledge` | 「知识库」选项卡：群知识库 / FAQ 的全局配置 + 现有条目查看。 | 296 | `test_gui_tabs.py` |
@@ -118,4 +123,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 864 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 869 个 / 超线文件 79 个）。

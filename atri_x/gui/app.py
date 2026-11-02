@@ -46,6 +46,7 @@ from atri_x.gui.tabs import (
     AdvancedTab,
     CharacterTab,
     ChatTab,
+    DshTab,
     FeaturesTab,
     KnowledgeTab,
     LinkTab,
@@ -224,6 +225,7 @@ class GuiApp:
             16: lambda parent: PerformanceTab(
                 parent, self.paths, on_restart=self._restart_backend
             ),
+            17: lambda parent: DshTab(parent, self.paths, on_restart=self._restart_backend),
         }
         #: 启动时就构建的页：对话（默认页）与功能（状态栏轮询要写它）。
         eager = (0, 10)
@@ -306,6 +308,10 @@ class GuiApp:
     @property
     def toolperm_tab(self) -> Any:
         return self._ensure_tab(11)
+
+    @property
+    def dsh_tab(self) -> Any:
+        return self._ensure_tab(17)
 
     def _build_menu(self) -> None:
         menubar = tk.Menu(self.root)

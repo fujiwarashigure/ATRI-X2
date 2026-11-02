@@ -17,6 +17,7 @@
 | :mod:`atri_x.gui.tabs.permission` | 权限 | ``app.toml`` 的 ``[security]`` / ``[security.superadmins]`` / ``[tools]`` / ``[character_library]``（超级管理员名单 + 风险阈值 + 单轮工具轮次 + 允许成员建卡；1.1.3 修订新增） |
 | :mod:`atri_x.gui.tabs.safety` | 内容安全 | ``safety.toml`` + ``safety/`` 数据目录（词表/正则/复核库/审计；1.1.8 新增，热加载） |
 | :mod:`atri_x.gui.tabs.performance` | 性能 | ``app.toml`` 的 ``[ops]`` / ``[platform.qqonebot]`` 与 ``services.toml`` 的 ``[image_generation]``（并发预设 + 上限 + `/metrics` 实况，含 DSH 段；1.1.8 新增，含 DSH 行） |
+| :mod:`atri_x.gui.tabs.dsh` | DSH | ``app.toml`` 的 ``[agent.dsh]`` + 内置内核 profile 的 ``cordis.patch.yml``（凭据 Provider/协议、内核模型目录、状态与端到端自检；1.1.9 新增） |
 
 公共骨架在 :mod:`atri_x.gui.tabs.base`（底部状态行、错误弹窗、重启按钮、操作日志）。
 """
@@ -27,6 +28,7 @@ from atri_x.gui.tabs.advanced import AdvancedTab
 from atri_x.gui.tabs.base import ConfigTab
 from atri_x.gui.tabs.character import CharacterTab
 from atri_x.gui.tabs.chat import ChatTab
+from atri_x.gui.tabs.dsh import DshTab
 from atri_x.gui.tabs.features import FeaturesTab
 from atri_x.gui.tabs.knowledge import KnowledgeTab
 from atri_x.gui.tabs.link import LinkTab
@@ -47,6 +49,7 @@ __all__ = [
     "CharacterTab",
     "ChatTab",
     "ConfigTab",
+    "DshTab",
     "FeaturesTab",
     "KnowledgeTab",
     "LinkTab",

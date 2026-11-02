@@ -250,6 +250,8 @@
 | `atri_x.gui.tabs.base` | 配置选项卡的公共骨架：底部状态行、错误弹窗、"需要重启"提示。 |
 | `atri_x.gui.tabs.character` | 「人设卡」选项卡：角色库编辑 + 系统人设（SOUL.md）。 |
 | `atri_x.gui.tabs.chat` | 「对话」选项卡：会话列表 + 聊天记录 + 输入框。 |
+| `atri_x.gui.tabs.dsh` | 「DSH」选项卡：内置 DSH 内核的深度路由配置 + 状态自检。 |
+| `atri_x.gui.tabs.dshpanels` | 「DSH」页的三个子区块：内核模型目录、状态与自检、一键配置。 |
 | `atri_x.gui.tabs.extractpanel` | 「模型 → 抓取服务」子页：``web_extract`` 的通道列表、表单、顺序与密钥。 |
 | `atri_x.gui.tabs.features` | 「功能」选项卡：功能状态一览 + 服务/日志面板。 |
 | `atri_x.gui.tabs.knowledge` | 「知识库」选项卡：群知识库 / FAQ 的全局配置 + 现有条目查看。 |

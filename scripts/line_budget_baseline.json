@@ -32,7 +32,7 @@
     "atri_x/cron/model.py": 650,
     "atri_x/cron/service.py": 611,
     "atri_x/delivery/delivery.py": 676,
-    "atri_x/gui/app.py": 830,
+    "atri_x/gui/app.py": 836,
     "atri_x/gui/configedit.py": 678,
     "atri_x/gui/configmodel.py": 772,
     "atri_x/gui/service.py": 624,
