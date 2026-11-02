@@ -3,7 +3,7 @@
 
 # 测试地图（自动生成）
 
-- 模块 **863** 个，其中被测试直接/间接覆盖 **550** 个（63.7%）；无覆盖 **313** 个。
+- 模块 **864** 个，其中被测试直接/间接覆盖 **551** 个（63.8%）；无覆盖 **313** 个。
 - 测试文件 **253** 个。
 
 口径：测试文件 import 了某模块（或其子模块）就算覆盖该模块；「无覆盖」不代表没测过，但**改那个模块时没有同名测试可跑**，只能靠调用方测试。
@@ -224,7 +224,7 @@
 | `atri_x.gui.avatars` | `tests/test_gui_members.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.client` | `tests/test_gui_client.py` |
 | `atri_x.gui.configedit` | `tests/test_gui_configedit.py`、`tests/test_gui_extractconfig.py`、`tests/test_gui_link.py`、`tests/test_gui_maintenance.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_perf.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_proto_manager.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_safety.py`、`tests/test_gui_searchconfig.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py`、`tests/test_gui_toolsettings.py` |
-| `atri_x.gui.configmodel` | `tests/test_gui_configedit.py`、`tests/test_gui_modelcatalog.py` |
+| `atri_x.gui.configmodel` | `tests/test_gui_configedit.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.cronschedule` | `tests/test_gui_maintenance.py` |
 | `atri_x.gui.dialogs` | `tests/test_gui_maintenance.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.dialogs.tasks` | `tests/test_gui_maintenance.py` |
@@ -474,6 +474,7 @@
 | `atri_x.storage.storage` | `tests/test_storage_models.py` |
 | `atri_x.storage.times` | `tests/test_angelmemory.py`、`tests/test_builtin_cron.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_groupanalysis.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_platform_qq_onebot.py`、`tests/test_selflearning.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py` |
 | `atri_x.sysinfo` | `tests/test_builtin_runtime_resources.py`、`tests/test_maintenance_report.py`、`tests/test_ops.py` |
+| `atri_x.sysinfo_children` | `tests/test_builtin_runtime_resources.py` |
 | `atri_x.sysinfo_format` | `tests/test_builtin_runtime_resources.py` |
 | `atri_x.sysinfo_platform` | `tests/test_builtin_runtime_resources.py` |
 | `atri_x.textmatch` | `tests/test_redact.py` |

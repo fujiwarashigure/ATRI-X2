@@ -1,20 +1,24 @@
-"""模型目录：从上游 ``/models`` 拉可用模型，并把「备注名」缓存在本地。
+"""模型目录：从上游 ``/models`` 拉可用模型、上下文窗口，并把「备注名」缓存在本地。
 
-为什么单独一个文件：GUI 只读写配置、不跑 Agent，而**模型清单和备注名都不是上游认识
-的配置键**——写进 ``services.toml`` 只会多出未知键（严格解码会报错），所以落在配置
-目录的 ``gui/model_catalog.json`` 里：
+为什么单独一个文件：GUI 只读写配置、不跑 Agent，而**模型清单、备注名和上游上报的
+窗口大小都不是上游认识的配置键**——写进 ``services.toml`` 只会多出未知键（严格解码会
+报错），所以落在配置目录的 ``gui/model_catalog.json`` 里：
 
 ```json
 {"version": 1, "entries": {
   "providers.deepseek": {"models": ["deepseek-chat"], "aliases": {"deepseek-chat": "主力"},
+                         "windows": {"deepseek-chat": 128000},
                          "fetched_at": "2026-01-01 12:00:00", "source": "https://api.deepseek.com"},
   "image_generation":   {"models": ["gpt-image-2.5"], "aliases": {}}
 }}
 ```
 
 键的约定：LLM provider 用 ``providers.<名字>``，生图用 :data:`IMAGE_KEY`（两者不会撞）。
+``windows`` 存的是**上游上报的理论窗口**（``/models`` 的 ``limit.context`` 等字段），
+只作展示参考；真正生效的窗口仍在 ``services.toml``（本页「自定义覆盖」写那里）。
 
-网络口径：只发一个 ``GET {base_url}/models``（OpenAI 兼容；``/v1`` 缺失时补试一次）。
+网络口径：先试 ``GET {base_url}/models``（OpenAI 兼容），失败再补试 ``/v1`` 与服务根
+（``.../openai/v1`` 这类网关的模型清单常挂在服务根下，例如 OpenCode Go）。
 不读配置、不碰密钥；密钥由调用方从 ``.env`` / 进程环境取好传进来。所有失败都抛
 :class:`CatalogError`，消息直接可展示给用户。
 """
@@ -43,9 +47,11 @@ __all__ = [
     "catalog_path",
     "clean_label",
     "display_label",
+    "fetch_model_windows",
     "fetch_models",
     "load",
     "model_of_label",
+    "parse_model_windows",
     "parse_models",
     "provider_key",
 ]
@@ -134,15 +140,20 @@ def model_of_label(model: str, models: Iterable[str] = ()) -> str:
 # ---------------------------------------------------------------------------
 @dataclass
 class CatalogEntry:
-    """某个后端（provider 或生图）的模型清单 + 备注名。"""
+    """某个后端（provider 或生图）的模型清单 + 备注名 + 上游上报窗口。"""
 
     models: list[str] = field(default_factory=list)
     aliases: dict[str, str] = field(default_factory=dict)
+    windows: dict[str, int] = field(default_factory=dict)
     fetched_at: str = ""
     source: str = ""
 
     def alias_of(self, model: str) -> str:
         return (self.aliases.get(clean_label(model)) or "").strip()
+
+    def window_of(self, model: str) -> int:
+        """上游上报的窗口（tokens）；没拉取过/未上报时为 0。"""
+        return int(self.windows.get(clean_label(model), 0) or 0)
 
     def set_alias(self, model: str, alias: str) -> None:
         model = clean_label(model)
@@ -171,11 +182,20 @@ class CatalogEntry:
             added.append(model)
         # 被 MAX_MODELS 截掉的模型也算"上游仍然有"，备注名留着；真正下架的清掉。
         self.aliases = {model: alias for model, alias in self.aliases.items() if model in seen}
+        self.windows = {model: window for model, window in self.windows.items() if model in seen}
         self.models = self.models[:MAX_MODELS]
         self.fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if source:
             self.source = source.strip()
         return added
+
+    def set_windows(self, windows: dict[str, int]) -> None:
+        """整份替换上游上报窗口（一次扫描就是该 provider 的完整快照）。"""
+        self.windows = {
+            clean_label(model): int(window)
+            for model, window in (windows or {}).items()
+            if clean_label(model) and int(window or 0) > 0
+        }
 
 
 #: 只读查询用的空条目（**不要改它**；写操作走 :meth:`Catalog.entry`）。
@@ -207,6 +227,13 @@ class Catalog:
     def aliases(self, key: str) -> dict[str, str]:
         return dict(self.peek(key).aliases)
 
+    def windows(self, key: str) -> dict[str, int]:
+        return dict(self.peek(key).windows)
+
+    def window_of(self, key: str, model: str) -> int:
+        """上游上报的窗口（tokens）；没有就返回 0。"""
+        return self.peek(key).window_of(model)
+
     def alias_of(self, key: str, model: str) -> str:
         return self.peek(key).alias_of(model)
 
@@ -230,6 +257,10 @@ class Catalog:
     def record(self, key: str, models: Iterable[str], *, source: str = "") -> list[str]:
         return self.entry(key).merge(models, source=source)
 
+    def set_windows(self, key: str, windows: dict[str, int]) -> None:
+        """记录一次扫描的上游窗口快照（同一 provider 的旧快照被整份替换）。"""
+        self.entry(key).set_windows(windows)
+
     def set_alias(self, key: str, model: str, alias: str) -> None:
         self.entry(key).set_alias(model, alias)
 
@@ -241,6 +272,7 @@ class Catalog:
                 key: {
                     "models": list(entry.models),
                     "aliases": dict(entry.aliases),
+                    "windows": dict(entry.windows),
                     "fetched_at": entry.fetched_at,
                     "source": entry.source,
                 }
@@ -308,10 +340,24 @@ def _entries_from(raw_entries: dict[str, Any]) -> dict[str, CatalogEntry]:
         entries[str(key)] = CatalogEntry(
             models=[model for model in models if model][:MAX_MODELS],
             aliases=aliases,
+            windows=_windows_from(raw.get("windows")),
             fetched_at=str(raw.get("fetched_at") or ""),
             source=str(raw.get("source") or ""),
         )
     return entries
+
+
+def _windows_from(raw: Any) -> dict[str, int]:
+    """读 ``windows`` 映射；坏数据静默跳过（目录文件只是缓存，不该挡住界面）。"""
+    windows: dict[str, int] = {}
+    if not isinstance(raw, dict):
+        return windows
+    for model, value in raw.items():
+        model = clean_label(str(model))
+        window = _positive_int(value)
+        if model and window > 0:
+            windows[model] = window
+    return windows
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -321,12 +367,50 @@ def _as_list(value: Any) -> list[Any]:
 # ---------------------------------------------------------------------------
 # 拉取
 # ---------------------------------------------------------------------------
+#: 网关风格的 Base URL 后缀：模型清单常挂在服务根下而不是 API 根下。
+_SERVICE_ROOT_SUFFIXES = ("/openai/v1", "/anthropic/v1", "/openai", "/anthropic")
+
+#: 不允许被 provider ``extra_headers`` 覆盖的请求头（与配置层校验口径一致）。
+_RESERVED_HEADERS = frozenset({"authorization", "content-type", "host"})
+
+
 def fetch_models(base_url: str, api_key: str = "", *, timeout: float = FETCH_TIMEOUT) -> list[str]:
     """``GET {base_url}/models``，返回模型 id 列表；失败抛 :class:`CatalogError`。
 
-    兼容 OpenAI（``{"data":[{"id":...}]}``）、``{"models":[...]}`` 与裸数组三种返回；
-    ``/v1`` 缺失/多余时会补试一次另一种拼法（很多中转站两种都认）。
+    兼容 OpenAI / ``{"models":[...]}`` / 裸数组三种返回；``/v1`` 与网关服务根都会补试。
     """
+    payload, _url = _fetch_models_payload(base_url, api_key, timeout=timeout)
+    return parse_models(payload)
+
+
+def fetch_model_windows(
+    base_url: str,
+    api_key: str = "",
+    *,
+    extra_headers: dict[str, str] | None = None,
+    timeout: float = FETCH_TIMEOUT,
+) -> dict[str, int]:
+    """``GET .../models``，返回 ``{模型: 上游上报窗口}``（0 = 没上报）。
+
+    只负责"上游说了什么"：取不到清单才抛错，清单里的模型全保留（没上报的为 0）。
+    """
+    payload, _url = _fetch_models_payload(
+        base_url, api_key, extra_headers=extra_headers, timeout=timeout
+    )
+    windows = parse_model_windows(payload)
+    if not windows:
+        raise CatalogError("上游返回的模型清单里没有可识别的模型名")
+    return windows
+
+
+def _fetch_models_payload(
+    base_url: str,
+    api_key: str,
+    *,
+    extra_headers: dict[str, str] | None = None,
+    timeout: float = FETCH_TIMEOUT,
+) -> tuple[Any, str]:
+    """拉一份 ``/models`` JSON（返回 ``(payload, 命中的 URL)``）。"""
     base = (base_url or "").strip().rstrip("/")
     if not base:
         raise CatalogError("先填 Base URL（例如 https://api.deepseek.com）")
@@ -334,19 +418,26 @@ def fetch_models(base_url: str, api_key: str = "", *, timeout: float = FETCH_TIM
     key = (api_key or "").strip()
     if key:
         headers["Authorization"] = f"Bearer {key}"
+    for name, value in (extra_headers or {}).items():
+        name = str(name or "").strip()
+        if name and name.lower() not in _RESERVED_HEADERS:
+            headers[name] = str(value or "")
     errors: list[str] = []
     auth_failed = False
     for url in _candidate_urls(base):
         try:
-            models = parse_models(_get_json(url, headers, timeout))
+            payload = _get_json(url, headers, timeout)
         except CatalogError as exc:
             text = str(exc)
             if "鉴权失败" in text:
                 auth_failed = True
             errors.append(text)
+            if _is_transport_error(text):
+                # 同一 host 的另一个路径不会更好：直接停，别让一次扫描等两遍超时。
+                break
             continue
-        if models:
-            return models
+        if parse_models(payload):
+            return payload, url
         errors.append(f"{url} 没有返回模型清单")
     if auth_failed and not key:
         # 401/403 + 没带密钥：这不是"密钥不对"，是根本没发密钥。把话说清楚，
@@ -355,7 +446,17 @@ def fetch_models(base_url: str, api_key: str = "", *, timeout: float = FETCH_TIM
     raise CatalogError("；".join(errors) or "获取模型目录失败")
 
 
+def _is_transport_error(text: str) -> bool:
+    """连不上 / 超时这类"换路径也没用"的错误（同一 host 的其它清单路径不必再试）。"""
+    return "连不上" in text or "超时" in text or ("请求 " in text and "失败" in text)
+
+
 def _candidate_urls(base: str) -> list[str]:
+    """按"最可能命中"的顺序列出模型清单 URL。
+
+    先试 ``{base}/models`` / ``/v1`` 两种拼法；``.../openai/v1`` 这类网关再退到服务根
+    （OpenCode Go 的清单在 ``{服务根}/v1/models``，API 根下是 404）。
+    """
     if base.endswith("/models"):
         return [base]
     urls = [base + "/models"]
@@ -363,6 +464,14 @@ def _candidate_urls(base: str) -> list[str]:
         urls.append(base[: -len("/v1")] + "/models")
     else:
         urls.append(base + "/v1/models")
+    for suffix in _SERVICE_ROOT_SUFFIXES:
+        if not base.endswith(suffix):
+            continue
+        root = base[: -len(suffix)]
+        for tail in ("/v1/models", "/models"):
+            url = root + tail
+            if url not in urls:
+                urls.append(url)
     return urls
 
 
@@ -404,18 +513,9 @@ def _http_error_text(url: str, exc: urllib.error.HTTPError) -> str:
 
 def parse_models(data: Any) -> list[str]:
     """从 ``/models`` 的几种常见返回结构里取模型 id（去重、保序、限量）。"""
-    raw_items: list[Any] = []
-    if isinstance(data, dict):
-        for key in ("data", "models", "model_list", "items"):
-            value = data.get(key)
-            if isinstance(value, (list, tuple)):
-                raw_items = list(value)
-                break
-    elif isinstance(data, (list, tuple)):
-        raw_items = list(data)
     models: list[str] = []
     seen: set[str] = set()
-    for item in raw_items:
+    for item in _raw_model_items(data):
         model = _model_name(item)
         if not model or model in seen:
             continue
@@ -424,6 +524,68 @@ def parse_models(data: Any) -> list[str]:
         if len(models) >= MAX_MODELS:
             break
     return models
+
+
+def parse_model_windows(data: Any) -> dict[str, int]:
+    """从 ``/models`` 返回结构里取 ``{模型: 上下文窗口}``（保序；0 = 没上报）。
+
+    认 ``limit.context`` / ``limit.input``、``context_window`` / ``context_length`` /
+    ``max_context_length`` / ``max_input_tokens`` / ``max_context_tokens``；
+    **不认 ``max_tokens``**（OpenAI 语义里是输出上限，当成上下文会算出假窗口）。
+    """
+    windows: dict[str, int] = {}
+    for item in _raw_model_items(data):
+        model = _model_name(item)
+        if not model or model in windows:
+            continue
+        windows[model] = _model_context_window(item)
+        if len(windows) >= MAX_MODELS:
+            break
+    return windows
+
+
+def _raw_model_items(data: Any) -> list[Any]:
+    """``/models`` 返回里的模型条目列表（兼容三种常见外层结构）。"""
+    if isinstance(data, dict):
+        for key in ("data", "models", "model_list", "items"):
+            value = data.get(key)
+            if isinstance(value, (list, tuple)):
+                return list(value)
+        return []
+    if isinstance(data, (list, tuple)):
+        return list(data)
+    return []
+
+
+def _model_context_window(item: Any) -> int:
+    """单个模型条目里的上下文窗口；认不出来返回 0。"""
+    if not isinstance(item, dict):
+        return 0
+    limit = item.get("limit")
+    if isinstance(limit, dict):
+        for key in ("context", "input"):
+            window = _positive_int(limit.get(key))
+            if window > 0:
+                return window
+    for key in (
+        "context_window",
+        "context_length",
+        "max_context_length",
+        "max_input_tokens",
+        "max_context_tokens",
+    ):
+        window = _positive_int(item.get(key))
+        if window > 0:
+            return window
+    return 0
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
 
 
 def _model_name(item: Any) -> str:

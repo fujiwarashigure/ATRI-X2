@@ -34,7 +34,7 @@
 | `atri_x.gui.avatars` | 群友头像：拼平台头像 URL、下载、解码缩放成统一的本地 PNG 缓存。 | 180 | `test_gui_members.py`、`test_gui_tabs.py` |
 | `atri_x.gui.client` | GUI 的 WS 客户端：连 ``ws://…/cli/v1/ws``、握手、收发帧、断线重连。 | 301 | `test_gui_client.py` |
 | `atri_x.gui.configedit` | 桌面端的配置读写底座：路径解析、TOML 行级补丁、``.env``、文本文件。 | 678 | `test_gui_configedit.py`、`test_gui_extractconfig.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_modelcatalog.py`、`test_gui_perf.py`、`test_gui_promptlib.py`、`test_gui_proto_manager.py`、`test_gui_qqproto.py`、`test_gui_safety.py`、`test_gui_searchconfig.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
-| `atri_x.gui.configmodel` | 桌面端「模型」页的数据模型：LLM Provider 与模型分配。 | 482 | `test_gui_configedit.py`、`test_gui_modelcatalog.py` |
+| `atri_x.gui.configmodel` | 桌面端「模型」页的数据模型：LLM Provider、上下文窗口与模型分配。 | 772 | `test_gui_configedit.py`、`test_gui_modelcatalog.py`、`test_gui_tabs.py` |
 | `atri_x.gui.cronschedule` | 界面上的 cron 小工具：「每天 / 每周 / 每月」结构 ↔ 5 段表达式。 | 227 | `test_gui_maintenance.py` |
 | `atri_x.gui.dialogs` | 「进阶」页的二级设置窗口（自学习 / HOOK 插件 / 定时维护任务）。 | 55 | `test_gui_maintenance.py`、`test_gui_tabs.py` |
 | `atri_x.gui.dialogs.common` | 子设置弹窗的公共骨架：独立窗口 + 底部状态行 + 保存/重载/关闭按钮。 | 122 | — |
@@ -50,7 +50,7 @@
 | `atri_x.gui.journal` | 界面操作日志：把桌面端"点了什么、改了哪个文件"记进 ``<配置目录>/gui/gui.log``。 | 91 | `test_gui_diagnostics.py`、`test_gui_service.py`、`test_gui_tabs.py` |
 | `atri_x.gui.linkstate` | 「在线」选项卡的数据层：平台配置、协议端探测、后台服务健康快照。 | 573 | `test_gui_link.py`、`test_gui_qqproto.py` |
 | `atri_x.gui.memberdata` | 群友角色数据：成员档案的 GUI 适配层 + 群友发现。 | 222 | `test_gui_members.py`、`test_gui_promptlib.py`、`test_gui_tabs.py` |
-| `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型，并把「备注名」缓存在本地。 | 437 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
+| `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型、上下文窗口，并把「备注名」缓存在本地。 | 599 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
 | `atri_x.gui.perfconfig` | 「性能 / 并发」页的数据层（无 Tk）：读写并发上限，拉后台 ``/metrics`` 实况。 | 578 | `test_gui_perf.py` |
 | `atri_x.gui.process` | 进程与路径助手：程序目录、状态目录、后台服务的 pid 记录与终止、单实例。 | 375 | `test_gui_diagnostics.py` |
 | `atri_x.gui.promptedit` | 「提示词」选项卡的模板编辑面板：左分类列表 + 右正文编辑器 + 只读预览。 | 416 | `test_gui_promptlib.py` |
@@ -85,7 +85,7 @@
 | `atri_x.gui.tabs.link` | 「在线」选项卡：一条线看住「后台服务 → 协议端 → QQ 平台」三段，并提供上下线开关。 | 822 | `test_gui_link.py`、`test_gui_qqproto.py` |
 | `atri_x.gui.tabs.logs` | 「日志」选项卡：把后台服务写的日志和界面操作日志放到一个可筛选的窗口里。 | 478 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.members` | 「群友」选项卡：按群管理群友的角色数据（备注名 / 标签 / 角色数据 / 头像）。 | 803 | `test_gui_promptlib.py`、`test_gui_tabs.py` |
-| `atri_x.gui.tabs.model` | 「模型」选项卡：LLM Provider（含 API Key）、模型分配、搜索服务与抓取服务。 | 820 | `test_gui_tabs.py` |
+| `atri_x.gui.tabs.model` | 「模型」选项卡：LLM Provider（含 API Key）、上下文窗口、模型分配、搜索与抓取服务。 | 1329 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.mountpanel` | 「进阶」页生图区的本地挂载面板（:class:`MountPanelMixin`）。 | 238 | — |
 | `atri_x.gui.tabs.performance` | 「性能 / 并发」选项卡：一键切并发模式，外加一块后台并发实况。 | 421 | `test_gui_perf.py` |
 | `atri_x.gui.tabs.permission` | 「权限」选项卡：超级管理员名单 + 风险等级 / 工具轮次 / 成员建卡开关。 | 227 | — |
@@ -118,4 +118,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 863 个 / 超线文件 78 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 864 个 / 超线文件 79 个）。

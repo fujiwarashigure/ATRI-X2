@@ -9,7 +9,9 @@
 
 分段：``【硬件】``（CPU/内存/GPU 型号与系统版本）、``【系统】``（整机 CPU/内存/开机时长）、
 ``【显卡】``（每卡占用/显存/温度/功耗，或整机 3D 占用）、``【磁盘】``（卷级已用率）、
-``【软件】``（ATRI-X 版本、进程时长、内存/CPU/线程/句柄/读写）、``【降级】``、``【说明】``。
+``【软件】``（ATRI-X 版本、进程时长、内存/CPU/线程/句柄/读写）、``【子进程】``
+（DSH 内核 / draw.io 渲染器等子孙进程，按可执行文件名聚合）、``【相关】``
+（同安装目录的 GUI / 协议端等进程）、``【合计】``（软件整体）、``【降级】``、``【说明】``。
 """
 
 from __future__ import annotations
@@ -75,12 +77,20 @@ def format_resources(snapshot: "ResourceSnapshot") -> str:
     for disk in snapshot.disks:
         lines.append(_disk_line(disk))
     lines.append(_software_line(snapshot.process))
+    children = getattr(snapshot, "children", None)
+    related = getattr(snapshot, "related", None)
+    lines.append(_subprocess_line("【子进程】", children))
+    if _subprocess_count(related) > 0:
+        lines.append(_subprocess_line("【相关】", related))
+    if 1 + _subprocess_count(children) + _subprocess_count(related) > 1:
+        lines.append(_software_total_line(snapshot))
     if snapshot.dir_bytes:
         lines.append(f"【目录】合计 {format_bytes(snapshot.dir_bytes)}（含子目录）")
     if snapshot.errors:
         lines.append("【降级】" + "；".join(snapshot.errors))
     lines.append(
-        f"【说明】进程 CPU 为单核基准，忙时可超过 100%；采样窗口 {interval_ms}ms；"
+        f"【说明】进程 CPU 为单核基准，忙时可超过 100%；子进程 / 相关进程按可执行文件名"
+        f"聚合，合计为各进程 RSS 相加（共享页会重复计算）；采样窗口 {interval_ms}ms；"
         "只采集型号与占用，不读取本机路径、用户名或主机名。"
     )
     return "\n".join(lines)
@@ -230,3 +240,68 @@ def _software_line(process: Any) -> str:
             f"{format_bytes(process.io_write_bytes)}"
         )
     return "【软件】" + "｜".join(parts)
+
+
+def _subprocess_count(resources: Any) -> int:
+    """一组子进程的进程数（``None`` 或旧快照按 0）。"""
+    return int(getattr(resources, "count", 0) or 0)
+
+
+def _subprocess_line(prefix: str, resources: Any) -> str:
+    """渲染一组子进程：合计 + 按名字聚合的明细（名字来自可执行文件名）。"""
+    count = _subprocess_count(resources)
+    if count <= 0:
+        return prefix + "无活动子进程（DSH 内核 / 渲染器等按需启动）"
+    parts = [
+        f"{count} 个",
+        f"内存 {format_bytes(int(getattr(resources, 'rss_bytes', 0) or 0))}"
+        f"（私有 {format_bytes(int(getattr(resources, 'private_bytes', 0) or 0))}）",
+        f"CPU {float(getattr(resources, 'cpu_percent', 0.0) or 0.0):.1f}%（单核基准）",
+    ]
+    detail = _entries_text(list(getattr(resources, "entries", None) or []))
+    if detail:
+        parts.append(detail)
+    return prefix + "｜".join(parts)
+
+
+def _entries_text(entries: list[Any], limit: int = 5) -> str:
+    """明细：``node.exe×1 312 MB 8.3%`` 形式；超过 ``limit`` 类时折叠成"其它 N 类"。"""
+    if not entries:
+        return ""
+    parts = [
+        f"{str(getattr(entry, 'name', '') or '进程')}"
+        f"×{int(getattr(entry, 'count', 0) or 0)} "
+        f"{format_bytes(int(getattr(entry, 'rss_bytes', 0) or 0))} "
+        f"{float(getattr(entry, 'cpu_percent', 0.0) or 0.0):.1f}%"
+        for entry in entries[:limit]
+    ]
+    if len(entries) > limit:
+        parts.append(f"其它 {len(entries) - limit} 类")
+    return "、".join(parts)
+
+
+def _software_total_line(snapshot: Any) -> str:
+    """ATRI-X 整体：自身进程 + 子进程 + 相关进程。"""
+    children = getattr(snapshot, "children", None)
+    related = getattr(snapshot, "related", None)
+    process = snapshot.process
+    count = 1 + _subprocess_count(children) + _subprocess_count(related)
+    rss = (
+        int(getattr(process, "rss_bytes", 0) or 0)
+        + int(getattr(children, "rss_bytes", 0) or 0)
+        + int(getattr(related, "rss_bytes", 0) or 0)
+    )
+    private = (
+        int(getattr(process, "private_bytes", 0) or 0)
+        + int(getattr(children, "private_bytes", 0) or 0)
+        + int(getattr(related, "private_bytes", 0) or 0)
+    )
+    cpu = (
+        float(getattr(process, "cpu_percent", 0.0) or 0.0)
+        + float(getattr(children, "cpu_percent", 0.0) or 0.0)
+        + float(getattr(related, "cpu_percent", 0.0) or 0.0)
+    )
+    return (
+        f"【合计】{count} 个进程｜内存 {format_bytes(rss)}（私有 {format_bytes(private)}）"
+        f"｜CPU {cpu:.1f}%（单核基准）"
+    )

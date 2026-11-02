@@ -6,6 +6,69 @@
 
 ---
 
+## [1.1.9] - 2026-11-02 — 上下文窗口桌面端可配置 + /resources 统计子进程（同一发行版）
+
+> 这一版有两条互不相干的改动线，都不改配置格式、工具 schema、会话 / 数据库格式：
+> ① **上下文窗口桌面端可配置**（模型页新子页，只读写 `services.toml` 的既有字段
+> `[model_metadata].default_context_window` 与 `model_configs.<model>.context_window`）；
+> ② **`/resources` 统计子进程**（只新增输出段与 `runtime_resources` 的 JSON 字段）。
+> 面向用户的摘要见 `docs/release-notes/1.1.9.md`。
+
+### 上下文窗口可在桌面端配置
+
+旧状态：chat / work 的上下文窗口只能手改 `services.toml` —— 要么动全局回退值
+`[model_metadata].default_context_window`（默认 `256000`），要么给单个模型写
+`[providers.<name>.model_configs."<model>"].context_window`；桌面端「模型」页没有入口。
+上游窗口比 256K 大的模型（例如 OpenCode Go 的 `deepseek-v4.1-flash`，其 `/models`
+元数据里的 `limit.context` 是 1,000,000）会被按 256K 预算提前压缩，长会话吃亏。
+
+新状态：桌面端「模型 → 上下文窗口」子页可以改默认窗口（写 `[model_metadata]`），
+也可以按 provider+model 覆盖（写 `model_configs.<model>.context_window`）；现有覆盖
+在列表里展示，可点选回填、可删除，两个入口保存后都回读 `services.toml` 校验。
+窗口解析顺序不变（provider 上报元数据 → 按模型覆盖 → 默认窗口 → 内置 256000），
+所以上游自己上报的窗口仍然最权威，本页只在上游没上报时兜底；改完是启动期配置，
+需要「重启后台服务」生效。
+
+同页还加了「模型窗口总览」表：点「扫描上游窗口」会 `GET /models`（兼容
+`.../openai/v1` 这类网关把清单挂在服务根下的情况，例如 OpenCode Go 的清单在
+`{服务根}/v1/models`），把该 Provider 的全部模型和上游上报的理论窗口（`limit.context`
+等字段）列进表里；上游没上报窗口的模型也会列出（显示「—」），不会漏模型。
+
+- 「自定义覆盖」列可以直接点击单元格修改（回车保存 / Esc 取消 / 失焦也保存），
+  保存即写 `model_configs.<模型>.context_window` 并回读校验；「删除所选覆盖」撤掉覆盖；
+  底部还保留一行手打模型名保存覆盖的入口（扫描没覆盖到的模型也能设）。
+- Provider 下拉支持「全部 Provider」：一次扫描所有配置过的 Provider，失败项逐条报错、
+  成功的照常入表；扫描结果缓存在配置目录的 `gui/model_catalog.json`，重启桌面端后
+  表格仍然可见（「重新载入」只重读配置，不重新发请求）。
+- 上游上报值只作展示参考：后台服务能读到上报时仍以上报为准（Go 规则），多数网关的
+  `/models` 不带窗口、或清单不在 API 根下（后台读不到），此时按模型覆盖生效。
+
+---
+
+### /resources 统计子进程（DSH 内核 / draw.io / 协议端）
+
+旧状态：`/resources`（以及模型侧的 `runtime_resources` 工具）只报 ATRI-X **自身那一个
+进程**的 RSS / CPU / 线程 / 句柄。任务管理器里由软件拉起来的 `node.exe`（DSH 内核）、
+`draw.io.exe`（图表渲染链）、研究 runner、GUI（`atri-x-gui.exe`）与 QQ 协议端
+（`NapCatWinBootMain.exe` / `QQ.exe`）都不在统计里，手机上看资源占用会严重低估。
+
+新状态：新增 `atri_x/sysinfo_children.py`，一次快照额外采两组进程并按两次采样求 CPU：
+
+- `【子进程】`：当前后台服务的**子孙进程**（DSH 内核、draw.io 渲染链、研究 runner、
+  agent 拉起的 shell / MCP / hook 等），按可执行文件名聚合出内存 / CPU；
+- `【相关】`：与 ATRI-X **同安装目录**的其它进程（GUI、QQ 协议端、渲染残留；只在
+  冻结安装版采集，源码树跑测试不会误扫无关进程）；
+- `【合计】`：软件自身 + 子进程 + 相关进程的总体占用（RSS 为各进程相加，共享页会
+  重复计算）；空闲时明确显示"无活动子进程（DSH 内核 / 渲染器等按需启动）"。
+
+实现口径：Windows 用 `ctypes` 调 kernel32 的 Toolhelp 快照 + `OpenProcess`（零第三方
+依赖），Linux 读 `/proc`；采集失败只写进 `【降级】`，不会让 `/resources` 整条失败。
+隐私边界不变：明细只出现**可执行文件名**（如 `node.exe`、`draw.io.exe`），不出现
+命令行、路径、用户名；`runtime_resources` 的 JSON 结果新增 `children` / `related` /
+`software_total` 三个字段。
+
+---
+
 ## [1.1.8] - 2026-11-01 — 内容安全彻底升级 + DSH 深度路由调度（同一发行版）
 
 > 这一版有两条互不相干的改动线，都不改原生聊天链路、工具 schema、会话/数据库格式：

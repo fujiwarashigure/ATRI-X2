@@ -23,11 +23,12 @@ TEMP_ROOT = Path(__file__).resolve().parent / "_tmp_gui_modelcatalog"
 
 
 class _Handler(BaseHTTPRequestHandler):
-    """按路由表返回 JSON；顺手记下请求路径与 Authorization 头。"""
+    """按路由表返回 JSON；顺手记下请求路径、Authorization 头与完整请求头。"""
 
     def do_GET(self) -> None:  # noqa: N802 - http.server 约定
         server = self.server
         server.seen.append((self.path, self.headers.get("Authorization", "")))  # type: ignore[attr-defined]
+        server.headers_seen.append(dict(self.headers))  # type: ignore[attr-defined]
         status, body = server.routes.get(self.path, (404, b'{"error":"not found"}'))  # type: ignore[attr-defined]
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -46,6 +47,7 @@ class _Server:
         self.httpd = HTTPServer(("127.0.0.1", 0), _Handler)
         self.httpd.routes = routes  # type: ignore[attr-defined]
         self.httpd.seen = []  # type: ignore[attr-defined]
+        self.httpd.headers_seen = []  # type: ignore[attr-defined]
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
     def __enter__(self) -> "_Server":
@@ -64,6 +66,10 @@ class _Server:
     @property
     def seen(self) -> list[tuple[str, str]]:
         return self.httpd.seen  # type: ignore[attr-defined]
+
+    @property
+    def headers_seen(self) -> list[dict[str, str]]:
+        return self.httpd.headers_seen  # type: ignore[attr-defined]
 
 
 def _models_payload(*models: str) -> bytes:
@@ -150,6 +156,43 @@ class StorageCase(CatalogCase):
         catalog.set_alias("providers.x", "m", "备" * 100)
         self.assertEqual(len(catalog.alias_of("providers.x", "m")), modelcatalog.MAX_ALIAS_RUNES)
 
+    def test_windows_roundtrip(self) -> None:
+        """上游上报窗口随目录落盘，重新载入后还能读到（界面表格要用）。"""
+        key = "providers.deepseek"
+        catalog = modelcatalog.load(str(self.config_dir))
+        catalog.record(key, ["deepseek-chat", "deepseek-reasoner"])
+        catalog.set_windows(key, {"deepseek-chat": 128000, "deepseek-reasoner": 0})
+        catalog.save(str(self.config_dir))
+        reloaded = modelcatalog.load(str(self.config_dir))
+        self.assertEqual(reloaded.window_of(key, "deepseek-chat"), 128000)
+        # 0 / 没记录的模型都算"没上报"，返回 0 而不是抛异常
+        self.assertEqual(reloaded.window_of(key, "deepseek-reasoner"), 0)
+        self.assertEqual(reloaded.window_of(key, "nope"), 0)
+
+    def test_rescan_replaces_window_snapshot(self) -> None:
+        """一次扫描是整份快照：上次有、这次没有的窗口要清掉，免得显示过期值。"""
+        key = "providers.deepseek"
+        catalog = modelcatalog.load(str(self.config_dir))
+        catalog.record(key, ["a", "b"])
+        catalog.set_windows(key, {"a": 1000, "b": 2000})
+        catalog.set_windows(key, {"a": 3000})
+        self.assertEqual(catalog.window_of(key, "a"), 3000)
+        self.assertEqual(catalog.window_of(key, "b"), 0)
+
+    def test_old_catalog_without_windows_still_loads(self) -> None:
+        """1.1.8 以前写的 model_catalog.json 没有 windows 键，升级后照常读。"""
+        path = Path(modelcatalog.catalog_path(str(self.config_dir)))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {"version": 1, "entries": {"providers.deepseek": {"models": ["m1"]}}}
+            ),
+            encoding="utf-8",
+        )
+        catalog = modelcatalog.load(str(self.config_dir))
+        self.assertEqual(catalog.models("providers.deepseek"), ["m1"])
+        self.assertEqual(catalog.window_of("providers.deepseek", "m1"), 0)
+
 
 class ParseCase(unittest.TestCase):
     """``parse_models`` 吃三种常见返回结构。"""
@@ -174,6 +217,55 @@ class ParseCase(unittest.TestCase):
         self.assertEqual(len(models), modelcatalog.MAX_MODELS)
 
 
+class ParseWindowsCase(unittest.TestCase):
+    """``parse_model_windows``：从 /models 里抽出上游上报的上下文窗口。"""
+
+    def test_nested_limit_context_wins(self) -> None:
+        """OpenCode Go 这类网关：``limit.context`` 是理论窗口，``limit.output`` 不参与。"""
+        data = {
+            "data": [
+                {"id": "deepseek-v4.1-flash", "limit": {"context": 1000000, "output": 384000}},
+                {"id": "gpt-5.6-luna", "limit": {"context": 1050000, "input": 922000}},
+            ]
+        }
+        self.assertEqual(
+            modelcatalog.parse_model_windows(data),
+            {"deepseek-v4.1-flash": 1000000, "gpt-5.6-luna": 1050000},
+        )
+
+    def test_flat_field_aliases(self) -> None:
+        data = {
+            "data": [
+                {"id": "a", "context_window": 128000},
+                {"id": "b", "context_length": 64000},
+                {"id": "c", "max_context_length": 200000},
+                {"id": "d", "max_input_tokens": 32000},
+            ]
+        }
+        self.assertEqual(
+            modelcatalog.parse_model_windows(data),
+            {"a": 128000, "b": 64000, "c": 200000, "d": 32000},
+        )
+
+    def test_max_tokens_is_not_context(self) -> None:
+        """``max_tokens`` 在 OpenAI 语义里是输出上限，不能当成上下文窗口。"""
+        self.assertEqual(
+            modelcatalog.parse_model_windows({"data": [{"id": "m", "max_tokens": 4096}]}),
+            {"m": 0},
+        )
+
+    def test_missing_or_garbage_values_become_zero(self) -> None:
+        data = {"data": [{"id": "a"}, {"name": "b"}, "c", {"id": "d", "limit": "x"}]}
+        self.assertEqual(
+            modelcatalog.parse_model_windows(data), {"a": 0, "b": 0, "c": 0, "d": 0}
+        )
+        self.assertEqual(modelcatalog.parse_model_windows({"foo": 1}), {})
+
+    def test_limit(self) -> None:
+        data = {"data": [{"id": f"m{index}", "limit": {"context": 1000}} for index in range(900)]}
+        self.assertEqual(len(modelcatalog.parse_model_windows(data)), modelcatalog.MAX_MODELS)
+
+
 class FetchCase(CatalogCase):
     """``fetch_models`` 走真实 HTTP（本机临时服务）。"""
 
@@ -194,6 +286,52 @@ class FetchCase(CatalogCase):
             models = modelcatalog.fetch_models(server.base_url + "/v1", timeout=5)
         # base 以 /v1 结尾时先试 {base}/models，再回退到去掉 /v1 的 /models
         self.assertEqual(models, ["m-v1-missing"])
+
+    def test_fetches_windows_from_gateway_service_root(self) -> None:
+        """``.../openai/v1`` 这类网关：清单在服务根 ``/v1/models``，API 根下是 404。"""
+        payload = json.dumps(
+            {
+                "data": [
+                    {"id": "deepseek-v4.1-flash", "limit": {"context": 1000000}},
+                    {"id": "glm-5.2", "limit": {"context": 1000000}},
+                ]
+            }
+        ).encode("utf-8")
+        routes = {
+            "/openai/v1/models": (404, b"{}"),
+            "/openai/models": (404, b"{}"),
+            "/v1/models": (200, payload),
+        }
+        with _Server(routes) as server:
+            windows = modelcatalog.fetch_model_windows(
+                server.base_url + "/openai/v1", timeout=5
+            )
+        self.assertEqual(windows, {"deepseek-v4.1-flash": 1000000, "glm-5.2": 1000000})
+
+    def test_windows_keep_models_without_reported_window(self) -> None:
+        payload = json.dumps({"data": [{"id": "a", "limit": {"context": 1000}}, {"id": "b"}]})
+        with _Server({"/models": (200, payload.encode("utf-8"))}) as server:
+            windows = modelcatalog.fetch_model_windows(server.base_url, timeout=5)
+        self.assertEqual(windows, {"a": 1000, "b": 0})
+
+    def test_windows_forward_extra_headers_but_not_reserved(self) -> None:
+        """网关要求自定义头（如 OpenCode Go 的 x-opencode-session）；保留头不被覆盖。"""
+        with _Server({"/models": (200, _models_payload("m"))}) as server:
+            modelcatalog.fetch_model_windows(
+                server.base_url,
+                "sk-test",
+                extra_headers={"x-opencode-session": "s1", "Authorization": "nope"},
+                timeout=5,
+            )
+            headers = {name.lower(): value for name, value in server.headers_seen[0].items()}
+        self.assertEqual(headers.get("x-opencode-session"), "s1")
+        self.assertEqual(headers.get("authorization"), "Bearer sk-test")
+
+    def test_windows_fail_when_no_models(self) -> None:
+        with _Server({"/models": (200, b'{"data":[]}')}) as server:
+            with self.assertRaises(modelcatalog.CatalogError) as caught:
+                modelcatalog.fetch_model_windows(server.base_url, timeout=5)
+        self.assertIn("模型清单", str(caught.exception))
 
     def test_auth_error_is_explained(self) -> None:
         with _Server({"/models": (401, b"{}")}) as server:

@@ -12,7 +12,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.1.8`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
+| 版本 | `1.1.9`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -44,7 +44,7 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行 |
-| 本仓库 | 平铺布局的 `atri_x/`：864 个 `.py` 模块，约 25.1 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.8 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：865 个 `.py` 模块，约 25.3 万行（物理行，含空行/注释/docstring；`tests/` 另有约 11.8 万行） |
 | 研究引擎 | 随包 `research_pack/`：38 个模块、约 8.7k 行纯标准库引擎 + 15 个原创 AgentSkill；安装版 / 便携版首启自动装进配置目录 |
 | 图表能力 | 随包 `drawio_pack/`（drawio-skill 3.4.2，47 个纯标准库脚本 + 20 篇参考 + shape 索引）+ 内置 draw.io 32.6.1 无头渲染器；工具 `drawio` 仅超管可用，安装版 / 便携版开箱出 PNG/SVG/PDF |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
@@ -52,7 +52,7 @@
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
 | 测试 | `tests/` 253 个 Python 文件（其中 243 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
 | 门禁 | 代码 7 道 + 文档 1 道（`check_docs`）+ 索引 1 道（`gen_index --check`）+ 复杂度预算，全部可在 CI 跑 |
-| 规模 | 1514 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
+| 规模 | 1516 个受版本控制文件（不含 `.git`；`git ls-files` 计数） |
 
 ## 功能特性
 
@@ -174,20 +174,20 @@ python -m atri_x --config path/to/app.toml   # 指定主配置
 
 ## 发行版、容器镜像与部署
 
-当前版本 **`1.1.8`**（正式发行版）：**内容安全彻底升级 + DSH 深度路由调度**（另有安装版
-「数据与配置目录」可选）。内容安全从进程内词表升级为可编辑数据目录 + 热加载 + 远程双供应商
-（腾讯云 / 阿里云）+ 三档裁决（放行 / 待复核 / 拦截），入站媒体、模型输出、发送边界与生图
-提示词统一走一条审核线，没有 `safety.toml` 时行为与 1.1.7 一致；DSH 修掉「每轮白付冷启动
-再吃 404」的凭据协议问题，补齐有界并发 / 忙时回退 / 卡死看门狗 / 预热与空闲回收 / 会话亲和 /
-网关头代理，官方 DeepSeek 与不需要额外请求头的端点仍然直连。安装向导新增数据与配置目录页
-（默认安装目录下 `data`，可自动迁移旧 `%APPDATA%\ATRI-X` 数据）。详见
-[`docs/release-notes/1.1.8.md`](docs/release-notes/1.1.8.md)、[CHANGELOG.md](CHANGELOG.md)；
-上一版（后台服务断线自愈）见 [`docs/release-notes/1.1.7.md`](docs/release-notes/1.1.7.md)。
+当前版本 **`1.1.9`**（正式发行版）：**上下文窗口桌面端可配置 + `/resources` 统计子进程**。
+桌面端「模型 → 上下文窗口」子页可以改默认窗口、按 Provider + 模型覆盖，并能一次扫描上游
+`/models` 把该 Provider 的全部模型与上游上报的理论窗口列进「模型窗口总览」表（「自定义覆盖」
+列可直接点单元格修改）；`/resources` 与 `runtime_resources` 现在同时统计后台服务拉起的
+**子进程**（DSH 内核 `node.exe`、draw.io 渲染链、研究 runner、agent 启动的 shell / MCP / hook
+等）与**同安装目录的相关进程**（桌面端、QQ 协议端），给出内存 / CPU / 合计。窗口解析顺序与
+配置格式未变。详见 [`docs/release-notes/1.1.9.md`](docs/release-notes/1.1.9.md)、
+[CHANGELOG.md](CHANGELOG.md)；上一版（内容安全彻底升级 + DSH 深度路由调度）见
+[`docs/release-notes/1.1.8.md`](docs/release-notes/1.1.8.md)。
 历史版发行说明见 [`docs/release-notes/`](docs/release-notes/)。
 
-当前线上版：[**GitHub Release v1.1.8**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.8)
-（tag `v1.1.8` 指向 1.1.8 发行提交；安装包 / 便携版 / 源码归档 / `SHA256SUMS.txt` 均为 Release 附件）；
-上一版 [v1.1.7](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.7)。
+当前线上版：[**GitHub Release v1.1.9**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.9)
+（tag `v1.1.9` 指向 1.1.9 发行提交；安装包 / 便携版 / 源码归档 / `SHA256SUMS.txt` 均为 Release 附件）；
+上一版 [v1.1.8](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.8)。
 
 | 产物 | 位置 |
 | --- | --- |
@@ -312,8 +312,8 @@ server`，拆片后不再出现。
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 1132 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=864 imported=864`，0 失败 |
+| `check_syntax` | 1133 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=865 imported=865`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径，不衡量行为正确性） |
 | `check_except` | 与位置级基线一致（0 个新增位置） |

@@ -13,6 +13,12 @@ Python 侧新增（1.1.4）。与模型工具 ``runtime_resources`` 的区别只
 * CPU / GPU 只报型号与占用；不报主机名、用户名、安装目录；
 * 采集失败的描述只保留异常类型名（异常原文可能带路径）。
 
+后续修订（子进程口径）
+----------------------
+除 ATRI-X 自身进程外，还会报它拉起的**子进程**（DSH 内核 ``node.exe``、draw.io
+渲染链、研究 runner 等）以及同安装目录的 GUI / 协议端进程，并给出"软件整体"合计；
+明细只出现可执行文件名，不出现命令行或路径。
+
 ``Info.MinRole`` 留空（与 ``/doctor`` / ``/rollback`` 一致），路由层把空值当"仅超管"。
 """
 
@@ -59,7 +65,11 @@ def new_resources(deps: Deps) -> Any:
             description=(
                 "Show this machine's hardware usage right now: CPU / memory / disk "
                 "occupancy, GPU usage and VRAM, plus the ATRI-X process status. "
-                "Reports models and percentages only — never local file paths. "
+                "Also reports the memory and CPU used by sub-processes started by "
+                "ATRI-X (the DSH kernel node process, draw.io renderer, protocol "
+                "sidecar and GUI) aggregated by executable name, with a software "
+                "grand total. Reports models, process names and percentages only — "
+                "never local file paths or command lines. "
                 "Read-only; superadmins only."
             ),
         ),

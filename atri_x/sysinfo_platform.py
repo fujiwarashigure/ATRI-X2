@@ -152,35 +152,81 @@ if _IS_WINDOWS:  # pragma: no branch - 平台判定
                 ctypes.POINTER(_FILETIME),
                 ctypes.POINTER(_FILETIME),
             ]
+            self.kernel32.OpenProcess.restype = ctypes.c_void_p
+            self.kernel32.OpenProcess.argtypes = [
+                _wt.DWORD,
+                ctypes.c_int,
+                _wt.DWORD,
+            ]
+            self.kernel32.CloseHandle.restype = ctypes.c_int
+            self.kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            self.kernel32.QueryFullProcessImageNameW.restype = ctypes.c_int
+            self.kernel32.QueryFullProcessImageNameW.argtypes = [
+                ctypes.c_void_p,
+                _wt.DWORD,
+                _wt.LPWSTR,
+                ctypes.POINTER(_wt.DWORD),
+            ]
             try:
                 self.kernel32.GetTickCount64.restype = ctypes.c_ulonglong
                 self.kernel32.GetTickCount64.argtypes = []
             except AttributeError:  # pragma: no cover - 古董系统
                 self.kernel32.GetTickCount64 = None
 
+        #: 读其它进程 CPU / 内存计数所需的最小权限（Win7+ 的受限查询权限）。
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        PROCESS_QUERY_INFORMATION = 0x0400
+        PROCESS_VM_READ = 0x0010
+
+        @staticmethod
+        def _valid_handle(handle: Any) -> Any:
+            """把 ``OpenProcess`` 的返回值包成可安全比较/传递的句柄；失败返回 None。"""
+            if not handle:
+                return None
+            if int(handle) == 0xFFFFFFFFFFFFFFFF:  # INVALID_HANDLE_VALUE
+                return None
+            return ctypes.c_void_p(int(handle))
+
+        def open_process(self, pid: int, access: int | None = None) -> Any:
+            """打开任意进程；失败（权限/进程已退出）返回 None。"""
+            rights = (
+                self.PROCESS_QUERY_LIMITED_INFORMATION if access is None else int(access)
+            )
+            try:
+                handle = self.kernel32.OpenProcess(rights, 0, int(pid))
+            except OSError:  # pragma: no cover - 极端参数
+                return None
+            return self._valid_handle(handle)
+
+        def close_handle(self, handle: Any) -> None:
+            if handle:
+                self.kernel32.CloseHandle(handle)
+
         def current_process(self) -> Any:
             # 再包一层 c_void_p：即使调用方拿到的 restype 退化成 int 也仍然安全。
             return ctypes.c_void_p(self.kernel32.GetCurrentProcess())
 
-        def process_memory(self) -> _PROCESS_MEMORY_COUNTERS:
+        def process_memory(
+            self, handle: Any = None
+        ) -> _PROCESS_MEMORY_COUNTERS:
             counters = _PROCESS_MEMORY_COUNTERS()
             counters.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS)
-            handle = self.current_process()
+            target = self.current_process() if handle is None else handle
             ok = self._get_process_memory_info(
-                handle, ctypes.byref(counters), counters.cb
+                target, ctypes.byref(counters), counters.cb
             )
             if not ok:
                 raise ctypes.WinError(ctypes.get_last_error())
             return counters
 
-        def process_times(self) -> tuple[float, float, float]:
-            handle = self.current_process()
+        def process_times(self, handle: Any = None) -> tuple[float, float, float]:
+            target = self.current_process() if handle is None else handle
             creation = _FILETIME()
             exited = _FILETIME()
             kernel = _FILETIME()
             user = _FILETIME()
             ok = self.kernel32.GetProcessTimes(
-                handle,
+                target,
                 ctypes.byref(creation),
                 ctypes.byref(exited),
                 ctypes.byref(kernel),
@@ -193,6 +239,61 @@ if _IS_WINDOWS:  # pragma: no branch - 平台判定
                 _filetime_seconds(kernel),
                 _filetime_unix(creation),
             )
+
+        def sample_other_process(
+            self, pid: int
+        ) -> tuple[float, float, int, int] | None:
+            """读任意进程的 ``(用户 CPU 秒, 内核 CPU 秒, RSS, 私有提交)``。
+
+            打不开或拿不到 CPU 时间时返回 None；内存计数拿不到时前两项照常返回、
+            RSS / 私有提交留 0（受限权限下 ``K32GetProcessMemoryInfo`` 会失败）。
+            """
+            handle = self.open_process(pid)
+            if handle is None:
+                return None
+            try:
+                user, kernel, _started = self.process_times(handle)
+            except OSError:
+                self.close_handle(handle)
+                return None
+            rss = private = 0
+            try:
+                memory = self.process_memory(handle)
+                rss = int(memory.WorkingSetSize)
+                private = int(memory.PagefileUsage)
+            except OSError:
+                # PROCESS_QUERY_LIMITED_INFORMATION 只够读时间；换成完整查询权限再试一次。
+                self.close_handle(handle)
+                handle = self.open_process(
+                    pid, self.PROCESS_QUERY_INFORMATION | self.PROCESS_VM_READ
+                )
+                if handle is not None:
+                    try:
+                        memory = self.process_memory(handle)
+                        rss = int(memory.WorkingSetSize)
+                        private = int(memory.PagefileUsage)
+                    except OSError:
+                        pass
+                    finally:
+                        self.close_handle(handle)
+                return user, kernel, rss, private
+            self.close_handle(handle)
+            return user, kernel, rss, private
+
+        def process_image_path(self, pid: int) -> str:
+            """取进程可执行文件完整路径（只给"是否同安装目录"判定用，不进渲染）。"""
+            handle = self.open_process(pid)
+            if handle is None:
+                return ""
+            try:
+                buffer = ctypes.create_unicode_buffer(1024)
+                size = _wt.DWORD(len(buffer))
+                ok = self.kernel32.QueryFullProcessImageNameW(
+                    handle, 0, buffer, ctypes.byref(size)
+                )
+                return buffer.value if ok else ""
+            finally:
+                self.close_handle(handle)
 
         def process_handle_count(self) -> int:
             handle = self.current_process()

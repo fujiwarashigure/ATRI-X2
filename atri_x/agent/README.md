@@ -70,7 +70,7 @@
 | `atri_x.agent.commands.model_types` | 模型服务的共享数据类型与形状。 | 147 | `test_agent_bootstrap.py`、`test_agent_commands_integration.py` |
 | `atri_x.agent.commands.request` | ``/requests``、``/stop``、``/stopall`` 与请求树渲染。 | 375 | — |
 | `atri_x.agent.commands.research` | ``/research``：科研研究助理的只读操作面板命令。 | 308 | — |
-| `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 | 74 | `test_builtin_runtime_resources.py` |
+| `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 | 84 | `test_builtin_runtime_resources.py` |
 | `atri_x.agent.commands.rollback` | ``/rollback``：列出并撤销 ATRI-X 自己对文件的最新一次编辑。 | 109 | — |
 | `atri_x.agent.commands.session_core` | ``/new``、``/status``、``/work``、``/chat``。 | 266 | — |
 | `atri_x.agent.commands.session_format` | Session 列表/消息的查询与文本渲染。 | 366 | — |
@@ -191,4 +191,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 863 个 / 超线文件 78 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 864 个 / 超线文件 79 个）。

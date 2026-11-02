@@ -1,13 +1,13 @@
 {
   "version": 1,
   "generated_by": "python scripts/check_complexity.py --update",
-  "note": "结构指标棘轮：只降不升。放宽预算必须改这个文件（review 可见）。口径见 atri_x/devtools/astindex.py 与 boundaries.py。",
+  "note": "结构指标棘轮：只降不升。放宽预算必须改这个文件（review 可见）。口径见 atri_x/devtools/astindex.py 与 boundaries.py。本次为「桌面端上下文窗口配置」放宽 long_files 78→79：configmodel.py 与 tabs/model.py 合并放不下，拆模块又会增加 modules 预算，按功能内聚优先保留单文件。随后「模型窗口总览（扫描上游 + 表格内编辑）」把 tabs/model.py 撑到 1329 行，max_file_lines 1222→1329；再拆会把「模型页」的表格/扫描/编辑状态拆散到两个文件，仍按功能内聚优先单文件。再随后新增 atri_x/sysinfo_children.py（/resources 统计子进程与同安装目录进程）：modules 863→864、cross_domain_edges 1547→1549。",
   "long_file_lines": 600,
   "budget": {
-    "modules": 863,
-    "long_files": 78,
-    "max_file_lines": 1222,
-    "cross_domain_edges": 1547,
+    "modules": 864,
+    "long_files": 79,
+    "max_file_lines": 1329,
+    "cross_domain_edges": 1549,
     "max_fan_in": 253,
     "untested_modules": 313,
     "boundary_violations": 25

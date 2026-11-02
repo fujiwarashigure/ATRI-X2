@@ -326,6 +326,16 @@ dist\windows\atri-x\atri-x.exe doctor --no-model
 允许直接手打；换过配置文件之后点 **刷新模型列表** 重读 `services.toml` 与模型目录，
 不必重启界面。
 
+**上下文窗口（模型 → 上下文窗口子页）**：chat / work 的上下文窗口不用再手改
+`services.toml`。子页顶部改默认窗口（写 `[model_metadata].default_context_window`），
+下面的「按模型覆盖」表按 provider + model 写 `model_configs.<模型>.context_window`；
+「模型窗口总览」表点「扫描上游窗口」拉取该 Provider 全部模型与上游 `/models` 上报的
+理论窗口（`limit.context` 等字段），上游没上报窗口的模型也会列出（显示「—」）；
+「自定义覆盖」列可直接点单元格修改（回车保存 / Esc 取消 / 失焦也保存），「删除所选覆盖」
+撤掉覆盖。上游上报值只作展示参考：后台能读到上报时仍以上报为准，读不到时按这里的覆盖
+生效。Provider 下拉支持「全部 Provider」一次扫完，结果缓存到 `gui/model_catalog.json`，
+重启桌面端后表格仍可见。改完是启动期配置，点「重启后台服务」生效。
+
 **推理思考强度（`reasoning_effort`）**：Provider 表单里的「推理思考强度」下拉是
 1.0.2 新增的。选中 `none` / `minimal` / `low` / `medium` / `high` 保存后写进
 `[providers.<name>].reasoning_effort`，之后该 Provider 的每个请求都会带上这个档位；

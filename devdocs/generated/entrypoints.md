@@ -256,7 +256,7 @@
 | `atri_x.gui.tabs.link` | 「在线」选项卡：一条线看住「后台服务 → 协议端 → QQ 平台」三段，并提供上下线开关。 |
 | `atri_x.gui.tabs.logs` | 「日志」选项卡：把后台服务写的日志和界面操作日志放到一个可筛选的窗口里。 |
 | `atri_x.gui.tabs.members` | 「群友」选项卡：按群管理群友的角色数据（备注名 / 标签 / 角色数据 / 头像）。 |
-| `atri_x.gui.tabs.model` | 「模型」选项卡：LLM Provider（含 API Key）、模型分配、搜索服务与抓取服务。 |
+| `atri_x.gui.tabs.model` | 「模型」选项卡：LLM Provider（含 API Key）、上下文窗口、模型分配、搜索与抓取服务。 |
 | `atri_x.gui.tabs.mountpanel` | 「进阶」页生图区的本地挂载面板（:class:`MountPanelMixin`）。 |
 | `atri_x.gui.tabs.performance` | 「性能 / 并发」选项卡：一键切并发模式，外加一块后台并发实况。 |
 | `atri_x.gui.tabs.permission` | 「权限」选项卡：超级管理员名单 + 风险等级 / 工具轮次 / 成员建卡开关。 |

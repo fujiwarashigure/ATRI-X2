@@ -1,4 +1,4 @@
-"""可移植的运行时资源快照（进程 / 系统 / 磁盘 / 硬件）。
+"""可移植的运行时资源快照（进程 / 子进程 / 系统 / 磁盘 / 硬件）。
 
 对应 Go：``internal/sysinfo/sysinfo.go`` + ``disk_linux.go`` / ``disk_other.go``
 / ``rss_linux.go`` / ``rss_other.go``。
@@ -21,9 +21,23 @@ Go 的 ``HeapAllocBytes`` / ``HeapSysBytes`` / ``Goroutines`` 是 Go runtime 的
 
 - **零第三方依赖**：Windows 侧只用 ``ctypes`` 调 kernel32 / psapi，Linux 侧只读
   ``/proc``，不引 psutil；
-- **可注入**：``platform_impl`` 允许测试塞入假采集器，避免用例依赖真实 Windows
-  API 或真实计时；
+- **可注入**：``platform_impl`` / ``hardware_provider`` / ``child_collector`` 允许
+  测试塞入假采集器，避免用例依赖真实 Windows API 或真实计时；
 - **失败降级**：任何一项采集失败只写进 ``errors``，不抛异常、不整条失败。
+
+子进程口径（``/resources`` 算"软件整体"的一部分）
+--------------------------------------------------
+一次快照里除了 ATRI-X 自身（:class:`ProcessResources`），还有两组由
+:mod:`atri_x.sysinfo_children` 采来的进程：
+
+- ``children``：当前进程的**子孙进程**（DSH 内核 ``node.exe``、draw.io 渲染链、
+  研究 runner、agent 拉起的 shell / MCP / hook 等）；
+- ``related``：与 ATRI-X **同安装目录**的其它进程（GUI、QQ 协议端、渲染残留；
+  只在冻结产物里采集）。
+
+两组都按两次采样求 CPU 差，再按可执行文件名聚合成 :class:`SubProcessEntry`
+（渲染只出现文件名，不出现命令行 / 路径）。RSS 合计是各进程简单相加，共享页会
+被重复计算——只用于"大概占多少"的展示。
 
 1.1.4 修订（隐私边界）
 ----------------------
@@ -44,7 +58,7 @@ import threading
 import time
 import tracemalloc
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from atri_x.hardware import HardwareInfo, collect_hardware
 from atri_x.sysinfo_format import (
@@ -54,12 +68,17 @@ from atri_x.sysinfo_format import (
     format_uptime,
 )
 
+if TYPE_CHECKING:  # pragma: no cover - 只给类型检查用，避免运行时循环 import
+    from atri_x.sysinfo_children import ChildProcess, ChildProcessCollector
+
 __all__ = [
     "DiskUsage",
     "ProcessResources",
     "ProcessSample",
     "ResourceSnapshot",
     "Snapshot",
+    "SubProcessEntry",
+    "SubProcessResources",
     "SystemResources",
     "SystemSample",
     "collect",
@@ -72,10 +91,16 @@ __all__ = [
     "format_uptime",
     "process_rss",
     "resources_to_dict",
+    "software_total",
 ]
 
 _IS_WINDOWS = sys.platform == "win32"
 _IS_LINUX = sys.platform.startswith("linux")
+
+#: 子进程分组名（与 :mod:`atri_x.sysinfo_children` 的 ``GROUP_CHILD`` / ``GROUP_RELATED``
+#: 同值；这里重复写字面量是为了避免 import 环——``sysinfo_children`` 会 import 本模块）。
+SUB_PROCESS_CHILD = "child"
+SUB_PROCESS_RELATED = "related"
 
 #: CPU 采样窗口的默认值（秒）与允许区间（秒）。下限避免除以极小的 Δt 放大噪声。
 DEFAULT_SAMPLE_INTERVAL = 0.5
@@ -178,16 +203,44 @@ class SystemResources:
     uptime_seconds: int = 0
 
 
+@dataclass(frozen=True)
+class SubProcessEntry:
+    """按可执行文件名聚合的一组子进程（渲染只显示名字与占用）。"""
+
+    name: str = ""
+    count: int = 0
+    rss_bytes: int = 0
+    private_bytes: int = 0
+    cpu_percent: float = 0.0
+
+
+@dataclass
+class SubProcessResources:
+    """一组子进程的合计与按名字聚合的明细（``children`` 或 ``related``）。"""
+
+    count: int = 0
+    rss_bytes: int = 0
+    private_bytes: int = 0
+    cpu_percent: float = 0.0
+    entries: list[SubProcessEntry] = field(default_factory=list)
+
+
 @dataclass
 class ResourceSnapshot:
     """:func:`collect_resources` 的结果。
 
     ``disks`` 是 :class:`DiskUsage` 列表（按展示顺序）；采集失败的卷不出现在
     这里，原因写进 ``errors``（只写异常类型名，不写路径）。
+
+    ``children`` 是当前进程的子孙进程（DSH 内核 / 渲染链 / agent 子进程），
+    ``related`` 是与 ATRI-X 同安装目录的其它进程（GUI / 协议端等，仅冻结产物）；
+    两者都是可缺省的（没采到就是空）。
     """
 
     process: ProcessResources = field(default_factory=ProcessResources)
     system: SystemResources = field(default_factory=SystemResources)
+    children: SubProcessResources = field(default_factory=SubProcessResources)
+    related: SubProcessResources = field(default_factory=SubProcessResources)
     disks: list[DiskUsage] = field(default_factory=list)
     #: 硬件身份与显卡占用（CPU/GPU 型号、系统版本、显存/3D 占用）。
     hardware: HardwareInfo = field(default_factory=HardwareInfo)
@@ -218,8 +271,9 @@ def collect_resources(
     include_dir_size: bool = False,
     platform_impl: PlatformCollector | None = None,
     hardware_provider: Callable[[], HardwareInfo] | None = None,
+    child_collector: "ChildProcessCollector | None" = None,
 ) -> ResourceSnapshot:
-    """采集进程 / 系统 / 磁盘 / 硬件资源。
+    """采集自身进程 / 子进程 / 系统 / 磁盘 / 硬件资源。
 
     参数
     ----
@@ -237,6 +291,9 @@ def collect_resources(
     hardware_provider:
         注入的硬件采集器；``None`` 时用 :func:`atri_x.hardware.collect_hardware`。
         硬件采集与 CPU 采样窗口**并行**跑，多出来的等待时间被采样窗口吸收。
+    child_collector:
+        注入的子进程采集器；``None`` 时用
+        :func:`atri_x.sysinfo_children.default_child_process_collector`。
 
     **这是同步函数**：内部含 ``time.sleep``，调用方必须丢进线程
     （工具侧用 ``asyncio.to_thread``），否则会阻塞事件循环。
@@ -244,6 +301,9 @@ def collect_resources(
     interval = _clamp_interval(sample_interval)
     snapshot = ResourceSnapshot(sample_interval=interval)
     collector = platform_impl if platform_impl is not None else _default_collector()
+    children_collector = (
+        child_collector if child_collector is not None else _default_child_collector()
+    )
     targets = _normalize_paths(paths)
     explicit_targets = bool(targets)
     if not targets:
@@ -265,6 +325,7 @@ def collect_resources(
     )
     hardware_thread.start()
 
+    first_children = _sample_children(children_collector, snapshot, second=False)
     first_process: ProcessSample | None = None
     first_system: SystemSample | None = None
     started = time.monotonic()
@@ -294,6 +355,7 @@ def collect_resources(
         second_system = collector.sample_system()
     except Exception as exc:  # noqa: BLE001
         snapshot.errors.append(f"系统二次采样失败（{type(exc).__name__}）")
+    second_children = _sample_children(children_collector, snapshot, second=True)
 
     if first_process is not None and second_process is not None:
         snapshot.process = _build_process_resources(
@@ -313,6 +375,11 @@ def collect_resources(
         snapshot.system = _build_system_resources(None, second_system)
     elif first_system is not None:
         snapshot.system = _build_system_resources(None, first_system)
+
+    if second_children is not None:
+        _fill_subprocesses(snapshot, first_children, second_children, elapsed)
+    elif first_children is not None:
+        _fill_subprocesses(snapshot, None, first_children, 0.0)
 
     disk_index = 0
     seen_volumes: set[str] = set()
@@ -354,11 +421,31 @@ def collect_resources(
     return snapshot
 
 
+def _subprocess_dict(resources: SubProcessResources) -> dict[str, Any]:
+    """一组子进程的 JSON 形式（只有文件名与占用，不含命令行 / 路径）。"""
+    return {
+        "count": resources.count,
+        "rss_bytes": resources.rss_bytes,
+        "private_bytes": resources.private_bytes,
+        "cpu_percent": round(resources.cpu_percent, 2),
+        "entries": [
+            {
+                "name": entry.name,
+                "count": entry.count,
+                "rss_bytes": entry.rss_bytes,
+                "private_bytes": entry.private_bytes,
+                "cpu_percent": round(entry.cpu_percent, 2),
+            }
+            for entry in resources.entries
+        ],
+    }
+
+
 def resources_to_dict(snapshot: ResourceSnapshot) -> dict[str, Any]:
     """把快照渲染成 JSON 友好的 dict（工具结果的 ``data`` 字段用）。
 
     与文本渲染同一条隐私边界：磁盘只有 ``label``（``系统盘`` / ``数据盘 N``），
-    **没有**任何本机路径。
+    **没有**任何本机路径；子进程只有可执行文件名（不含命令行 / 路径）。
     """
     hardware = snapshot.hardware
     return {
@@ -376,6 +463,9 @@ def resources_to_dict(snapshot: ResourceSnapshot) -> dict[str, Any]:
             "io_write_bytes": snapshot.process.io_write_bytes,
             "uptime_seconds": snapshot.process.uptime_seconds,
         },
+        "children": _subprocess_dict(snapshot.children),
+        "related": _subprocess_dict(snapshot.related),
+        "software_total": _subprocess_dict(software_total(snapshot)),
         "system": {
             "cpu_percent": round(snapshot.system.cpu_percent, 2),
             "cpu_count": snapshot.system.cpu_count,
@@ -583,6 +673,123 @@ def _default_collector() -> PlatformCollector:
     from atri_x.sysinfo_platform import default_collector as select_collector
 
     return select_collector()
+
+
+def _default_child_collector() -> Any:
+    """按平台选择子进程采集器（实现见 :mod:`atri_x.sysinfo_children`）。"""
+    from atri_x.sysinfo_children import (
+        default_child_process_collector as select_collector,
+    )
+
+    return select_collector()
+
+
+def _sample_children(
+    collector: Any, snapshot: ResourceSnapshot, *, second: bool
+) -> list[Any] | None:
+    """采一次子进程清单；失败只降级并记 ``errors``（不抛）。"""
+    try:
+        return collector.sample()
+    except Exception as exc:  # noqa: BLE001 - 子进程采集失败不该拖垮资源快照
+        label = "子进程二次采样失败" if second else "子进程采样失败"
+        snapshot.errors.append(f"{label}（{type(exc).__name__}）")
+        return None
+
+
+def _fill_subprocesses(
+    snapshot: ResourceSnapshot,
+    first: list[Any] | None,
+    second: list[Any],
+    elapsed: float,
+) -> None:
+    """把同一批两次采样分别换算成 ``children`` 与 ``related`` 两组。"""
+    snapshot.children = _build_subprocess_resources(
+        first, second, elapsed, SUB_PROCESS_CHILD
+    )
+    snapshot.related = _build_subprocess_resources(
+        first, second, elapsed, SUB_PROCESS_RELATED
+    )
+
+
+def _build_subprocess_resources(
+    first: list[Any] | None,
+    second: list[Any],
+    elapsed: float,
+    group: str,
+) -> SubProcessResources:
+    """把两次采样换算成一组子进程的合计 + 按可执行文件名聚合的明细。
+
+    CPU 用同一 PID 的计数器差：两次都在的进程取差值；采样窗口内新起的进程没有
+    第一次读数，就用它的累计 CPU 时间（窗口内占比会略低，但不会凭空变大）。
+    """
+    previous = {
+        int(getattr(item, "pid", 0) or 0): float(
+            getattr(item, "cpu_seconds", 0.0) or 0.0
+        )
+        for item in (first or [])
+        if _group_of(item) == group
+    }
+    resources = SubProcessResources()
+    buckets: dict[str, list[float]] = {}
+    total_cpu_seconds = 0.0
+    for item in second:
+        if _group_of(item) != group:
+            continue
+        pid = int(getattr(item, "pid", 0) or 0)
+        cpu_seconds = float(getattr(item, "cpu_seconds", 0.0) or 0.0)
+        delta = (
+            max(cpu_seconds - previous[pid], 0.0)
+            if pid in previous
+            else max(cpu_seconds, 0.0)
+        )
+        name = str(getattr(item, "name", "") or "") or f"pid-{pid}"
+        rss = int(getattr(item, "rss_bytes", 0) or 0)
+        private = int(getattr(item, "private_bytes", 0) or 0)
+        resources.count += 1
+        resources.rss_bytes += rss
+        resources.private_bytes += private
+        bucket = buckets.setdefault(name, [0.0, 0.0, 0.0, 0.0])
+        bucket[0] += delta
+        bucket[1] += 1
+        bucket[2] += rss
+        bucket[3] += private
+    entries: list[SubProcessEntry] = []
+    for name, (cpu, count, rss, private) in buckets.items():
+        total_cpu_seconds += cpu
+        entries.append(
+            SubProcessEntry(
+                name=name,
+                count=int(count),
+                rss_bytes=int(rss),
+                private_bytes=int(private),
+                cpu_percent=_ratio_percent(cpu, elapsed),
+            )
+        )
+    entries.sort(key=lambda entry: entry.rss_bytes, reverse=True)
+    resources.entries = entries
+    resources.cpu_percent = _ratio_percent(total_cpu_seconds, elapsed)
+    return resources
+
+
+def _group_of(item: Any) -> str:
+    """子进程分组名；老数据没有 ``group`` 字段时按"子孙进程"处理。"""
+    return str(getattr(item, "group", SUB_PROCESS_CHILD) or SUB_PROCESS_CHILD)
+
+
+def software_total(snapshot: ResourceSnapshot) -> SubProcessResources:
+    """ATRI-X 整体占用：自身进程 + 子进程 + 相关进程（RSS 为各进程简单相加）。"""
+    children = snapshot.children
+    related = snapshot.related
+    return SubProcessResources(
+        count=1 + children.count + related.count,
+        rss_bytes=snapshot.process.rss_bytes + children.rss_bytes + related.rss_bytes,
+        private_bytes=snapshot.process.private_bytes
+        + children.private_bytes
+        + related.private_bytes,
+        cpu_percent=snapshot.process.cpu_percent
+        + children.cpu_percent
+        + related.cpu_percent,
+    )
 
 
 

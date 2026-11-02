@@ -450,7 +450,7 @@ default_context_window = 256000
   写在这里会在启动阶段被拒绝；头名必须是合法 HTTP token，值里不能有换行。chat 与
   responses 两种协议都会带上这些头。桌面端「模型」页的「请求头」框可以直接编辑该子表
   （每行一条 `Name: value`，留空保存即删掉整个子表），不用手改文件。
-- `[model_metadata]` 的 `default_context_window` 是全局回退值，默认 `256000`，没有在 `model_configs` 里配 `context_window` 时使用。
+- `[model_metadata]` 的 `default_context_window` 是全局回退值，默认 `256000`，没有在 `model_configs` 里配 `context_window` 时使用。桌面端「模型 → 上下文窗口」子页可以直接改默认值、按 provider+model 覆盖或删除覆盖（写回这两个键，保存后「重启后台服务」生效），不用手改文件。同页的「模型窗口总览」表可以点「扫描上游窗口」拉取该 Provider 的全部模型及其 `/models` 上报窗口（`limit.context` 等字段，API 根下取不到时会补试服务根，例如 OpenCode Go 的清单在 `{服务根}/v1/models`），上游没上报窗口的模型也会列出（显示「—」）；「自定义覆盖」列直接点单元格就能改（回车保存、Esc 取消），扫描结果缓存在配置目录的 `gui/model_catalog.json`，重启桌面端后表格仍在。
 - 新部署建议把本节所有内容放进 `services.toml`；如果保留旧 `providers.toml`，只有 `[config_files].providers` 指定时才读取。
 
 ## 内置 Web 工具配置
@@ -953,7 +953,7 @@ context_window = 64000
 default_context_window = 256000
 ```
 
-- `[model_metadata].default_context_window` 是全局回退值，默认 `256000`，模型块里没配 `context_window` 时使用。
+- `[model_metadata].default_context_window` 是全局回退值，默认 `256000`，模型块里没配 `context_window` 时使用。桌面端「模型 → 上下文窗口」页可扫描上游 `/models` 上报窗口并直接编辑按模型覆盖，改完需「重启后台服务」。
 
 ## 命令前缀
 

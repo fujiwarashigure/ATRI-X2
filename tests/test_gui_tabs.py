@@ -33,6 +33,7 @@ from atri_x.gui import (
     about,
     avatars,
     configedit,
+    configmodel,
     extractconfig,
     featureview,
     imagemount,
@@ -514,10 +515,132 @@ class ModelTabCase(TkCase):
         self.assertEqual(self.tab.key_entry.get(), "")
         self.assertEqual(self.tab.key_entry.entry.cget("show"), "*")
 
+    # -- 上下文窗口子页 -----------------------------------------------------
+    def _context_rows(self) -> dict[tuple[str, str], tuple]:
+        """模型窗口表：``(provider, model) -> 行的 values``。"""
+        return {
+            (str(values[0]), str(values[1])): values
+            for values in (
+                self.tab.ctx_tree.item(iid, "values")
+                for iid in self.tab.ctx_tree.get_children("")
+            )
+        }
+
+    def _context_row_iid(self, provider: str, model: str) -> str:
+        for iid in self.tab.ctx_tree.get_children(""):
+            values = self.tab.ctx_tree.item(iid, "values")
+            if str(values[0]) == provider and str(values[1]) == model:
+                return iid
+        raise AssertionError(f"表里没有 {provider}/{model}")
+
+    def _begin_cell_edit(self, iid: str, value: str) -> None:
+        """模拟"单元格里正在输入"（真实点击路径要窗口可见，测试里直接放输入框）。"""
+        self.tab._ctx_edit_iid = iid
+        self.tab._ctx_editor = ttk.Entry(self.tab.ctx_tree)
+        self.tab._ctx_editor.insert(0, value)
+
+    def test_context_table_lists_scanned_models_and_upstream_windows(self) -> None:
+        self.tab._context_scan_done(
+            (
+                [
+                    (
+                        "deepseek",
+                        {"deepseek-chat": 128000, "brand-new-model": 0},
+                        "https://api.deepseek.com",
+                    )
+                ],
+                [],
+            ),
+            None,
+        )
+        rows = self._context_rows()
+        self.assertEqual(rows[("deepseek", "deepseek-chat")][2], "128,000")
+        # 上游没上报窗口的模型也要列出来（显示「—」），方便直接设覆盖
+        self.assertEqual(rows[("deepseek", "brand-new-model")][2], "—")
+        # 扫描结果落进本地模型目录（重启 GUI 后表格还在）
+        catalog = modelcatalog.load(self.paths.config_dir)
+        self.assertEqual(catalog.window_of("providers.deepseek", "deepseek-chat"), 128000)
+        self.assertIn("扫描完成", self.tab._status.get())
+
+    def test_context_cell_edit_writes_services_toml(self) -> None:
+        iid = self._context_row_iid("deepseek", "deepseek-chat")
+        self._begin_cell_edit(iid, "512k")
+        self.tab._commit_context_edit()
+        data = self.read_toml("services.toml")
+        self.assertEqual(
+            data["providers"]["deepseek"]["model_configs"]["deepseek-chat"]["context_window"],
+            512000,
+        )
+        self.assertEqual(
+            self._context_rows()[("deepseek", "deepseek-chat")][3], "512000"
+        )
+        self.assertIn("重启后台服务", self.tab._status.get())
+
+    def test_context_cell_edit_rejects_bad_value(self) -> None:
+        iid = self._context_row_iid("deepseek", "deepseek-chat")
+        self._begin_cell_edit(iid, "abc")
+        self.tab._commit_context_edit()
+        self.assertIn("没有保存", self.tab._status.get())
+        provider = self.read_toml("services.toml")["providers"]["deepseek"]
+        self.assertNotIn("model_configs", provider)
+
+    def test_context_cell_edit_empty_value_keeps_override(self) -> None:
+        iid = self._context_row_iid("deepseek", "deepseek-chat")
+        self._begin_cell_edit(iid, "")
+        self.tab._commit_context_edit()
+        self.assertIn("留空没有保存", self.tab._status.get())
+        provider = self.read_toml("services.toml")["providers"]["deepseek"]
+        self.assertNotIn("model_configs", provider)
+
+    def test_context_delete_override_removes_key(self) -> None:
+        configmodel.save_model_context_window(self.paths, "deepseek", "deepseek-chat", 64000)
+        self.tab._load_context_windows()
+        iid = self._context_row_iid("deepseek", "deepseek-chat")
+        self.tab.ctx_tree.selection_set(iid)
+        with mock.patch("tkinter.messagebox.askyesno", return_value=True):
+            self.tab._delete_selected_context_override()
+        provider = self.read_toml("services.toml")["providers"]["deepseek"]
+        self.assertNotIn("model_configs", provider)
+        self.assertIn("已删除", self.tab._status.get())
+
+    def test_context_provider_filter_limits_rows(self) -> None:
+        self.tab.ctx_provider_var.set("deepseek")
+        self.tab._refresh_context_tree()
+        rows = self._context_rows()
+        self.assertTrue(rows)
+        self.assertEqual({provider for provider, _model in rows}, {"deepseek"})
+        # 「全部 Provider」把其它 provider 的模型也放回表里
+        self.tab.ctx_provider_var.set("（全部 Provider）")
+        self.tab._refresh_context_tree()
+        self.assertGreater(
+            len({provider for provider, _model in self._context_rows()}), 1
+        )
+
+    def test_context_manual_override_requires_concrete_provider(self) -> None:
+        self.tab.ctx_provider_var.set("（全部 Provider）")
+        self.tab.ctx_manual_model_var.set("deepseek-chat")
+        self.tab.ctx_manual_window_var.set("1m")
+        self.tab._save_manual_context_override()
+        self.assertIn("具体 Provider", self.tab._status.get())
+        provider = self.read_toml("services.toml")["providers"]["deepseek"]
+        self.assertNotIn("model_configs", provider)
+
+    def test_context_manual_override_saves(self) -> None:
+        self.tab.ctx_provider_var.set("deepseek")
+        self.tab.ctx_manual_model_var.set("deepseek-chat")
+        self.tab.ctx_manual_window_var.set("1m")
+        self.tab._save_manual_context_override()
+        data = self.read_toml("services.toml")
+        self.assertEqual(
+            data["providers"]["deepseek"]["model_configs"]["deepseek-chat"]["context_window"],
+            1000000,
+        )
+        self.assertEqual(self.tab.ctx_manual_window_var.get(), "")
+
     # -- 搜索服务子页 -------------------------------------------------------
     def test_search_page_exists_with_default_chain(self) -> None:
         panel = self.tab.search_panel
-        self.assertEqual(self.tab.notebook.index("end"), 3)
+        self.assertEqual(self.tab.notebook.index("end"), 4)
         self.assertEqual(
             [view.name for view in panel.engines],
             ["deepseek", "tavily", "firecrawl", "keenable", "exa"],

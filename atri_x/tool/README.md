@@ -65,7 +65,7 @@
 | `atri_x.tool.builtin.register` | 把所有已落地的内置工具装进 :class:`atri_x.tool.Registry`。 | 469 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_comic.py`、`test_builtin_imagegen.py`、`test_builtin_tools2.py`、`test_builtin_tools4.py`、`test_member_profile.py`、`test_qq_slowfetch.py` |
 | `atri_x.tool.builtin.resident_memory` | 常驻记忆工具族：入口 + 读取 + 普通记忆 + 核心记忆。 | 388 | `test_builtin_tools2.py`、`test_memory_notes.py` |
 | `atri_x.tool.builtin.runtime` | ``runtime.go`` 对应的入口名与配置换算。 | 151 | `test_builtin_tools4.py` |
-| `atri_x.tool.builtin.runtime_resources` | ``runtime_resources``：超管专属的只读硬件资源占用查询。 | 196 | `test_builtin_runtime_resources.py` |
+| `atri_x.tool.builtin.runtime_resources` | ``runtime_resources``：超管专属的只读硬件资源占用查询。 | 201 | `test_builtin_runtime_resources.py` |
 | `atri_x.tool.builtin.runtimeinfo` | 内置工具共享的运行时信息 —— 现在只是 :mod:`atri_x.tool.runtimeinfo` 的再导出。 | 32 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
 | `atri_x.tool.builtin.self_learning` | ``self_learning_review``：管理 clean-room 表达/黑话候选。 | 218 | `test_builtin_tools3.py` |
 | `atri_x.tool.builtin.send_file` | ``send_file``：把本地文件 / file URI / HTTP(S) URL / 媒体 ID 作为产物发出。 | 264 | `test_builtin_tools3.py`、`test_safety_integration.py` |
@@ -119,4 +119,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 863 个 / 超线文件 78 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 864 个 / 超线文件 79 个）。

@@ -18,6 +18,7 @@ import json
 import os
 import platform
 import re
+import subprocess
 import sys
 import time
 import unittest
@@ -47,6 +48,8 @@ from atri_x.hardware import (
 from atri_x.sysinfo import (
     DiskUsage,
     ProcessSample,
+    SubProcessEntry,
+    SubProcessResources,
     SystemSample,
     collect_resources,
     format_bytes,
@@ -54,6 +57,14 @@ from atri_x.sysinfo import (
     format_uptime,
     process_rss,
     resources_to_dict,
+    software_total,
+)
+from atri_x.sysinfo_children import (
+    GROUP_CHILD,
+    GROUP_RELATED,
+    ChildProcess,
+    default_child_process_collector,
+    install_root,
 )
 from atri_x.sysinfo_format import format_resources as format_resources_from_report
 from atri_x.sysinfo_platform import default_collector
@@ -97,6 +108,90 @@ class FakeCollector:
         if self.system_samples:
             return self.system_samples.pop(0)
         return SystemSample()
+
+
+class FakeChildrenCollector:
+    """可编程的假子进程采集器：每次 ``sample`` 弹出一份清单。"""
+
+    def __init__(
+        self,
+        samples: list[list[ChildProcess]] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.samples = list(samples or [])
+        self.error = error
+        self.calls = 0
+
+    def sample(self) -> list[ChildProcess]:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        if self.samples:
+            return self.samples.pop(0)
+        return []
+
+
+def _children_snapshot() -> object:
+    """带子进程/相关进程的资源快照（渲染与 JSON 用）。"""
+    from atri_x.sysinfo import ProcessResources, ResourceSnapshot, SystemResources
+
+    snapshot = _fixed_snapshot()
+    assert isinstance(snapshot, ResourceSnapshot)
+    snapshot.children = SubProcessResources(
+        count=2,
+        rss_bytes=300 * 1024 * 1024,
+        private_bytes=120 * 1024 * 1024,
+        cpu_percent=8.25,
+        entries=[
+            SubProcessEntry(
+                name="node.exe",
+                count=1,
+                rss_bytes=200 * 1024 * 1024,
+                private_bytes=80 * 1024 * 1024,
+                cpu_percent=7.5,
+            ),
+            SubProcessEntry(
+                name="draw.io.exe",
+                count=1,
+                rss_bytes=100 * 1024 * 1024,
+                private_bytes=40 * 1024 * 1024,
+                cpu_percent=0.75,
+            ),
+        ],
+    )
+    snapshot.related = SubProcessResources(
+        count=3,
+        rss_bytes=500 * 1024 * 1024,
+        private_bytes=200 * 1024 * 1024,
+        cpu_percent=1.5,
+        entries=[
+            SubProcessEntry(
+                name="QQ.exe",
+                count=2,
+                rss_bytes=350 * 1024 * 1024,
+                private_bytes=150 * 1024 * 1024,
+                cpu_percent=1.2,
+            ),
+            SubProcessEntry(
+                name="atri-x-gui.exe",
+                count=1,
+                rss_bytes=150 * 1024 * 1024,
+                private_bytes=50 * 1024 * 1024,
+                cpu_percent=0.3,
+            ),
+        ],
+    )
+    snapshot.process = ProcessResources(
+        rss_bytes=100 * 1024 * 1024,
+        peak_rss_bytes=100 * 1024 * 1024,
+        private_bytes=50 * 1024 * 1024,
+        cpu_percent=2.0,
+        threads=20,
+        handles=100,
+        uptime_seconds=600,
+    )
+    snapshot.system = SystemResources(cpu_count=8)
+    return snapshot
 
 
 def _fixed_hardware() -> HardwareInfo:
@@ -405,7 +500,121 @@ class CollectResourcesTests(unittest.TestCase):
             self.assertGreater(process_rss(), 0, "process_rss 在 Windows 不应恒为 0")
 
 
-class HardwareParsingTests(unittest.TestCase):
+    def test_subprocesses_are_aggregated_with_cpu_deltas(self) -> None:
+        """子进程 / 相关进程：按名字聚合，CPU 由两次采样差值算出。"""
+        first = [
+            ChildProcess(
+                pid=101, name="node.exe", group=GROUP_CHILD,
+                rss_bytes=100, cpu_seconds=1.0,
+            ),
+            ChildProcess(
+                pid=201, name="QQ.exe", group=GROUP_RELATED,
+                rss_bytes=50, cpu_seconds=2.0,
+            ),
+        ]
+        second = [
+            ChildProcess(
+                pid=101, name="node.exe", group=GROUP_CHILD,
+                rss_bytes=120, cpu_seconds=1.05,
+            ),
+            ChildProcess(
+                pid=102, name="node.exe", group=GROUP_CHILD,
+                rss_bytes=30, cpu_seconds=0.02,
+            ),
+            ChildProcess(
+                pid=201, name="QQ.exe", group=GROUP_RELATED,
+                rss_bytes=60, cpu_seconds=2.01,
+            ),
+        ]
+        collector = FakeChildrenCollector(samples=[first, second])
+        snapshot = collect_resources(
+            [], sample_interval=0.001, platform_impl=FakeCollector(),
+            hardware_provider=_no_hardware, child_collector=collector,
+        )
+        self.assertEqual(snapshot.errors, [])
+        self.assertEqual(snapshot.children.count, 2)
+        self.assertEqual(snapshot.children.rss_bytes, 150)
+        self.assertEqual([entry.name for entry in snapshot.children.entries], ["node.exe"])
+        self.assertEqual(snapshot.children.entries[0].count, 2)
+        # (0.05 + 0.02) 秒 CPU / 采样窗口（≥0.05s）→ 至少 100%（单核基准）。
+        self.assertGreaterEqual(snapshot.children.cpu_percent, 100.0)
+        self.assertEqual(snapshot.related.count, 1)
+        self.assertEqual(snapshot.related.rss_bytes, 60)
+        self.assertEqual(snapshot.related.entries[0].name, "QQ.exe")
+        self.assertGreater(snapshot.related.cpu_percent, 0.0)
+        # 合计 = 自身 + 子进程 + 相关进程。
+        total = software_total(snapshot)
+        self.assertEqual(total.count, 1 + 2 + 1)
+        self.assertEqual(total.rss_bytes, snapshot.process.rss_bytes + 150 + 60)
+
+    def test_child_collector_failure_degrades(self) -> None:
+        snapshot = collect_resources(
+            [], sample_interval=0.001, platform_impl=FakeCollector(),
+            hardware_provider=_no_hardware,
+            child_collector=FakeChildrenCollector(error=OSError("boom")),
+        )
+        self.assertTrue(any("子进程采样失败" in item for item in snapshot.errors))
+        self.assertEqual(snapshot.children.count, 0)
+        self.assertEqual(snapshot.related.count, 0)
+
+    def test_one_children_sample_still_reports_memory(self) -> None:
+        """第二次子进程采样失败：内存照报，CPU% 留 0。"""
+        first = [
+            ChildProcess(pid=101, name="node.exe", group=GROUP_CHILD, rss_bytes=42),
+        ]
+
+        class OneShot:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def sample(self):
+                self.calls += 1
+                if self.calls > 1:
+                    raise OSError("gone")
+                return first
+
+        snapshot = collect_resources(
+            [], sample_interval=0.001, platform_impl=FakeCollector(),
+            hardware_provider=_no_hardware, child_collector=OneShot(),
+        )
+        self.assertEqual(snapshot.children.count, 1)
+        self.assertEqual(snapshot.children.rss_bytes, 42)
+        self.assertEqual(snapshot.children.cpu_percent, 0.0)
+        self.assertTrue(any("子进程二次采样失败" in item for item in snapshot.errors))
+
+    def test_default_child_collector_selection(self) -> None:
+        collector = default_child_process_collector()
+        self.assertTrue(hasattr(collector, "sample"))
+        self.assertIsInstance(collector.sample(), list)
+
+    def test_real_child_process_is_visible(self) -> None:
+        """真机冒烟：自己拉起的子进程必须出现在清单里（Windows / Linux 同一实现）。"""
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(3)"]
+        )
+        try:
+            deadline = time.monotonic() + 5
+            seen = False
+            collector = default_child_process_collector()
+            while time.monotonic() < deadline and not seen:
+                time.sleep(0.3)
+                seen = any(item.pid == child.pid for item in collector.sample())
+            self.assertTrue(seen, "子进程采集器看不到自己拉起的进程")
+        finally:
+            child.terminate()
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:  # pragma: no cover - 极端情况
+                child.kill()
+
+    def test_install_root_is_empty_outside_frozen_build(self) -> None:
+        """源码树跑测试时没有"安装目录"概念：不扫同目录进程，避免误算无关进程。"""
+        if getattr(sys, "frozen", False):  # pragma: no cover - 冻结产物里不适用
+            self.assertTrue(install_root().lower().endswith("app"))
+        else:
+            self.assertEqual(install_root(), "")
+
+
     def test_parse_nvidia_smi_csv(self) -> None:
         text = (
             "NVIDIA GeForce RTX 4070 Ti, 37, 12282, 3245, 61, 145.32, 285.00\n"
@@ -557,6 +766,58 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(payload["hardware"]["gpus"][0]["vendor"], "NVIDIA")
         self.assertIn("uptime_seconds", payload["process"])
 
+    def test_subprocess_sections_render(self) -> None:
+        """子进程 / 相关进程 / 合计三段：名字、内存、CPU 都要出现，且不带路径。"""
+        text = format_resources(_children_snapshot())
+        self.assertIn("【子进程】2 个", text)
+        self.assertIn("node.exe×1", text)
+        self.assertIn("draw.io.exe×1", text)
+        self.assertIn("【相关】3 个", text)
+        self.assertIn("QQ.exe×2", text)
+        self.assertIn("atri-x-gui.exe×1", text)
+        self.assertIn("【合计】6 个进程", text)
+        self.assertIn("内存 900 MB", text)
+        self.assertIn("CPU 11.8%", text)  # 2.0 + 8.25 + 1.5
+        self._assert_no_paths(text)
+
+    def test_no_children_line_is_explicit(self) -> None:
+        """空闲时也说清楚：DSH 内核 / 渲染器是按需启动的，不是漏采。"""
+        text = format_resources(_fixed_snapshot())
+        self.assertIn("【子进程】无活动子进程", text)
+        self.assertNotIn("【相关】", text)
+        self.assertNotIn("【合计】", text)
+
+    def test_subprocess_entries_fold_after_limit(self) -> None:
+        resources = SubProcessResources(
+            count=7,
+            rss_bytes=7 * 1024 * 1024,
+            entries=[
+                SubProcessEntry(name=f"p{index}.exe", count=1, rss_bytes=1024 * 1024)
+                for index in range(7)
+            ],
+        )
+        snapshot = _fixed_snapshot()
+        snapshot.children = resources
+        text = format_resources(snapshot)
+        self.assertIn("p0.exe×1", text)
+        self.assertIn("p4.exe×1", text)
+        self.assertNotIn("p5.exe×1", text)
+        self.assertIn("其它 2 类", text)
+
+    def _assert_no_paths(self, text: str) -> None:
+        self.assertNotIn(os.getcwd(), text)
+        self.assertIsNone(re.search(r"[A-Za-z]:[\\/]", text), text)
+
+    def test_resources_to_dict_includes_subprocesses(self) -> None:
+        payload = resources_to_dict(_children_snapshot())
+        encoded = json.dumps(payload, ensure_ascii=False)
+        self.assertIn("node.exe", encoded)
+        self.assertEqual(payload["children"]["count"], 2)
+        self.assertEqual(payload["children"]["entries"][0]["name"], "node.exe")
+        self.assertEqual(payload["related"]["entries"][0]["name"], "QQ.exe")
+        self.assertEqual(payload["software_total"]["count"], 6)
+        self.assertEqual(payload["software_total"]["rss_bytes"], 900 * 1024 * 1024)
+
     def test_report_module_is_the_single_render_source(self) -> None:
         snapshot = _fixed_snapshot()
         self.assertEqual(
@@ -581,6 +842,10 @@ class PrivacyTests(unittest.TestCase):
 
     def test_rendered_text_has_no_local_paths(self) -> None:
         self._assert_clean(format_resources(_fixed_snapshot()))
+
+    def test_rendered_text_with_subprocesses_has_no_paths(self) -> None:
+        """子进程只出现可执行文件名，不出现命令行 / 路径。"""
+        self._assert_clean(format_resources(_children_snapshot()))
 
     def test_rendered_text_has_no_paths_even_with_errors(self) -> None:
         snapshot = _fixed_snapshot()

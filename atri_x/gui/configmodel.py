@@ -1,6 +1,6 @@
-"""桌面端「模型」页的数据模型：LLM Provider 与模型分配。
+"""桌面端「模型」页的数据模型：LLM Provider、上下文窗口与模型分配。
 
-两件事：
+三件事：
 
 1. **Provider**（``services.toml`` 的 ``[providers.<name>]``，旧部署退回
    ``providers.toml``）：``base_url`` / ``api_key_env`` / ``models`` / ``api_mode`` /
@@ -8,7 +8,12 @@
    ``x-opencode-session``）/ ``reasoning_effort``（推理思考强度：none / minimal /
    low / medium / high，空串 = 不发送）。密钥值不写 TOML，只写配置根 ``.env``；
    这里只负责"读状态 + 掩码展示"。
-2. **模型分配**（``state.toml`` 的 ``[mode_models.*]`` / ``[naming_model]`` /
+2. **上下文窗口**（``services.toml`` 的 ``[model_metadata].default_context_window``
+   与 ``[providers.<name>.model_configs.<model>].context_window``）：chat / work
+   按 provider+model 解析窗口时的第 3、4 级来源（provider 上报的元数据优先），
+   文件里都不写时后台服务退回内置 256000。写盘入口见
+   :func:`save_default_context_window` / :func:`save_model_context_window`。
+3. **模型分配**（``state.toml`` 的 ``[mode_models.*]`` / ``[naming_model]`` /
    ``[compact_model]`` / ``[session].default_mode``）：运行期回写的文件，后台服务
    会热加载，保存后几秒生效。
 
@@ -37,17 +42,24 @@ from atri_x.gui.configedit import (
 )
 
 __all__ = [
+    "BUILTIN_CONTEXT_WINDOW",
+    "ContextWindows",
     "KeyState",
     "MODEL_SLOTS",
     "ModelSlot",
     "ProviderView",
     "REQUIRED_MODEL_SLOTS",
     "delete_provider",
+    "load_context_windows",
     "load_model_selection",
     "load_providers",
     "mask_secret",
+    "parse_context_window",
     "provider_key_state",
+    "remove_model_context_window",
     "resolve_fetch_key",
+    "save_default_context_window",
+    "save_model_context_window",
     "save_model_selection",
     "save_provider",
     "secret_state",
@@ -60,6 +72,14 @@ _PROVIDER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 #: provider 所在小节前缀。
 _PROVIDERS_SECTION = "providers"
+
+#: 上下文窗口（tokens）允许的范围：太小没有意义，太大一定是手滑。
+MIN_CONTEXT_WINDOW = 1_000
+MAX_CONTEXT_WINDOW = 32_000_000
+
+#: 文件里没配时后台服务用的内置兜底窗口。
+#: 与 :data:`atri_x.contextmgr.budget.FALLBACK_CONTEXT_WINDOW` 保持一致（界面只用于提示）。
+BUILTIN_CONTEXT_WINDOW = 256_000
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +358,276 @@ def _providers_path(paths: ConfigPaths) -> str:
     if paths.services_is_legacy_providers or os.path.exists(legacy):
         return legacy
     return services
+
+
+# ---------------------------------------------------------------------------
+# 上下文窗口（services.toml）
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class ContextWindows:
+    """界面上要展示的上下文窗口配置。
+
+    ``default`` 为 0 表示文件里没写（后台服务会退回内置 256000）；
+    ``overrides`` 的键是 ``(provider, model)``。
+    """
+
+    default: int = 0
+    overrides: dict[tuple[str, str], int] = field(default_factory=dict)
+
+
+def parse_context_window(value: Any) -> int:
+    """把界面输入解析成 tokens：接受 ``1000000`` / ``1_000_000`` / ``1m`` / ``512k``。
+
+    只做格式与上下限校验；真假窗口大小以后台服务解析结果为准。
+    """
+    raw = str(value or "").strip().lower().replace("_", "").replace(",", "").replace(" ", "")
+    if not raw:
+        raise ConfigEditError("上下文窗口不能为空")
+    multiplier = 1
+    if raw.endswith("m"):
+        multiplier = 1_000_000
+        raw = raw[:-1]
+    elif raw.endswith("k"):
+        multiplier = 1_000
+        raw = raw[:-1]
+    try:
+        number = float(raw)
+    except ValueError as exc:
+        raise ConfigEditError(
+            f"上下文窗口必须是正整数 tokens（例如 1000000 / 1m / 512k），当前是 {value!r}"
+        ) from exc
+    scaled = number * multiplier
+    tokens = int(scaled)
+    if abs(scaled - tokens) > 1e-6:
+        raise ConfigEditError(f"上下文窗口必须是整数 tokens，当前是 {value!r}")
+    if tokens < MIN_CONTEXT_WINDOW:
+        raise ConfigEditError(f"上下文窗口至少 {MIN_CONTEXT_WINDOW} tokens，当前是 {tokens}")
+    if tokens > MAX_CONTEXT_WINDOW:
+        raise ConfigEditError(f"上下文窗口最多 {MAX_CONTEXT_WINDOW} tokens，当前是 {tokens}")
+    return tokens
+
+
+def load_context_windows(paths: ConfigPaths) -> ContextWindows:
+    """读 ``services.toml`` 里的默认窗口与按模型覆盖（不含内置兜底）。"""
+    data = read_toml(_providers_path(paths))
+    meta = data.get("model_metadata")
+    default = 0
+    if isinstance(meta, Mapping):
+        default = _as_int(meta.get("default_context_window"))
+    overrides: dict[tuple[str, str], int] = {}
+    providers = data.get("providers")
+    if isinstance(providers, Mapping):
+        for provider_name, provider in providers.items():
+            if not isinstance(provider, Mapping):
+                continue
+            model_configs = provider.get("model_configs")
+            if not isinstance(model_configs, Mapping):
+                continue
+            for model_name, model_config in model_configs.items():
+                if not isinstance(model_config, Mapping):
+                    continue
+                window = _as_int(model_config.get("context_window"))
+                if window > 0:
+                    overrides[(str(provider_name), str(model_name))] = window
+    return ContextWindows(default=default, overrides=overrides)
+
+
+def save_default_context_window(paths: ConfigPaths, window: int | None) -> bool:
+    """写 / 删 ``[model_metadata].default_context_window``，返回是否改动。
+
+    ``window`` 为 ``None`` 表示删掉这个键（后台服务退回内置 256000）。
+    """
+    target = _providers_path(paths)
+    existing = _find_section_header(target, ["model_metadata"])
+    if window is None and existing is None:
+        return False
+    patch_section(
+        target,
+        "model_metadata",
+        {"default_context_window": None if window is None else int(window)},
+        header_comment="模型元数据：未单独覆盖的 provider/model 都用这个上下文窗口",
+    )
+    expected = 0 if window is None else int(window)
+    saved = load_context_windows(paths).default
+    if saved != expected:
+        raise ConfigEditError(
+            "写入后回读不一致（[model_metadata].default_context_window "
+            f"期望 {expected or '未设置'}，文件里是 {saved or '未设置'}）"
+        )
+    if window is None:
+        # 删掉最后一个键后不留下一个空 [model_metadata] 小节。
+        meta = read_toml(target).get("model_metadata")
+        if not meta and existing is not None:
+            remove_section(target, existing)
+    return True
+
+
+def save_model_context_window(
+    paths: ConfigPaths, provider: str, model: str, window: int
+) -> bool:
+    """写 ``[providers.<provider>.model_configs.<model>].context_window``。
+
+    小节名按现有文件里的写法复用（模型名带点时是 TOML 引号键），没有才新建；
+    写盘后回读 ``services.toml`` 校验确实落盘。
+    """
+    provider_name = validate_provider_name(provider)
+    model_name = _validate_model_name(model)
+    known = load_providers(paths)
+    if provider_name not in known and not paths.services_is_legacy_providers:
+        raise ConfigEditError(
+            f"{os.path.basename(_providers_path(paths))} 里没有 [providers.{provider_name}]；"
+            "先在上面「LLM Provider」页保存这个 provider"
+        )
+    target = _providers_path(paths)
+    section = _find_section_header(
+        target, ["providers", provider_name, "model_configs", model_name]
+    ) or _render_context_section(provider_name, model_name)
+    patch_section(
+        target,
+        section,
+        {"context_window": int(window)},
+        header_comment="按模型的上下文窗口（桌面端「上下文窗口」页维护）",
+    )
+    saved = load_context_windows(paths).overrides.get((provider_name, model_name), 0)
+    if saved != int(window):
+        raise ConfigEditError(
+            "写入后回读不一致（"
+            f"{provider_name}/{model_name} 期望 {int(window)}，"
+            f"文件里是 {saved or '未写入'}）"
+        )
+    return True
+
+
+def remove_model_context_window(paths: ConfigPaths, provider: str, model: str) -> bool:
+    """删掉某个模型的 ``context_window`` 覆盖；该小节没别的键了就把小节一起删。"""
+    provider_name = validate_provider_name(provider)
+    model_name = _validate_model_name(model)
+    target = _providers_path(paths)
+    section = _find_section_header(
+        target, ["providers", provider_name, "model_configs", model_name]
+    )
+    if section is None:
+        raise ConfigEditError(f"{provider_name}/{model_name} 没有按模型的上下文窗口覆盖")
+    patch_section(target, section, {"context_window": None})
+    data = read_toml(target)
+    entry: Any = None
+    providers = data.get("providers")
+    if isinstance(providers, Mapping):
+        provider_entry = providers.get(provider_name)
+        if isinstance(provider_entry, Mapping):
+            configs = provider_entry.get("model_configs")
+            if isinstance(configs, Mapping):
+                entry = configs.get(model_name)
+    if not entry:
+        remove_section(target, section)
+    if load_context_windows(paths).overrides.get((provider_name, model_name)):
+        raise ConfigEditError(
+            f"删除后回读仍能看到 {provider_name}/{model_name} 的上下文窗口覆盖"
+        )
+    return True
+
+
+def _validate_model_name(model: str) -> str:
+    name = (model or "").strip()
+    if not name:
+        raise ConfigEditError("模型名不能为空")
+    if len(name) > 200 or any(ord(char) < 0x20 for char in name):
+        raise ConfigEditError("模型名不合法（不能有控制字符，最长 200 字符）")
+    return name
+
+
+def _render_context_section(provider: str, model: str) -> str:
+    return (
+        "providers."
+        + _toml_key_segment(provider)
+        + ".model_configs."
+        + _toml_key_segment(model)
+    )
+
+
+def _toml_key_segment(value: str) -> str:
+    """把一个 TOML 键段渲染成字面量；带点/空格的模型名要加引号。"""
+    if re.fullmatch(r"[A-Za-z0-9_-]+", value or ""):
+        return value
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _find_section_header(target: str, parts: list[str]) -> str | None:
+    """在文件里按**路径语义**找小节头，返回它原来的文本（含引号写法）。
+
+    不能只做字符串比较：``[providers.x.model_configs."a.b"]`` 与
+    ``[providers.x.model_configs.a.b]`` 语义不同（后者是四段路径），但
+    ``[providers.x.model_configs."a-b"]`` 与 ``[providers.x.model_configs.a-b]``
+    是同一张表，只是写法不同；这里统一按解析后的路径段比较。
+    """
+    try:
+        with open(target, "r", encoding="utf-8") as handle:
+            text = handle.read()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ConfigEditError(f"读取 {target} 失败：{exc}") from exc
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("[") or stripped.startswith("[["):
+            continue
+        if not stripped.endswith("]") or stripped.endswith("]]"):
+            continue
+        name = stripped[1:-1].strip()
+        if not name:
+            continue
+        if _split_header_path(name) == parts:
+            return name
+    return None
+
+
+def _split_header_path(name: str) -> list[str]:
+    """把 ``[a.b."c.d"]`` 的中间部分拆成路径段（支持基本引号/字面量引号）。"""
+    parts: list[str] = []
+    index = 0
+    length = len(name)
+    while index < length:
+        char = name[index]
+        if char in ". \t":
+            index += 1
+            continue
+        if char == '"':
+            index += 1
+            buffer: list[str] = []
+            while index < length and name[index] != '"':
+                if name[index] == "\\" and index + 1 < length:
+                    buffer.append(name[index + 1])
+                    index += 2
+                    continue
+                buffer.append(name[index])
+                index += 1
+            index += 1
+            parts.append("".join(buffer))
+            continue
+        if char == "'":
+            end = name.find("'", index + 1)
+            if end < 0:
+                parts.append(name[index + 1 :])
+                index = length
+            else:
+                parts.append(name[index + 1 : end])
+                index = end + 1
+            continue
+        end = index
+        while end < length and name[end] not in ".[] \t":
+            end += 1
+        segment = name[index:end].strip()
+        if segment:
+            parts.append(segment)
+        index = end if end > index else index + 1
+    return parts
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 # ---------------------------------------------------------------------------

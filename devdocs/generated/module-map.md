@@ -3,7 +3,7 @@
 
 # 模块索引（自动生成）
 
-共 **863** 个模块 / **251450** 物理行 / **71** 个一级域。被测试直接覆盖 **550** 个（63.7%）。
+共 **864** 个模块 / **253198** 物理行 / **72** 个一级域。被测试直接覆盖 **551** 个（63.8%）。
 
 查模块：`rg -n "atri_x\.tool\.builtin" devdocs/generated/module-map.md`。
 
@@ -55,7 +55,7 @@
 | `atri_x.agent.commands.model_types` | 模型服务的共享数据类型与形状。 | ModelListOptions, ModelListResult, ModelOption, ModelProfil… | 147 | `test_agent_bootstrap.py`、`test_agent_commands_integration.py` |
 | `atri_x.agent.commands.request` | ``/requests``、``/stop``、``/stopall`` 与请求树渲染。 | RequestInfo, RequestModule, RequestNode, RequestTree, build… | 375 | — |
 | `atri_x.agent.commands.research` | ``/research``：科研研究助理的只读操作面板命令。 | ResearchModule, new_research, research_home | 308 | — |
-| `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 | ResourcesModule, new_resources, render_resources | 74 | `test_builtin_runtime_resources.py` |
+| `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 | ResourcesModule, new_resources, render_resources | 84 | `test_builtin_runtime_resources.py` |
 | `atri_x.agent.commands.rollback` | ``/rollback``：列出并撤销 ATRI-X 自己对文件的最新一次编辑。 | FileModule, format_rollback_list, new_rollback | 109 | — |
 | `atri_x.agent.commands.session_core` | ``/new``、``/status``、``/work``、``/chat``。 | format_empty_status, format_tool_usage, new_chat, new_new, … | 266 | — |
 | `atri_x.agent.commands.session_format` | Session 列表/消息的查询与文本渲染。 | DEFAULT_SESSION_LIST_PAGE_SIZE, HISTORY_PREVIEW_RUNES, MESS… | 366 | — |
@@ -353,7 +353,7 @@
 | `atri_x.gui.avatars` | 群友头像：拼平台头像 URL、下载、解码缩放成统一的本地 PNG 缓存。 | AVATAR_DIR, AVATAR_SIZE, AvatarError, avatar_file, avatar_u… | 180 | `test_gui_members.py`、`test_gui_tabs.py` |
 | `atri_x.gui.client` | GUI 的 WS 客户端：连 ``ws://…/cli/v1/ws``、握手、收发帧、断线重连。 | REMOTE_MSG_COMPLETE, RemoteClient, STATE_AUTH_FAILED, STATE… | 301 | `test_gui_client.py` |
 | `atri_x.gui.configedit` | 桌面端的配置读写底座：路径解析、TOML 行级补丁、``.env``、文本文件。 | ConfigEditError, ConfigPaths, default_config_path, load_pat… | 678 | `test_gui_configedit.py`、`test_gui_extractconfig.py`、`test_gui_link.py`、`test_gui_maintenance.py`、`test_gui_modelcatalog.py`、`test_gui_perf.py`、`test_gui_promptlib.py`、`test_gui_proto_manager.py`、`test_gui_qqproto.py`、`test_gui_safety.py`、`test_gui_searchconfig.py`、`test_gui_tabs.py`、`test_gui_timepanel.py`、`test_gui_toolsettings.py` |
-| `atri_x.gui.configmodel` | 桌面端「模型」页的数据模型：LLM Provider 与模型分配。 | KeyState, MODEL_SLOTS, ModelSlot, ProviderView, REQUIRED_MO… | 482 | `test_gui_configedit.py`、`test_gui_modelcatalog.py` |
+| `atri_x.gui.configmodel` | 桌面端「模型」页的数据模型：LLM Provider、上下文窗口与模型分配。 | BUILTIN_CONTEXT_WINDOW, ContextWindows, KeyState, MODEL_SLO… | 772 | `test_gui_configedit.py`、`test_gui_modelcatalog.py`、`test_gui_tabs.py` |
 | `atri_x.gui.cronschedule` | 界面上的 cron 小工具：「每天 / 每周 / 每月」结构 ↔ 5 段表达式。 | KIND_CUSTOM, KIND_DAILY, KIND_LABELS, KIND_MONTHLY, KIND_WE… | 227 | `test_gui_maintenance.py` |
 | `atri_x.gui.dialogs` | 「进阶」页的二级设置窗口（自学习 / HOOK 插件 / 定时维护任务）。 | Dialog, HooksDialog, MaintenanceDialog, SelfLearningDialog,… | 55 | `test_gui_maintenance.py`、`test_gui_tabs.py` |
 | `atri_x.gui.dialogs.common` | 子设置弹窗的公共骨架：独立窗口 + 底部状态行 + 保存/重载/关闭按钮。 | Dialog | 122 | — |
@@ -369,7 +369,7 @@
 | `atri_x.gui.journal` | 界面操作日志：把桌面端"点了什么、改了哪个文件"记进 ``<配置目录>/gui/gui.log``。 | JOURNAL_NAME, MAX_JOURNAL_BYTES, journal_path, read_lines, … | 91 | `test_gui_diagnostics.py`、`test_gui_service.py`、`test_gui_tabs.py` |
 | `atri_x.gui.linkstate` | 「在线」选项卡的数据层：平台配置、协议端探测、后台服务健康快照。 | DEFAULT_PLATFORM, EndpointProbe, HEALTH_PATH, HealthReport,… | 573 | `test_gui_link.py`、`test_gui_qqproto.py` |
 | `atri_x.gui.memberdata` | 群友角色数据：成员档案的 GUI 适配层 + 群友发现。 | GroupScope, MAX_PROFILE_RUNES, MAX_TAGS, MEMBERS_FILE, Memb… | 222 | `test_gui_members.py`、`test_gui_promptlib.py`、`test_gui_tabs.py` |
-| `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型，并把「备注名」缓存在本地。 | CATALOG_FILE, CATALOG_VERSION, Catalog, CatalogEntry, Catal… | 437 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
+| `atri_x.gui.modelcatalog` | 模型目录：从上游 ``/models`` 拉可用模型、上下文窗口，并把「备注名」缓存在本地。 | CATALOG_FILE, CATALOG_VERSION, Catalog, CatalogEntry, Catal… | 599 | `test_gui_modelcatalog.py`、`test_gui_tabs.py` |
 | `atri_x.gui.perfconfig` | 「性能 / 并发」页的数据层（无 Tk）：读写并发上限，拉后台 ``/metrics`` 实况。 | FIELD_KEYS, GROUPS, METRICS_PATH, PRESETS, PRESET_HIGH, PRE… | 578 | `test_gui_perf.py` |
 | `atri_x.gui.process` | 进程与路径助手：程序目录、状态目录、后台服务的 pid 记录与终止、单实例。 | app_dir, application_paths, cleanup_service_pid, focus_exis… | 375 | `test_gui_diagnostics.py` |
 | `atri_x.gui.promptedit` | 「提示词」选项卡的模板编辑面板：左分类列表 + 右正文编辑器 + 只读预览。 | PromptTemplatesPanel | 416 | `test_gui_promptlib.py` |
@@ -404,7 +404,7 @@
 | `atri_x.gui.tabs.link` | 「在线」选项卡：一条线看住「后台服务 → 协议端 → QQ 平台」三段，并提供上下线开关。 | LinkTab, REFRESH_INTERVAL_MS | 822 | `test_gui_link.py`、`test_gui_qqproto.py` |
 | `atri_x.gui.tabs.logs` | 「日志」选项卡：把后台服务写的日志和界面操作日志放到一个可筛选的窗口里。 | LogsTab | 478 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.members` | 「群友」选项卡：按群管理群友的角色数据（备注名 / 标签 / 角色数据 / 头像）。 | MembersTab | 803 | `test_gui_promptlib.py`、`test_gui_tabs.py` |
-| `atri_x.gui.tabs.model` | 「模型」选项卡：LLM Provider（含 API Key）、模型分配、搜索服务与抓取服务。 | ModelTab | 820 | `test_gui_tabs.py` |
+| `atri_x.gui.tabs.model` | 「模型」选项卡：LLM Provider（含 API Key）、上下文窗口、模型分配、搜索与抓取服务。 | ModelTab | 1329 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.mountpanel` | 「进阶」页生图区的本地挂载面板（:class:`MountPanelMixin`）。 | MountPanelMixin | 238 | — |
 | `atri_x.gui.tabs.performance` | 「性能 / 并发」选项卡：一键切并发模式，外加一块后台并发实况。 | PerformanceTab, REFRESH_INTERVAL_MS, REQUEST_COLUMNS | 421 | `test_gui_perf.py` |
 | `atri_x.gui.tabs.permission` | 「权限」选项卡：超级管理员名单 + 风险等级 / 工具轮次 / 成员建卡开关。 | PermissionTab | 227 | — |
@@ -740,9 +740,10 @@
 | `atri_x.storage.sqlite.tool_call_repository` | 工具调用审计仓储。对应 Go：``internal/storage/sqlite/tool_call_repository.go``。 | ToolCallRepository | 102 | — |
 | `atri_x.storage.storage` | 存储领域模型与 repository 抽象（对外统一出口）。对应 Go：``internal/storage/storage.go``。 | AtrinisEvent, AtrinisEventRepository, AtrinisReportDelivery… | 161 | `test_storage_models.py` |
 | `atri_x.storage.times` | 通用时间 helper。对应 Go：``internal/storage/time.go``。 | ZERO_TIME, ensure_utc, format_time, is_zero_time, now, orde… | 156 | `test_angelmemory.py`、`test_builtin_cron.py`、`test_cron.py`、`test_cron_delivery.py`、`test_groupanalysis.py`、`test_media_lifecycle.py`、`test_media_manager.py`、`test_platform_qq_onebot.py`、`test_selflearning.py`、`test_session.py`、`test_session_lifecycle.py`、`test_sqlite_media.py`、`test_sqlite_repositories.py`、`test_sqlite_store.py`、`test_storage_models.py` |
-| `atri_x.sysinfo` | 可移植的运行时资源快照（进程 / 系统 / 磁盘 / 硬件）。 | DiskUsage, ProcessResources, ProcessSample, ResourceSnapsho… | 676 | `test_builtin_runtime_resources.py`、`test_maintenance_report.py`、`test_ops.py` |
-| `atri_x.sysinfo_format` | 资源快照的文本渲染：``/resources`` 命令与 ``runtime_resources`` 工具的唯一出处。 | format_bytes, format_resources, format_uint_bytes, format_u… | 232 | `test_builtin_runtime_resources.py` |
-| `atri_x.sysinfo_platform` | 平台采集器实现：Windows（kernel32 / psapi）、Linux（/proc）与 POSIX 兜底。 | FallbackCollector, LinuxCollector, WindowsApi, WindowsColle… | 431 | `test_builtin_runtime_resources.py` |
+| `atri_x.sysinfo` | 可移植的运行时资源快照（进程 / 子进程 / 系统 / 磁盘 / 硬件）。 | DiskUsage, ProcessResources, ProcessSample, ResourceSnapsho… | 883 | `test_builtin_runtime_resources.py`、`test_maintenance_report.py`、`test_ops.py` |
+| `atri_x.sysinfo_children` | ATRI-X 子进程 / 相关进程采集：把 DSH 内核、draw.io 渲染器等算进资源快照。 | ChildProcess, ChildProcessCollector, EmptyChildProcessColle… | 389 | `test_builtin_runtime_resources.py` |
+| `atri_x.sysinfo_format` | 资源快照的文本渲染：``/resources`` 命令与 ``runtime_resources`` 工具的唯一出处。 | format_bytes, format_resources, format_uint_bytes, format_u… | 307 | `test_builtin_runtime_resources.py` |
+| `atri_x.sysinfo_platform` | 平台采集器实现：Windows（kernel32 / psapi）、Linux（/proc）与 POSIX 兜底。 | FallbackCollector, LinuxCollector, WindowsApi, WindowsColle… | 532 | `test_builtin_runtime_resources.py` |
 | `atri_x.textmatch` | 确定性的关键词抽取与 LIKE 转义助手。 | Keywords, LikePattern, keywords, like_pattern | 228 | `test_redact.py` |
 | `atri_x.time_service` | 统一时间服务：业务时间的**唯一**读取点（Python 侧新增模块）。 | CLOCK_JUMP_THRESHOLD_SECONDS, DEFAULT_TIME_SOURCE, TimeServ… | 354 | `test_time_context.py`、`test_time_service.py`、`test_timesync_verifier.py` |
 | `atri_x.timesync` | 网络时间校验子系统（首版 ``verify_only``）。 | OutboundPolicy, ROUND_TRIGGER_MANUAL, ROUND_TRIGGER_SCHEDUL… | 45 | `test_timesync_https.py`、`test_timesync_sntp.py`、`test_timesync_verifier.py` |
@@ -792,7 +793,7 @@
 | `atri_x.tool.builtin.register` | 把所有已落地的内置工具装进 :class:`atri_x.tool.Registry`。 | RegisterOptions, new_registry_with_builtin, register_all, w… | 469 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_comic.py`、`test_builtin_imagegen.py`、`test_builtin_tools2.py`、`test_builtin_tools4.py`、`test_member_profile.py`、`test_qq_slowfetch.py` |
 | `atri_x.tool.builtin.resident_memory` | 常驻记忆工具族：入口 + 读取 + 普通记忆 + 核心记忆。 | MemoryCoreArgs, MemoryNormalArgs, MemoryReadArgs, MemoryRea… | 388 | `test_builtin_tools2.py`、`test_memory_notes.py` |
 | `atri_x.tool.builtin.runtime` | ``runtime.go`` 对应的入口名与配置换算。 | ImageGenConfig, ImagePromptRewriteRequest, ImagePromptRewri… | 151 | `test_builtin_tools4.py` |
-| `atri_x.tool.builtin.runtime_resources` | ``runtime_resources``：超管专属的只读硬件资源占用查询。 | RuntimeResourcesArgs, RuntimeResourcesTool, new_runtime_res… | 196 | `test_builtin_runtime_resources.py` |
+| `atri_x.tool.builtin.runtime_resources` | ``runtime_resources``：超管专属的只读硬件资源占用查询。 | RuntimeResourcesArgs, RuntimeResourcesTool, new_runtime_res… | 201 | `test_builtin_runtime_resources.py` |
 | `atri_x.tool.builtin.runtimeinfo` | 内置工具共享的运行时信息 —— 现在只是 :mod:`atri_x.tool.runtimeinfo` 的再导出。 | Info, RuntimeInfo, atriyph_rule_card, first | 32 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
 | `atri_x.tool.builtin.self_learning` | ``self_learning_review``：管理 clean-room 表达/黑话候选。 | SelfLearningReviewArgs, SelfLearningReviewTool, new_self_le… | 218 | `test_builtin_tools3.py` |
 | `atri_x.tool.builtin.send_file` | ``send_file``：把本地文件 / file URI / HTTP(S) URL / 媒体 ID 作为产物发出。 | SendFileArgs, SendFileTool, args_source, file_name_from_url… | 264 | `test_builtin_tools3.py`、`test_safety_integration.py` |
