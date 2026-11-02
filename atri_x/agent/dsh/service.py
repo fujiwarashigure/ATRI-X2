@@ -47,6 +47,24 @@ class DshRouteService:
         """解析并缓存凭据计划（幂等；不可用时只审计一次，路由随后静默回原生）。"""
         if self._credential is not None:
             return self._credential
+        blocked = _sandbox_blocks_dsh()
+        if blocked != "":
+            # 修改清单 §12：DSH 控制进程与其子进程还没有按租户隔离时，先**限制**
+            # 这条执行链（回落到已被沙箱接管的原生工具），不能宣称密钥已隔离。
+            plan = CredentialPlan(usable=False, reason=blocked)
+            self._credential = plan
+            self.router.set_credential(False, blocked)
+            _audit(
+                agent,
+                "dsh_route_blocked_by_sandbox",
+                "reason",
+                blocked,
+                "protocol",
+                plan.protocol,
+                "provider",
+                plan.provider,
+            )
+            return plan
         try:
             plan = resolve_credential_plan(agent, self.router.config)
         except Exception as exc:  # noqa: BLE001 - 解析失败按不可用处理
@@ -131,6 +149,29 @@ class DshRouteService:
 # ---------------------------------------------------------------------------
 # 查找/创建
 # ---------------------------------------------------------------------------
+def _sandbox_blocks_dsh() -> str:
+    """沙箱启用时是否要限制 DSH 执行链；返回原因（空串 = 不限制）。
+
+    DSH 是**第二条执行链**（node 内核 + 它自己的子进程 + 模型密钥网关）。它的控制
+    进程、工作区与凭据目前都是进程级（每 Agent 一份），尚未接入沙箱的租户边界；
+    按修改清单 §12 的「先限制、别留未受控旁路」，容器沙箱模式下默认把 DSH 路由
+    标成不可用，让请求回落到已经被沙箱接管的原生工具。等 DSH 控制面/子进程完成
+    租户隔离后，再把这里改成「放行」。
+    """
+    try:
+        from atri_x.sandbox.runtime import service_or_none
+
+        service = service_or_none()
+    except Exception:  # noqa: BLE001 - 未装配沙箱时不影响 DSH
+        return ""
+    if service is None:
+        return ""
+    return (
+        "沙箱模式已启用，但 DSH 执行链尚未接入租户隔离（控制进程/子进程/密钥仍在宿主）；"
+        "已限制该路由，请求回落到沙箱内的原生工具"
+    )
+
+
 def _find_service(agent: Any) -> DshRouteService | None:
     services = getattr(agent, "services", None)
     service = services.get(SERVICE_KEY) if isinstance(services, dict) else None

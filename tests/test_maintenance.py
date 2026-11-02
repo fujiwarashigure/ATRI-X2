@@ -181,7 +181,10 @@ class TestServiceCleanups(_AsyncCaseWithTmp):
             _FakeLogs(self.path("logs")), object(), object(), object(), cfg, None
         )
         self.assertEqual(service.session_cleanup.retention_days, 7)
-        self.assertEqual(service.sandbox_root, self.path("sandbox"))
+        # 沙箱清理只扫租户数据目录；用量账本/审计在上一级，不能被按 mtime 误删。
+        self.assertEqual(
+            service.sandbox_root, os.path.join(self.path("sandbox"), "tenants")
+        )
         self.assertEqual(service.sandbox_cleanup.retention_days, 3)
         self.assertEqual(service.chat_history_cleanup.retention_days, 90)
         self.assertTrue(service.privacy_cleanup.enabled)

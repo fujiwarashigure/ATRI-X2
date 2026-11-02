@@ -460,8 +460,8 @@ class CommandsOverRealAgentTests(unittest.TestCase):
         agent = make_agent()
         install_agent_services(agent)
         names = [info.name for info in agent.commands.commands()]
-        # 1.0.10 起 /time、1.1.3 起 /research、1.1.4 起 /resources。
-        self.assertEqual(len(names), 50)
+        # 1.0.10 起 /time、1.1.3 起 /research、1.1.4 起 /resources、沙箱 P0 起 /sandbox。
+        self.assertEqual(len(names), 51)
         self.assertEqual(names[0], "help")
         self.assertIn("state", names)
         self.assertIn("model", names)
@@ -559,7 +559,7 @@ class CommandsOverRealAgentTests(unittest.TestCase):
         agent = make_agent()
         install_agent_services(agent)
         infos = agent.command_infos()
-        self.assertEqual(len(infos), 50)
+        self.assertEqual(len(infos), 51)
         actor = agent.actor(make_ctx())
         visible = {info.name for info in agent.commands.commands_for_actor(actor)}
         self.assertIn("help", visible)

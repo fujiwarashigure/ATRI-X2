@@ -506,6 +506,7 @@ def _tool_options(
     image_generation = getattr(cfg, "image_generation", None)
     artist_library = getattr(image_generation, "artist_library", None)
     from atri_x.memory.resident import Limits as ResidentLimits
+    from atri_x.sandbox.runtime import build_service as build_sandbox_service
     from atri_x.tool.builtin.runtimeinfo import RuntimeInfo
     from atri_x.tool.builtin.shell_sandbox import background_shell_policy_from_config
 
@@ -559,6 +560,7 @@ def _tool_options(
         background_shell_policy=background_shell_policy_from_config(
             getattr(cfg, "security", None)
         ),
+        sandbox_service=build_sandbox_service(getattr(cfg, "sandbox", None)),
     )
 
 
@@ -603,8 +605,6 @@ def _is_enabled(section: Any) -> bool:
     if callable(method):
         return bool(method())
     return bool(getattr(section, "enabled", False))
-
-
 
 
 # Go 命名别名。

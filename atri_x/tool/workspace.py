@@ -89,7 +89,14 @@ def workspace_store_from_context(ctx: Any) -> tuple[WorkspaceStore | None, bool]
 
 
 async def current_workspace_dir(ctx: Any) -> str:
-    """对应 Go ``CurrentWorkspaceDir``。"""
+    """对应 Go ``CurrentWorkspaceDir``。
+
+    沙箱模式下工作区由**用户安全域**托管：直接返回该租户在宿主上的工作区路径，
+    不再读会话里用户自选的宿主目录（宿主文件访问是另一项显式授权能力）。
+    """
+    sandbox = _sandbox_service()
+    if sandbox is not None:
+        return sandbox.tenant_workspace(ctx)
     store, ok = workspace_store_from_context(ctx)
     if ok and store is not None:
         try:
@@ -99,6 +106,16 @@ async def current_workspace_dir(ctx: Any) -> str:
         if (dir_value or "").strip():
             return validate_workspace_dir(dir_value)
     return os.path.normpath(os.getcwd())
+
+
+def _sandbox_service() -> Any:
+    """当前生效的沙箱服务（未启用 / 显式 off 时返回 ``None``）。"""
+    try:
+        from atri_x.sandbox.runtime import service_or_none
+
+        return service_or_none()
+    except Exception:  # noqa: BLE001 - 沙箱未装配时维持宿主行为
+        return None
 
 
 async def resolve_workspace_path(
@@ -113,6 +130,16 @@ async def resolve_workspace_path(
     raw_path = (raw_path or "").strip()
     if raw_path == "":
         raise InvalidError("path is required")
+    service = _sandbox_service()
+    if service is not None:
+        # 租户空间只接受相对路径；绝对路径/符号链接/特殊文件由沙箱文件层拒绝。
+        path = service.resolve_path(
+            ctx,
+            raw_path,
+            allow_create=opts.allow_create,
+            allow_directory=opts.allow_directory,
+        )
+        return ResolvedPath(path=os.path.normpath(path), base_dir=service.tenant_workspace(ctx))
     sandbox, ok = sandbox_context_from_context(ctx)
     if ok and sandbox.background:
         path = resolve_sandbox_relative_path(sandbox, raw_path)

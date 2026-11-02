@@ -85,6 +85,7 @@
 | `atri_x.agent.commands.research` | ``/research``：科研研究助理的只读操作面板命令。 |
 | `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 |
 | `atri_x.agent.commands.rollback` | ``/rollback``：列出并撤销 ATRI-X 自己对文件的最新一次编辑。 |
+| `atri_x.agent.commands.sandbox` | ``/sandbox``：用户安全域执行环境的状态、重置与自检入口。 |
 | `atri_x.agent.commands.session_core` | ``/new``、``/status``、``/work``、``/chat``。 |
 | `atri_x.agent.commands.session_format` | Session 列表/消息的查询与文本渲染。 |
 | `atri_x.agent.commands.session_lifecycle` | Session 生命周期命令：``/archive`` 系列、``/rename``、``/delete``、``/clean``。 |

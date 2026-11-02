@@ -21,7 +21,7 @@
 
 ## 模块清单（自动生成）
 
-共 **157** 个模块，被测试覆盖 **97** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **158** 个模块，被测试覆盖 **97** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
@@ -46,13 +46,13 @@
 | `atri_x.agent.chat_turn` | 一轮对话的主体循环。 | 625 | `test_agent_chat.py` |
 | `atri_x.agent.chat_vision` | 图片不受支持时的透明兜底。 | 86 | — |
 | `atri_x.agent.command_runtime` | Slash 命令的执行与权限裁决。 | 243 | — |
-| `atri_x.agent.commands` | ``internal/agent/commands`` 的 Python 移植：slash 命令族与注册入口。 | 539 | `agent_commands_fakes.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_builtin_runtime_resources.py`、`test_security_grants.py`、`test_usage_attribution.py` |
-| `atri_x.agent.commands.approval` | ``/grant`` 与 ``/panic``：授权生命周期的手动入口。 | 186 | `test_security_grants.py` |
+| `atri_x.agent.commands` | ``internal/agent/commands`` 的 Python 移植：slash 命令族与注册入口。 | 542 | `agent_commands_fakes.py`、`test_agent_assembly.py`、`test_agent_bootstrap.py`、`test_agent_commands.py`、`test_agent_commands_integration.py`、`test_agent_commands_services.py`、`test_builtin_runtime_resources.py`、`test_security_grants.py`、`test_usage_attribution.py` |
+| `atri_x.agent.commands.approval` | ``/grant`` 与 ``/panic``：授权生命周期的手动入口。 | 205 | `test_security_grants.py` |
 | `atri_x.agent.commands.character` | ``/chars``：列出角色素材库，或重建角色索引。 | 118 | — |
 | `atri_x.agent.commands.compact` | ``/compact``：手动压缩当前会话上下文。 | 50 | — |
 | `atri_x.agent.commands.completion` | 命令参数补全的公共助手。 | 212 | — |
 | `atri_x.agent.commands.context_policy` | ``/overflow``（别名 ``/ctxpolicy``、``/longmsg``）：长消息溢出策略。 | 103 | — |
-| `atri_x.agent.commands.deps` | 命令注册表、依赖容器与服务协议。 | 442 | `test_agent_assembly.py`、`test_agent_commands_integration.py`、`test_builtin_runtime_resources.py`、`test_security_grants.py` |
+| `atri_x.agent.commands.deps` | 命令注册表、依赖容器与服务协议。 | 444 | `test_agent_assembly.py`、`test_agent_commands_integration.py`、`test_builtin_runtime_resources.py`、`test_security_grants.py` |
 | `atri_x.agent.commands.doctor` | ``/doctor``：只读配置检查。 | 55 | — |
 | `atri_x.agent.commands.group_knowledge` | ``/faq``（别名 ``/knowledge``、``/kb``、``/groupkb``）：群确定性知识库。 | 293 | — |
 | `atri_x.agent.commands.group_policy` | ``/grouppolicy``（别名 ``/gpolicy``、``/grouppolicies``）：当前群的策略配置。 | 109 | — |
@@ -72,6 +72,7 @@
 | `atri_x.agent.commands.research` | ``/research``：科研研究助理的只读操作面板命令。 | 308 | — |
 | `atri_x.agent.commands.resources` | ``/resources``：超管直接查看本机与 ATRI-X 进程的硬件资源占用。 | 84 | `test_builtin_runtime_resources.py` |
 | `atri_x.agent.commands.rollback` | ``/rollback``：列出并撤销 ATRI-X 自己对文件的最新一次编辑。 | 109 | — |
+| `atri_x.agent.commands.sandbox` | ``/sandbox``：用户安全域执行环境的状态、重置与自检入口。 | 176 | — |
 | `atri_x.agent.commands.session_core` | ``/new``、``/status``、``/work``、``/chat``。 | 266 | — |
 | `atri_x.agent.commands.session_format` | Session 列表/消息的查询与文本渲染。 | 366 | — |
 | `atri_x.agent.commands.session_lifecycle` | Session 生命周期命令：``/archive`` 系列、``/rename``、``/delete``、``/clean``。 | 523 | — |
@@ -104,13 +105,13 @@
 | `atri_x.agent.dsh.router` | DSH 深度路由：任务特征打分 + 成本闸门 + 熔断。 | 558 | `test_dsh_gateway.py`、`test_dsh_route.py`、`test_dsh_scheduler.py` |
 | `atri_x.agent.dsh.runtime` | DSH 运行时的进程与并发管理：长驻 AcpClient + 有界并发 + 看门狗 + 会话亲和。 | 597 | `test_dsh_gateway.py`、`test_dsh_route.py`、`test_dsh_scheduler.py` |
 | `atri_x.agent.dsh.scheduler` | DSH 轮次的并发槽、忙时回退、卡死看门狗与运行指标。 | 319 | `test_dsh_route.py`、`test_dsh_scheduler.py` |
-| `atri_x.agent.dsh.service` | DSH 路由的服务对象：路由器 + 懒创建运行时 + 凭据计划 + 预热 + 指标。 | 257 | `test_dsh_route.py` |
+| `atri_x.agent.dsh.service` | DSH 路由的服务对象：路由器 + 懒创建运行时 + 凭据计划 + 预热 + 指标。 | 298 | `test_dsh_route.py` |
 | `atri_x.agent.dsh.smoke` | ``python -m atri_x.agent.dsh.smoke``：DSH ACP 最小闭环冒烟。 | 196 | `test_dsh_acp_client.py` |
 | `atri_x.agent.dsh.status` | ``python -m atri_x.agent.dsh.status``：DSH 内核与深度路由的状态自检。 | 237 | `test_dsh_route.py` |
 | `atri_x.agent.dsh.transport` | ``atri_x.agent.dsh.transport``：ACP 子进程的 NDJSON stdio JSON-RPC 传输。 | 376 | — |
 | `atri_x.agent.dsh.turn` | DSH 轮次的数据形状：执行计划与执行结果（纯数据，无副作用）。 | 80 | `test_dsh_scheduler.py` |
 | `atri_x.agent.dsh.types` | ``atri_x.agent.dsh`` 的协议类型、常量与解析函数。 | 295 | `test_dsh_acp_client.py`、`test_dsh_route.py` |
-| `atri_x.agent.dsh.workspace` | DSH 的目录解析与子进程环境收敛（从 runtime 拆出，见 600 行约定）。 | 102 | `test_dsh_gateway.py`、`test_dsh_scheduler.py` |
+| `atri_x.agent.dsh.workspace` | DSH 的目录解析与子进程环境收敛（从 runtime 拆出，见 600 行约定）。 | 113 | `test_dsh_gateway.py`、`test_dsh_scheduler.py` |
 | `atri_x.agent.errors` | 面向用户的错误呈现与"已通知用户"标记。 | 145 | `test_agent_chat.py` |
 | `atri_x.agent.events` | 平台生命周期事件的确定性处理（不调用模型）。 | 466 | — |
 | `atri_x.agent.group_knowledge` | 群知识库（确定性 FAQ）：命中即本地回答，不进模型。 | 563 | `test_agent_group_policy.py` |
@@ -191,4 +192,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 869 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 896 个 / 超线文件 79 个）。

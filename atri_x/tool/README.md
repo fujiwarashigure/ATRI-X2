@@ -26,10 +26,10 @@
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
-| `atri_x.tool` | Tool Runtime：工具契约、注册表、发现、风险准入与执行适配。 | 191 | `agent_fakes.py`、`test_agent_assembly.py`、`test_agent_chat.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_background.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_command_router.py`、`test_completion.py`、`test_diagram_pack.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_research_bootstrap.py`、`test_safety_integration.py`、`test_tool_core.py`、`test_tool_discover.py`、`test_tool_media_runtime.py`、`test_tool_runtimeinfo.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
+| `atri_x.tool` | Tool Runtime：工具契约、注册表、发现、风险准入与执行适配。 | 191 | `agent_fakes.py`、`test_agent_assembly.py`、`test_agent_chat.py`、`test_agent_cron.py`、`test_agent_cron_background.py`、`test_agent_directives.py`、`test_agent_prompt.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_background.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_command_router.py`、`test_completion.py`、`test_diagram_pack.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_research_bootstrap.py`、`test_safety_integration.py`、`test_sandbox_tools.py`、`test_tool_core.py`、`test_tool_discover.py`、`test_tool_media_runtime.py`、`test_tool_runtimeinfo.py`、`test_tool_skill.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_usage_attribution.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
 | `atri_x.tool.availability` | 工具"为什么没被采用"的机器可读原因，以及产出它的唯一判定入口。 | 114 | — |
 | `atri_x.tool.builder` | 工具 schema 与元信息的声明式构造器。 | 249 | `test_tool_discover.py` |
-| `atri_x.tool.builtin` | 内置工具包：ATRI-X 自带的全部工具实现与注册入口。 | 748 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
+| `atri_x.tool.builtin` | 内置工具包：ATRI-X 自带的全部工具实现与注册入口。 | 748 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_files.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools2.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_member_profile.py`、`test_memory_notes.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_sandbox_tools.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_vision_threading.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
 | `atri_x.tool.builtin.angel_memory` | Angel 长期记忆工具族：写入、召回，以及可选的删除（angel_forget）。 | 457 | `test_builtin_tools2.py` |
 | `atri_x.tool.builtin.artist_extract` | ``artist_extract``：从提示词文本或图片自身的生成参数里提取画师串。 | 456 | `test_builtin_character_artist.py` |
 | `atri_x.tool.builtin.artist_library` | ``artist_library_*``：画师串组合的检索、读取、保存与删除。 | 817 | `test_builtin_character_artist.py` |
@@ -69,7 +69,7 @@
 | `atri_x.tool.builtin.runtimeinfo` | 内置工具共享的运行时信息 —— 现在只是 :mod:`atri_x.tool.runtimeinfo` 的再导出。 | 32 | `test_app_runtime_agent.py`、`test_app_tool_runtime_wiring.py`、`test_member_profile.py` |
 | `atri_x.tool.builtin.self_learning` | ``self_learning_review``：管理 clean-room 表达/黑话候选。 | 218 | `test_builtin_tools3.py` |
 | `atri_x.tool.builtin.send_file` | ``send_file``：把本地文件 / file URI / HTTP(S) URL / 媒体 ID 作为产物发出。 | 264 | `test_builtin_tools3.py`、`test_safety_integration.py` |
-| `atri_x.tool.builtin.shell` | ``shell`` 工具：带风险分级、目录约束与后台沙盒的执行器。 | 468 | `test_builtin_shell.py` |
+| `atri_x.tool.builtin.shell` | ``shell`` 工具：带风险分级、目录约束与后台沙盒的执行器。 | 572 | `test_builtin_shell.py`、`test_sandbox_tools.py` |
 | `atri_x.tool.builtin.shell_env` | Shell 解释器探测、子进程配置与进程树清理。 | 139 | — |
 | `atri_x.tool.builtin.shell_risk` | Shell 命令的静态风险分级。 | 566 | `test_builtin_shell.py` |
 | `atri_x.tool.builtin.shell_sandbox` | 后台沙盒下的 shell 命令风险加固。 | 484 | `test_builtin_shell.py` |
@@ -82,7 +82,7 @@
 | `atri_x.tool.builtin.web_search` | ``web_search``：网页搜索（可配置的通道链）。 | 610 | `test_builtin_tools2.py`、`test_web_search_engines.py` |
 | `atri_x.tool.builtin.web_search_cli` | ``web_search`` 的外部 CLI 通道：Antigravity（``agy``）与 Grok Build（``grok``）。 | 376 | `test_web_search_engines.py` |
 | `atri_x.tool.builtin.web_search_engines` | ``web_search`` 的引擎通道。 | 556 | `test_web_search_engines.py` |
-| `atri_x.tool.builtin.workspace` | ``workspace`` 工具：设置当前 Session 的共享工作目录。 | 238 | `test_builtin_files.py`、`test_builtin_tools2.py`、`test_toolrun.py` |
+| `atri_x.tool.builtin.workspace` | ``workspace`` 工具：设置当前 Session 的共享工作目录。 | 275 | `test_builtin_files.py`、`test_builtin_tools2.py`、`test_sandbox_tools.py`、`test_toolrun.py` |
 | `atri_x.tool.capability` | 当前请求所用模型的能力声明，并充当本包共享的零依赖底座。 | 170 | `test_builtin_tools3.py`、`test_command_router.py` |
 | `atri_x.tool.detail` | 工具详情的结构化块、发现结果、发现文案提供者与规则卡去重。 | 395 | `agent_fakes.py`、`test_agent_cron_background.py`、`test_tool_discover.py` |
 | `atri_x.tool.discover` | ``discover_tool``：把可用工具/技能的简介或完整 schema 交给模型。 | 346 | `test_tool_discover.py` |
@@ -108,8 +108,8 @@
 | `atri_x.tool.skill.process` | 子进程启动、超时/取消与进程树终止。 | 244 | — |
 | `atri_x.tool.skill.runner` | Go skill 运行器：把 payload 写进子进程 stdin 并解析 stdout。 | 333 | — |
 | `atri_x.tool.skill.scanner` | 文件系统 skill 扫描器。 | 404 | — |
-| `atri_x.tool.tool` | Tool Runtime 核心类型：工具契约、风险等级、注册表与工具发现。 | 502 | `test_agent_assembly.py`、`test_agent_cron.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_tool_discover.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
-| `atri_x.tool.workspace` | 工具 workspace 上下文与路径解析。 | 229 | `test_builtin_files.py`、`test_toolrun.py` |
+| `atri_x.tool.tool` | Tool Runtime 核心类型：工具契约、风险等级、注册表与工具发现。 | 502 | `test_agent_assembly.py`、`test_agent_cron.py`、`test_agent_risk.py`、`test_agent_tools.py`、`test_app_tool_runtime_wiring.py`、`test_builtin_character_artist.py`、`test_builtin_comic.py`、`test_builtin_cron.py`、`test_builtin_imagegen.py`、`test_builtin_long_memory.py`、`test_builtin_runtime_resources.py`、`test_builtin_shell.py`、`test_builtin_tools3.py`、`test_builtin_tools4.py`、`test_hook_runtime.py`、`test_long_memory_scope.py`、`test_member_persona.py`、`test_qq_slowfetch.py`、`test_safety_integration.py`、`test_sandbox_tools.py`、`test_tool_discover.py`、`test_tool_skill_editor.py`、`test_tool_skill_tools.py`、`test_toolrun.py`、`test_vision_privacy.py`、`test_web_extract_engines.py`、`test_web_search_engines.py` |
+| `atri_x.tool.workspace` | 工具 workspace 上下文与路径解析。 | 256 | `test_builtin_files.py`、`test_sandbox_tools.py`、`test_toolrun.py` |
 
 ## 对应上游 Go（自动生成）
 
@@ -119,4 +119,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 869 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 896 个 / 超线文件 79 个）。

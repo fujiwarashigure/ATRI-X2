@@ -150,7 +150,49 @@ tool_keywords = ["use", "工具", "用工具"]
 # aliases = ["快", "高清"]
 
 [sandbox]
+# Per-tenant sandboxed execution environment (the "sandbox" feature).
+# mode = "container": run shell/files inside a Linux container; if the backend is
+#   unavailable the command is REFUSED (no fallback to the host shell).
+# mode = "off": explicit, unsafe legacy behavior (host shell). Keep empty unless you
+#   are doing emergency maintenance.
 root = ""
+mode = "container"
+backend = "auto"
+engine_path = ""
+image = "atri-x-sandbox:1.2.0"
+image_auto_build = true
+# Optional Debian mirror used when building the sandbox image (empty = official https).
+# e.g. "https://mirrors.tuna.tsinghua.edu.cn/debian"
+apt_mirror = ""
+profile = "standard"
+network = "public"
+allow_host_files = false
+require_probe = true
+proxy_port = 3128
+cpu_cores = 0.0
+cpu_weight = 0
+memory_mb = 0
+pids_limit = 0
+disk_mb = 0
+inode_limit = 0
+command_timeout_seconds = 0
+long_task_timeout_seconds = 0
+idle_ttl_seconds = 0
+data_retention_hours = 0
+max_environments = 0
+queue_max_size = 0
+queue_max_per_tenant = 0
+queue_wait_seconds = 0
+background_starvation_rounds = 0
+daily_traffic_mb = 0
+download_kbps = 0
+upload_kbps = 0
+max_connections = 0
+restricted_hosts = []
+import_max_mb = 0
+export_max_mb = 0
+audit_max_mb = 0
+max_output_kib = 0
 
 [file_delivery]
 # Controls media delivery in model requests: base64 uses inline data, s3 uses presigned download URLs, and hybrid uses S3 when the total media size in a request exceeds max_direct_base64_bytes. After switching to S3, existing local media will be uploaded when remote delivery is required, and previously recorded object keys will be reused.

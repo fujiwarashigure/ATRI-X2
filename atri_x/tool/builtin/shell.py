@@ -58,6 +58,7 @@ from atri_x.tool.tool import (
     RiskAssessment,
     RiskCritical,
     RiskHigh,
+    RiskLow,
 )
 from atri_x.tool.workspace import current_workspace_dir
 
@@ -117,8 +118,15 @@ class ShellTool:
         return schema
 
     async def assess_risk(self, ctx: Any, req: CallRequest) -> RiskAssessment:
-        """对应 Go ``ShellTool.AssessRisk``。"""
+        """对应 Go ``ShellTool.AssessRisk``。
+
+        沙箱模式：盒内**普通命令不再逐条确认**（返回 low），风险判定的重点移到
+        跨边界操作（宿主文件、网络目标、重置）。无人值守后台（cron / Atrinis）的
+        「默认拒绝 + 只读白名单」仍然保留，不因为进了沙箱就放开。
+        """
         _, cmd_text = decode_shell_args(req)
+        if _sandbox_service() is not None:
+            return sandbox_risk_assessment(ctx, cmd_text, self.background_shell_policy)
         assessment = classify_shell_command(cmd_text)
         sandbox, ok = sandbox_context_from_context(ctx)
         if ok and sandbox.background:
@@ -133,8 +141,19 @@ class ShellTool:
         return assessment
 
     async def preflight_confirmation(self, ctx: Any, req: CallRequest) -> None:
-        """对应 Go ``ShellTool.PreflightConfirmation``。"""
+        """对应 Go ``ShellTool.PreflightConfirmation``。
+
+        沙箱模式：不再做宿主路径/``cd`` 拦截（命令在容器内执行，工作目录由控制面
+        固定为 ``/workspace``），但无人值守后台策略要在执行前再复核一次。
+        """
         _, cmd_text = decode_shell_args(req)
+        if _sandbox_service() is not None:
+            denial = background_execution_denial(
+                ctx, cmd_text, self.background_shell_policy
+            )
+            if denial != "":
+                raise ForbiddenError(f"background shell denied: {denial}")
+            return
         reject_shell_directory_change(cmd_text)
         work_dir = await resolve_shell_work_dir(ctx)
         advice = analyze_shell_advice(cmd_text, work_dir, self.file_guard)
@@ -150,6 +169,9 @@ class ShellTool:
         自己重新裁决；拒绝时抛 :class:`ForbiddenError`，不启动进程。
         """
         args, cmd_text = decode_shell_args(req)
+        service = _sandbox_service()
+        if service is not None:
+            return await self._call_in_sandbox(ctx, args, cmd_text, service)
         denial = background_execution_denial(ctx, cmd_text, self.background_shell_policy)
         if denial != "":
             raise ForbiddenError(f"background shell denied: {denial}")
@@ -179,6 +201,88 @@ class ShellTool:
         finally:
             await _close_media_call(media_call)
         return Result(content=format_shell_content(data), warnings=list(advice.warnings))
+
+    async def _call_in_sandbox(
+        self,
+        ctx: Any,
+        args: ShellArgs,
+        cmd_text: str,
+        service: Any,
+    ) -> Result:
+        """在用户安全域的沙箱里执行：媒体先导入工作区，再按容器内路径注入环境变量。"""
+        sandbox_ctx, ok = sandbox_context_from_context(ctx)
+        background_kind = ""
+        if ok and sandbox_ctx.background:
+            background_kind = (sandbox_ctx.background_kind or "background").strip()
+            denial = background_execution_denial(
+                ctx, cmd_text, self.background_shell_policy
+            )
+            if denial != "":
+                raise ForbiddenError(f"background shell denied: {denial}")
+        timeout = args.timeout_ms / 1000 if args.timeout_ms > 0 else 0.0
+        env: dict[str, str] = {}
+        media_call: MediaCall | None = None
+        warnings: list[str] = []
+        try:
+            if args.media_inputs:
+                if self.media is None:
+                    raise InvalidError(
+                        "shell media inputs are unavailable in this context"
+                    )
+                media_call = self.media.new_call()
+                for position, item in enumerate(args.media_inputs):
+                    media_id = MediaInput.from_dict(item).media_id
+                    path = await _cached_export(media_call, media_id)
+                    # 宿主机媒体必须经由受控导入通道进盒子，模型只看到容器内路径。
+                    env[f"ATRIX_MEDIA_{position + 1}"] = await service.import_media(
+                        ctx, path
+                    )
+            outcome = await service.run_shell(
+                ctx,
+                cmd_text,
+                timeout=timeout,
+                background_kind=background_kind,
+                env=env,
+            )
+        finally:
+            await _close_media_call(media_call)
+        if outcome.truncated:
+            warnings.append(
+                f"沙箱命令输出超过上限（{MAX_SHELL_OUTPUT // 1024} KiB），已截断"
+            )
+        data = ShellData(
+            stdout=outcome.stdout,
+            stderr=outcome.stderr,
+            exit_code=outcome.exit_code,
+        )
+        return Result(content=format_shell_content(data), warnings=warnings)
+
+
+def _sandbox_service() -> Any:
+    """当前生效的沙箱服务（未启用 / 显式 off 时返回 ``None``）。"""
+    try:
+        from atri_x.sandbox.runtime import service_or_none
+
+        return service_or_none()
+    except Exception:  # noqa: BLE001 - 沙箱未装配时维持宿主行为
+        return None
+
+
+def sandbox_risk_assessment(
+    ctx: Any, cmd_text: str, policy: BackgroundShellPolicy
+) -> RiskAssessment:
+    """沙箱模式的风险裁决：普通命令直接 low；无人值守后台仍按白名单裁决。"""
+    sandbox, ok = sandbox_context_from_context(ctx)
+    if ok and is_unattended_background(sandbox):
+        assessment = classify_shell_command(cmd_text)
+        assessment = apply_shell_sandbox_risk(cmd_text, assessment)
+        assessment = apply_background_shell_policy(cmd_text, assessment, policy)
+        if compare_risk(RiskCritical, assessment.level) <= 0:
+            return assessment
+    return RiskAssessment(
+        level=RiskLow,
+        reasons=["沙箱内执行：普通命令不再逐条确认（跨边界操作另行授权）"],
+    )
 
 
 def shell_builder() -> Builder:

@@ -73,6 +73,9 @@ class WorkspaceTool:
     async def call(self, ctx: Any, req: CallRequest) -> Result:
         """对应 Go ``WorkspaceTool.Call``。"""
         args = parse_workspace_args(req.arguments)
+        sandbox = _sandbox_service()
+        if sandbox is not None:
+            return await self._call_in_sandbox(ctx, args, sandbox)
         store, has_store = workspace_store_from_context(ctx)
         if args.reset:
             directory = default_workspace_dir()
@@ -128,6 +131,40 @@ class WorkspaceTool:
 
         directory = await current_workspace_dir(ctx)
         return Result(content=f"current workspace: {directory}")
+
+
+    async def _call_in_sandbox(self, ctx: Any, args: WorkspaceArgs, sandbox: Any) -> Result:
+        """沙箱模式：工作区由用户安全域托管，不允许切到宿主目录。
+
+        查询返回容器内路径 ``/workspace`` 与一句说明；``reset`` 引导用
+        ``/sandbox reset``（分三档，其中清空文件需要用户确认）。设置任意宿主路径
+        属于「宿主文件访问」能力，默认不开放。
+        """
+        workspace = await current_workspace_dir(ctx)
+        content = (
+            "current workspace: /workspace\n"
+            f"（沙箱模式：工作区由当前用户安全域托管，宿主路径 {workspace} 不直接暴露；"
+            "需要重建环境请用 `/sandbox reset`）"
+        )
+        if args.reset:
+            result = await sandbox.reset(ctx, mode="rebuild")
+            content = "workspace reset（保留文件重建）。\n" + str(result.get("message", ""))
+        elif (args.path or "").strip():
+            raise InvalidError(
+                "沙箱模式不允许把工作区切到宿主目录；"
+                "工作区固定为当前用户安全域的 /workspace"
+            )
+        return Result(content=content)
+
+
+def _sandbox_service() -> Any:
+    """当前生效的沙箱服务（未启用 / 显式 off 时返回 ``None``）。"""
+    try:
+        from atri_x.sandbox.runtime import service_or_none
+
+        return service_or_none()
+    except Exception:  # noqa: BLE001 - 沙箱未装配时维持宿主行为
+        return None
 
 
 def new_workspace_tool() -> WorkspaceTool:

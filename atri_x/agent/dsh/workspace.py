@@ -63,7 +63,18 @@ def resolve_paths(agent: Any, config: DshRouteConfig) -> WorkspacePaths:
 
 
 def allow_permission(params: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    """``[agent.dsh].allow_permissions=true`` 时的权限应答：选第一个 allow 选项。"""
+    """``[agent.dsh].allow_permissions=true`` 时的权限应答：选第一个 allow 选项。
+
+    沙箱模式下 DSH 路由本身已被限制（见 :mod:`atri_x.agent.dsh.service`），这里再加
+    一道防线：即使有人直接调用本函数，也不在沙箱模式里替模型自动批准权限请求。
+    """
+    try:
+        from atri_x.sandbox.runtime import service_or_none
+
+        if service_or_none() is not None:
+            return None
+    except Exception:  # noqa: BLE001 - 未装配沙箱时保持原行为
+        pass
     options = params.get("options")
     if isinstance(options, list):
         for option in options:

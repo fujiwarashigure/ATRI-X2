@@ -81,6 +81,10 @@ datas = [
     # 品牌图标：窗口图标（Tk iconbitmap）与托盘图标（LoadImageW）都要在运行期读文件，
     # 所以不能只嵌进 exe 资源。素材由 packaging/make_assets.py 生成。
     (os.path.join(REPO_ROOT, "atri_x", "gui", "brand"), "atri_x/gui/brand"),
+    # 沙箱镜像构建输入：镜像缺失时控制面要读 Dockerfile / apt 脚本 / 出口代理源码。
+    # ``egress.py`` 同时是 PYZ 里的模块，这里再以数据文件复制一份供 ``docker build``。
+    (os.path.join(REPO_ROOT, "atri_x", "sandbox", "assets"), "atri_x/sandbox/assets"),
+    (os.path.join(REPO_ROOT, "atri_x", "sandbox", "egress.py"), "atri_x/sandbox/assets"),
 ]
 
 #: 可选内置运行时（DSH 内核等）：整目录复制到 ``runtime/``。

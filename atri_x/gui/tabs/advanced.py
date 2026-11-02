@@ -85,6 +85,7 @@ class AdvancedTab(ConfigTab, MountPanelMixin):
         right.grid(row=0, column=1, sticky="nsew")
         self._build_image_box(left)
         self._build_runtime_box(left)
+        self._build_sandbox_box(left)
         self._build_media_box(right)
         self._build_toggle_box(right)
         self._build_maintenance_box(right)
@@ -105,6 +106,30 @@ class AdvancedTab(ConfigTab, MountPanelMixin):
         ttk.Entry(box, textvariable=self.log_retention_var, width=8).pack(
             side=tk.LEFT, padx=(6, 0)
         )
+
+    def _build_sandbox_box(self, parent: Any) -> None:
+        """沙箱管理入口（二级窗口，见 :mod:`atri_x.gui.sandboxpanel`）。
+
+        不把状态/环境列表直接摊在本页：本页已经比窗口高，再塞一块会把下方的开关与
+        维护任务挤出可视区（界面用例会抓到）。管理面放到独立窗口，与自学习/Hook
+        等高级设置的约定一致。
+        """
+        box = ttk.LabelFrame(parent, text="沙箱（用户安全域执行环境）", padding=8)
+        box.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(
+            box,
+            text="shell / 文件工具在按用户安全域复用的容器里执行；后端、队列、环境与重置在这里管理。",
+        ).pack(side=tk.LEFT)
+        ttk.Button(box, text="打开沙箱管理…", command=self._open_sandbox).pack(side=tk.RIGHT)
+
+    def _open_sandbox(self) -> None:
+        """打开沙箱管理二级窗口。"""
+        from atri_x.gui.sandboxpanel import SandboxPanel
+
+        window = tk.Toplevel(self.frame)
+        window.title("沙箱管理")
+        window.geometry("760x560")
+        SandboxPanel(window, self.paths).pack(fill=tk.BOTH, expand=True)
 
     def _build_image_box(self, parent: Any) -> None:
         box = ttk.LabelFrame(parent, text="生图（services.toml [image_generation]）", padding=8)

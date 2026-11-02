@@ -662,8 +662,24 @@ LLM 在 work / chat 模式下都可以通过 `discover_tool` 按需发现工具�
 | --- | --- |
 | `/grant` / `/grant list` | 列出当前生效的放行凭据（id、工具、会话、作用域、主体、已用次数、剩余时间）。 |
 | `/grant revoke <id>` | 按 id（或唯一前缀）立即撤销一条放行。 |
-| `/panic` | 紧急停止：撤销**全部**放行、停止所有进行中的 turn、取消排队请求、丢弃排队消息。群里执行需要写 `/panic confirm` 二次确认；私聊与 CLI 直接执行。 |
+| `/panic` | 紧急停止：撤销**全部**放行、停止所有进行中的 turn、取消排队请求、丢弃排队消息、**停止全部沙箱环境**。群里执行需要写 `/panic confirm` 二次确认；私聊与 CLI 直接执行。 |
 
 两个命令都仅超级管理员可用；每次发放 / 使用 / 撤销 / panic 都会写审计（`grant_created`、`grant_used`、`grant_revoked`、`panic`）。
+
+### 沙箱（`/sandbox`）
+
+`shell` / 文件类工具默认在按用户安全域复用的容器里执行（见 [用户安全域沙箱](sandbox.md)）。
+普通盒内命令不需要逐条确认，但**清空文件需要二次确认**：
+
+| 命令 | 作用 |
+| --- | --- |
+| `/sandbox` | 查看当前安全域、后端与隔离探测状态、准入队列、运行环境数与今日流量。 |
+| `/sandbox reset` | 重启环境（文件保留）。 |
+| `/sandbox rebuild` | 按干净镜像重建（工作区 / 私有 home 保留）。 |
+| `/sandbox wipe confirm` | 清空环境全部文件并重建（必须带 `confirm`）。 |
+| `/sandbox probe` | 重新跑隔离能力探测（只读根 / 无 capability / 网络隔离 / 资源硬顶 / 无 docker.sock）。 |
+
+重置**不会**清空流量额度与滥用记录，也不会撤回已经发出的消息或外部 API 写入。
+`[sandbox].mode = "off"` 时命令会明确提示当前是显式宿主 Shell 模式（不安全）。
 
 具体提示以运行时输出为准。

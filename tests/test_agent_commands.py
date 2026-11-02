@@ -86,6 +86,7 @@ EXPECTED_COMMANDS = [
     "time",
     "research",
     "resources",
+    "sandbox",
 ]
 
 # 普通用户（非超管、非群管理员）能看到的命令。
@@ -109,6 +110,7 @@ USER_COMMANDS = {
     "rename",
     "research",
     "resume",
+    "sandbox",
     "sessions",
     "signup",
     "status",
@@ -159,6 +161,7 @@ class RegistryTests(unittest.TestCase):
                 "TimeModule",
                 "ResearchModule",
                 "ResourcesModule",
+                "SandboxModule",
             ],
         )
 
@@ -303,7 +306,7 @@ class LookupAndAccessTests(unittest.TestCase):
     def test_superadmin_sees_everything(self) -> None:
         harness = Harness()
         actor = Actor(id="u1", platform="qq", platform_user_id="1", role=RoleSuperadmin)
-        self.assertEqual(len(harness.router.commands_for_actor(actor)), 50)
+        self.assertEqual(len(harness.router.commands_for_actor(actor)), 51)
 
     def test_plain_user_sees_only_user_commands(self) -> None:
         harness = Harness()

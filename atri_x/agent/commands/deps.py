@@ -404,6 +404,7 @@ def default_modules() -> list[Module]:
     from atri_x.agent.commands.research import ResearchModule  # [atri-research]
     from atri_x.agent.commands.resources import ResourcesModule
     from atri_x.agent.commands.rollback import FileModule
+    from atri_x.agent.commands.sandbox import SandboxModule
     from atri_x.agent.commands.session_module import SessionModule
     from atri_x.agent.commands.state import StateModule
     from atri_x.agent.commands.time import TimeModule
@@ -432,6 +433,7 @@ def default_modules() -> list[Module]:
         TimeModule(),
         ResearchModule(),  # [atri-research]
         ResourcesModule(),  # 1.1.4：超管只读资源占用
+        SandboxModule(),  # 沙箱 P0：/sandbox 状态与重置
     ]
 
 

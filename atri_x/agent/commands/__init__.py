@@ -106,6 +106,7 @@ from atri_x.agent.commands.deps import (
     register_modules,
 )
 from atri_x.agent.commands.doctor import DoctorModule, new_doctor
+from atri_x.agent.commands.sandbox import SandboxModule, new_sandbox
 from atri_x.agent.commands.time import TimeModule, new_time
 from atri_x.agent.commands.group_knowledge import (
     KnowledgeCommand,
@@ -382,6 +383,7 @@ __all__ = [
     "format_request_tree",
     "format_rollback_list",
     "ResourcesModule",
+    "SandboxModule",
     "format_runtime_log_entries",
     "format_runtime_state_reload",
     "format_runtime_state_status",
@@ -437,6 +439,7 @@ __all__ = [
     "new_resume",
     "new_resources",
     "new_rollback",
+    "new_sandbox",
     "render_resources",
     "new_session_command_state",
     "new_sessions",

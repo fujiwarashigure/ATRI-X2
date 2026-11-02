@@ -104,6 +104,8 @@ class ToolRuntimeOptions:
     time_service: Any = None
     #: Python 侧新增：网络时间校验状态（只读快照提供者）。
     time_verification: Any = None
+    #: Python 侧新增（沙箱 P0）：按 ``[sandbox]`` 装配的执行服务；``None`` = 宿主旧行为。
+    sandbox_service: Any = None
 
 
 @dataclass
@@ -124,6 +126,8 @@ class ToolRuntime:
     artists: Any = None
     #: Python 侧新增（1.1.6）：聊天漫画服务（未配置生图时是 ``None``）。
     comic: Any = None
+    #: Python 侧新增（沙箱 P0）：绑定的沙箱服务（``None`` = 显式关闭/未启用）。
+    sandbox: Any = None
     image_profiles: dict[str, Any] = field(default_factory=dict)
     default_image_profile: str = ""
     warnings: list[str] = field(default_factory=list)
@@ -188,6 +192,12 @@ def build_tool_runtime(opts: ToolRuntimeOptions) -> ToolRuntime:
         file_manager.media = opts.media
 
     registry = Registry()
+    # 沙箱服务登记到进程内单例：工具层（shell / 文件 / 发送）从这里取当前执行面。
+    # ``None`` 表示 ``[sandbox].mode=off``（显式宿主模式）；装配失败时登记的是
+    # ``UnavailableService``（fail-closed，不会静默回落宿主）。
+    from atri_x.sandbox import runtime as sandbox_runtime
+
+    sandbox_runtime.install(opts.sandbox_service)
     skill_manager = _build_skill_manager(opts, registry, child_process_env, warnings)
     register_all(
         registry,
@@ -242,6 +252,7 @@ def build_tool_runtime(opts: ToolRuntimeOptions) -> ToolRuntime:
         group_analysis=group_analysis,
         artists=artists,
         comic=comic_service,
+        sandbox=opts.sandbox_service,
         image_profiles=image_profiles,
         default_image_profile=default_image_profile,
         warnings=warnings,

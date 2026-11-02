@@ -38,6 +38,8 @@ from atri_x.config.inspect import (
 )
 # 表情图库的推荐情绪清单只有一处定义（图库模块），配置/提示词/GUI 都从这里取。
 from atri_x.reaction.catalog import DEFAULT_EMOTIONS
+# 沙箱段字段较多，单独成文件；这里导入后再导出，保持 ``AppConfig`` 的导入面不变。
+from atri_x.config.sandbox import SandboxConfig
 
 __all__ = [
     # 解码基座（定义在 atri_x.config.inspect，这里重新导出）
@@ -304,11 +306,6 @@ class ConnectNoticeConfig(StrictConfig):
             text=(self.text or "").strip(),
         )
 
-
-
-@dataclass
-class SandboxConfig(StrictConfig):
-    root: str = ""
 
 
 @dataclass

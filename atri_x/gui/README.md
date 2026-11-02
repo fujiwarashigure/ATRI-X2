@@ -21,7 +21,7 @@
 
 ## 模块清单（自动生成）
 
-共 **93** 个模块，被测试覆盖 **67** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
+共 **94** 个模块，被测试覆盖 **67** 个；全仓口径见 `devdocs/generated/module-map.md` 与 `devdocs/generated/test-map.md`。
 
 | 模块 | 职责 | 行数 | 测试 |
 |---|---|---:|---|
@@ -69,6 +69,7 @@
 | `atri_x.gui.safetyrecords` | 「内容安全」页的数据层续篇：复核队列与审计日志的读取/处置。 | 174 | `test_gui_safety.py` |
 | `atri_x.gui.safetyviews` | 「内容安全」页的三个只读/半只读子页：复核队列、审计日志、原始 TOML。 | 425 | — |
 | `atri_x.gui.safetywordedit` | 「内容安全 → 词表」子页：用户词表 / 自定义正则的编辑与离线试扫。 | 304 | — |
+| `atri_x.gui.sandboxpanel` | 桌面端「沙箱」面板：后端连接、资源档案、队列、环境列表与重置入口。 | 246 | — |
 | `atri_x.gui.searchconfig` | 桌面端「模型 → 搜索服务」页的数据层：读写 ``services.toml`` 的 ``[web_search]``。 | 249 | `test_gui_searchconfig.py`、`test_gui_tabs.py` |
 | `atri_x.gui.selftest` | 桌面端自检：不连服务、不建托盘，只验证 Tk 侧能构建与渲染。 | 135 | — |
 | `atri_x.gui.service` | GUI 的「服务侧」准备：配置、token、后台服务的探测与拉起。 | 624 | `test_gui_link.py`、`test_gui_qqproto.py`、`test_gui_service.py`、`test_gui_tabs.py` |
@@ -78,7 +79,7 @@
 | `atri_x.gui.supervisor` | 桌面端的后台服务看护：断线后自动探测 → 重启 → 退避重试。 | 273 | `test_gui_supervisor.py` |
 | `atri_x.gui.taborder` | 主窗口选项卡顺序、名字索引与「功能」页跳转键（1.1.8 从 ``app.py`` 拆出）。 | 65 | — |
 | `atri_x.gui.tabs` | 桌面端的选项卡集合。 | 67 | `test_gui_dsh.py`、`test_gui_link.py`、`test_gui_perf.py`、`test_gui_promptlib.py`、`test_gui_qqproto.py`、`test_gui_safety.py`、`test_gui_tabs.py`、`test_gui_timepanel.py` |
-| `atri_x.gui.tabs.advanced` | 「进阶」选项卡：生图/视觉/语音、记忆与群功能开关、日志级别。 | 544 | `test_gui_tabs.py` |
+| `atri_x.gui.tabs.advanced` | 「进阶」选项卡：生图/视觉/语音、记忆与群功能开关、日志级别。 | 569 | `test_gui_tabs.py` |
 | `atri_x.gui.tabs.base` | 配置选项卡的公共骨架：底部状态行、错误弹窗、"需要重启"提示。 | 136 | — |
 | `atri_x.gui.tabs.character` | 「人设卡」选项卡：角色库编辑 + 系统人设（SOUL.md）。 | 775 | `test_gui_promptlib.py`、`test_gui_tabs.py` |
 | `atri_x.gui.tabs.chat` | 「对话」选项卡：会话列表 + 聊天记录 + 输入框。 | 165 | — |
@@ -123,4 +124,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 869 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 896 个 / 超线文件 79 个）。

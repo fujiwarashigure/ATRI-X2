@@ -26,7 +26,7 @@ _PANIC_GROUP_HINT = (
 )
 _PANIC_DONE = (
     "已执行紧急停止：撤销放行 {grants} 条、停止 turn {turns} 个、"
-    "取消排队请求 {requests} 个、丢弃排队消息 {inbox} 条。"
+    "取消排队请求 {requests} 个、丢弃排队消息 {inbox} 条、停止沙箱环境 {envs} 个。"
 )
 
 
@@ -133,6 +133,13 @@ def _new_panic_handler(deps: Deps) -> Any:
             for session_id in session_ids:
                 if session_id:
                     inbox += int(deps.cancel_session_inbox(session_id) or 0)
+        envs = 0
+        sandbox = _sandbox_service()
+        if sandbox is not None:
+            try:
+                envs = int(await sandbox.stop_all(reason="panic") or 0)
+            except Exception:  # noqa: BLE001 - 停止失败不能阻断紧急停止
+                envs = 0
         if deps.audit is not None:
             deps.audit(
                 "panic",
@@ -144,6 +151,8 @@ def _new_panic_handler(deps: Deps) -> Any:
                 requests,
                 "inbox",
                 inbox,
+                "sandbox_envs",
+                envs,
                 "platform_scope",
                 str(getattr(deps.scope(ctx), "platform_scope_id", "") or "")
                 if deps.scope is not None
@@ -151,7 +160,7 @@ def _new_panic_handler(deps: Deps) -> Any:
             )
         return Result(
             content=_PANIC_DONE.format(
-                grants=grants, turns=turns, requests=requests, inbox=inbox
+                grants=grants, turns=turns, requests=requests, inbox=inbox, envs=envs
             )
         )
 
@@ -172,6 +181,16 @@ def _new_panic_handler(deps: Deps) -> Any:
 def new_grant(deps: Deps) -> Any:
     """``/grant list|revoke``。"""
     return _new_grant_handler(deps)
+
+
+def _sandbox_service() -> Any:
+    """当前生效的沙箱服务（未启用时返回 ``None``）。"""
+    try:
+        from atri_x.sandbox.runtime import service_or_none
+
+        return service_or_none()
+    except Exception:  # noqa: BLE001 - 沙箱未装配时维持旧行为
+        return None
 
 
 def new_panic(deps: Deps) -> Any:

@@ -81,6 +81,7 @@ EXPECTED_EXPORTS: dict[str, tuple[str, ...]] = {
     "model_types": ("ModelOption", "ModelProfile", "ModelService"),
     "request": ("RequestModule", "new_requests", "new_stop", "new_stop_all"),
     "rollback": ("FileModule", "new_rollback"),
+    "sandbox": ("SandboxModule", "new_sandbox"),
     "session_core": ("new_chat", "new_new", "new_status", "new_work"),
     "session_format": ("format_time", "list_session_page"),
     "session_lifecycle": ("new_archive", "new_clean", "new_delete", "new_rename"),
@@ -140,6 +141,8 @@ class ModuleInventoryTests(unittest.TestCase):
                 "research",
                 # 1.1.4 的 ``/resources``：Go 侧没有硬件资源查询命令。
                 "resources",
+                # 沙箱 P0 的 ``/sandbox``：Go 侧没有用户安全域执行环境。
+                "sandbox",
             }
         )
         present = {info.name for info in pkgutil.iter_modules(commands_package.__path__)}

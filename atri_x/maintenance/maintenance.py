@@ -147,8 +147,8 @@ class Service(RunDailyReportMixin, RunDshCleanupMixin, RunDailySummaryMixin):
         service.daily_summary = cfg.maintenance.daily_summary
         service.summary_dir = summary_dir(data_dir_of(cfg))
         service.privacy_cleanup = cfg.maintenance.privacy_cleanup
-
-        service.sandbox_root = cfg.sandbox.root
+        # 只清租户数据目录：用量账本/审计在上一级，不能被按 mtime 误删（配额必须跨重建保留）。
+        service.sandbox_root = os.path.join(cfg.sandbox.root, "tenants")
         service.sandbox_cleanup = cfg.maintenance.sandbox_cleanup
         service.report = cfg.maintenance.daily_report
         service.angel_memory_retention_days = cfg.angel_memory.retention_days
