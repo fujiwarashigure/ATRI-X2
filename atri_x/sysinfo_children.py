@@ -56,6 +56,11 @@ GROUP_RELATED = "related"
 _IS_WINDOWS = sys.platform == "win32"
 _IS_LINUX = sys.platform.startswith("linux")
 
+# ``WindowsChildProcessCollector`` 只在 Windows 分支定义；非 Windows 平台从导出表移除，
+# 否则 ``check_imports --strict`` 会在 Linux 上把 Windows-only 导出判为缺失。
+if not _IS_WINDOWS:  # pragma: no cover - 平台判定
+    __all__ = [name for name in __all__ if name != "WindowsChildProcessCollector"]
+
 
 @dataclass(frozen=True)
 class ChildProcess:

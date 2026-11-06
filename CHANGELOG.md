@@ -37,6 +37,15 @@
 - 测试：`test_gui_appearance` 的指示器名称 / 颜色断言、`test_gui_tabs` 的页内子页宿主断言
   随界面变化更新；GUI 测试 667 项通过。
 
+### 发布后修正（CI 可移植性）
+
+- `atri_x/sysinfo_children.py` / `atri_x/sysinfo_platform.py`：`__all__` 在非 Windows 平台
+  去掉只在 Windows 分支定义的 `WindowsChildProcessCollector` / `WindowsApi`，修复 Linux
+  CI 上 `check_imports --strict` 的「导出缺失」失败（Windows 本机行为不变）。
+- `atri_x/sandbox/trust.py`：`scan_process_sites` 先把路径分隔符统一成 `.` 再生成模块名，
+  修复 POSIX 下模块名带 `/` 导致 `test_sandbox_trust` 把已登记模块误判为未登记的问题。
+- 上述改动不改变运行时行为，版本号仍为 `1.2.1`；源码归档 / 清单同步重打包。
+
 ### 发行（2026-11-06）
 
 - **GitHub Release `v1.2.1`**：`main` 为 1.2.1 发行提交，tag `v1.2.1`；Release 附件为安装包

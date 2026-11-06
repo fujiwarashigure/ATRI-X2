@@ -29,6 +29,11 @@ __all__ = [
     "default_collector",
 ]
 
+# ``WindowsApi`` 只在 Windows 分支定义；非 Windows 平台从导出表移除，避免
+# ``check_imports --strict`` 在 Linux 上把 Windows-only 导出判为缺失。
+if not _IS_WINDOWS:  # pragma: no cover - 平台判定
+    __all__ = [name for name in __all__ if name != "WindowsApi"]
+
 
 def default_collector() -> PlatformCollector:
     """按当前平台选择采集器（对应 ``sysinfo._default_collector``）。"""

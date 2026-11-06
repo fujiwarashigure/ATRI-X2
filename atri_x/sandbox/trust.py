@@ -250,7 +250,7 @@ def scan_process_sites(root: str) -> dict[str, int]:
             hits = sum(len(pattern.findall(text)) for pattern in _SPAWN_PATTERNS)
             if not hits:
                 continue
-            rel = os.path.relpath(path, root).replace("\\", ".")
+            rel = os.path.relpath(path, root).replace("\\", "/").replace("/", ".")
             module = rel[: -len(".py")] if rel.endswith(".py") else rel
             module = module.replace(".__init__", "")
             found[module] = hits
