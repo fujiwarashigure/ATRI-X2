@@ -3,7 +3,7 @@
 
 # 模块索引（自动生成）
 
-共 **898** 个模块 / **262366** 物理行 / **73** 个一级域。被测试直接覆盖 **606** 个（67.5%）。
+共 **898** 个模块 / **262376** 物理行 / **73** 个一级域。被测试直接覆盖 **606** 个（67.5%）。
 
 查模块：`rg -n "atri_x\.tool\.builtin" devdocs/generated/module-map.md`。
 
@@ -775,9 +775,9 @@
 | `atri_x.storage.storage` | 存储领域模型与 repository 抽象（对外统一出口）。对应 Go：``internal/storage/storage.go``。 | AtrinisEvent, AtrinisEventRepository, AtrinisReportDelivery… | 161 | `test_storage_models.py` |
 | `atri_x.storage.times` | 通用时间 helper。对应 Go：``internal/storage/time.go``。 | ZERO_TIME, ensure_utc, format_time, is_zero_time, now, orde… | 156 | `test_angelmemory.py`、`test_audit_regressions.py`、`test_builtin_cron.py`、`test_cron.py`、`test_cron_delivery.py`、`test_groupanalysis.py`、`test_media_lifecycle.py`、`test_media_manager.py`、`test_platform_qq_onebot.py`、`test_selflearning.py`、`test_session.py`、`test_session_lifecycle.py`、`test_sqlite_media.py`、`test_sqlite_repositories.py`、`test_sqlite_store.py`、`test_storage_models.py` |
 | `atri_x.sysinfo` | 可移植的运行时资源快照（进程 / 子进程 / 系统 / 磁盘 / 硬件）。 | DiskUsage, ProcessResources, ProcessSample, ResourceSnapsho… | 883 | `test_builtin_runtime_resources.py`、`test_maintenance_report.py`、`test_ops.py` |
-| `atri_x.sysinfo_children` | ATRI-X 子进程 / 相关进程采集：把 DSH 内核、draw.io 渲染器等算进资源快照。 | ChildProcess, ChildProcessCollector, EmptyChildProcessColle… | 389 | `test_builtin_runtime_resources.py` |
+| `atri_x.sysinfo_children` | ATRI-X 子进程 / 相关进程采集：把 DSH 内核、draw.io 渲染器等算进资源快照。 | ChildProcess, ChildProcessCollector, EmptyChildProcessColle… | 394 | `test_builtin_runtime_resources.py` |
 | `atri_x.sysinfo_format` | 资源快照的文本渲染：``/resources`` 命令与 ``runtime_resources`` 工具的唯一出处。 | format_bytes, format_resources, format_uint_bytes, format_u… | 307 | `test_builtin_runtime_resources.py` |
-| `atri_x.sysinfo_platform` | 平台采集器实现：Windows（kernel32 / psapi）、Linux（/proc）与 POSIX 兜底。 | FallbackCollector, LinuxCollector, WindowsApi, WindowsColle… | 532 | `test_builtin_runtime_resources.py` |
+| `atri_x.sysinfo_platform` | 平台采集器实现：Windows（kernel32 / psapi）、Linux（/proc）与 POSIX 兜底。 | FallbackCollector, LinuxCollector, WindowsApi, WindowsColle… | 537 | `test_builtin_runtime_resources.py` |
 | `atri_x.textmatch` | 确定性的关键词抽取与 LIKE 转义助手。 | Keywords, LikePattern, keywords, like_pattern | 228 | `test_redact.py` |
 | `atri_x.time_service` | 统一时间服务：业务时间的**唯一**读取点（Python 侧新增模块）。 | CLOCK_JUMP_THRESHOLD_SECONDS, DEFAULT_TIME_SOURCE, TimeServ… | 354 | `test_time_context.py`、`test_time_service.py`、`test_timesync_verifier.py` |
 | `atri_x.timesync` | 网络时间校验子系统（首版 ``verify_only``）。 | OutboundPolicy, ROUND_TRIGGER_MANUAL, ROUND_TRIGGER_SCHEDUL… | 45 | `test_timesync_https.py`、`test_timesync_sntp.py`、`test_timesync_verifier.py` |
