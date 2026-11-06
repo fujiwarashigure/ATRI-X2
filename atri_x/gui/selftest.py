@@ -40,8 +40,8 @@ def run_selftest() -> int:
     except tk.TclError as exc:
         safe_print(f"GUI_SELFTEST_FAIL no-display: {exc}")
         return 1
-    root.withdraw()
     try:
+        root.withdraw()
         app = GuiApp(root, settings=None, client=None, tray_enabled=False)
         app.transcript.add_user("自检：你好")
         app.transcript.stream_append("自检：这是流式")
@@ -123,10 +123,14 @@ def run_selftest() -> int:
         app.notebook.select(0)
         root.update_idletasks()
         root.update()
-        root.destroy()
     except Exception as exc:  # noqa: BLE001 - 自检失败要报出原因
         safe_print(f"GUI_SELFTEST_FAIL {type(exc).__name__}: {exc}")
         return 1
+    finally:
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
     safe_print(f"GUI_SELFTEST_OK tk={tk.TkVersion} title={WINDOW_TITLE}")
     return 0
 

@@ -184,27 +184,21 @@ def strip_bot_mention(text: str, msg: Any, prefixes: list[str]) -> str:
         name, at_sign, mention = token.partition("@")
         if at_sign and mention.lower() == bot_username.lower() and starts_with_command_prefix(name, prefixes):
             return text[:start] + name + text[end:]
-    needle = "@" + bot_username
-    lower_needle = needle.lower()
-    search_from = 0
-    while search_from <= len(text):
-        lower_text = text.lower()
-        if search_from > len(lower_text):
-            break
-        rel = lower_text.find(lower_needle, search_from)
-        if rel < 0:
-            break
-        index = rel
-        before_ok = index == 0 or is_space_byte(text[index - 1])
-        end_index = index + len(needle)
-        after_ok = end_index >= len(text) or is_space_byte(text[end_index])
-        if not before_ok or not after_ok:
-            # 文本命中属于更大的 token（例如邮箱或 URL）：跳过，不改写这个 token。
-            search_from = index + 1
-            continue
-        text = text[:index] + text[end_index:]
-        search_from = index
-    return text.strip()
+    needle = ("@" + bot_username).lower()
+    pieces: list[str] = []
+    index = 0
+    while index < len(text):
+        end = index + 1
+        if is_space_byte(text[index]):
+            pieces.append(text[index])
+        else:
+            while end < len(text) and not is_space_byte(text[end]):
+                end += 1
+            token = text[index:end]
+            if token.lower() != needle:
+                pieces.append(token)
+        index = end
+    return "".join(pieces).strip()
 
 
 def first_token_bounds(text: str) -> tuple[int, int, bool]:

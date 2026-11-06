@@ -40,6 +40,21 @@ def _settings(**overrides: object):
     return from_config(section)
 
 
+class TestContainerNetworkSwitch(unittest.IsolatedAsyncioTestCase):
+    async def test_disconnect_uses_actual_tenant_network_and_checks_result(self) -> None:
+        from unittest.mock import AsyncMock
+        from atri_x.sandbox.backend_container import ContainerBackend
+        from atri_x.sandbox.errors import SandboxBackendError
+        backend = ContainerBackend(_settings(), cli=SimpleNamespace(kind="docker"))
+        backend._run = AsyncMock(return_value=SimpleNamespace(ok=True))
+        await backend.set_online(LOCAL_TENANT.container_name, False, NETWORK_PROFILES["public"])
+        backend._run.assert_awaited_once_with(
+            ["network", "disconnect", "-f", LOCAL_TENANT.network_name, LOCAL_TENANT.container_name], timeout=60)
+        backend._run.return_value = SimpleNamespace(ok=False, error_text=lambda: "disconnect failed")
+        with self.assertRaises(SandboxBackendError):
+            await backend.set_online(LOCAL_TENANT.container_name, False, NETWORK_PROFILES["public"])
+
+
 class TestProfilesAndSettings(unittest.TestCase):
     def test_profiles_are_explicit(self) -> None:
         self.assertIn("light", PROFILES)

@@ -221,7 +221,7 @@ def _resolve_edit(
     if operation == "replace":
         end_line = edit.end_line or edit.line
         validate_line_range(len(lines), edit.line, end_line)
-        start, end = _line_delete_range(lines, edit.line, end_line)
+        start, end = lines[edit.line - 1].start, lines[end_line - 1].full_end
         return [
             _ResolvedEdit(
                 start=start, end=end, text=normalize_edit_text(edit.new_text or "")

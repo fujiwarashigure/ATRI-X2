@@ -154,7 +154,7 @@ class MessageStream:
                     if partial.platform_message_ids:
                         # 已经投递了部分页，退回 sendMessage 会产生重复内容。
                         raise DeliveryError(str(exc), partial.mark_partial_failure(exc)) from exc
-                    self.adapter.log_warn(
+                    self.adapter._log_warn(
                         "telegram rich stream final failed, fallback to sendMessage", error=exc
                     )
                 else:

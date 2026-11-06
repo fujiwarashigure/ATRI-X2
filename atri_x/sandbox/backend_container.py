@@ -57,7 +57,7 @@ from atri_x.sandbox.network import DENIED_PORTS, EgressSpec, build_proxy_env  # 
 from atri_x.sandbox.probe import PROBE_SCRIPT, parse_probe_output, probe_checks
 from atri_x.sandbox.settings import SandboxSettings
 
-__all__ = ["ContainerBackend", "new_backend"]
+__all__ = ["ContainerBackend"]
 
 _LABEL = "atrix-sandbox"
 #: 用户/进程相关常量（与镜像里的 uid 对齐）。
@@ -128,9 +128,7 @@ class ContainerBackend(SandboxBackend):
         if label.ok and label.stdout.strip() == digest:
             self._image_ready = True
             return image
-        if label.ok:
-            # 指纹不匹配：删掉旧镜像再重建，避免「改了代理代码还在用旧镜像」。
-            await self._run(["image", "rm", "-f", image], timeout=120)
+        # 构建成功后引擎更新 tag；禁止先删旧镜像，以免构建失败时无法恢复。
         if not self.settings.image_auto_build:
             raise SandboxUnavailableError(
                 "沙箱镜像不存在或已过期",
@@ -495,11 +493,11 @@ class ContainerBackend(SandboxBackend):
         """强制断开/恢复租户网络（流量额度用尽时由控制面调用）。"""
         if network is None or not getattr(network, "online", False):
             return
-        net_name = "atrix-sb-net-" + name.replace("atrix-sb-", "")
+        net_name = "atrix-sb-net-" + name.removeprefix("atrix-sb-")[:20]
         if online:
-            await self._run(["network", "connect", net_name, name], timeout=60)
+            await self._run_ok(["network", "connect", net_name, name], timeout=60)
         else:
-            await self._run(["network", "disconnect", "-f", net_name, name], timeout=60)
+            await self._run_ok(["network", "disconnect", "-f", net_name, name], timeout=60)
 
     async def cleanup_orphans(self, known_envs: set[str], known_proxies: set[str]) -> int:
         """回收崩溃/重启后遗留的容器与网络。"""
@@ -527,7 +525,7 @@ class ContainerBackend(SandboxBackend):
             timeout=60,
         )
         keep = {
-            "atrix-sb-net-" + name.replace("atrix-sb-", "")
+            "atrix-sb-net-" + name.removeprefix("atrix-sb-")[:20]
             for name in known_envs
         }
         for net in networks.stdout.splitlines():

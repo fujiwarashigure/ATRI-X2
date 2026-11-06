@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import unittest
+import unittest.mock
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -214,9 +215,11 @@ class TestWebSearch(unittest.TestCase):
             )
         )
         tool = WebSearchTool(client=client, engines="firecrawl")
-        os.environ.pop("TAVILY_API_KEY", None)
-        os.environ.pop("FIRECRAWL_API_KEY", None)
-        result = _run(tool.call(None, _call("web_search", {"query": "hi"})))
+        # patch.dict 会保存并恢复调用方原有的值（包括“原本不存在”），不污染同进程后续用例。
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TAVILY_API_KEY", None)
+            os.environ.pop("FIRECRAWL_API_KEY", None)
+            result = _run(tool.call(None, _call("web_search", {"query": "hi"})))
         self.assertIn("1. T", result.content)
         method, path, kw = client.calls[0]
         self.assertEqual((method, path), ("POST", "https://api.firecrawl.dev/v2/search"))
@@ -233,11 +236,8 @@ class TestWebSearch(unittest.TestCase):
             )
         )
         tool = WebSearchTool(client=client, endpoint="https://api.test/search")
-        os.environ["TAVILY_API_KEY"] = "k"
-        try:
+        with unittest.mock.patch.dict(os.environ, {"TAVILY_API_KEY": "k"}):
             result = _run(tool.call(None, _call("web_search", {"query": "hi"})))
-        finally:
-            os.environ.pop("TAVILY_API_KEY", None)
         self.assertIn("Answer: A", result.content)
         method, path, kw = client.calls[0]
         self.assertEqual((method, path), ("POST", "https://api.test/search"))
@@ -249,12 +249,9 @@ class TestWebSearch(unittest.TestCase):
 
         client = _FakeClient(_FakeResponse(500, {}, "boom"))
         tool = WebSearchTool(client=client, engines="tavily,firecrawl,keenable")
-        os.environ["TAVILY_API_KEY"] = "k"
-        try:
+        with unittest.mock.patch.dict(os.environ, {"TAVILY_API_KEY": "k"}):
             with self.assertRaises(InvalidError) as ctx:
                 _run(tool.call(None, _call("web_search", {"query": "hi"})))
-        finally:
-            os.environ.pop("TAVILY_API_KEY", None)
         message = str(ctx.exception)
         self.assertIn("Tavily HTTP 500", message)
         self.assertIn("Firecrawl HTTP 500", message)
@@ -293,7 +290,7 @@ class TestWebExtract(unittest.TestCase):
 
     def test_jina_reader_url(self) -> None:
         url = jina_reader_url("https://r.jina.ai/", "https://a.com/p?q=1")
-        self.assertEqual(url, "https://r.jina.ai/http://a.com/p?q=1")
+        self.assertEqual(url, "https://r.jina.ai/https://a.com/p?q=1")
         with self.assertRaises(InvalidError):
             jina_reader_url("https://r.jina.ai/", "not-a-url")
 

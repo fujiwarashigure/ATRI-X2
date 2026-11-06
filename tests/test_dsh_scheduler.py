@@ -307,7 +307,11 @@ class RuntimeConcurrencyTest(unittest.TestCase):
         self.assertTrue(
             _wait_for(lambda: not runtime.describe()["running"], 5.0), "内核没有被空闲回收"
         )
-        self.assertEqual(runtime.describe()["scheduler"]["stats"]["idle_closes"], 1)
+        # running 在 _client 脱离时先变为 False；stop() 与计数更新随后完成。
+        # 等待回收完成而不是把两个异步状态误当作同一原子快照。
+        self.assertTrue(_wait_for(
+            lambda: runtime.describe()["scheduler"]["stats"]["idle_closes"] == 1, 5.0
+        ), "内核回收计数没有完成更新")
 
     def test_session_affinity_sends_increment_only(self) -> None:
         runtime = self.make(session_affinity=True)

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -298,6 +299,16 @@ def uninstall(
         report.ok = True
         return report
 
+    if not purge_data and not keep_app:
+        target_path = os.path.normcase(os.path.realpath(target))
+        data_path = os.path.normcase(os.path.realpath(report.data_dir))
+        try:
+            nested_data = os.path.commonpath((target_path, data_path)) == target_path
+        except ValueError:  # 不同卷
+            nested_data = False
+        if nested_data:
+            report.detail = "拒绝卸载：数据目录位于程序目录内。请先备份迁出数据，或使用 --keep-app 保留目录。"
+            return report
     removed: list[str] = []
     for link in links:
         if not link:
@@ -377,7 +388,10 @@ def _copy_tree(source: str, destination: str) -> None:
     os.makedirs(destination, exist_ok=True)
 
     def _ignore(directory: str, names: list[str]) -> set[str]:
-        return {name for name in names if name in _SKIP_NAMES}
+        excluded = {"__pycache__", ".git"}
+        if not is_frozen() and os.path.abspath(directory) == os.path.abspath(source):
+            excluded |= _SKIP_NAMES
+        return set(names) & excluded
 
     shutil.copytree(source, destination, dirs_exist_ok=True, ignore=_ignore)
 

@@ -303,6 +303,8 @@ class Parser(ClauseParserMixin):
         return SimpleCommand(self.index.pos(start, end), assignments, words, redirects)
 
     def _make_assignment(self, word: Word, match: re.Match[str]) -> Assignment:
+        if match.group("index") is not None and not re.fullmatch(r"[0-9]+", match.group("index")):
+            raise self._error("动态数组赋值下标无法安全静态解析")
         value_start = word.pos.start + match.end()
         value: Word | None = None
         if value_start < word.pos.end:

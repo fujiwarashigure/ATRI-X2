@@ -38,6 +38,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from atri_x.gui import widgets
 from atri_x.gui.configedit import ConfigEditError
 from atri_x.gui.tabs.base import ConfigTab, message
 from atri_x.gui.toolmode import MODE_SHORT, ModeEditor, editor_signature
@@ -226,9 +227,13 @@ class ToolPermTab(ConfigTab):
         # 第三个子选项卡：工具内部参数（全局）。工具行右侧的「参数」按钮会跳到这里。
         self.params_editor = ToolParamsEditor(self, self.notebook)
         self.notebook.add(self.params_editor.frame, text=PARAMS_TAB_TITLE)
-        # 第四个子选项卡：工具进度预览（群聊开关 + 兜底文案）。
-        self.preview_panel = ToolPreviewPanel(self, self.notebook)
-        self.notebook.add(self.preview_panel.frame, text=PREVIEW_TAB_TITLE)
+        # 第四个子选项卡：工具进度预览（群聊开关 + 兜底文案）。内容在 720p 下会
+        # 超出可视区，所以包一层可滚动宿主。
+        preview_host = widgets.scrollable_host(self.notebook)
+        self._preview_host = preview_host
+        self.preview_panel = ToolPreviewPanel(self, preview_host.inner)
+        self.preview_panel.frame.pack(fill=tk.BOTH, expand=True)
+        self.notebook.add(preview_host, text=PREVIEW_TAB_TITLE)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
     def _embed_safety_panel(self, mode_key: str, editor: ModeEditor) -> None:
@@ -276,7 +281,7 @@ class ToolPermTab(ConfigTab):
         selected = str(self.notebook.select())
         global_tabs = {str(self.params_editor.frame)}
         if self.preview_panel is not None:
-            global_tabs.add(str(self.preview_panel.frame))
+            global_tabs.add(str(self._preview_host))
         hide_left = selected in global_tabs
         if hide_left and self._left_frame.winfo_manager():
             self._left_frame.pack_forget()
@@ -312,7 +317,7 @@ class ToolPermTab(ConfigTab):
         """跳到「工具进度预览」子选项卡（「功能」页双击跳转用）。"""
         if self.preview_panel is None:
             return
-        self.notebook.select(self.preview_panel.frame)
+        self.notebook.select(self._preview_host)
 
     # -- 群聊工具进度（兼容旧属性；控件在「工具进度预览」子选项卡里） ----------
     @property

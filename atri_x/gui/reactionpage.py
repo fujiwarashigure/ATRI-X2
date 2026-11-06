@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import tkinter as tk
@@ -136,7 +137,7 @@ def save_gallery_items(gallery: str, items: list[dict[str, Any]]) -> None:
                 "path": rel,
                 "name": str(item.get("name") or "").strip(),
                 "description": str(item.get("description") or "").strip(),
-                "weight": float(item.get("weight") or 1.0),
+                "weight": float(item.get("weight", 1.0)),
                 "enabled": bool(item.get("enabled", True)),
             }
         )
@@ -428,7 +429,7 @@ class ReactionPanel:
         self.selected_id = str(item.get("id") or "")
         self.item_emotion_var.set(str(item.get("emotion") or ""))
         self.item_name_var.set(str(item.get("name") or ""))
-        self.item_weight_var.set(str(item.get("weight") or 1.0))
+        self.item_weight_var.set(str(item.get("weight", 1.0)))
         self.item_enabled_var.set(bool(item.get("enabled", True)))
         self.item_path_var.set(str(item.get("rel") or item.get("path") or ""))
 
@@ -521,8 +522,12 @@ def _number(value: Any, key: str) -> float | int:
     text = str(value or "").strip()
     try:
         parsed = float(text)
+        if not math.isfinite(parsed):
+            raise ValueError("nonfinite value")
     except (TypeError, ValueError):
-        return int(default) if key != "probability" else default
+        return default if key in ("probability", "weight") else int(default)
+    if key == "weight":
+        return max(0.0, parsed)
     if key == "probability":
         return max(0.0, min(1.0, parsed))
     return max(0, int(parsed))

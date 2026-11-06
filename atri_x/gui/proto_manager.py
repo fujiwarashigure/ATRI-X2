@@ -175,6 +175,12 @@ def apply_connection(
     token_value = str(section.get("access_token") or "").strip()
     if setup.token and not token_env and not token_value:
         # 协议端要令牌、ATRI-X 侧还没配：用它的令牌名 + 写进 .env（不写明文进 app.toml）。
+        if not env_path:
+            return False
+        try:
+            configedit.set_env_value(env_path, qqproto.ONEBOT_TOKEN_ENV, setup.token)
+        except configedit.ConfigEditError:
+            return False
         values["access_token_env"] = qqproto.ONEBOT_TOKEN_ENV
     if not values:
         return False
@@ -182,9 +188,4 @@ def apply_connection(
         changed = configedit.patch_section(app_toml, PLATFORM_SECTION, values)
     except configedit.ConfigEditError:
         return False
-    if changed and "access_token_env" in values and env_path:
-        try:
-            configedit.set_env_value(env_path, qqproto.ONEBOT_TOKEN_ENV, setup.token)
-        except configedit.ConfigEditError:
-            pass
     return changed

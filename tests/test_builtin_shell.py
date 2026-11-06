@@ -12,6 +12,16 @@ import shutil
 import unittest
 from unittest import mock
 
+class AssignmentIndexSafetyTests(unittest.TestCase):
+    def test_array_index_substitution_never_statically_allowed(self):
+        from atri_x.tool.builtin.shell_risk import classify_bash_shell_command, shell_command_names
+        from atri_x.tool.builtin.shell_sandbox import background_shell_structure_violation
+        payload = "a[$(touch /synthetic-outside)]=1 ls"
+        self.assertEqual(classify_bash_shell_command(payload).level, "high")
+        self.assertFalse(shell_command_names(payload)[1])
+        self.assertTrue(background_shell_structure_violation(payload))
+
+
 from atri_x.errors import InvalidError
 from atri_x.processenv import Environment
 from atri_x.tool import CallRequest
@@ -107,7 +117,7 @@ class TestShellSandbox(unittest.TestCase):
         assessment = RiskAssessment(level="low", reasons=["x"])
         updated = apply_bash_shell_sandbox_risk("cat /etc/hosts", assessment)
         self.assertEqual(updated.level, "critical")
-        self.assertIn("重定向目标", " ".join(updated.reasons) + " 重定向目标")
+        # 原来这行把期待值拼进被检查串里，恒真；实际该输入只命中「绝对路径」原因。
         self.assertTrue(any("绝对路径" in reason for reason in updated.reasons))
 
     def test_parse_failure_is_rejected(self) -> None:

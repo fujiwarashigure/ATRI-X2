@@ -326,12 +326,14 @@ class CronToolsTests(unittest.TestCase):
         self._sandbox_patch = mock.patch(
             "atri_x.tool.builtin.shell_sandbox.is_power_shell_env", return_value=False
         )
+        # 先登记清理再启动：第二步 start() 失败也不会把上一个 patch 泄漏给后续用例。
+        self.addCleanup(self._sandbox_patch.stop)
+        self.addCleanup(self._risk_patch.stop)
         self._risk_patch.start()
         self._sandbox_patch.start()
 
     def tearDown(self) -> None:
-        self._risk_patch.stop()
-        self._sandbox_patch.stop()
+        pass
 
     def _ctx(self, kind: str = KindCron, background: bool = True) -> Any:
         sandbox = SandboxContext(

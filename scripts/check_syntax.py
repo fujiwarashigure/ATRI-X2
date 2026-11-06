@@ -184,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
             compile(text, str(path), "exec")
         except SyntaxError as exc:
             syntax_errors.append((rel, f"{exc.msg} (line {exc.lineno})"))
+            continue
 
         # ``SyntaxWarning``（docstring 里未转义的反斜杠等）不会让 import 失败，但会在
         # 每次冷启动时往 stderr 喷噪声，而且未来 Python 版本会把它升级成错误。
@@ -221,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
             f"crlf={len(crlf_files)} syntax_warnings={len(syntax_warnings)}"
         )
         bad = bool(
-            syntax_errors or encoding_errors or bom_files or damaged or syntax_warnings
+            syntax_errors or encoding_errors or bom_files or crlf_files or damaged or syntax_warnings
         )
         return 1 if (bad and args.strict) else 0
 
@@ -250,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     bad = bool(
-        syntax_errors or encoding_errors or bom_files or damaged or syntax_warnings
+        syntax_errors or encoding_errors or bom_files or crlf_files or damaged or syntax_warnings
     )
     return 1 if (bad and args.strict) else 0
 

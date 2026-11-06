@@ -160,7 +160,14 @@ def avatar_file(config_dir: str, relative: str) -> str:
     value = (relative or "").strip().replace("/", os.sep)
     if not value:
         return ""
-    return os.path.join(config_dir or "", "gui", value)
+    root = os.path.realpath(os.path.join(config_dir or "", "gui", AVATAR_DIR))
+    path = os.path.realpath(os.path.join(config_dir or "", "gui", value))
+    try:
+        if os.path.commonpath((os.path.normcase(root), os.path.normcase(path))) != os.path.normcase(root) or path == root:
+            return ""
+    except ValueError:
+        return ""
+    return path
 
 
 def clear_avatar(config_dir: str, relative: str) -> bool:

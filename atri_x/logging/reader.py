@@ -292,6 +292,8 @@ def iter_lines_reversed(
                     if raw == b"":
                         # 文件以换行结尾：EOF 之后的空片段不是一行（Go 的 Scanner 同样不产出）。
                         continue
+                if len(raw) > max_line_bytes:
+                    raise ValueError(f"read log file {path}: log line exceeds {max_line_bytes} bytes")
                 yield _decode_line(raw)
             if len(carry) > max_line_bytes:
                 raise ValueError(f"read log file {path}: log line exceeds {max_line_bytes} bytes")

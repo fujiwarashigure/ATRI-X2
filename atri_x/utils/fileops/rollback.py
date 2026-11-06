@@ -108,6 +108,7 @@ class RollbackStore:
             previous = scope.get(path)
             if previous is not None:
                 self._remove_locked(previous)
+                scope = self._scopes.setdefault(session_id, {})
             self._next_id += 1
             info = RollbackInfo(
                 id=self._next_id,

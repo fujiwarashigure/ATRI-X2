@@ -26,6 +26,7 @@ from typing import Any
 
 from atri_x.gui import safetyconfig
 from atri_x.gui import process as gui_process
+from atri_x.gui import widgets
 from atri_x.gui.tabs.base import ConfigTab, confirm
 from atri_x.gui.safetyviews import AuditPanel, RawTomlPanel, ReviewPanel
 from atri_x.gui.safetywordedit import WordlistPanel
@@ -221,9 +222,11 @@ class SafetyTab(ConfigTab):
             (" 原始 TOML ", RawTomlPanel),
         )
         for title, panel_class in pages:
-            frame = ttk.Frame(notebook)
+            # 子页高度随内容变化（词表/复核在 720p 下会超出可视区），统一放进
+            # 可滚动宿主：装得下时没有滚动条，装不下时能滚到底。
+            frame = widgets.scrollable_host(notebook)
             notebook.add(frame, text=title)
-            panel = panel_class(frame, self.paths, self)
+            panel = panel_class(frame.inner, self.paths, self)
             panel.frame.pack(fill=tk.BOTH, expand=True)
             self._panels[title.strip()] = panel
 

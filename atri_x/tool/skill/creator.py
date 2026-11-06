@@ -202,7 +202,7 @@ class CreateAtrixSkillTool:
             await self._build(ctx, root, name, args.timeout_ms)
         try:
             await self.manager.reload(ctx)
-        except BaseException as exc:
+        except Exception as exc:
             raise RuntimeError(f"Atriyph skill written but reload failed: {exc}") from exc
         return Result(
             content=append_atriyph_warnings(f"created Atriyph skill {name}", diagnostics)

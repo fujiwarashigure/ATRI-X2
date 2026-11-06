@@ -295,14 +295,7 @@ def metrics_endpoint(addr: str) -> str:
             f"未配置后台状态接口地址（.env 的 {timeview.HEALTH_ADDR_ENV}）；"
             "桌面端启动时会自动补齐"
         )
-    host, _, port = text.rpartition(":")
-    if not host:
-        host, port = text, "80"
-    if host in _WILDCARD_HOSTS:
-        host = "127.0.0.1"
-    if not port:
-        raise PerfConfigError(f"状态接口地址缺少端口：{text}")
-    return f"http://{host}:{port}{METRICS_PATH}"
+    return timeview.local_status_endpoint(text, METRICS_PATH, PerfConfigError)
 
 
 def fetch_perf_metrics(paths: ConfigPaths | None, *, timeout: float = 2.5) -> dict[str, Any]:
@@ -329,7 +322,7 @@ def fetch_perf_metrics(paths: ConfigPaths | None, *, timeout: float = 2.5) -> di
         method="GET",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), timeview.LocalStatusRedirectHandler())
     try:
         with opener.open(request, timeout=max(0.2, float(timeout))) as response:
             payload = response.read()

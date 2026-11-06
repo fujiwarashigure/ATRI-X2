@@ -173,6 +173,8 @@ def from_config(section: Any = None, *, root_override: str = "") -> SandboxSetti
     restricted = tuple(
         str(item).strip() for item in (get("restricted_hosts", []) or []) if str(item).strip()
     )
+    if network.name == "restricted" and not (restricted or network.restricted_hosts):
+        raise SandboxDeniedError("restricted 网络必须配置非空 restricted_hosts；空列表不会退化为公网")
     network_policy = NetworkProfile(
         name=network.name,
         tier=network.tier,

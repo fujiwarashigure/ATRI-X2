@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from atri_x.gui import configedit
+from atri_x.gui import configedit, timeview
 from atri_x.gui.configedit import ConfigEditError
 
 __all__ = [
@@ -231,15 +231,7 @@ def health_endpoint(addr: str) -> str:
     text = _text(addr)
     if not text:
         raise LinkError("未配置后台服务状态接口地址")
-    host, _, port = text.rpartition(":")
-    if not host:
-        host = text
-        port = "80"
-    if host in ("0.0.0.0", "::", "[::]", "*"):
-        host = "127.0.0.1"
-    if not port:
-        raise LinkError(f"状态接口地址缺少端口：{text}")
-    return f"http://{host}:{port}{HEALTH_PATH}"
+    return timeview.local_status_endpoint(text, HEALTH_PATH, LinkError)
 
 
 def fetch_health(
@@ -258,7 +250,7 @@ def fetch_health(
             "Accept": "application/json",
         },
     )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), timeview.LocalStatusRedirectHandler())
     try:
         with opener.open(request, timeout=max(0.2, float(timeout))) as response:
             status = int(getattr(response, "status", 200) or 200)
@@ -310,12 +302,12 @@ def parse_ws_url(url: str) -> tuple[str, int] | None:
         text = "ws://" + text
     try:
         parts = urllib.parse.urlsplit(text)
+        port = parts.port
+        host = parts.hostname or ""
     except ValueError:
         return None
-    host = parts.hostname or ""
     if not host:
         return None
-    port = parts.port
     if port is None:
         port = 443 if (parts.scheme or "").lower() in ("wss", "https") else 80
     return host, int(port)
@@ -554,7 +546,9 @@ def describe_platform(
     if entry is None:
         return "已启用，等待后端登记平台状态…"
     if entry.connected:
-        return "已连接（QQ 在线）"
+        if entry.login_ok:
+            return "已连接（QQ 在线）"
+        return "传输已连接（QQ 登录未成功）" if entry.login_checked else "传输已连接（QQ 登录待确认）"
     if entry.last_error:
         return f"未连接：{entry.last_error}"
     return "未连接（协议端未启动或 ws 地址/令牌不对）"

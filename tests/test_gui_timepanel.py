@@ -76,7 +76,9 @@ class TimeViewConfigCase(unittest.TestCase):
 
     def test_defaults_come_from_config_layer(self) -> None:
         """界面默认值取自配置层 dataclass，不另抄一份数字。"""
-        self.assertEqual(timeview.verification_defaults(), timeview.verification_defaults())
+        from dataclasses import asdict
+        from atri_x.config.time_sections import TimeVerificationConfig
+        self.assertEqual(timeview.verification_defaults(), asdict(TimeVerificationConfig()))
         self.assertEqual(timeview.time_defaults()["timezone"], "Asia/Shanghai")
         source = timeview.source_defaults()
         self.assertEqual(source["protocol"], "sntp")

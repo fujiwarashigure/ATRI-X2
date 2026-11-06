@@ -216,7 +216,7 @@ def confirm_command_message(
 ) -> str:
     """破坏性命令的确认提示。对应 Go ``confirmCommandMessage``。"""
     session_id = resolve_session_target(ctx, deps, prefix, target)
-    session = deps.store.sessions().get(session_id)
+    session = deps.sessions.target_session(deps.scope(ctx), session_id)
     return (
         f"{name} will modify session:\n"
         f"  title: {empty_title(session.title)}\n"

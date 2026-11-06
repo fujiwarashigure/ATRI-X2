@@ -298,21 +298,39 @@ class ModelSnapshotMixin:
                     f'快照 "{key}" 的 {label} 指向未知 provider "{selection.provider}"'
                 )
 
-        for mode in mods:
-            selection = snapshot.mode_models[mode]
-            self.apply_mode_model_selection(mode, selection.provider, selection.model)
-        if snapshot.compact_model.provider and snapshot.compact_model.model:
-            self.set_compact_selection(snapshot.compact_model)
-        if snapshot.naming_model.provider and snapshot.naming_model.model:
-            self.set_naming_model(snapshot.naming_model)
+        previous_modes = self.mode_models_snapshot()
+        previous_compact = self.current_compact_selection()
+        previous_naming = self.configured_naming_model()
+        runtime = self.model_runtime
+        with runtime.selection_mu:
+            previous_primary = (runtime.provider_name, runtime.provider, runtime.model, runtime.llm_client)
+        try:
+            for mode in mods:
+                selection = snapshot.mode_models[mode]
+                self.apply_mode_model_selection(mode, selection.provider, selection.model)
+            if snapshot.compact_model.provider and snapshot.compact_model.model:
+                self.set_compact_selection(snapshot.compact_model)
+            if snapshot.naming_model.provider and snapshot.naming_model.model:
+                self.set_naming_model(snapshot.naming_model)
+                title_gen = getattr(self, "title_gen", None)
+                if title_gen is not None:
+                    title_gen.set_naming(
+                        self.client_for_provider(snapshot.naming_model.provider),
+                        snapshot.naming_model.provider,
+                        snapshot.naming_model.model,
+                    )
+            self.save_runtime_state()
+        except Exception:
+            runtime.set_mode_models(previous_modes)
+            with runtime.selection_mu:
+                runtime.provider_name, runtime.provider, runtime.model, runtime.llm_client = previous_primary
+            self.set_compact_selection(previous_compact)
+            self.set_naming_model(previous_naming)
             title_gen = getattr(self, "title_gen", None)
             if title_gen is not None:
-                title_gen.set_naming(
-                    self.client_for_provider(snapshot.naming_model.provider),
-                    snapshot.naming_model.provider,
-                    snapshot.naming_model.model,
-                )
-        self.save_runtime_state()
+                title_gen.set_naming(self.client_for_provider(previous_naming.provider),
+                                     previous_naming.provider, previous_naming.model)
+            raise
         return model_snapshot_view(key, snapshot)
 
     def delete_model_snapshot(self, name: str) -> None:
@@ -320,10 +338,15 @@ class ModelSnapshotMixin:
         key = normalize_model_snapshot_name(name)
         self.merge_external_runtime_state()
         store = ensure_model_snapshots(self)
-        existed = store.delete(key)
-        if not existed:
+        previous = store.get(key)
+        if previous is None:
             raise InvalidError(f'没有名为 "{key}" 的模型快照')
-        self.save_runtime_state()
+        store.delete(key)
+        try:
+            self.save_runtime_state()
+        except Exception:
+            store.put(key, previous)
+            raise
 
     # -- 与 context_runtime 的两个薄桥（避免在本模块重复实现选择解析） --------
     def current_compact_selection(self) -> ModelSelection:

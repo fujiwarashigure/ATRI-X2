@@ -218,15 +218,21 @@ def start_group_services(agent: Any, ctx: Any = None) -> Any:
     host = service_host(agent)
     if host is None or not group_services_config(host).is_enabled():
         return None
-    if _started(host):
-        return getattr(host, "group_services_task", None)
-    _set_started(host)
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return None
+    previous = getattr(host, "group_services_task", None)
+    if previous is not None and not previous.done():
+        return previous
     task = loop.create_task(_run_group_services(host, ctx))
     _safe_set(host, "group_services_task", task)
+    _set_started(host)
+    def finished(completed: asyncio.Task) -> None:
+        if getattr(host, "group_services_task", None) is completed:
+            _safe_set(host, "group_services_task", None)
+            _safe_set(host, "group_services_started", False)
+    task.add_done_callback(finished)
     return task
 
 
@@ -246,8 +252,14 @@ async def dispatch_due_reminders(
         return
     moment = now or _local_now(host)
     state = _state(host)
-    with state.write_lock:
-        snapshot = group_services_snapshot(host)
+    dispatch_lock = getattr(host, "group_reminder_dispatch_lock", None)
+    if dispatch_lock is None:
+        dispatch_lock = asyncio.Lock()
+        _safe_set(host, "group_reminder_dispatch_lock", dispatch_lock)
+    async with dispatch_lock:
+        with state.write_lock:
+            snapshot = group_services_snapshot(host)
+        original = {key: [entry.copy() for entry in entries] for key, entries in snapshot.reminders.items()}
         changed = False
         for key, entries in list(snapshot.reminders.items()):
             platform, _, scope_id = str(key).partition(":")
@@ -335,7 +347,15 @@ async def dispatch_due_reminders(
                 )
             snapshot.reminders[key] = updated
         if changed:
-            set_group_services_snapshot(host, snapshot)
+            with state.write_lock:
+                current = group_services_snapshot(host)
+                for key, entries in snapshot.reminders.items():
+                    before = {entry.id: entry for entry in original.get(key, [])}
+                    after = {entry.id: entry for entry in entries}
+                    for entry in current.reminders.get(key, []):
+                        if entry.id in before and entry == before[entry.id]:
+                            entry.status = after[entry.id].status
+                set_group_services_snapshot(host, current)
             saver = getattr(host, "save_runtime_state", None)
             if saver is not None:
                 try:
@@ -450,14 +470,14 @@ async def _send_notice_async(
     """发一条通知；失败返回异常（与 Go 的 ``(Receipt, error)`` 同义）。"""
     sender = getattr(agent, "send_notice", None)
     if sender is None:
-        return None
+        return RuntimeError("reminder notice sender is not configured")
     notice = Notice(target=Target(platform=platform, scope_id=scope_id), outputs=[text(body)])
     try:
         result = sender(None, notice)
         if hasattr(result, "__await__"):
             await result
         return None
-    except BaseException as exc:  # noqa: BLE001 - 与 Go 相同：记审计后继续下一条
+    except Exception as exc:  # noqa: BLE001 - 普通失败记审计，任务取消向上传播
         return exc
 
 

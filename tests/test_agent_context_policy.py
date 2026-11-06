@@ -283,6 +283,38 @@ class TestOverflowHandling(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(exceeded)
         self.assertEqual(info.budget.window, 256000)
 
+    async def test_real_async_notice_contract_is_awaited_on_each_decision(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        for mode in ("reject", "truncate", "summarize"):
+            with self.subTest(mode=mode):
+                host = _Host(_runtime(100, overflow_mode=mode))
+                out = SimpleNamespace(send_notice=AsyncMock())
+                await host.handle_initial_prompt_overflow(
+                    None, None, ModelSelection("p", "m"), [self._long_message(80)], [], out)
+                out.send_notice.assert_awaited_once()
+        out = SimpleNamespace(send_notice=AsyncMock())
+        with self.assertRaises(PromptOverflowError):
+            await host.guard_prompt_before_call(
+                None, "s", ModelSelection("p", "m"), [self._long_message(80)], [], out)
+        out.send_notice.assert_awaited_once()
+
+    async def test_async_notice_failure_preserves_rejection_and_cancel_propagates(self) -> None:
+        import asyncio
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        host = _Host(_runtime(100))
+        for error in (RuntimeError("delivery failure"), asyncio.CancelledError()):
+            out = SimpleNamespace(send_notice=AsyncMock(side_effect=error))
+            call = host.handle_initial_prompt_overflow(
+                None, None, ModelSelection("p", "m"), [self._long_message(80)], [], out)
+            if isinstance(error, asyncio.CancelledError):
+                with self.assertRaises(asyncio.CancelledError):
+                    await call
+            else:
+                self.assertEqual(await call, (False, False))
+            out.send_notice.assert_awaited_once()
+
     async def test_truncate_rewrites_last_message(self) -> None:
         host = _Host(_runtime(100, overflow_mode="truncate"))
         messages = [self._long_message(80)]

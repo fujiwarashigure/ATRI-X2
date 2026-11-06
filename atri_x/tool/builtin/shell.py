@@ -260,12 +260,9 @@ class ShellTool:
 
 def _sandbox_service() -> Any:
     """当前生效的沙箱服务（未启用 / 显式 off 时返回 ``None``）。"""
-    try:
-        from atri_x.sandbox.runtime import service_or_none
+    from atri_x.sandbox.runtime import service_or_none
 
-        return service_or_none()
-    except Exception:  # noqa: BLE001 - 沙箱未装配时维持宿主行为
-        return None
+    return service_or_none()  # 查询故障必须拒绝，不回落宿主。
 
 
 def sandbox_risk_assessment(
@@ -431,13 +428,12 @@ async def run_shell_command(
     except OSError as exc:
         raise InvalidError(f"run shell: {exc}") from exc
     try:
-        stdout_raw, stderr_raw = await asyncio.wait_for(
+        stdout_raw, stderr_raw, exit_code = await asyncio.wait_for(
             asyncio.gather(
-                _read_capped(process.stdout), _read_capped(process.stderr)
+                _read_capped(process.stdout), _read_capped(process.stderr), process.wait()
             ),
             timeout=timeout,
         )
-        exit_code = await process.wait()
     except asyncio.TimeoutError as exc:
         kill_shell_process_tree(process)
         raise InvalidError(f"run shell: command timed out after {timeout:g}s") from exc

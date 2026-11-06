@@ -47,6 +47,7 @@ __all__ = [
     "WordlistFile",
     "audit_path",
     "create_default_safety_file",
+    "create_list_file",
     "file_terms",
     "has_safety_file",
     "list_wordlist_files",
@@ -142,7 +143,7 @@ def save_safety_sections(
     _validate_sections(path, sections)
     changed: list[str] = []
     for section, values in sections.items():
-        clean = {key: value for key, value in values.items() if value is not None}
+        clean = dict(values)
         if not clean:
             continue
         try:
@@ -172,7 +173,9 @@ def _validate_sections(path: str, sections: Mapping[str, Mapping[str, Any]]) -> 
                 node[part] = child
             node = child
         for key, value in values.items():
-            if value is not None:
+            if value is None:
+                node.pop(key, None)
+            else:
                 node[key] = value
     unknown: list[str] = []
     try:
@@ -309,6 +312,23 @@ def read_text_file(path: str) -> str:
         return ""
     except OSError as exc:
         raise ConfigEditError(f"读取 {path} 失败：{exc}") from exc
+
+
+def create_list_file(directory: str, name: str, text: str) -> str:
+    """新建单个词表文件；拒绝路径与覆盖，独占创建防止同名竞态。"""
+    if not name or name in (".", "..") or any(char in name for char in '/\\\\:'):
+        raise ConfigEditError("文件名不能包含路径或盘符")
+    root = os.path.realpath(directory)
+    path = os.path.join(root, name)
+    if os.path.commonpath((root, os.path.realpath(path))) != root:
+        raise ConfigEditError("词表必须位于指定目录内")
+    try:
+        os.makedirs(root, exist_ok=True)
+        with open(path, "x", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+    except OSError as exc:
+        raise ConfigEditError(f"新建词表失败：{exc}") from exc
+    return path
 
 
 def write_list_file(path: str, text: str) -> bool:

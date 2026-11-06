@@ -132,7 +132,7 @@ class AgentSkillTool:
             raise ValueError("skill manager is not configured")
         try:
             await self.manager.write_agent_skill_config(ctx, preview.name, preview.toml)
-        except BaseException as exc:
+        except Exception as exc:
             raise RuntimeError(
                 f"write {AGENT_SKILL_CONFIG_FILE} for AgentSkill {preview.name}: {exc}"
             ) from exc

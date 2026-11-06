@@ -295,14 +295,14 @@ class ContextPolicyMixin:
         if mode == "truncate":
             budget = current_limit - estimate_text_tokens(TRUNCATION_MARKER)
             if budget <= 0:
-                return self._reject_overflow(ctx, session, selection, info, out)
+                return await self._reject_overflow(ctx, session, selection, info, out)
             truncated = truncate_text_to_tokens(text, budget)
             if not truncated.strip():
-                return self._reject_overflow(ctx, session, selection, info, out)
+                return await self._reject_overflow(ctx, session, selection, info, out)
             messages[latest_index].segments = set_segment_text(
                 old_segments, truncated + TRUNCATION_MARKER
             )
-            _send_notice(
+            await _send_notice(
                 out,
                 ctx,
                 WARN_LEVEL,
@@ -314,7 +314,7 @@ class ContextPolicyMixin:
 
         if mode == "summarize":
             if current_limit <= 0:
-                return self._reject_overflow(ctx, session, selection, info, out)
+                return await self._reject_overflow(ctx, session, selection, info, out)
             compact_selection = self.compact_selection_for_session(session)
             if not compact_selection.provider or not compact_selection.model:
                 compact_selection = selection
@@ -327,7 +327,7 @@ class ContextPolicyMixin:
             except Exception:  # noqa: BLE001 - 摘要失败按拒绝处理（与 Go 一致）
                 summary = ""
             if not (summary or "").strip():
-                _send_notice(
+                await _send_notice(
                     out,
                     ctx,
                     WARN_LEVEL,
@@ -337,7 +337,7 @@ class ContextPolicyMixin:
                 )
                 return False, False
             messages[latest_index].segments = set_segment_text(old_segments, summary)
-            _send_notice(
+            await _send_notice(
                 out,
                 ctx,
                 WARN_LEVEL,
@@ -347,9 +347,9 @@ class ContextPolicyMixin:
             )
             return True, True
 
-        return self._reject_overflow(ctx, session, selection, info, out)
+        return await self._reject_overflow(ctx, session, selection, info, out)
 
-    def _reject_overflow(
+    async def _reject_overflow(
         self,
         ctx: Any,
         session: Session | None,
@@ -357,7 +357,7 @@ class ContextPolicyMixin:
         info: PromptOverflowInfo,
         out: Any,
     ) -> tuple[bool, bool]:
-        _send_notice(
+        await _send_notice(
             out,
             ctx,
             WARN_LEVEL,
@@ -388,7 +388,7 @@ class ContextPolicyMixin:
         )
         if not exceeded:
             return
-        _send_notice(
+        await _send_notice(
             out,
             ctx,
             WARN_LEVEL,
@@ -521,12 +521,14 @@ class ContextPolicyMixin:
         return f"长消息保护策略已重置：{target} 使用全局默认"
 
 
-def _send_notice(out: Any, ctx: Any, level: str, text: str) -> None:
+async def _send_notice(out: Any, ctx: Any, level: str, text: str) -> None:
     """经 ``turnOutput`` 发通知（``out`` 为 agent-core 的 turn_output，缺失即跳过）。"""
     sender = getattr(out, "send_notice", None)
     if not callable(sender):
         return
     try:
-        sender(ctx, level, text)
+        result = sender(ctx, level, text)
+        if hasattr(result, "__await__"):
+            await result
     except Exception:  # noqa: BLE001 - 通知失败不能改变裁决结果
         pass

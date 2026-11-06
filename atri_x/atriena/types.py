@@ -154,7 +154,9 @@ class Atriwisp:
         if not isinstance(raw, dict):
             raise ValueError("json: cannot unmarshal non-object into atriwisp")
         tags = _list_field(raw, "tags")
-        out = [str(item) for item in tags] if tags is not None else None
+        if tags is not None and any(not isinstance(item, str) for item in tags):
+            raise ValueError("json: atriwisp tags must contain only strings")
+        out = list(tags) if tags is not None else None
         return cls(name=_string_field(raw, "name"), tags=out)
 
 
@@ -370,8 +372,10 @@ def tool_declaration_from_json(raw: Any) -> AtriwispToolDeclaration:
     if schema is not None and not isinstance(schema, dict):
         raise ValueError("json: cannot unmarshal non-object into tool schema")
     timeout = raw.get("timeout_seconds")
-    if timeout is not None and not isinstance(timeout, int):
+    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, int)):
         raise ValueError("json: cannot unmarshal non-int into timeout_seconds")
+    if timeout is not None and not -(2**63) <= timeout < 2**63:
+        raise ValueError("json: timeout_seconds exceeds signed int64 range")
     return AtriwispToolDeclaration(
         name=_string_field(raw, "name"),
         description=_string_field(raw, "description"),
@@ -440,6 +444,8 @@ class Request:
         if not isinstance(raw, dict):
             raise ValueError("json: cannot unmarshal non-object into request")
         tool_list = _list_field(raw, "tool_list_names")
+        if tool_list is not None and any(not isinstance(item, str) for item in tool_list):
+            raise ValueError("json: tool_list_names must contain only strings")
         tools = _list_field(raw, "tools")
         segments = _list_field(raw, "segments")
         targets = _list_field(raw, "targets")

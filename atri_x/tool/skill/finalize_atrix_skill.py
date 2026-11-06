@@ -185,7 +185,7 @@ class FinalizeAtrixSkillTool:
     async def _reload(self, ctx: Any) -> None:
         try:
             await self.manager.reload(ctx)
-        except BaseException as exc:
+        except Exception as exc:
             raise RuntimeError(f"ATRI-X skill finalized but reload failed: {exc}") from exc
 
 

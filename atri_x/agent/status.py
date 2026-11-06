@@ -109,7 +109,7 @@ def _consume_status_result(agent: Any, result: Any) -> None:
             agent, RuntimeError("set_runtime_status is async but no event loop is running")
         )
         return
-    task = loop.create_task(result)
+    task = asyncio.ensure_future(result, loop=loop)
     # 事件循环只持**弱引用**，局部变量出栈后任务可能被回收（官方文档要求保存强引用）。
     # 用模块级集合兜底：完成即移除，既不泄漏也不依赖宿主对象有哪个属性。
     _PENDING_STATUS_TASKS.add(task)

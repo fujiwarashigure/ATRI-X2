@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Sequence
 
 from atri_x.config import (
@@ -413,8 +414,8 @@ def apply_policy_field(
             amount = float(text)
         except ValueError:
             amount = -1.0
-        if amount < 0:
-            raise InvalidError("群日聊天费用额度必须是非负数")
+        if not math.isfinite(amount) or amount < 0:
+            raise InvalidError("群日聊天费用额度必须是有限非负数")
         policy.chat_cost_quota = amount
     elif field == "quiet":
         if is_clear_value(raw):

@@ -89,10 +89,10 @@ async def load_discovery_content(ctx: Any, target: Any) -> tuple[str, bool, bool
     provider = getattr(target, "discovery_content", None)
     if not callable(provider):
         return "", False, False
-    if _accepts_context_arg(provider):
-        content, override = await provider(ctx)
-        return content, override, True
-    content, override = provider()
+    result = provider(ctx) if _accepts_context_arg(provider) else provider()
+    if hasattr(result, "__await__"):
+        result = await result
+    content, override = result
     return content, override, True
 
 
@@ -114,7 +114,6 @@ def _accepts_context_arg(fn: Any) -> bool:
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
             inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.KEYWORD_ONLY,
         )
         for parameter in parameters
     )
@@ -274,10 +273,14 @@ async def add_discovery_detail(
     if isinstance(tool, LazyDetailProvider):
         try:
             block = await tool.load_detail(ctx)
-        except BaseException as exc:
+        except Exception as exc:
             errors.append(DiscoveryError(name=name, reason=str(exc)))
             visiting.pop(name, None)
             return details, errors
+        except BaseException:  # 控制流异常允许重试；普通加载失败仍遵守 seen 约定。
+            seen.pop(name, None)
+            visiting.pop(name, None)
+            raise
         discovered.detail_block = block
         discovered.detail = render_detail_blocks_with_context(ctx, [block])
     elif isinstance(tool, DetailProvider):

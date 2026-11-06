@@ -160,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for m in mappings:
         found = resolve(m.py_pattern)
-        covered = bool(found)
+        covered = all(bool(_resolve_one(pattern)) for pattern in expand_braces(m.py_pattern))
         total_lines += m.go_lines
         if covered:
             covered_lines += m.go_lines

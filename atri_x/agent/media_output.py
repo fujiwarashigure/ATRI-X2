@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -41,7 +42,7 @@ async def prepare_media_outputs(agent: Any, ctx: Any, outputs: list[Any]) -> lis
     """把输出里的媒体来源落成本地媒体条目。对应 Go ``prepareMediaOutputs``。"""
     host = service_host(agent)
     validate_outputs(outputs)
-    prepared = list(outputs)
+    prepared = [replace(out) for out in outputs]
     media = getattr(host, "media", None)
     if media is None:
         for out in prepared:
@@ -81,7 +82,7 @@ async def resolve_media_outputs(
     对应 Go ``resolveMediaOutputs``。
     """
     host = service_host(agent)
-    resolved = list(outputs)
+    resolved = [replace(out) for out in outputs]
     cleanups: list[Callable[[], None]] = []
 
     def _cleanup() -> None:

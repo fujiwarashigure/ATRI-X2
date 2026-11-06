@@ -167,8 +167,8 @@ def _is_public_ip(ip: str) -> tuple[bool, str]:
         return False, "链路本地地址"
     if address.is_private:
         return False, "私网地址"
-    if address.is_multicast or address.is_reserved or address.is_unspecified:
-        return False, "保留/组播地址"
+    if address.is_multicast or address.is_reserved or address.is_unspecified or not address.is_global:
+        return False, "非公网/保留/组播地址"
     return True, ""
 
 

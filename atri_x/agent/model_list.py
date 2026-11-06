@@ -102,6 +102,7 @@ class ModelListCache:
         self.cache: dict[str, ModelListCacheEntry] = {}
         self.inflight: dict[str, "asyncio.Task[tuple[list[str], BaseException | None]]"] = {}
         self.lock = asyncio.Lock()
+        self.generation = 0
 
     def ttl_for(self, err: BaseException | None) -> float:
         return self.error_ttl if err is not None else self.success_ttl
@@ -117,7 +118,7 @@ class ModelListCache:
             # 同一 provider 上的并发刷新合并成一次上游调用。
             task = self.inflight.get(provider)
             if task is None:
-                task = asyncio.ensure_future(self._run(provider, fetch, entry))
+                task = asyncio.ensure_future(self._run(provider, fetch, entry, self.generation))
                 self.inflight[provider] = task
         # shield：等待者被取消时共享调用继续跑完，其他等待者仍能拿到结果。
         return await asyncio.shield(task)
@@ -127,6 +128,7 @@ class ModelListCache:
         provider: str,
         fetch: FetchModels,
         previous: ModelListCacheEntry | None,
+        generation: int,
     ) -> tuple[list[str], BaseException | None]:
         try:
             models, err = await fetch(provider)
@@ -148,17 +150,21 @@ class ModelListCache:
         if err is None:
             entry.last_good = list(models)
         async with self.lock:
-            self.cache[provider] = entry
-            self.inflight.pop(provider, None)
+            if generation == self.generation:
+                self.cache[provider] = entry
+                self.inflight.pop(provider, None)
         return list(models), err
 
     async def _forget(self, provider: str) -> None:
         async with self.lock:
-            self.inflight.pop(provider, None)
+            if self.inflight.get(provider) is asyncio.current_task():
+                self.inflight.pop(provider, None)
 
     def clear(self) -> None:
         """清空缓存（配置热重载后用；上游没有对应方法）。"""
+        self.generation += 1
         self.cache.clear()
+        self.inflight.clear()
 
 
 def merge_model_names(current: Iterable[str], last_good: Iterable[str]) -> list[str]:

@@ -3,14 +3,8 @@
 这是桌面端最常用的配置页，拆成四块（二级页签）：
 
 1. **LLM Provider**（写 ``services.toml`` 的 ``[providers.<name>]``）：
-   ``base_url`` / ``api_key_env`` / ``models`` / ``api_mode`` / ``extra_headers``
-   （网关要求的自定义请求头，例如 OpenCode Go 的 ``x-opencode-session``）/
-   ``reasoning_effort``（推理思考强度：none / minimal / low / medium / high，
-   chat 协议写进请求 JSON 的顶层 ``reasoning_effort``，response 协议自动折成
-   Responses 原生的 ``reasoning.effort``；留空 = 不发送，只对支持该参数的
-   模型生效；也可在 ``model_configs`` 里按模型覆盖）；
-   密钥值单独写进配置根 ``.env``（界面只显示"已设置/未设置 + 掩码"，不回显明文；
-   输入框默认掩码，点「显示」才明文）；
+   配置端点、模型、协议、请求头与推理强度（可按模型覆盖）。
+   密钥单独写入 .env，默认掩码且不回显既有明文。
    另有**模型分配**（写 ``state.toml``）：工作/聊天/命名/压缩四个槽位 + 默认模式。
    ``state.toml`` 是运行期回写的文件，后台服务会热加载，保存后几秒生效，不需要重启。
 2. **上下文窗口**（写 ``services.toml`` 的 ``[model_metadata].default_context_window``
@@ -120,7 +114,7 @@ def _reasoning_effort_value(label: str) -> str:
 class ModelTab(ConfigTab):
     """Provider 列表 + 表单 + 上下文窗口 + 模型分配 + 搜索服务 + 抓取服务。"""
 
-    hint = ""
+    scrollable = True  # 表单比 1080p 窗口高（实测 req≈942 > 可视≈900），必须能整页滚动。
 
     def __init__(self, parent: Any, paths: Any, *, on_restart: Any = None) -> None:
         super().__init__(parent, paths, on_restart=on_restart)
@@ -646,11 +640,17 @@ class ModelTab(ConfigTab):
         api_key, key_source = resolve_fetch_key(self.key_entry.get(), self.require_paths(), env_name)
         self.notify(f"正在获取 {label} 的可用模型…")
         self.journal(f"获取模型目录：{label} ← {base_url}（密钥：{key_source or '未配置'}）")
+        identity = (self._catalog_key(), base_url)
         widgets.run_async(
             self.frame,
             lambda: modelcatalog.fetch_models(base_url, api_key),
-            self._models_fetched,
+            lambda models, error: self._models_result(identity, models, error),
         )
+
+    def _models_result(self, identity: tuple[str, str], models: Any, error: Any) -> None:
+        if identity != (self._catalog_key(), self.base_url_var.get().strip()):
+            return  # 请求期间已切换 Provider 或地址，不能污染当前目录。
+        self._models_fetched(models, error)
 
     def _models_fetched(self, models: Any, error: BaseException | None) -> None:
         if error is not None:

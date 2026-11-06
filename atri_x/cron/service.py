@@ -1,8 +1,6 @@
 """Cron Service：装配、CRUD 与公开入口。对应 Go：``internal/cron/service.go``。
 
-本模块是 cron 包的**装配与门面**：持有 Manager / Store / 投递回调 / LLM runner、
-平台目标表、沙盒根与命令前缀，并实现创建、更新、禁用、删除、查询与"一次触发"的
-总编排（:meth:`Service.handler`）。
+本模块装配 Manager、存储和投递回调，编排任务 CRUD 与执行入口。
 
 **拆分说明**（``PORTING.md`` §2 的"单文件 ≤ 600 行"）：Go 的 ``service.go`` 是单文件；
 本仓按 Go 的文件边界拆成 ``model`` / ``manager`` / ``execution`` / ``delivery`` /
@@ -310,6 +308,8 @@ class Service(ExecutionMixin, DeliveryMixin, RecoveryMixin):
             meta.schedule.mode = req.schedule_mode
         if req.run_at is not None:
             meta.schedule.run_at = (req.run_at or "").strip()
+            meta.schedule.run_at_utc, meta.schedule.run_at_tz = "", ""
+            meta.schedule.run_at_dst_ambiguous = False
         if req.cron_expr is not None:
             meta.schedule.cron_expr = (req.cron_expr or "").strip()
         if req.trigger_mode is not None:

@@ -51,6 +51,8 @@ class PlatformTab(ConfigTab):
     """四个平台小节 + 超级管理员列表。"""
 
     hint = ""
+    #: 四个小节 + 超级管理员在 1080p 下也溢出（实测 req≈913），整页可滚。
+    scrollable = True
 
     def __init__(self, parent: Any, paths: Any, *, on_restart: Any = None) -> None:
         super().__init__(parent, paths, on_restart=on_restart)
@@ -457,8 +459,7 @@ class _SuperadminBox:
         payload: dict[str, Any] = {}
         for key, variable in self.vars.items():
             items = _split(variable.get())
-            if items:
-                payload[key] = items
+            payload[key] = items  # 空列表表示明确撤销，不得省略后保留旧权限。
         return payload
 
 

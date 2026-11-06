@@ -237,7 +237,7 @@ async def wait_inbox_batch(ctx: Any, batch: InboxBatch, waiter: int) -> None:
         return
     token = _as_token(ctx)
     if token is None:
-        err = await future
+        err = await asyncio.shield(future)
     else:
         err = await _await_future(future, token)
     if err is None:

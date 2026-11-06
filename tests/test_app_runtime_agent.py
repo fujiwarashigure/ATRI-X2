@@ -274,7 +274,9 @@ class TestBuildAgentBackgroundLoops(unittest.TestCase):
         # 群服务默认 enabled（enabled=None → True，与 Go 的
         # ``Enabled == nil || *Enabled`` 一致），await 它等于等进程结束。
         self.assertIsInstance(task, asyncio.Task)
-        self.assertIs(agent.group_services_task, task)
+        self.assertTrue(task.done())  # fixture 已取消并回收后台循环。
+        self.assertIsNone(agent.group_services_task)
+        self.assertFalse(agent.group_services_started)
 
     def test_runtime_state_watch_is_started_synchronously(self):
         """Go ``StartRuntimeStateWatch(ctx)``：同步返回，不返回值。"""

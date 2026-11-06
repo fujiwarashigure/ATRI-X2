@@ -7,16 +7,16 @@
 
 | 中文功能名 | Python 域 | 上游 Go 包 | 模块数 | 测试覆盖 | 配置段 |
 |---|---|---|---:|---:|---|
-| Agent 对话编排 | `atri_x/agent/` | `internal/agent` | 158 | 97/158 | `[agent]`、`[agent.dsh]` |
-| 工具与工具运行时 | `atri_x/tool/` | `internal/tool/builtin` | 84 | 61/84 | `state.toml` 的 `tool_allowlist`、`[tools]` |
-| 平台适配器 | `atri_x/platform/` | `internal/platform/qq-onebot` | 69 | 50/69 | `[platform.*]` |
-| 桌面端（Tk + 托盘） | `atri_x/gui/` | `—` | 94 | 67/94 | `state.toml` 与各服务的 GUI 段 |
+| Agent 对话编排 | `atri_x/agent/` | `internal/agent` | 158 | 102/158 | `[agent]`、`[agent.dsh]` |
+| 工具与工具运行时 | `atri_x/tool/` | `internal/tool/builtin` | 84 | 67/84 | `state.toml` 的 `tool_allowlist`、`[tools]` |
+| 平台适配器 | `atri_x/platform/` | `internal/platform/qq-onebot` | 69 | 52/69 | `[platform.*]` |
+| 桌面端（Tk + 托盘） | `atri_x/gui/` | `—` | 96 | 71/96 | `state.toml` 与各服务的 GUI 段 |
 | 存储与 SQLite | `atri_x/storage/` | `internal/storage/sqlite` | 19 | 10/19 | `[storage]` |
 | 配置与运行时状态 | `atri_x/config/` | `internal/config` | 13 | 12/13 | `[app]` / `[security]` / `[connect_notice]` 等 |
 | Hook 与插件 | `atri_x/hook/` | `internal/hook/rules` | 39 | 22/39 | `hooks.toml` |
 | LLM 适配与协议 | `atri_x/llm/` | `internal/llm/openai` | 15 | 13/15 | `[llm]` / `[models]` |
 | 装配层 | `atri_x/app/` | `internal/app` | 37 | 33/37 | `[app]` 与各服务装配段 |
-| 媒体与图片处理 | `atri_x/media/` | `internal/media` | 27 | 11/27 | `[image_generation]` / `[media]` |
+| 媒体与图片处理 | `atri_x/media/` | `internal/media` | 27 | 14/27 | `[image_generation]` / `[media]` |
 
 ## 常用别名
 

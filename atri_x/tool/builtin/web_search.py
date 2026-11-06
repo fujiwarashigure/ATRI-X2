@@ -11,11 +11,8 @@
 
 与 Go 的差异（行为）：
 
-* Go 版只有 Tavily 一条通道，没有 ``TAVILY_API_KEY`` 时工具直接不可用。Python 版按
-  ``[web_search]`` 配置（桌面端「模型 → 搜索服务」页写的就是它）逐条尝试通道，失败自动
-  换下一条；配置段缺席时回落到「DeepSeek（有 key 才参与）→ Tavily → Firecrawl 免注册 →
-  Keenable 免注册 → Exa」的环境变量默认链，其中 DeepSeek / Tavily / Exa 需要各自的 key
-  才参与。
+* Go 版只有 Tavily；Python 按 ``[web_search]`` 逐条尝试，失败后切换。
+  缺省链为 DeepSeek → Tavily → Firecrawl → Keenable → Exa（需要 key 的通道按凭据参与）。
 * 各通道的请求与解析见 :mod:`atri_x.tool.builtin.web_search_engines`（HTTP 通道）与
   :mod:`atri_x.tool.builtin.web_search_cli`（``agy`` / ``grok`` 外部 CLI 通道）。
 * 所有通道都归一成 :class:`~atri_x.tool.builtin.web_search_engines.SearchOutcome` 再渲染，
@@ -65,7 +62,7 @@ from atri_x.tool.builtin.web_search_engines import (
     truncate_http_body,
 )
 from atri_x.tool.capability import ctx_raise_if_cancelled
-from atri_x.tool.tool import CallRequest, Info, Result, RiskLow
+from atri_x.tool.tool import CallRequest, Info, Result, RiskLow, RiskHigh
 
 TAVILY_API_KEY_ENV = "TAVILY_API_KEY"
 #: 通道顺序覆盖（逗号分隔，名字与 ``[web_search.engines.<name>]`` 一致）。
@@ -178,7 +175,10 @@ class WebSearchTool:
         return "web_search"
 
     def info(self) -> Info:
-        return web_search_builder().build_info()
+        info = web_search_builder().build_info()
+        if any(spec.protocol in (PROTOCOL_ANTIGRAVITY, PROTOCOL_GROK) for spec in self.specs):
+            info.risk = RiskHigh  # 包括备用 CLI：API 失败后也不得低风险自动执行通用代理。
+        return info
 
     def schema(self) -> ToolSchema:
         return web_search_builder().build_schema()

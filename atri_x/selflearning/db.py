@@ -129,13 +129,13 @@ def transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
     connection.execute("BEGIN IMMEDIATE")
     try:
         yield connection
+        connection.execute("COMMIT")
     except BaseException:
         try:
             connection.execute("ROLLBACK")
         except sqlite3.Error:  # pragma: no cover - 回滚失败时保留原始异常
             pass
         raise
-    connection.execute("COMMIT")
 
 
 def _parse_optional(raw: Any):

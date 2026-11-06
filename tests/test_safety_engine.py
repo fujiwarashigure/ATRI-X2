@@ -122,6 +122,22 @@ class EngineCase(unittest.TestCase):
         return asyncio.run(self.engine.moderate_text(text, **kwargs))
 
 
+class TestCacheSafetyBoundaries(EngineCase):
+    def test_degraded_outcome_never_cached(self) -> None:
+        from atri_x.safety.engine_remote import RemoteOutcome
+        self.engine._cache_put("synthetic", RemoteOutcome(tier="pass", degraded=True, fail_mode="open"))
+        self.assertIsNone(self.engine._cache_get("synthetic"))
+
+    def test_text_and_image_do_not_share_content_cache(self) -> None:
+        import hashlib
+        provider = FakeProvider("tencent")
+        self.inject(provider)
+        content = hashlib.sha256(b"synthetic image").hexdigest()
+        self.moderate(content, stage="send")
+        asyncio.run(self.engine.moderate_image(b"synthetic image"))
+        self.assertEqual(provider.images, 1)
+
+
 class TestRouting(EngineCase):
     def test_remote_disabled_returns_none(self) -> None:
         self.engine.settings.remote.enabled = False

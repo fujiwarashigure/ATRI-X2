@@ -190,8 +190,19 @@ class AtriwispCreatorTest(unittest.TestCase):
                 os.environ[ENV_CONFIG_FILE] = saved
             shutil.rmtree(TMP_ROOT, ignore_errors=True)
 
-    def test_user_config_dir_is_non_empty_or_empty_string(self) -> None:
-        self.assertIsInstance(user_config_dir(), str)
+    def test_user_config_dir_matches_platform_base(self) -> None:
+        # 原来只断言 isinstance(str) 是同义反复；这里对照 os.UserConfigDir 的口径。
+        if os.name == "nt":
+            expected = os.environ.get("APPDATA", "")
+        else:
+            expected = os.environ.get("XDG_CONFIG_HOME", "") or (
+                os.path.join(os.path.expanduser("~"), ".config")
+                if os.path.expanduser("~")
+                else ""
+            )
+        if not expected:
+            self.skipTest("平台配置目录环境变量缺失，无法对照")
+        self.assertEqual(user_config_dir(), expected)
 
     def test_call_returns_guide(self) -> None:
         tool = AtriwispCreatorTool()

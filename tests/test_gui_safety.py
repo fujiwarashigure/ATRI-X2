@@ -57,6 +57,17 @@ class SafetyDataCase(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(TEMP_ROOT, ignore_errors=True)
 
+    def test_create_list_rejects_escape_and_existing_without_overwrite(self) -> None:
+        from atri_x.gui.configedit import ConfigEditError
+        directory = str(TEMP_ROOT / "lists")
+        for name in ("../outside.txt", "..\\outside.txt", "C:\\outside.txt", "/outside.txt", "bad:name.txt"):
+            with self.subTest(name=name), self.assertRaises(ConfigEditError):
+                safetyconfig.create_list_file(directory, name, "header")
+        path = safetyconfig.create_list_file(directory, "safe.txt", "sentinel\n")
+        with self.assertRaises(ConfigEditError):
+            safetyconfig.create_list_file(directory, "safe.txt", "replacement")
+        self.assertEqual(Path(path).read_text(encoding="utf-8"), "sentinel\n")
+
     # -- 策略文件 -----------------------------------------------------------
     def test_default_template_creates_valid_audit_policy(self) -> None:
         path = safetyconfig.create_default_safety_file(self.paths)

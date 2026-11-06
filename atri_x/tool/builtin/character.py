@@ -591,7 +591,7 @@ class CharacterManageTool:
         if operation == "add_image":
             try:
                 image = await self.add_image(ctx, args, viewer)
-            except BaseException as exc:  # noqa: BLE001 - Go 把失败翻成一句话
+            except Exception as exc:  # noqa: BLE001 - 普通失败翻成一句话；取消必须透传
                 return Result(content=str(exc))
             return Result(
                 content=(
@@ -610,8 +610,7 @@ class CharacterManageTool:
             return Result(content=f"已删除角色 {args.id} 的图片 {args.image_name}。")
         if operation in ("create", "update"):
             if (
-                operation == "create"
-                and not viewer.superadmin
+                not viewer.superadmin
                 and not self.deps.allow_user_create
                 and not _character_exists(self.deps.store, ctx, args.id)
             ):

@@ -209,7 +209,8 @@ class WebExtractTool:
         failures: list[str] = []
         for spec in self.extract_chain(ctx, use_jina):
             ctx_raise_if_cancelled(ctx)
-            key = extract_cache_key(spec.protocol, target_url, selector, proxy)
+            identity = json.dumps([spec.protocol, spec.name, spec.base_url, spec.api_key_env], separators=(",", ":"))
+            key = extract_cache_key(identity, target_url, selector, proxy)
             if not args.force_refresh:
                 entry, cached = self.cache.get(key)
                 if cached:

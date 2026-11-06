@@ -101,7 +101,7 @@ async def current_workspace_dir(ctx: Any) -> str:
     if ok and store is not None:
         try:
             dir_value = await store.get_workspace_dir(ctx)
-        except BaseException as exc:
+        except Exception as exc:
             raise InvalidError(f"load workspace: {exc}") from exc
         if (dir_value or "").strip():
             return validate_workspace_dir(dir_value)
@@ -110,12 +110,9 @@ async def current_workspace_dir(ctx: Any) -> str:
 
 def _sandbox_service() -> Any:
     """当前生效的沙箱服务（未启用 / 显式 off 时返回 ``None``）。"""
-    try:
-        from atri_x.sandbox.runtime import service_or_none
+    from atri_x.sandbox.runtime import service_or_none
 
-        return service_or_none()
-    except Exception:  # noqa: BLE001 - 沙箱未装配时维持宿主行为
-        return None
+    return service_or_none()  # 查询故障必须拒绝，不回落宿主。
 
 
 async def resolve_workspace_path(

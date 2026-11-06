@@ -230,11 +230,17 @@ class Manager:
                         f"{exc}; rollback: {rollback_exc}"
                     )
                     await self._set_reload_result(combined)
+                    if not isinstance(exc, Exception):
+                        raise exc from rollback_exc
+                    if not isinstance(rollback_exc, Exception):
+                        raise rollback_exc from exc
                     raise combined from exc
                 failure = RuntimeError(
                     f"reload failed; restored previous {AGENT_SKILL_CONFIG_FILE}: {exc}"
                 )
                 await self._set_reload_result(failure)
+                if not isinstance(exc, Exception):
+                    raise
                 raise failure from exc
             await self._set_reload_result(None)
 

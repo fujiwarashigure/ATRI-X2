@@ -73,6 +73,13 @@ class FetchMessageTool(Tool):
         fetcher = getattr(adapter, "fetch_message_text", None) if adapter is not None else None
         if not callable(fetcher):
             return Result(content="当前平台不支持按 id 取消息（只有能回查历史消息的平台可用）。")
+        msg, _ = message_context_from(ctx)
+        allowed = {str(msg.platform_message_id or ""), str(msg.reply_to_message_id or "")}
+        forwarded = msg.meta.get("qq_onebot.forward_ids", ())
+        if isinstance(forwarded, (list, tuple)):
+            allowed.update(str(value) for value in forwarded)
+        if message_id not in allowed:
+            raise InvalidError("只能读取当前入站消息明确引用的消息或转发 ID")
         outcome = fetcher(ctx, message_id, (args.kind or "auto").strip().lower())
         if hasattr(outcome, "__await__"):
             outcome = await outcome

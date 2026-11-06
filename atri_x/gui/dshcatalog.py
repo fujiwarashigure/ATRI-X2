@@ -326,10 +326,10 @@ def clear_kernel_catalog(paths: ConfigPaths) -> bool:
 # 小工具
 # ---------------------------------------------------------------------------
 def _yaml_scalar(value: str) -> str:
-    """YAML 标量：安全的裸写，其余用单引号（内部单引号双写）。"""
+    """字符串始终引用，避免 YAML 隐式数字/布尔/null；仅支持单行文本。"""
     text = str(value or "")
-    if re.fullmatch(r"[A-Za-z0-9._/@+:-]+", text) and not text.startswith("-"):
-        return text
+    if any(ord(char) < 32 or ord(char) == 127 or char in "\u0085\u2028\u2029" for char in text):
+        raise ConfigEditError("模型目录字段不能包含换行或控制字符")
     return "'" + text.replace("'", "''") + "'"
 
 

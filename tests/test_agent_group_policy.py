@@ -159,6 +159,7 @@ class GroupPolicyTests(unittest.TestCase):
             self.assertEqual(reset, "群策略字段已重置：wake")
             self.assertEqual(gp.group_policy_for_scope(agent, agent.scope(None)).wake_keywords, [])
 
+            agent.actor_role = RoleSuperadmin
             all_reset = await gp.reset_group_policy(agent, None, "all")
             self.assertEqual(all_reset, "当前群策略已重置为全局默认。")
             # 整表重置写回的是"零策略"：归一化后仍是零，所以条目被删掉，

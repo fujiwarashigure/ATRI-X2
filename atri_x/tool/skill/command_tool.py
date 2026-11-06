@@ -121,7 +121,7 @@ class CommandTool:
             if self.media is not None:
                 media_call = self.media.new_call()
             try:
-                raw = prepare_command_media(
+                raw = await prepare_command_media(
                     run_ctx,
                     req.arguments,
                     self.manifest,

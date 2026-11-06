@@ -9,6 +9,7 @@ import asyncio
 import os
 import shutil
 import unittest
+import uuid
 from datetime import datetime, timezone
 
 from atri_x.agent.model import (
@@ -417,11 +418,13 @@ class TestModelPolicy(unittest.TestCase):
 
 class TestRuntimeStateFiles(unittest.TestCase):
     def setUp(self) -> None:
-        shutil.rmtree(TMP_DIR, ignore_errors=True)
-        os.makedirs(TMP_DIR, exist_ok=True)
+        # 每个用例一个随机子目录：并行/重入不会互删，也不再只靠 ignore_errors 吞清理错误。
+        self.tmp_dir = os.path.join(TMP_DIR, uuid.uuid4().hex)
+        os.makedirs(self.tmp_dir, exist_ok=False)
+        self.addCleanup(shutil.rmtree, self.tmp_dir, True)
 
     def tearDown(self) -> None:
-        shutil.rmtree(TMP_DIR, ignore_errors=True)
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_initial_state_mod_time_is_aware(self) -> None:
         from atri_x.agent.model_state import initial_state_mod_time

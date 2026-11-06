@@ -69,7 +69,15 @@ def _is_base_exception(handler: ast.ExceptHandler) -> bool:
 
 
 def _reraises(handler: ast.ExceptHandler) -> bool:
-    return any(isinstance(node, ast.Raise) for node in ast.walk(handler))
+    pending = list(handler.body)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if isinstance(node, ast.Raise):
+            return True
+        pending.extend(ast.iter_child_nodes(node))
+    return False
 
 
 class _HandlerScope(ast.NodeVisitor):

@@ -450,6 +450,8 @@ def _decode(raw: str, kind: type, tool_name: str) -> Any:
         raise InvalidError(f"parse {tool_name} arguments: expected a JSON object")
     for key, value in data.items():
         if hasattr(out, key):
+            if key == "confirm" and not isinstance(value, bool):
+                raise InvalidError("confirm must be a boolean")
             setattr(out, key, value)
     return out
 

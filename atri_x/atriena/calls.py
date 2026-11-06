@@ -23,6 +23,8 @@ Python 侧的差异（都是等价物，不是简化）：
 from __future__ import annotations
 
 import time
+import math
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -127,11 +129,9 @@ async def execute_calls(
         result = CallResult(call=call)
         try:
             response = await execute_call(ctx, resolver, call)
-        except BaseException as exc:
+        except Exception as exc:
             result.error = str(exc)
             results.append(result)
-            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
-                raise
             raise CallExecutionError(str(exc), results) from exc
         result.response = _response_text(response)
         results.append(result)
@@ -321,10 +321,11 @@ def to_int64(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
-        return value
+        return value if -(2**63) <= value < 2**63 else None
     if isinstance(value, float):
-        as_int = int(value)
-        return as_int if value == float(as_int) else None
+        if not math.isfinite(value) or not value.is_integer():
+            return None
+        return to_int64(int(value))
     if isinstance(value, str):
         return _try_parse_int(value)
     return None
@@ -337,10 +338,10 @@ def clone_params(params: dict[str, Any] | None) -> dict[str, Any]:
 
 def _try_parse_int(value: str) -> int | None:
     text = (value or "").strip()
-    if not text:
+    if not re.fullmatch(r"[+-]?[0-9]+", text):
         return None
     try:
-        return int(text, 10)
+        return to_int64(int(text, 10))
     except ValueError:
         return None
 

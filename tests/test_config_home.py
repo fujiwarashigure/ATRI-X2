@@ -40,17 +40,16 @@ class HomeResolveTest(unittest.TestCase):
         self.root = TEMP_ROOT
         self.appdata = self.root / "appdata"
         self.appdata.mkdir(parents=True)
+        # ENV_HOME 设为空串等价于未设置；patch.dict 会在 stop() 时恢复调用方原值。
         self._env = mock.patch.dict(
             os.environ,
-            {"APPDATA": str(self.appdata), "AppData": str(self.appdata)},
+            {"APPDATA": str(self.appdata), "AppData": str(self.appdata), ENV_HOME: ""},
             clear=False,
         )
         self._env.start()
-        os.environ.pop(ENV_HOME, None)
 
     def tearDown(self) -> None:
         self._env.stop()
-        os.environ.pop(ENV_HOME, None)
         shutil.rmtree(TEMP_ROOT, ignore_errors=True)
 
     def test_default_home_follows_appdata(self) -> None:
@@ -163,17 +162,16 @@ class LoaderIntegrationTest(unittest.TestCase):
         self.root = TEMP_ROOT
         self.appdata = self.root / "appdata"
         self.appdata.mkdir(parents=True)
+        # ENV_HOME 设为空串等价于未设置；patch.dict 会在 stop() 时恢复调用方原值。
         self._env = mock.patch.dict(
             os.environ,
-            {"APPDATA": str(self.appdata), "AppData": str(self.appdata)},
+            {"APPDATA": str(self.appdata), "AppData": str(self.appdata), ENV_HOME: ""},
             clear=False,
         )
         self._env.start()
-        os.environ.pop(ENV_HOME, None)
 
     def tearDown(self) -> None:
         self._env.stop()
-        os.environ.pop(ENV_HOME, None)
         shutil.rmtree(TEMP_ROOT, ignore_errors=True)
 
     def test_default_paths_without_override(self) -> None:

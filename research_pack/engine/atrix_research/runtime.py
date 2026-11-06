@@ -130,12 +130,12 @@ def screening(store: RunStore) -> dict[str, Any] | None:
 
 
 def included_works(store: RunStore, lib: dict[str, Any]) -> list[Work]:
-    """有筛选结果就用纳入集，否则退回全部候选（调用方要在结果里标明）。"""
+    """有筛选结果就严格用纳入集（可为空）；未筛选时才退回全部候选。"""
     all_works = works(lib)
     screen = screening(store)
-    keys = set((screen or {}).get("included_keys") or [])
-    if not keys:
+    if screen is None:
         return all_works
+    keys = set(screen.get("included_keys") or [])
     return [work for work in all_works if work.key in keys]
 
 

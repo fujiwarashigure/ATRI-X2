@@ -130,11 +130,11 @@ def should_notify_user_error(err: BaseException | None) -> bool:
 def is_cancellation(err: BaseException | None) -> bool:
     """``context.Canceled`` / ``context.DeadlineExceeded`` 的 Python 等价判定。"""
     from atri_x.safecontext import CancelledError, DeadlineExceededError
-
+    from asyncio import CancelledError as TaskCancelledError
     seen = 0
     current: BaseException | None = err
     while current is not None and seen < 16:
-        if isinstance(current, (CancelledError, DeadlineExceededError, TimeoutError)):
+        if isinstance(current, (CancelledError, TaskCancelledError, DeadlineExceededError, TimeoutError)):
             return True
         if isinstance(current, ExceptionGroup):  # pragma: no cover - 组合错误
             for inner in current.exceptions:

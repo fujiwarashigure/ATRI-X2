@@ -171,9 +171,8 @@ class AdmissionController:
     def cancel_all(self) -> int:
         """取消全部等待者（``/panic`` 用）：返回取消数量。"""
         waiters = list(self._waiters)
-        self._waiters.clear()
-        self._active.clear()
         for waiter in waiters:
+            self._drop_waiter(waiter)
             if not waiter.future.done():
                 waiter.future.set_exception(
                     SandboxDeniedError("沙箱排队已被 /panic 紧急停止")
@@ -193,12 +192,12 @@ class AdmissionController:
     def _dispatch(self) -> None:
         while self._running < self.capacity and self._waiters:
             index = self._pick_index()
-            waiter = self._waiters.pop(index)
-            count = self._active.get(waiter.tenant, 0)
-            if count <= 1:
-                self._active.pop(waiter.tenant, None)
-            else:
-                self._active[waiter.tenant] = count - 1
+            waiter = self._waiters[index]
+            if waiter.future.done():
+                self._drop_waiter(waiter)
+                continue
+            self._waiters.pop(index)
+            # 等待者晋升后仍占同一租户名额，直到 Lease.release。
             self._running += 1
             self._acquired_total += 1
             self._last_served = waiter.tenant
@@ -255,6 +254,10 @@ class AdmissionController:
         try:
             self._waiters.remove(waiter)
         except ValueError:
+            if waiter.future.done() and not waiter.future.cancelled() and waiter.future.exception() is None:
+                lease = waiter.future.result()
+                if isinstance(lease, Lease):
+                    lease.release()
             return
         count = self._active.get(waiter.tenant, 0)
         if count <= 1:

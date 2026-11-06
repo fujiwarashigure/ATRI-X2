@@ -382,8 +382,9 @@ class Manager:
                 await result
         except Exception as exc:  # noqa: BLE001 - 与 Go 一致：handler 的错误记进 last_error
             run_err = exc
+        finally:
+            self.running.discard(job.name)
         duration = self.now() - started_at
-        self.running.discard(job.name)
 
         entry = self.entries.get(job.name)
         state_job = job

@@ -159,8 +159,8 @@ async def _apply_remote_text(
         return replace(
             decision,
             allowed=True,
-            text=original,
-            action=ACTION_REVIEW,
+            text=decision.text if decision.action == ACTION_REDACT else original,
+            action=ACTION_REDACT if decision.action == ACTION_REDACT else ACTION_REVIEW,
             tier=TIER_REVIEW,
             hold=hold,
             **common,

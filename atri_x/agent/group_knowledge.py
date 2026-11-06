@@ -551,7 +551,7 @@ async def _send_answer(
 ) -> None:
     try:
         await sender(ctx, answer)
-    except BaseException as exc:  # noqa: BLE001 - 与 Go 相同：只记审计
+    except Exception as exc:  # noqa: BLE001 - 普通发送失败记审计，取消透传
         _audit(
             agent,
             "group_knowledge_send_error",

@@ -1,21 +1,9 @@
 """长期记忆的 SQLite 索引、文件回填与检索。
 
-对应 Go：``internal/tool/builtin/long_memory.go`` 里的 ``longMemoryStore``
-（``ensureLocked`` / ``syncLocked`` / ``indexRecordLocked`` / ``search*`` /
-``save`` / ``update`` / ``delete`` / ``formatSearchResult`` 等）。
-
-拆分来源：``long_memory.go``（1181 行）→ 本模块承载持久化与检索，
-:mod:`atri_x.tool.builtin.long_memory_model` 承载模型与文本，
-:mod:`atri_x.tool.builtin.long_memory` 承载三个工具。
-
-与 Go 的差异：
-
-* ``database/sql`` + ``modernc.org/sqlite`` → 标准库 :mod:`sqlite3`；
-  ``sync.Mutex`` → :class:`threading.Lock`（同步 SQLite 路径，PORTING.md §1.6）。
-* ``os.OpenRoot`` 之类不需要：记忆文件名由本模块自己生成（``%06d-slug.md``）。
-* FTS5 不可用时**不报错**，与 Go 一致地回落到 LIKE 扫描（``fts_available=False``）。
-* Go 的 ``ctx.Err()`` 取消检查改为 :func:`atri_x.tool.builtin.common.cancel_token_from_ctx`
-  + ``is_cancelled``；ctx 不是取消令牌时视为永不取消。
+对应 Go ``internal/tool/builtin/long_memory.go`` 的 longMemoryStore。
+模型与文本在 long_memory_model，工具入口在 long_memory。
+标准库 sqlite3 + threading.Lock；FTS5 缺失回落 LIKE。
+取消检查使用 common.cancel_token_from_ctx；外部文件变动须重新核验身份。
 """
 
 from __future__ import annotations
@@ -266,11 +254,7 @@ class LongMemoryStore:
             return preview.after
 
     def delete(self, ctx: Any, id: int, scope: str = "") -> str:
-        """永久删除一条记忆及其索引。对应 Go ``longMemoryStore.delete``。
-
-        ``scope`` 是跨会话操作时的显式来源作用域（仅超级管理员可用），
-        与检索参数 ``scope`` 语义一致。
-        """
+        """删除记忆及索引；跨会话 scope 仅供超管显式指定（与检索一致）。"""
         self._check_cancelled(ctx)
         if id <= 0:
             raise InvalidError("id is required")
@@ -283,6 +267,17 @@ class LongMemoryStore:
             if record is None:
                 raise InvalidError(f"未找到 ID 为 {id} 的长期记忆")
             check_record_access(ctx, record.source_scope, scope)
+            try:
+                parsed = parse_long_memory_file(record.file_path)
+            except InvalidError as exc:
+                if not isinstance(exc.__cause__, FileNotFoundError):
+                    raise
+                parsed = None
+            if parsed is not None:
+                current = record_from_parsed_file(record.file_path, parsed, record.file_mtime_ns, record.file_size)
+                if current.id != id:
+                    raise InvalidError("记忆文件 ID 已变更，请重新同步后再操作")
+                check_record_access(ctx, current.source_scope, scope)
             try:
                 os.remove(record.file_path)
             except FileNotFoundError:
@@ -338,6 +333,9 @@ class LongMemoryStore:
             record.file_path, parsed, record.file_mtime_ns, record.file_size
         )
 
+        if record.id != args.id:
+            raise InvalidError("记忆文件 ID 已变更，请重新同步后再操作")
+        check_record_access(ctx, record.source_scope, args.scope)
         nxt = LongMemoryRecord(**vars(record))
         changes: list[str] = []
         if args.category is not None:
@@ -486,7 +484,8 @@ class LongMemoryStore:
                 f"read long memory directory {self.memories_dir!r}: {exc}"
             ) from exc
         seen: dict[str, bool] = {}
-        seen_ids: dict[int, str] = {}
+        present = {os.path.join(self.memories_dir, name) for name in entries}
+        seen_ids = {item.id: item.file_path for item in self._indexed_paths() if item.file_path in present}
         for name in entries:
             if os.path.splitext(name)[1].lower() != ".md":
                 continue

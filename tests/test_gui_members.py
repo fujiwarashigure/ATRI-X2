@@ -20,6 +20,16 @@ from atri_x.storage.sqlite.chat_history_repository import new_chat_history
 TEMP_ROOT = Path(__file__).resolve().parent / "_tmp_gui_members"
 
 
+class AvatarContainmentAuditTests(unittest.TestCase):
+    def test_cache_deletion_rejects_outside_paths_before_remove(self):
+        from unittest.mock import patch
+        for path in ("../../victim.txt", "avatars/../../victim.txt", str(TEMP_ROOT / "victim.txt")):
+            with self.subTest(path=path), patch.object(avatars.os, "remove") as remove:
+                self.assertFalse(avatars.clear_avatar(str(TEMP_ROOT), path))
+                remove.assert_not_called()
+        self.assertTrue(avatars.avatar_file(str(TEMP_ROOT), "avatars/valid.png").endswith("valid.png"))
+
+
 class _FakePaths:
     """只用得到 ``chat_history_db_path`` 的路径对象。"""
 

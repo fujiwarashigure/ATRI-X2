@@ -1,17 +1,13 @@
 """单次 LLM 调用：请求构造、流式读取、用量与错误审计。
 
-对应 Go：``internal/agent/chat_llm.go``。其中 ``llmRequestOptions`` /
-``llmRequestOptionsFromPayload`` / ``mergeLLMRequestOptions`` 在 Go 里就在单独的
-``internal/agent/llm_request_options.go``；Python 版把它们放在
-:mod:`atri_x.agent.chat_request_options`（本模块末尾重新导出，导入路径不变）。
+对应 Go：``internal/agent/chat_llm.go``；请求选项来自 chat_request_options（末尾兼容导出）。
 
-Go 的 ``(llmCallResult, error)`` 在 Python 里是"返回 :class:`LLMCallResult`，
-失败抛异常"。两个刻意的例外与 Go 一致：``ctx`` 被取消/超时时**不抛**，而是带着
-已累积的文本正常返回，让上层走"本轮已超时停止"的分支。
+返回 LLMCallResult，失败抛异常；显式 ctx 取消可返回累积结果，Task 取消仍传播。
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -189,7 +185,9 @@ async def call_llm(
         selection.provider = event.llm.provider
         selection.model = event.llm.model
         agent.authorize_execution_model_selection(ctx, selection)
-    except BaseException as exc:  # noqa: BLE001 - 钩子失败也要先落待发用户消息
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # 钩子失败也要先落待发用户消息
         await _persist_pending_lenient(agent, ctx, pending)
         raise RuntimeError(f"llm request hook: {exc}") from exc
     # 请求 hook 不能把工具塞给 chat 会话。
@@ -358,6 +356,8 @@ async def _stream_chat(
                         await _notify_vision_fallback_once(agent, ctx, session_id, out)
                         _settle(agent, ctx, reservation, None, True)
                         settled = True
+                        release_provider()
+                        release_provider = _noop
                         return await _retry_for_vision(
                             agent,
                             ctx,

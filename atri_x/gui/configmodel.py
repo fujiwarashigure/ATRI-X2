@@ -1,7 +1,5 @@
 """桌面端「模型」页的数据模型：LLM Provider、上下文窗口与模型分配。
 
-三件事：
-
 1. **Provider**（``services.toml`` 的 ``[providers.<name>]``，旧部署退回
    ``providers.toml``）：``base_url`` / ``api_key_env`` / ``models`` / ``api_mode`` /
    ``extra_headers``（网关要求的自定义请求头，如 OpenCode Go 的
@@ -27,6 +25,7 @@
 from __future__ import annotations
 
 import os
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
@@ -237,7 +236,7 @@ def resolve_fetch_key(typed: str, paths: ConfigPaths, env_name: str) -> tuple[st
 def save_provider(paths: ConfigPaths, view: ProviderView, *, original: str = "") -> str:
     """保存一个 provider，返回实际写入的文件路径。
 
-    ``original`` 非空且与新名字不同表示**改名**：先删旧小节再写新的。
+    ``original`` 与新名不同时拒绝：改名需要完整迁移子表与引用，不能删旧重建。
     ``extra_headers`` 写在 ``[providers.<name>.extra_headers]`` 子表里；空表表示删掉
     整个子表（不留下一个空小节）。
 
@@ -261,10 +260,10 @@ def save_provider(paths: ConfigPaths, view: ProviderView, *, original: str = "")
     }
     old = (original or "").strip()
     if old and old != name:
-        remove_section(target, f"{_PROVIDERS_SECTION}.{old}")
+        raise ConfigEditError("暂不支持直接改名 Provider：请新增、迁移模型引用后再删除旧配置。")
     patch_section(
         target,
-        f"{_PROVIDERS_SECTION}.{name}",
+        f"{_PROVIDERS_SECTION}.{_toml_key_segment(name)}",
         values,
         header_comment=f"桌面端添加的 LLM Provider：{name}",
     )
@@ -328,14 +327,13 @@ def _normalized(value: Any) -> Any:
 
 def _save_extra_headers(target: str, name: str, extra_headers: Mapping[str, Any]) -> None:
     """写 / 删 ``[providers.<name>.extra_headers]`` 子表（空则删除整个小节）。"""
-    section = f"{_PROVIDERS_SECTION}.{name}.extra_headers"
-    headers = {
-        str(key).strip(): "" if value is None else str(value).strip()
-        for key, value in (extra_headers or {}).items()
-        if str(key).strip()
-    }
+    section = f"{_PROVIDERS_SECTION}.{_toml_key_segment(name)}.extra_headers"
+    headers = {str(key).strip(): "" if value is None else str(value).strip()
+               for key, value in (extra_headers or {}).items() if str(key).strip()}
     if headers:
-        patch_section(target, section, headers, header_comment="Provider 自定义请求头")
+        prior = read_toml(target).get(_PROVIDERS_SECTION, {}).get(name, {}).get("extra_headers", {})
+        removed = {key: None for key in prior if key not in headers}
+        patch_section(target, section, {**removed, **headers}, header_comment="Provider 自定义请求头")
     else:
         remove_section(target, section)
 
@@ -343,7 +341,7 @@ def _save_extra_headers(target: str, name: str, extra_headers: Mapping[str, Any]
 def delete_provider(paths: ConfigPaths, name: str) -> str:
     """删除一个 provider 小节（含 ``.model_configs`` 之类子表），返回文件路径。"""
     target = _providers_path(paths)
-    section = f"{_PROVIDERS_SECTION}.{validate_provider_name(name)}"
+    section = f"{_PROVIDERS_SECTION}.{_toml_key_segment(validate_provider_name(name))}"
     if not remove_section(target, section):
         raise ConfigEditError(f"{os.path.basename(target)} 里没有 [providers.{name}]")
     return target
@@ -397,6 +395,8 @@ def parse_context_window(value: Any) -> int:
             f"上下文窗口必须是正整数 tokens（例如 1000000 / 1m / 512k），当前是 {value!r}"
         ) from exc
     scaled = number * multiplier
+    if not math.isfinite(scaled):
+        raise ConfigEditError("上下文窗口必须是有限的正整数 tokens")
     tokens = int(scaled)
     if abs(scaled - tokens) > 1e-6:
         raise ConfigEditError(f"上下文窗口必须是整数 tokens，当前是 {value!r}")

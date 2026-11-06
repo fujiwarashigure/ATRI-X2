@@ -178,7 +178,7 @@ class SQLiteDatabase:
             journal_mode = _pragma_value("journal_mode", journal_mode)
         if synchronous:
             synchronous = _pragma_value("synchronous", synchronous)
-        connection = sqlite3.connect(path, check_same_thread=False, autocommit=True)
+        connection = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         connection.row_factory = sqlite3.Row
         try:
             connection.execute("PRAGMA foreign_keys = ON")

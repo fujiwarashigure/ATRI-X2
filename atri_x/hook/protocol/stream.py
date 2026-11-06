@@ -48,6 +48,9 @@ class LineReader:
         """返回下一行（含结尾换行）；流已结束时返回 ``None``。"""
         while True:
             index = self._buffer.find(b"\n")
+            frame_size = index + 1 if index >= 0 else len(self._buffer)
+            if frame_size > self._max_bytes:
+                raise ProtocolFrameError(f"hook protocol stdout frame exceeds {self._max_bytes} bytes limit")
             if index >= 0:
                 line = bytes(self._buffer[: index + 1])
                 del self._buffer[: index + 1]
@@ -63,11 +66,6 @@ class LineReader:
                 self._eof = True
                 continue
             self._buffer.extend(chunk)
-            if len(self._buffer) > self._max_bytes:
-                raise ProtocolFrameError(
-                    f"hook protocol stdout frame exceeds "
-                    f"{self._max_bytes // (1024 * 1024)} MiB limit"
-                )
 
 
 def short_protocol_line(line: bytes | str) -> str:

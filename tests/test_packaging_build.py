@@ -489,5 +489,42 @@ class VerifyCapabilityLineTest(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+class PortableSanitizeTests(unittest.TestCase):
+    """便携包不得把带运行期令牌的协议端目录打进去，也不得被继承的 ATRIX_HOME 改道。"""
+
+    def _dist(self) -> Path:
+        work = WORK_ROOT / f"portable_{os.getpid()}_{id(self)}"
+        self.addCleanup(shutil.rmtree, work, True)
+        dist = work / "dist"
+        dist.mkdir(parents=True)
+        for name in ("atri-x.exe", "atri-x-gui.exe"):
+            (dist / name).write_bytes(b"stub")
+        (dist / "qqproto" / "NapCat.Shell").mkdir(parents=True)
+        return dist
+
+    def test_residual_qqproto_tokens_block_zip_creation(self) -> None:
+        import build_portable
+        import qqproto
+
+        dist = self._dist()
+        output = dist.parent / "out"
+        with mock.patch.object(
+            qqproto, "assert_sanitized", side_effect=qqproto.QqProtoError("residual config")
+        ):
+            with self.assertRaises(build_portable.PortableError) as caught:
+                build_portable.build(dist=dist, output=output, version="0.0.0-test")
+        self.assertIn("residual config", str(caught.exception))
+        self.assertEqual(list(output.glob("*.zip")) if output.exists() else [], [])
+
+    def test_portable_and_debug_launchers_clear_inherited_atrix_home(self) -> None:
+        import build_portable
+
+        for text in (
+            build_portable.launcher_portable(),
+            build_portable.launcher_debug(),
+        ):
+            self.assertIn('set "ATRIX_HOME="', text)
+
+
 if __name__ == "__main__":
     unittest.main()

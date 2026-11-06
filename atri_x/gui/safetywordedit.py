@@ -224,10 +224,9 @@ class WordlistPanel:
         )
         import os
 
-        path = os.path.join(directory, name)
         try:
-            safetyconfig.write_list_file(
-                path, _WORDLIST_HEADER if kind == "wordlist" else _REGEX_HEADER
+            path = safetyconfig.create_list_file(
+                directory, name, _WORDLIST_HEADER if kind == "wordlist" else _REGEX_HEADER
             )
         except Exception as exc:  # noqa: BLE001
             self.tab.fail(exc)

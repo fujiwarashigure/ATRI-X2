@@ -97,13 +97,19 @@ async def _acquire(lock: asyncio.Lock, ctx: Any) -> None:
         return
     acquire_task = asyncio.ensure_future(lock.acquire())
     cancel_task = asyncio.ensure_future(waiter)
+    aborted = False
     try:
         await asyncio.wait({acquire_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED)
+    except BaseException:
+        aborted = True
+        raise
     finally:
         for task in (acquire_task, cancel_task):
             if not task.done():
                 task.cancel()
         await asyncio.gather(acquire_task, cancel_task, return_exceptions=True)
+        if aborted and not acquire_task.cancelled() and acquire_task.exception() is None:
+            lock.release()
     if acquire_task.done() and not acquire_task.cancelled() and acquire_task.exception() is None:
         if not is_cancelled(ctx):
             return

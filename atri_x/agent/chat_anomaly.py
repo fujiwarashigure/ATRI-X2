@@ -45,7 +45,8 @@ def apply_text_tool_recovery(
       "不吃工具 schema"的约定；
     * 还原出的调用会补上 ``id``（原生 tool_calls 由上游给 id，文本形态没有）。
     """
-    raw = str(result.raw_text or result.text or "")
+    # text 已经过响应 hook / 安全过滤；不可从 raw_text 复活被移除的内容或工具。
+    raw = str(result.text or "")
     if not looks_like_text_tool_call(raw):
         return result
     calls, cleaned = recover_text_tool_calls(raw)

@@ -14,7 +14,8 @@ import json
 import os
 import shutil
 import sqlite3
-import tempfile
+import uuid
+from pathlib import Path
 import unittest
 
 from atri_x.errors import InvalidError
@@ -44,7 +45,14 @@ from atri_x.tool.builtin.long_memory_scope import (
 from atri_x.tool.builtin.long_memory_store import LongMemoryStore
 from atri_x.tool.tool import CallRequest
 
-TMP_ROOT = os.path.join(os.getcwd(), "tmp_long_memory_scope_test")
+TMP_ROOT = str(Path(__file__).resolve().parent / "_tmp_long_memory_scope")
+
+
+def _isolated_root(case: unittest.TestCase, prefix: str) -> str:
+    root = str(Path(TMP_ROOT) / (prefix + uuid.uuid4().hex))
+    case.addCleanup(shutil.rmtree, root, ignore_errors=True)
+    os.makedirs(root, exist_ok=False)
+    return root
 
 
 def _run(coro):
@@ -135,9 +143,9 @@ class LongMemoryScopeHelperTest(unittest.TestCase):
 
 class LongMemoryScopeStoreTest(unittest.TestCase):
     def setUp(self) -> None:
-        os.makedirs(TMP_ROOT, exist_ok=True)
-        self.root = tempfile.mkdtemp(prefix="lm_scope_", dir=TMP_ROOT)
+        self.root = _isolated_root(self, "store_")
         self.store = LongMemoryStore(self.root)
+        self.addCleanup(self.store.close)
 
     def tearDown(self) -> None:
         self.store.close()
@@ -159,6 +167,33 @@ class LongMemoryScopeStoreTest(unittest.TestCase):
         return self.store.search(
             ctx, LongMemorySearchArgs(keywords=keywords, brief_only=True, limit=5, scope=scope)
         )
+
+    def test_delete_rechecks_file_scope_and_id_after_external_edit(self) -> None:
+        for changed in ("scope", "id"):
+            with self.subTest(changed=changed):
+                record = self._save(_ctx("group:1"), "external " + changed)
+                original_id = record.id
+                if changed == "scope":
+                    record.source_scope = "qq_onebot:group:2"
+                else:
+                    record.id += 1000
+                with open(record.file_path, "wb") as handle:
+                    handle.write(marshal_long_memory_file(record))
+                with self.assertRaises(InvalidError):
+                    self.store.delete(_ctx("group:1"), original_id)
+                self.assertTrue(os.path.isfile(record.file_path))
+
+    def test_delete_missing_file_cleans_index_but_malformed_file_is_preserved(self) -> None:
+        record = self._save(_ctx("group:1"), "missing")
+        os.remove(record.file_path)
+        self.store.delete(_ctx("group:1"), record.id)
+        self.assertIsNone(self.store._record_by_id(record.id))
+        record = self._save(_ctx("group:1"), "malformed")
+        with open(record.file_path, "w", encoding="utf-8") as handle:
+            handle.write("not a memory")
+        with self.assertRaises(InvalidError):
+            self.store.delete(_ctx("group:1"), record.id)
+        self.assertTrue(os.path.isfile(record.file_path))
 
     def test_save_records_source_scope_and_actor(self) -> None:
         record = self._save(_ctx("group:1"), "群一记忆")
@@ -356,9 +391,11 @@ class LongMemoryScopeStoreTest(unittest.TestCase):
 
 class LongMemoryScopeToolTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.root = tempfile.mkdtemp(prefix="lm_scope_tool_")
+        self.root = _isolated_root(self, "tool_")
         self.tools = new_long_memory_tools(self.root)
         self.entry, self.search, self.write = self.tools
+        for tool in self.tools:
+            self.addCleanup(tool.store.close)
 
     def tearDown(self) -> None:
         for tool in self.tools:

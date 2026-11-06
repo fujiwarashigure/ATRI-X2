@@ -288,18 +288,22 @@ def normalize_jina_response(data: JinaResponse, fallback_url: str) -> ExtractPag
 
 
 def jina_reader_url(endpoint: str, target_url: str) -> str:
-    """对应 Go ``jinaReaderURL``：``<endpoint>/http://host/path?query``。
+    """Reader URL 保留目标 http/https 协议，不把 HTTPS 降级。
 
     URL 不合法是调用方错误（不是通道失败），所以抛 :class:`InvalidError`，
     与 Go 版的语义一致；它也不会触发降级。
     """
-    parsed = urlsplit((target_url or "").strip())
-    if not parsed.scheme or not parsed.netloc:
-        raise InvalidError(f"invalid url: {target_url}")
+    try:
+        parsed = urlsplit((target_url or "").strip())
+        _ = parsed.port  # 触发非法端口校验。
+        if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username is not None or parsed.password is not None:
+            raise ValueError("invalid web target")
+    except ValueError as exc:
+        raise InvalidError("invalid reader target url") from exc
     path = parsed.path or "/"
     if parsed.query:
         path += "?" + parsed.query
-    return endpoint.rstrip("/") + "/http://" + parsed.netloc + path
+    return endpoint.rstrip("/") + "/" + parsed.scheme + "://" + parsed.netloc + path
 
 
 def extract_simple_html_text(raw: str) -> tuple[str, str]:

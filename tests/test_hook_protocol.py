@@ -37,6 +37,53 @@ from atri_x.llm.llm import LLMMessage, MessageSegment, ToolCallRequest, Usage
 from atri_x.hook.output import Segment, Target
 
 
+class TestFileURIDecoding(unittest.TestCase):
+    def test_local_file_uri_decodes_spaces_and_hash(self):
+        import os
+        from atri_x.tool.builtin.send_file import local_source_path
+        uri = "file:///C:/audit/a%20b%23c.txt" if os.name == "nt" else "file:///audit/a%20b%23c.txt"
+        expected = "C:/audit/a b#c.txt" if os.name == "nt" else "/audit/a b#c.txt"
+        self.assertEqual(local_source_path(uri), expected.replace("/", os.sep))
+
+
+class TestSharedRPCValueBoundaries(unittest.TestCase):
+    def test_rpc_strings_remain_json_strings(self):
+        from atri_x.hook.runtime.shared import SharedState
+        state = SharedState()
+        for value in ("hello", "123", "true", "null"):
+            state.handle_request("shared.set", {"key": "audit", "value": value})
+            stored, found = state.get("audit")
+            self.assertTrue(found)
+            self.assertEqual(json.loads(stored), value)
+
+    def test_rpc_rejects_overlarge_ttl_before_poisoning_store(self):
+        from atri_x.hook.runtime.shared import SharedState, SharedStateError
+        state = SharedState()
+        with self.assertRaises(SharedStateError):
+            state.handle_request("shared.set", {"key": "audit", "value": {}, "ttl_seconds": 10**12})
+        self.assertEqual(state.list(), [])
+
+
+class TestFrameSizeBoundaries(unittest.IsolatedAsyncioTestCase):
+    async def test_combined_chunk_uses_per_frame_limit(self):
+        from unittest.mock import AsyncMock
+        stream = AsyncMock()
+        stream.read.side_effect = [b"1234\n5678\n", b""]
+        reader = LineReader(stream, max_bytes=6)
+        self.assertEqual(await reader.read_line(), b"1234\n")
+        self.assertEqual(await reader.read_line(), b"5678\n")
+        self.assertIsNone(await reader.read_line())
+
+    async def test_oversized_complete_and_partial_frames_rejected(self):
+        from unittest.mock import AsyncMock
+        from atri_x.hook.protocol.stream import ProtocolFrameError
+        for chunks in ([b"1234567\n"], [b"1234", b"567"]):
+            stream = AsyncMock()
+            stream.read.side_effect = chunks
+            with self.assertRaises(ProtocolFrameError):
+                await LineReader(stream, max_bytes=6).read_line()
+
+
 class TestTimeJSON(unittest.TestCase):
     def test_utc(self) -> None:
         moment = datetime(2026, 10, 13, 12, 0, 0, tzinfo=timezone.utc)

@@ -184,7 +184,12 @@ async def close_platform_events(agent: Any, ctx: Any) -> None:
     done = subs.done if subs.done is not None else _new_event()
     if done.is_set():
         return
-    await _wait_event(done, ctx)
+    # begin_close 可能在线程外无 loop 调用；直接等待队列以补齐汇聚。
+    with subs.mu:
+        queues = list(subs.queues.values())
+    for queue in queues:
+        await _wait_event(queue.done(), ctx)
+    done.set()
 
 
 def _wait_event(event: asyncio.Event, ctx: Any) -> Any:

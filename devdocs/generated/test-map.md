@@ -3,8 +3,8 @@
 
 # 测试地图（自动生成）
 
-- 模块 **896** 个，其中被测试直接/间接覆盖 **573** 个（64.0%）；无覆盖 **323** 个。
-- 测试文件 **260** 个。
+- 模块 **898** 个，其中被测试直接/间接覆盖 **606** 个（67.5%）；无覆盖 **292** 个。
+- 测试文件 **265** 个。
 
 口径：测试文件 import 了某模块（或其子模块）就算覆盖该模块；「无覆盖」不代表没测过，但**改那个模块时没有同名测试可跑**，只能靠调用方测试。
 
@@ -13,22 +13,23 @@
 | 模块 | 测试文件 |
 |---|---|
 | `atri_x.__main__` | `tests/test_main.py` |
-| `atri_x.agent` | `tests/agent_commands_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_admission.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_budget.py`、`tests/test_agent_chat.py`、`tests/test_agent_chat_anomaly.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_services.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_inbound_media.py`、`tests/test_agent_model.py`、`tests/test_agent_participation.py`、`tests/test_agent_prompt.py`、`tests/test_agent_provider_limit.py`、`tests/test_agent_reactions.py`、`tests/test_agent_risk.py`、`tests/test_agent_segments.py`、`tests/test_agent_title.py`、`tests/test_agent_tools.py`、`tests/test_agent_wakeup.py`、`tests/test_app_runtime_agent.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_dsh_acp_client.py`、`tests/test_dsh_gateway.py`、`tests/test_dsh_route.py`、`tests/test_dsh_scheduler.py`、`tests/test_hook_runtime.py`、`tests/test_member_persona.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_promptlib.py`、`tests/test_request_manager.py`、`tests/test_safety_integration.py`、`tests/test_security_grants.py`、`tests/test_session_naming_contract.py`、`tests/test_time_context.py`、`tests/test_toolrun.py`、`tests/test_usage_attribution.py`、`tests/test_vision_prechat.py`、`tests/test_vision_privacy.py` |
-| `atri_x.agent.admission` | `tests/test_agent_admission.py` |
+| `atri_x.agent` | `tests/agent_commands_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_admission.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_budget.py`、`tests/test_agent_chat.py`、`tests/test_agent_chat_anomaly.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_services.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_inbound_media.py`、`tests/test_agent_model.py`、`tests/test_agent_participation.py`、`tests/test_agent_prompt.py`、`tests/test_agent_provider_limit.py`、`tests/test_agent_reactions.py`、`tests/test_agent_risk.py`、`tests/test_agent_segments.py`、`tests/test_agent_title.py`、`tests/test_agent_tools.py`、`tests/test_agent_wakeup.py`、`tests/test_app_runtime_agent.py`、`tests/test_audit_fileops.py`、`tests/test_audit_lifecycle.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_dsh_acp_client.py`、`tests/test_dsh_gateway.py`、`tests/test_dsh_route.py`、`tests/test_dsh_scheduler.py`、`tests/test_hook_runtime.py`、`tests/test_member_persona.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_promptlib.py`、`tests/test_request_manager.py`、`tests/test_safety_integration.py`、`tests/test_security_grants.py`、`tests/test_session_naming_contract.py`、`tests/test_time_context.py`、`tests/test_toolrun.py`、`tests/test_usage_attribution.py`、`tests/test_vision_prechat.py`、`tests/test_vision_privacy.py` |
+| `atri_x.agent.admission` | `tests/test_agent_admission.py`、`tests/test_audit_regressions.py` |
 | `atri_x.agent.bootstrap` | `tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_commands_integration.py`、`tests/test_app_runtime_agent.py` |
 | `atri_x.agent.budget` | `tests/test_agent_budget.py` |
 | `atri_x.agent.call_reason` | `tests/test_agent_admission.py`、`tests/test_usage_attribution.py` |
 | `atri_x.agent.character_directive` | `tests/test_agent_assembly.py` |
 | `atri_x.agent.chat` | `tests/test_agent_chat.py`、`tests/test_agent_core.py` |
-| `atri_x.agent.chat_anomaly` | `tests/test_agent_chat_anomaly.py` |
-| `atri_x.agent.chat_llm` | `tests/test_agent_chat.py`、`tests/test_agent_chat_anomaly.py` |
+| `atri_x.agent.chat_anomaly` | `tests/test_agent_chat_anomaly.py`、`tests/test_audit_regressions.py` |
+| `atri_x.agent.chat_llm` | `tests/test_agent_chat.py`、`tests/test_agent_chat_anomaly.py`、`tests/test_audit_regressions.py` |
 | `atri_x.agent.chat_observe` | `tests/test_usage_attribution.py` |
 | `atri_x.agent.chat_stream` | `tests/test_agent_provider_limit.py` |
 | `atri_x.agent.chat_tools` | `tests/test_agent_chat.py`、`tests/test_agent_core.py`、`tests/test_security_grants.py` |
 | `atri_x.agent.chat_turn` | `tests/test_agent_chat.py` |
-| `atri_x.agent.commands` | `tests/agent_commands_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_services.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_security_grants.py`、`tests/test_usage_attribution.py` |
-| `atri_x.agent.commands.approval` | `tests/test_security_grants.py` |
+| `atri_x.agent.commands` | `tests/agent_commands_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_services.py`、`tests/test_audit_fileops.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_security_grants.py`、`tests/test_usage_attribution.py` |
+| `atri_x.agent.commands.approval` | `tests/test_audit_fileops.py`、`tests/test_security_grants.py` |
 | `atri_x.agent.commands.deps` | `tests/test_agent_assembly.py`、`tests/test_agent_commands_integration.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_security_grants.py` |
+| `atri_x.agent.commands.model` | `tests/test_audit_fileops.py` |
 | `atri_x.agent.commands.model_types` | `tests/test_agent_bootstrap.py`、`tests/test_agent_commands_integration.py` |
 | `atri_x.agent.commands.resources` | `tests/test_builtin_runtime_resources.py` |
 | `atri_x.agent.commands.usage` | `tests/test_agent_commands_services.py`、`tests/test_usage_attribution.py` |
@@ -55,41 +56,45 @@
 | `atri_x.agent.dsh.turn` | `tests/test_dsh_scheduler.py` |
 | `atri_x.agent.dsh.types` | `tests/test_dsh_acp_client.py`、`tests/test_dsh_route.py` |
 | `atri_x.agent.dsh.workspace` | `tests/test_dsh_gateway.py`、`tests/test_dsh_scheduler.py` |
-| `atri_x.agent.errors` | `tests/test_agent_chat.py` |
-| `atri_x.agent.group_knowledge` | `tests/test_agent_group_policy.py` |
-| `atri_x.agent.group_policy` | `tests/agent_fakes.py`、`tests/test_agent_group_policy.py` |
-| `atri_x.agent.group_policy_rules` | `tests/test_agent_group_policy.py` |
-| `atri_x.agent.group_runtime` | `tests/test_agent_bootstrap.py`、`tests/test_agent_group_policy.py` |
+| `atri_x.agent.errors` | `tests/test_agent_chat.py`、`tests/test_audit_lifecycle.py` |
+| `atri_x.agent.group_knowledge` | `tests/test_agent_group_policy.py`、`tests/test_audit_lifecycle.py` |
+| `atri_x.agent.group_policy` | `tests/agent_fakes.py`、`tests/test_agent_group_policy.py`、`tests/test_audit_lifecycle.py` |
+| `atri_x.agent.group_policy_rules` | `tests/test_agent_group_policy.py`、`tests/test_audit_lifecycle.py` |
+| `atri_x.agent.group_runtime` | `tests/test_agent_bootstrap.py`、`tests/test_agent_group_policy.py`、`tests/test_audit_lifecycle.py` |
 | `atri_x.agent.group_services_polls` | `tests/test_agent_group_policy.py` |
-| `atri_x.agent.group_services_reminders` | `tests/test_agent_group_policy.py` |
+| `atri_x.agent.group_services_reminders` | `tests/test_agent_group_policy.py`、`tests/test_audit_lifecycle.py` |
 | `atri_x.agent.group_services_signups` | `tests/test_agent_group_policy.py` |
-| `atri_x.agent.group_services_state` | `tests/test_agent_core.py`、`tests/test_agent_group_policy.py` |
+| `atri_x.agent.group_services_state` | `tests/test_agent_core.py`、`tests/test_agent_group_policy.py`、`tests/test_audit_lifecycle.py` |
 | `atri_x.agent.hooks` | `tests/test_hook_runtime.py` |
-| `atri_x.agent.inbound_media` | `tests/test_agent_inbound_media.py` |
+| `atri_x.agent.inbound_media` | `tests/test_agent_inbound_media.py`、`tests/test_audit_lifecycle.py` |
+| `atri_x.agent.inbox` | `tests/test_audit_regressions.py` |
 | `atri_x.agent.input` | `tests/test_agent_risk.py` |
+| `atri_x.agent.media_output` | `tests/test_audit_lifecycle.py` |
 | `atri_x.agent.member_persona_prompt` | `tests/test_member_persona.py` |
 | `atri_x.agent.member_profile_prompt` | `tests/test_member_profile.py` |
 | `atri_x.agent.message` | `tests/test_safety_integration.py` |
 | `atri_x.agent.model` | `tests/test_agent_bootstrap.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_model.py` |
 | `atri_x.agent.model_agent` | `tests/test_agent_context_runtime.py`、`tests/test_agent_model.py` |
-| `atri_x.agent.model_list` | `tests/test_agent_model.py` |
+| `atri_x.agent.model_list` | `tests/test_agent_model.py`、`tests/test_audit_lifecycle.py` |
 | `atri_x.agent.model_policy` | `tests/test_agent_model.py` |
-| `atri_x.agent.model_service` | `tests/test_agent_bootstrap.py`、`tests/test_agent_model.py` |
-| `atri_x.agent.model_snapshot` | `tests/test_agent_model.py` |
+| `atri_x.agent.model_service` | `tests/test_agent_bootstrap.py`、`tests/test_agent_model.py`、`tests/test_audit_lifecycle.py` |
+| `atri_x.agent.model_snapshot` | `tests/test_agent_model.py`、`tests/test_audit_lifecycle.py` |
 | `atri_x.agent.model_state` | `tests/test_agent_bootstrap.py`、`tests/test_agent_model.py` |
-| `atri_x.agent.notice_queue` | `tests/test_agent_core.py` |
+| `atri_x.agent.notice_queue` | `tests/test_agent_core.py`、`tests/test_audit_fileops.py` |
 | `atri_x.agent.options` | `tests/test_agent_core.py` |
 | `atri_x.agent.output` | `tests/test_safety_integration.py` |
 | `atri_x.agent.participation` | `tests/test_agent_participation.py` |
+| `atri_x.agent.platform_signals` | `tests/test_audit_lifecycle.py` |
 | `atri_x.agent.prompt` | `tests/test_agent_prompt.py`、`tests/test_member_profile.py` |
-| `atri_x.agent.ratelimit` | `tests/test_agent_bootstrap.py`、`tests/test_agent_directives.py` |
+| `atri_x.agent.ratelimit` | `tests/test_agent_bootstrap.py`、`tests/test_agent_directives.py`、`tests/test_audit_regressions.py` |
 | `atri_x.agent.reactions` | `tests/test_agent_chat.py`、`tests/test_agent_reactions.py` |
 | `atri_x.agent.request_context` | `tests/test_agent_core.py` |
 | `atri_x.agent.risk_confirmation` | `tests/test_agent_risk.py` |
 | `atri_x.agent.seams` | `tests/test_agent_bootstrap.py` |
 | `atri_x.agent.segments` | `tests/test_agent_segments.py`、`tests/test_platform_cli_remote.py` |
 | `atri_x.agent.session_metadata` | `tests/test_agent_core.py` |
-| `atri_x.agent.status` | `tests/test_agent_assembly.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py` |
+| `atri_x.agent.state_watch` | `tests/test_audit_lifecycle.py` |
+| `atri_x.agent.status` | `tests/test_agent_assembly.py`、`tests/test_audit_lifecycle.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py` |
 | `atri_x.agent.system_prompt` | `tests/test_agent_prompt.py`、`tests/test_member_persona.py`、`tests/test_member_profile.py` |
 | `atri_x.agent.system_prompt_sources` | `tests/test_agent_prompt.py`、`tests/test_agent_reactions.py`、`tests/test_memory_notes.py` |
 | `atri_x.agent.time_context` | `tests/test_time_context.py` |
@@ -101,18 +106,19 @@
 | `atri_x.agent.tool_schemas` | `tests/test_agent_assembly.py` |
 | `atri_x.agent.tool_tag_config` | `tests/test_agent_directives.py`、`tests/test_agent_prompt.py` |
 | `atri_x.agent.tool_transcript` | `tests/test_agent_chat.py`、`tests/test_agent_tools.py` |
-| `atri_x.agent.toolrun_adapter` | `tests/test_agent_risk.py`、`tests/test_safety_integration.py`、`tests/test_toolrun.py` |
+| `atri_x.agent.toolrun_adapter` | `tests/test_agent_risk.py`、`tests/test_audit_fileops.py`、`tests/test_safety_integration.py`、`tests/test_toolrun.py` |
 | `atri_x.agent.toolrun_prompt_provider` | `tests/test_agent_tools.py` |
 | `atri_x.agent.tools` | `tests/test_agent_assembly.py`、`tests/test_agent_risk.py`、`tests/test_agent_tools.py` |
 | `atri_x.agent.turn_output` | `tests/test_agent_chat.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py` |
 | `atri_x.agent.turn_override` | `tests/test_agent_assembly.py`、`tests/test_agent_chat.py` |
 | `atri_x.agent.user_prompt_source` | `tests/test_promptlib.py` |
 | `atri_x.agent.vision` | `tests/test_vision_prechat.py`、`tests/test_vision_privacy.py` |
-| `atri_x.agent.wakeup` | `tests/test_agent_participation.py`、`tests/test_agent_wakeup.py` |
+| `atri_x.agent.wakeup` | `tests/test_agent_participation.py`、`tests/test_agent_wakeup.py`、`tests/test_audit_lifecycle.py` |
 | `atri_x.agent.workspace` | `tests/test_agent_directives.py`、`tests/test_toolrun.py` |
-| `atri_x.angelmemory` | `tests/agent_commands_fakes.py`、`tests/test_agent_commands_services.py`、`tests/test_agent_commands_session.py`、`tests/test_angelmemory.py`、`tests/test_app_ops_plugins.py`、`tests/test_builtin_tools2.py` |
+| `atri_x.angelmemory` | `tests/agent_commands_fakes.py`、`tests/test_agent_commands_services.py`、`tests/test_agent_commands_session.py`、`tests/test_angelmemory.py`、`tests/test_app_ops_plugins.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_tools2.py` |
 | `atri_x.angelmemory.service` | `tests/test_app_ops_plugins.py` |
-| `atri_x.app` | `tests/test_app_bootstrap.py`、`tests/test_app_doctor_capabilities.py`、`tests/test_app_health.py`、`tests/test_app_llm_adapters.py`、`tests/test_app_ops_plugins.py`、`tests/test_app_platforms.py`、`tests/test_app_runner.py`、`tests/test_app_runtime_agent.py`、`tests/test_app_runtime_resident.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_comic_service.py`、`tests/test_deploy_harness.py`、`tests/test_dsh_route.py`、`tests/test_llm_headers.py`、`tests/test_main.py`、`tests/test_member_profile.py`、`tests/test_ops_health.py`、`tests/test_packaging_tzdata.py`、`tests/test_promptlib.py`、`tests/test_safety_integration.py`、`tests/test_session_lifecycle.py`、`tests/test_time_config.py`、`tests/test_vision_concurrency.py` |
+| `atri_x.angelmemory.store` | `tests/test_audit_regressions.py` |
+| `atri_x.app` | `tests/test_app_bootstrap.py`、`tests/test_app_doctor_capabilities.py`、`tests/test_app_health.py`、`tests/test_app_llm_adapters.py`、`tests/test_app_ops_plugins.py`、`tests/test_app_platforms.py`、`tests/test_app_runner.py`、`tests/test_app_runtime_agent.py`、`tests/test_app_runtime_resident.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_audit_fileops.py`、`tests/test_comic_service.py`、`tests/test_deploy_harness.py`、`tests/test_dsh_route.py`、`tests/test_llm_headers.py`、`tests/test_main.py`、`tests/test_member_profile.py`、`tests/test_ops_health.py`、`tests/test_packaging_tzdata.py`、`tests/test_promptlib.py`、`tests/test_safety_integration.py`、`tests/test_session_lifecycle.py`、`tests/test_time_config.py`、`tests/test_vision_concurrency.py` |
 | `atri_x.app.app` | `tests/test_app_bootstrap.py`、`tests/test_app_runner.py` |
 | `atri_x.app.breaker_llm` | `tests/test_app_llm_adapters.py` |
 | `atri_x.app.cli_client` | `tests/test_app_platforms.py` |
@@ -133,8 +139,8 @@
 | `atri_x.app.naming` | `tests/test_session_lifecycle.py` |
 | `atri_x.app.ops_health` | `tests/test_app_health.py`、`tests/test_app_ops_plugins.py`、`tests/test_app_runtime_agent.py`、`tests/test_dsh_route.py`、`tests/test_member_profile.py`、`tests/test_ops_health.py` |
 | `atri_x.app.platform_caller` | `tests/test_app_platforms.py` |
-| `atri_x.app.platforms` | `tests/test_app_platforms.py`、`tests/test_deploy_harness.py` |
-| `atri_x.app.runner` | `tests/test_app_ops_plugins.py`、`tests/test_app_runner.py` |
+| `atri_x.app.platforms` | `tests/test_app_platforms.py`、`tests/test_audit_fileops.py`、`tests/test_deploy_harness.py` |
+| `atri_x.app.runner` | `tests/test_app_ops_plugins.py`、`tests/test_app_runner.py`、`tests/test_audit_fileops.py` |
 | `atri_x.app.runtime` | `tests/test_app_runner.py`、`tests/test_app_runtime_resident.py`、`tests/test_app_tool_runtime_wiring.py` |
 | `atri_x.app.runtime_agent` | `tests/test_app_runtime_agent.py`、`tests/test_member_profile.py` |
 | `atri_x.app.runtime_safety` | `tests/test_safety_integration.py` |
@@ -145,13 +151,16 @@
 | `atri_x.app.tool_runtime` | `tests/test_app_runtime_agent.py`、`tests/test_app_runtime_resident.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_member_profile.py` |
 | `atri_x.app.tool_runtime_comic` | `tests/test_comic_service.py` |
 | `atri_x.app.vision` | `tests/test_vision_concurrency.py` |
-| `atri_x.artist` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_artist_metadata.py`、`tests/test_artist_service.py`、`tests/test_builtin_character_artist.py`、`tests/test_builtin_imagegen.py`、`tests/test_media_manager.py` |
+| `atri_x.artist` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_artist_metadata.py`、`tests/test_artist_service.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_character_artist.py`、`tests/test_builtin_imagegen.py`、`tests/test_media_manager.py` |
 | `atri_x.artist.metadata` | `tests/test_artist_metadata.py`、`tests/test_media_manager.py` |
 | `atri_x.artist.metadata_formats` | `tests/test_artist_metadata.py` |
 | `atri_x.artist.search` | `tests/test_artist_service.py` |
+| `atri_x.artist.store` | `tests/test_audit_regressions.py` |
 | `atri_x.artist.types` | `tests/test_artist_metadata.py` |
 | `atri_x.asr` | `tests/test_asr.py` |
-| `atri_x.atriena` | `tests/_atrinis_support.py`、`tests/test_atriena.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py` |
+| `atri_x.atriena` | `tests/_atrinis_support.py`、`tests/test_atriena.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_audit_gates.py` |
+| `atri_x.atriena.calls` | `tests/test_audit_gates.py` |
+| `atri_x.atriena.types` | `tests/test_audit_gates.py` |
 | `atri_x.atrinis` | `tests/_atrinis_support.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py` |
 | `atri_x.atrinis.types` | `tests/test_atrinis_http.py` |
 | `atri_x.atriyph` | `tests/_skill_fixtures.py`、`tests/test_atriyph.py`、`tests/test_tool_skill.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py` |
@@ -173,10 +182,10 @@
 | `atri_x.comic.references` | `tests/test_comic_models.py`、`tests/test_comic_service.py` |
 | `atri_x.comic.service` | `tests/test_comic_models.py` |
 | `atri_x.comic.store` | `tests/test_comic_models.py` |
-| `atri_x.command` | `tests/agent_commands_fakes.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_services.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_command_router.py`、`tests/test_completion.py`、`tests/test_security_grants.py` |
+| `atri_x.command` | `tests/agent_commands_fakes.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_services.py`、`tests/test_audit_fileops.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_command_router.py`、`tests/test_completion.py`、`tests/test_security_grants.py` |
 | `atri_x.completion` | `tests/test_completion.py`、`tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py` |
 | `atri_x.completion.completion` | `tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py` |
-| `atri_x.config` | `tests/_atrinis_support.py`、`tests/agent_fakes.py`、`tests/test_agent_admission.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_budget.py`、`tests/test_agent_chat.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_core.py`、`tests/test_agent_directives.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_model.py`、`tests/test_agent_participation.py`、`tests/test_agent_prompt.py`、`tests/test_agent_reactions.py`、`tests/test_agent_risk.py`、`tests/test_agent_tools.py`、`tests/test_app_llm_adapters.py`、`tests/test_app_runtime_agent.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_builtin_tools4.py`、`tests/test_comic_service.py`、`tests/test_config.py`、`tests/test_config_assets.py`、`tests/test_config_home.py`、`tests/test_config_loader.py`、`tests/test_config_state.py`、`tests/test_config_web_search.py`、`tests/test_daily_summary.py`、`tests/test_deploy_harness_cli.py`、`tests/test_dsh_route.py`、`tests/test_groupkb.py`、`tests/test_maintenance.py`、`tests/test_maintenance_dsh.py`、`tests/test_maintenance_report.py`、`tests/test_member_profile.py`、`tests/test_request_manager.py`、`tests/test_safety_core.py`、`tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py`、`tests/test_time_config.py`、`tests/test_time_service.py`、`tests/test_timesync_https.py`、`tests/test_timesync_sntp.py`、`tests/test_timesync_verifier.py`、`tests/test_tool_runtimeinfo.py`、`tests/test_toolrun.py`、`tests/test_vision_concurrency.py` |
+| `atri_x.config` | `tests/_atrinis_support.py`、`tests/agent_fakes.py`、`tests/test_agent_admission.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_budget.py`、`tests/test_agent_chat.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_core.py`、`tests/test_agent_directives.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_model.py`、`tests/test_agent_participation.py`、`tests/test_agent_prompt.py`、`tests/test_agent_reactions.py`、`tests/test_agent_risk.py`、`tests/test_agent_tools.py`、`tests/test_app_llm_adapters.py`、`tests/test_app_runtime_agent.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_audit_lifecycle.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_tools4.py`、`tests/test_comic_service.py`、`tests/test_config.py`、`tests/test_config_assets.py`、`tests/test_config_home.py`、`tests/test_config_loader.py`、`tests/test_config_state.py`、`tests/test_config_web_search.py`、`tests/test_daily_summary.py`、`tests/test_deploy_harness_cli.py`、`tests/test_dsh_route.py`、`tests/test_groupkb.py`、`tests/test_gui_timepanel.py`、`tests/test_maintenance.py`、`tests/test_maintenance_dsh.py`、`tests/test_maintenance_report.py`、`tests/test_member_profile.py`、`tests/test_request_manager.py`、`tests/test_safety_core.py`、`tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py`、`tests/test_time_config.py`、`tests/test_time_service.py`、`tests/test_timesync_https.py`、`tests/test_timesync_sntp.py`、`tests/test_timesync_verifier.py`、`tests/test_tool_runtimeinfo.py`、`tests/test_toolrun.py`、`tests/test_vision_concurrency.py` |
 | `atri_x.config.app` | `tests/test_config.py`、`tests/test_config_loader.py`、`tests/test_config_web_search.py`、`tests/test_time_config.py` |
 | `atri_x.config.app_sections` | `tests/test_agent_admission.py`、`tests/test_agent_core.py`、`tests/test_agent_participation.py`、`tests/test_agent_reactions.py`、`tests/test_config.py`、`tests/test_config_state.py`、`tests/test_config_web_search.py`、`tests/test_request_manager.py`、`tests/test_safety_core.py`、`tests/test_toolrun.py` |
 | `atri_x.config.assets` | `tests/test_config.py`、`tests/test_config_assets.py` |
@@ -184,10 +193,10 @@
 | `atri_x.config.home` | `tests/test_config_home.py` |
 | `atri_x.config.inspect` | `tests/test_config.py`、`tests/test_time_config.py` |
 | `atri_x.config.loader` | `tests/test_config.py`、`tests/test_config_home.py`、`tests/test_config_loader.py`、`tests/test_deploy_harness_cli.py` |
-| `atri_x.config.sandbox` | `tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py` |
+| `atri_x.config.sandbox` | `tests/test_audit_regressions.py`、`tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py` |
 | `atri_x.config.services` | `tests/test_config.py`、`tests/test_config_loader.py`、`tests/test_config_web_search.py`、`tests/test_vision_concurrency.py` |
 | `atri_x.config.state` | `tests/test_config_state.py`、`tests/test_groupkb.py` |
-| `atri_x.config.time_sections` | `tests/test_time_config.py`、`tests/test_time_service.py`、`tests/test_timesync_https.py`、`tests/test_timesync_sntp.py`、`tests/test_timesync_verifier.py` |
+| `atri_x.config.time_sections` | `tests/test_gui_timepanel.py`、`tests/test_time_config.py`、`tests/test_time_service.py`、`tests/test_timesync_https.py`、`tests/test_timesync_sntp.py`、`tests/test_timesync_verifier.py` |
 | `atri_x.contextmgr` | `tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_contextmgr.py`、`tests/test_contextmgr_window_metadata.py` |
 | `atri_x.contextmgr.budget` | `tests/test_contextmgr.py`、`tests/test_contextmgr_window_metadata.py` |
 | `atri_x.contextmgr.compact_prompt` | `tests/test_contextmgr.py` |
@@ -195,13 +204,15 @@
 | `atri_x.contextmgr.loader` | `tests/test_contextmgr.py` |
 | `atri_x.contextmgr.usage` | `tests/test_contextmgr.py` |
 | `atri_x.contextmgr.window` | `tests/test_contextmgr.py`、`tests/test_contextmgr_window_metadata.py` |
-| `atri_x.cron` | `tests/test_agent_admission.py`、`tests/test_agent_cron.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_cron.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_cron_dst.py`、`tests/test_maintenance.py` |
+| `atri_x.cron` | `tests/test_agent_admission.py`、`tests/test_agent_cron.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_cron.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_cron_dst.py`、`tests/test_maintenance.py` |
 | `atri_x.cron.execution` | `tests/test_agent_admission.py` |
-| `atri_x.cron.manager` | `tests/test_cron.py` |
-| `atri_x.cron.model` | `tests/test_cron_dst.py` |
-| `atri_x.cron.service` | `tests/test_agent_cron.py` |
-| `atri_x.delivery` | `tests/_atrinis_support.py`、`tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_core.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_reactions.py`、`tests/test_app_platforms.py`、`tests/test_atriena.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_background.py`、`tests/test_builtin_tools3.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_delivery.py`、`tests/test_hook_manager.py`、`tests/test_hook_output.py`、`tests/test_hook_protocol.py`、`tests/test_hook_rules.py`、`tests/test_hook_runtime.py`、`tests/test_media_manager.py`、`tests/test_media_platform.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_qq_onebot.py`、`tests/test_platform_qqofficial.py`、`tests/test_request_manager.py`、`tests/test_safety_integration.py` |
+| `atri_x.cron.manager` | `tests/test_audit_regressions.py`、`tests/test_cron.py` |
+| `atri_x.cron.model` | `tests/test_audit_regressions.py`、`tests/test_cron_dst.py` |
+| `atri_x.cron.service` | `tests/test_agent_cron.py`、`tests/test_audit_regressions.py` |
+| `atri_x.delivery` | `tests/_atrinis_support.py`、`tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_core.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_reactions.py`、`tests/test_app_platforms.py`、`tests/test_atriena.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_audit_lifecycle.py`、`tests/test_background.py`、`tests/test_builtin_tools3.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_delivery.py`、`tests/test_hook_manager.py`、`tests/test_hook_output.py`、`tests/test_hook_protocol.py`、`tests/test_hook_rules.py`、`tests/test_hook_runtime.py`、`tests/test_media_manager.py`、`tests/test_media_platform.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_qq_onebot.py`、`tests/test_platform_qqofficial.py`、`tests/test_request_manager.py`、`tests/test_safety_integration.py` |
 | `atri_x.delivery.delivery` | `tests/test_background.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_hook_protocol.py`、`tests/test_hook_rules.py`、`tests/test_hook_runtime.py`、`tests/test_media_manager.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_qq_onebot.py`、`tests/test_platform_qqofficial.py` |
+| `atri_x.devtools` | `tests/test_audit_gates.py` |
+| `atri_x.devtools.astindex` | `tests/test_audit_gates.py` |
 | `atri_x.diagram` | `tests/test_diagram_pack.py`、`tests/test_diagram_skill.py` |
 | `atri_x.diagram.bootstrap` | `tests/test_diagram_pack.py`、`tests/test_diagram_skill.py` |
 | `atri_x.diagram.pack` | `tests/test_diagram_pack.py` |
@@ -212,24 +223,24 @@
 | `atri_x.dist` | `tests/test_dist_cli.py`、`tests/test_dist_migrate.py` |
 | `atri_x.dist.cli` | `tests/test_dist_cli.py` |
 | `atri_x.dist.migrate` | `tests/test_dist_cli.py`、`tests/test_dist_migrate.py` |
-| `atri_x.errors` | `tests/_atrinis_support.py`、`tests/_comic_fakes.py`、`tests/agent_commands_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_budget.py`、`tests/test_agent_chat.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_session.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_inbound_media.py`、`tests/test_agent_model.py`、`tests/test_agent_prompt.py`、`tests/test_angelmemory.py`、`tests/test_app_bootstrap.py`、`tests/test_app_health.py`、`tests/test_app_llm_adapters.py`、`tests/test_app_platforms.py`、`tests/test_app_runner.py`、`tests/test_artist_service.py`、`tests/test_atriena.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_files.py`、`tests/test_builtin_long_memory.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_builtin_shell.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_character.py`、`tests/test_character_archive.py`、`tests/test_comic_characters.py`、`tests/test_contextmgr.py`、`tests/test_cron.py`、`tests/test_cron_dst.py`、`tests/test_dsh_route.py`、`tests/test_fileops.py`、`tests/test_groupanalysis.py`、`tests/test_historygate.py`、`tests/test_launcher_cli.py`、`tests/test_llm_breaker.py`、`tests/test_logging.py`、`tests/test_long_memory_scope.py`、`tests/test_main.py`、`tests/test_maintenance.py`、`tests/test_maintenance_report.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_media_resolver.py`、`tests/test_memory_notes.py`、`tests/test_ops.py`、`tests/test_platform_builtin.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py`、`tests/test_platform_headless.py`、`tests/test_platform_qq_onebot.py`、`tests/test_platform_qqofficial.py`、`tests/test_qq_onebot_backend.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py`、`tests/test_request_manager.py`、`tests/test_resident_memory.py`、`tests/test_sandbox_tools.py`、`tests/test_selflearning.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_signal.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_migrations.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_time_service.py`、`tests/test_timesync_sntp.py`、`tests/test_timezones.py`、`tests/test_tool_discover.py`、`tests/test_tool_media_runtime.py`、`tests/test_tool_runtimeinfo.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_toolrun_denied.py`、`tests/test_vision.py`、`tests/test_vision_attributes.py`、`tests/test_vision_prechat.py`、`tests/test_vision_privacy.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
+| `atri_x.errors` | `tests/_atrinis_support.py`、`tests/_comic_fakes.py`、`tests/agent_commands_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_budget.py`、`tests/test_agent_chat.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_session.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_inbound_media.py`、`tests/test_agent_model.py`、`tests/test_agent_prompt.py`、`tests/test_angelmemory.py`、`tests/test_app_bootstrap.py`、`tests/test_app_health.py`、`tests/test_app_llm_adapters.py`、`tests/test_app_platforms.py`、`tests/test_app_runner.py`、`tests/test_artist_service.py`、`tests/test_atriena.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_audit_fileops.py`、`tests/test_audit_gates.py`、`tests/test_audit_lifecycle.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_files.py`、`tests/test_builtin_long_memory.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_builtin_shell.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_character.py`、`tests/test_character_archive.py`、`tests/test_comic_characters.py`、`tests/test_contextmgr.py`、`tests/test_cron.py`、`tests/test_cron_dst.py`、`tests/test_dsh_route.py`、`tests/test_fileops.py`、`tests/test_groupanalysis.py`、`tests/test_historygate.py`、`tests/test_launcher_cli.py`、`tests/test_llm_breaker.py`、`tests/test_logging.py`、`tests/test_long_memory_scope.py`、`tests/test_main.py`、`tests/test_maintenance.py`、`tests/test_maintenance_report.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_media_resolver.py`、`tests/test_memory_notes.py`、`tests/test_ops.py`、`tests/test_platform_builtin.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py`、`tests/test_platform_headless.py`、`tests/test_platform_qq_onebot.py`、`tests/test_platform_qqofficial.py`、`tests/test_qq_onebot_backend.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py`、`tests/test_request_manager.py`、`tests/test_resident_memory.py`、`tests/test_sandbox_tools.py`、`tests/test_selflearning.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_signal.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_migrations.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_time_service.py`、`tests/test_timesync_sntp.py`、`tests/test_timezones.py`、`tests/test_tool_discover.py`、`tests/test_tool_media_runtime.py`、`tests/test_tool_runtimeinfo.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_toolrun_denied.py`、`tests/test_vision.py`、`tests/test_vision_attributes.py`、`tests/test_vision_prechat.py`、`tests/test_vision_privacy.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
 | `atri_x.gpu_usage` | `tests/test_builtin_runtime_resources.py` |
 | `atri_x.groupanalysis` | `tests/test_groupanalysis.py` |
 | `atri_x.groupanalysis.summarizer` | `tests/test_groupanalysis.py` |
 | `atri_x.groupkb` | `tests/test_groupkb.py` |
-| `atri_x.gui` | `tests/test_cli_sessions.py`、`tests/test_gui_client.py`、`tests/test_gui_configedit.py`、`tests/test_gui_diagnostics.py`、`tests/test_gui_dsh.py`、`tests/test_gui_extractconfig.py`、`tests/test_gui_icon.py`、`tests/test_gui_imagemount.py`、`tests/test_gui_link.py`、`tests/test_gui_maintenance.py`、`tests/test_gui_members.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_perf.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_proto_manager.py`、`tests/test_gui_protocol.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_safety.py`、`tests/test_gui_searchconfig.py`、`tests/test_gui_service.py`、`tests/test_gui_supervisor.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py`、`tests/test_gui_toolsettings.py` |
+| `atri_x.gui` | `tests/test_audit_fileops.py`、`tests/test_audit_gates.py`、`tests/test_audit_regressions.py`、`tests/test_cli_sessions.py`、`tests/test_gui_appearance.py`、`tests/test_gui_client.py`、`tests/test_gui_configedit.py`、`tests/test_gui_diagnostics.py`、`tests/test_gui_dsh.py`、`tests/test_gui_extractconfig.py`、`tests/test_gui_icon.py`、`tests/test_gui_imagemount.py`、`tests/test_gui_link.py`、`tests/test_gui_maintenance.py`、`tests/test_gui_members.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_perf.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_proto_manager.py`、`tests/test_gui_protocol.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_safety.py`、`tests/test_gui_searchconfig.py`、`tests/test_gui_service.py`、`tests/test_gui_supervisor.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py`、`tests/test_gui_toolsettings.py` |
 | `atri_x.gui.__main__` | `tests/test_gui_diagnostics.py` |
 | `atri_x.gui.about` | `tests/test_gui_tabs.py` |
 | `atri_x.gui.actions` | `tests/test_gui_diagnostics.py` |
-| `atri_x.gui.app` | `tests/test_gui_diagnostics.py`、`tests/test_gui_tabs.py` |
+| `atri_x.gui.app` | `tests/test_gui_appearance.py`、`tests/test_gui_diagnostics.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.avatars` | `tests/test_gui_members.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.client` | `tests/test_gui_client.py` |
-| `atri_x.gui.configedit` | `tests/test_gui_configedit.py`、`tests/test_gui_dsh.py`、`tests/test_gui_extractconfig.py`、`tests/test_gui_link.py`、`tests/test_gui_maintenance.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_perf.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_proto_manager.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_safety.py`、`tests/test_gui_searchconfig.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py`、`tests/test_gui_toolsettings.py` |
-| `atri_x.gui.configmodel` | `tests/test_gui_configedit.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_tabs.py` |
+| `atri_x.gui.configedit` | `tests/test_audit_fileops.py`、`tests/test_audit_gates.py`、`tests/test_audit_regressions.py`、`tests/test_gui_configedit.py`、`tests/test_gui_dsh.py`、`tests/test_gui_extractconfig.py`、`tests/test_gui_link.py`、`tests/test_gui_maintenance.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_perf.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_proto_manager.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_safety.py`、`tests/test_gui_searchconfig.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py`、`tests/test_gui_toolsettings.py` |
+| `atri_x.gui.configmodel` | `tests/test_audit_fileops.py`、`tests/test_audit_gates.py`、`tests/test_gui_configedit.py`、`tests/test_gui_modelcatalog.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.cronschedule` | `tests/test_gui_maintenance.py` |
 | `atri_x.gui.dialogs` | `tests/test_gui_maintenance.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.dialogs.tasks` | `tests/test_gui_maintenance.py` |
-| `atri_x.gui.dshcatalog` | `tests/test_gui_dsh.py` |
+| `atri_x.gui.dshcatalog` | `tests/test_audit_gates.py`、`tests/test_gui_dsh.py` |
 | `atri_x.gui.dshconfig` | `tests/test_gui_dsh.py` |
 | `atri_x.gui.dshsmoke` | `tests/test_gui_dsh.py` |
 | `atri_x.gui.extractconfig` | `tests/test_gui_extractconfig.py`、`tests/test_gui_tabs.py` |
@@ -238,27 +249,31 @@
 | `atri_x.gui.imagemount` | `tests/test_gui_imagemount.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.imageprofileedit` | `tests/test_gui_promptlib.py` |
 | `atri_x.gui.journal` | `tests/test_gui_diagnostics.py`、`tests/test_gui_service.py`、`tests/test_gui_tabs.py` |
-| `atri_x.gui.linkstate` | `tests/test_gui_link.py`、`tests/test_gui_qqproto.py` |
+| `atri_x.gui.linkstate` | `tests/test_audit_fileops.py`、`tests/test_gui_link.py`、`tests/test_gui_qqproto.py` |
 | `atri_x.gui.memberdata` | `tests/test_gui_members.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.modelcatalog` | `tests/test_gui_modelcatalog.py`、`tests/test_gui_tabs.py` |
-| `atri_x.gui.perfconfig` | `tests/test_gui_perf.py` |
+| `atri_x.gui.perfconfig` | `tests/test_audit_fileops.py`、`tests/test_gui_perf.py` |
 | `atri_x.gui.process` | `tests/test_gui_diagnostics.py` |
-| `atri_x.gui.promptedit` | `tests/test_gui_promptlib.py` |
-| `atri_x.gui.proto_manager` | `tests/test_gui_proto_manager.py` |
-| `atri_x.gui.proto_process` | `tests/test_gui_proto_manager.py` |
+| `atri_x.gui.promptedit` | `tests/test_audit_fileops.py`、`tests/test_gui_promptlib.py` |
+| `atri_x.gui.proto_manager` | `tests/test_audit_fileops.py`、`tests/test_gui_proto_manager.py` |
+| `atri_x.gui.proto_process` | `tests/test_audit_fileops.py`、`tests/test_gui_proto_manager.py` |
 | `atri_x.gui.proto_setup` | `tests/test_gui_proto_manager.py`、`tests/test_gui_qqproto.py` |
-| `atri_x.gui.protocol` | `tests/test_cli_sessions.py`、`tests/test_gui_diagnostics.py`、`tests/test_gui_protocol.py` |
+| `atri_x.gui.protocol` | `tests/test_cli_sessions.py`、`tests/test_gui_appearance.py`、`tests/test_gui_diagnostics.py`、`tests/test_gui_protocol.py` |
 | `atri_x.gui.qqproto` | `tests/test_gui_proto_manager.py`、`tests/test_gui_qqproto.py` |
+| `atri_x.gui.reactionpage` | `tests/test_audit_fileops.py`、`tests/test_audit_gates.py` |
 | `atri_x.gui.recovery` | `tests/test_gui_supervisor.py` |
-| `atri_x.gui.safetyconfig` | `tests/test_gui_safety.py` |
+| `atri_x.gui.safetyconfig` | `tests/test_audit_fileops.py`、`tests/test_gui_safety.py` |
 | `atri_x.gui.safetyrecords` | `tests/test_gui_safety.py` |
+| `atri_x.gui.safetywordedit` | `tests/test_audit_fileops.py` |
 | `atri_x.gui.searchconfig` | `tests/test_gui_searchconfig.py`、`tests/test_gui_tabs.py` |
-| `atri_x.gui.service` | `tests/test_gui_link.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_service.py`、`tests/test_gui_tabs.py` |
+| `atri_x.gui.selftest` | `tests/test_audit_gates.py` |
+| `atri_x.gui.service` | `tests/test_audit_regressions.py`、`tests/test_gui_link.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_service.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.servicelog` | `tests/test_gui_service.py` |
 | `atri_x.gui.sessions` | `tests/test_cli_sessions.py` |
 | `atri_x.gui.snowluma_proto` | `tests/test_gui_proto_manager.py` |
 | `atri_x.gui.supervisor` | `tests/test_gui_supervisor.py` |
-| `atri_x.gui.tabs` | `tests/test_gui_dsh.py`、`tests/test_gui_link.py`、`tests/test_gui_perf.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_safety.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py` |
+| `atri_x.gui.taborder` | `tests/test_gui_appearance.py` |
+| `atri_x.gui.tabs` | `tests/test_gui_appearance.py`、`tests/test_gui_dsh.py`、`tests/test_gui_link.py`、`tests/test_gui_perf.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_qqproto.py`、`tests/test_gui_safety.py`、`tests/test_gui_tabs.py`、`tests/test_gui_timepanel.py` |
 | `atri_x.gui.tabs.advanced` | `tests/test_gui_tabs.py` |
 | `atri_x.gui.tabs.character` | `tests/test_gui_promptlib.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.tabs.dsh` | `tests/test_gui_dsh.py` |
@@ -267,22 +282,22 @@
 | `atri_x.gui.tabs.knowledge` | `tests/test_gui_tabs.py` |
 | `atri_x.gui.tabs.link` | `tests/test_gui_link.py`、`tests/test_gui_qqproto.py` |
 | `atri_x.gui.tabs.logs` | `tests/test_gui_tabs.py` |
-| `atri_x.gui.tabs.members` | `tests/test_gui_promptlib.py`、`tests/test_gui_tabs.py` |
-| `atri_x.gui.tabs.model` | `tests/test_gui_tabs.py` |
+| `atri_x.gui.tabs.members` | `tests/test_gui_appearance.py`、`tests/test_gui_promptlib.py`、`tests/test_gui_tabs.py` |
+| `atri_x.gui.tabs.model` | `tests/test_gui_appearance.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.tabs.performance` | `tests/test_gui_perf.py` |
-| `atri_x.gui.tabs.platform` | `tests/test_gui_tabs.py` |
+| `atri_x.gui.tabs.platform` | `tests/test_gui_appearance.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.tabs.promptlib` | `tests/test_gui_promptlib.py` |
 | `atri_x.gui.tabs.safety` | `tests/test_gui_safety.py` |
 | `atri_x.gui.tabs.timepanel` | `tests/test_gui_timepanel.py` |
 | `atri_x.gui.tabs.toolperm` | `tests/test_gui_tabs.py` |
-| `atri_x.gui.taglibedit` | `tests/test_gui_promptlib.py` |
-| `atri_x.gui.timeview` | `tests/test_gui_timepanel.py` |
+| `atri_x.gui.taglibedit` | `tests/test_audit_gates.py`、`tests/test_gui_promptlib.py` |
+| `atri_x.gui.timeview` | `tests/test_audit_fileops.py`、`tests/test_gui_timepanel.py` |
 | `atri_x.gui.toolcatalog` | `tests/test_gui_tabs.py`、`tests/test_gui_toolsettings.py` |
 | `atri_x.gui.toolparams` | `tests/test_gui_tabs.py` |
-| `atri_x.gui.toolpolicy` | `tests/test_gui_tabs.py` |
+| `atri_x.gui.toolpolicy` | `tests/test_audit_fileops.py`、`tests/test_gui_tabs.py` |
 | `atri_x.gui.toolsettings` | `tests/test_gui_tabs.py`、`tests/test_gui_toolsettings.py` |
 | `atri_x.gui.toolsettings_base` | `tests/test_gui_tabs.py` |
-| `atri_x.gui.tooltagedit` | `tests/test_gui_promptlib.py` |
+| `atri_x.gui.tooltagedit` | `tests/test_audit_fileops.py`、`tests/test_gui_promptlib.py` |
 | `atri_x.gui.widgets` | `tests/test_gui_tabs.py` |
 | `atri_x.hardware` | `tests/test_builtin_runtime_resources.py` |
 | `atri_x.health` | `tests/test_app_ops_plugins.py`、`tests/test_health.py` |
@@ -300,7 +315,7 @@
 | `atri_x.hook.output.jsonstrict` | `tests/test_hook_output.py` |
 | `atri_x.hook.protocol` | `tests/test_hook_protocol.py`、`tests/test_hook_rules.py`、`tests/test_hook_runtime.py` |
 | `atri_x.hook.protocol.frames` | `tests/test_hook_runtime.py` |
-| `atri_x.hook.protocol.stream` | `tests/test_hook_rules.py` |
+| `atri_x.hook.protocol.stream` | `tests/test_hook_protocol.py`、`tests/test_hook_rules.py` |
 | `atri_x.hook.rules` | `tests/test_hook_rules.py` |
 | `atri_x.hook.rules.config` | `tests/test_hook_rules.py` |
 | `atri_x.hook.rules.detail` | `tests/test_hook_rules.py` |
@@ -308,9 +323,9 @@
 | `atri_x.hook.rules.rules` | `tests/test_hook_rules.py` |
 | `atri_x.hook.rules.toml_error` | `tests/test_hook_rules.py` |
 | `atri_x.hook.rules.types` | `tests/test_hook_rules.py` |
-| `atri_x.hook.runtime` | `tests/test_hook_builtin_control.py`、`tests/test_hook_runtime.py` |
+| `atri_x.hook.runtime` | `tests/test_hook_builtin_control.py`、`tests/test_hook_protocol.py`、`tests/test_hook_runtime.py` |
 | `atri_x.hook.runtime.routes` | `tests/test_hook_runtime.py` |
-| `atri_x.hook.runtime.shared` | `tests/test_hook_runtime.py` |
+| `atri_x.hook.runtime.shared` | `tests/test_hook_protocol.py`、`tests/test_hook_runtime.py` |
 | `atri_x.hook.runtime.tool_bridge` | `tests/test_hook_runtime.py` |
 | `atri_x.imagegen` | `tests/_comic_fakes.py`、`tests/test_builtin_comic.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_tools4.py`、`tests/test_comic_service.py`、`tests/test_imagegen.py`、`tests/test_safety_integration.py` |
 | `atri_x.imagegen._extract_library` | `tests/test_imagegen.py` |
@@ -319,10 +334,10 @@
 | `atri_x.imagegen.search` | `tests/test_imagegen.py` |
 | `atri_x.launcher` | `tests/test_launcher_cli.py` |
 | `atri_x.launcher.cli` | `tests/test_launcher_cli.py` |
-| `atri_x.llm` | `tests/_vision_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_budget.py`、`tests/test_agent_chat.py`、`tests/test_agent_chat_anomaly.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_risk.py`、`tests/test_agent_segments.py`、`tests/test_agent_title.py`、`tests/test_agent_tools.py`、`tests/test_app_llm_adapters.py`、`tests/test_app_platforms.py`、`tests/test_app_runtime_agent.py`、`tests/test_background.py`、`tests/test_builtin_tools3.py`、`tests/test_completion.py`、`tests/test_contextmgr.py`、`tests/test_contextmgr_window_metadata.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_dsh_route.py`、`tests/test_dsh_scheduler.py`、`tests/test_groupanalysis.py`、`tests/test_gui_protocol.py`、`tests/test_hook_builtin_control.py`、`tests/test_hook_event.py`、`tests/test_hook_match.py`、`tests/test_hook_protocol.py`、`tests/test_hook_rules.py`、`tests/test_hook_runtime.py`、`tests/test_llm_breaker.py`、`tests/test_llm_errors.py`、`tests/test_llm_headers.py`、`tests/test_llm_protocol.py`、`tests/test_llm_tooltext.py`、`tests/test_media_resolver.py`、`tests/test_memory_notes.py`、`tests/test_openai_adapter.py`、`tests/test_openai_responses.py`、`tests/test_platform_cli.py`、`tests/test_qq_slowfetch.py`、`tests/test_safety_integration.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_time_context.py`、`tests/test_tool_core.py`、`tests/test_toolrun.py`、`tests/test_toolrun_atriwisp_args.py`、`tests/test_turn_manager.py`、`tests/test_usage_attribution.py`、`tests/test_vision.py`、`tests/test_vision_attributes.py`、`tests/test_vision_prechat.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py` |
+| `atri_x.llm` | `tests/_vision_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_budget.py`、`tests/test_agent_chat.py`、`tests/test_agent_chat_anomaly.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_risk.py`、`tests/test_agent_segments.py`、`tests/test_agent_title.py`、`tests/test_agent_tools.py`、`tests/test_app_llm_adapters.py`、`tests/test_app_platforms.py`、`tests/test_app_runtime_agent.py`、`tests/test_audit_lifecycle.py`、`tests/test_background.py`、`tests/test_builtin_tools3.py`、`tests/test_completion.py`、`tests/test_contextmgr.py`、`tests/test_contextmgr_window_metadata.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_dsh_route.py`、`tests/test_dsh_scheduler.py`、`tests/test_groupanalysis.py`、`tests/test_gui_protocol.py`、`tests/test_hook_builtin_control.py`、`tests/test_hook_event.py`、`tests/test_hook_match.py`、`tests/test_hook_protocol.py`、`tests/test_hook_rules.py`、`tests/test_hook_runtime.py`、`tests/test_llm_breaker.py`、`tests/test_llm_errors.py`、`tests/test_llm_headers.py`、`tests/test_llm_protocol.py`、`tests/test_llm_tooltext.py`、`tests/test_media_resolver.py`、`tests/test_memory_notes.py`、`tests/test_openai_adapter.py`、`tests/test_openai_responses.py`、`tests/test_platform_cli.py`、`tests/test_qq_slowfetch.py`、`tests/test_safety_integration.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_time_context.py`、`tests/test_tool_core.py`、`tests/test_toolrun.py`、`tests/test_toolrun_atriwisp_args.py`、`tests/test_turn_manager.py`、`tests/test_usage_attribution.py`、`tests/test_vision.py`、`tests/test_vision_attributes.py`、`tests/test_vision_prechat.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py` |
 | `atri_x.llm.breaker` | `tests/test_app_llm_adapters.py`、`tests/test_llm_breaker.py` |
 | `atri_x.llm.errors` | `tests/test_agent_chat.py`、`tests/test_llm_errors.py`、`tests/test_openai_adapter.py`、`tests/test_openai_responses.py`、`tests/test_vision.py`、`tests/test_vision_privacy.py` |
-| `atri_x.llm.llm` | `tests/_vision_fakes.py`、`tests/test_agent_budget.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_title.py`、`tests/test_background.py`、`tests/test_builtin_tools3.py`、`tests/test_completion.py`、`tests/test_contextmgr.py`、`tests/test_contextmgr_window_metadata.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_groupanalysis.py`、`tests/test_gui_protocol.py`、`tests/test_hook_builtin_control.py`、`tests/test_hook_event.py`、`tests/test_hook_match.py`、`tests/test_hook_protocol.py`、`tests/test_hook_rules.py`、`tests/test_hook_runtime.py`、`tests/test_media_resolver.py`、`tests/test_openai_adapter.py`、`tests/test_openai_responses.py`、`tests/test_platform_cli.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_tool_core.py`、`tests/test_toolrun.py`、`tests/test_toolrun_atriwisp_args.py`、`tests/test_turn_manager.py`、`tests/test_vision.py`、`tests/test_vision_attributes.py`、`tests/test_vision_prechat.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py` |
+| `atri_x.llm.llm` | `tests/_vision_fakes.py`、`tests/test_agent_budget.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_title.py`、`tests/test_audit_lifecycle.py`、`tests/test_background.py`、`tests/test_builtin_tools3.py`、`tests/test_completion.py`、`tests/test_contextmgr.py`、`tests/test_contextmgr_window_metadata.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_groupanalysis.py`、`tests/test_gui_protocol.py`、`tests/test_hook_builtin_control.py`、`tests/test_hook_event.py`、`tests/test_hook_match.py`、`tests/test_hook_protocol.py`、`tests/test_hook_rules.py`、`tests/test_hook_runtime.py`、`tests/test_media_resolver.py`、`tests/test_openai_adapter.py`、`tests/test_openai_responses.py`、`tests/test_platform_cli.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_tool_core.py`、`tests/test_toolrun.py`、`tests/test_toolrun_atriwisp_args.py`、`tests/test_turn_manager.py`、`tests/test_vision.py`、`tests/test_vision_attributes.py`、`tests/test_vision_prechat.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py` |
 | `atri_x.llm.openai` | `tests/test_app_llm_adapters.py`、`tests/test_llm_headers.py`、`tests/test_openai_adapter.py`、`tests/test_openai_responses.py`、`tests/test_vision_attributes.py` |
 | `atri_x.llm.openai.openai` | `tests/test_llm_headers.py`、`tests/test_openai_adapter.py` |
 | `atri_x.llm.openai.responses` | `tests/test_llm_headers.py`、`tests/test_openai_responses.py`、`tests/test_vision_attributes.py` |
@@ -332,23 +347,26 @@
 | `atri_x.llm.protocol` | `tests/test_agent_context_runtime.py`、`tests/test_llm_protocol.py`、`tests/test_openai_adapter.py` |
 | `atri_x.llm.tooltext` | `tests/test_agent_chat_anomaly.py`、`tests/test_llm_tooltext.py` |
 | `atri_x.llm.usage_sink` | `tests/test_app_runtime_agent.py`、`tests/test_usage_attribution.py` |
-| `atri_x.logging` | `tests/test_agent_commands_services.py`、`tests/test_agent_directives.py`、`tests/test_app_runtime_agent.py`、`tests/test_delivery.py`、`tests/test_log_reader.py`、`tests/test_logging.py`、`tests/test_maintenance_report.py`、`tests/test_usage_attribution.py` |
+| `atri_x.logging` | `tests/test_agent_commands_services.py`、`tests/test_agent_directives.py`、`tests/test_app_runtime_agent.py`、`tests/test_audit_regressions.py`、`tests/test_delivery.py`、`tests/test_log_reader.py`、`tests/test_logging.py`、`tests/test_maintenance_report.py`、`tests/test_usage_attribution.py` |
 | `atri_x.logging.contract` | `tests/test_logging.py` |
 | `atri_x.logging.logging` | `tests/test_app_runtime_agent.py`、`tests/test_delivery.py`、`tests/test_logging.py` |
-| `atri_x.logging.reader` | `tests/test_app_runtime_agent.py`、`tests/test_log_reader.py`、`tests/test_logging.py` |
+| `atri_x.logging.reader` | `tests/test_app_runtime_agent.py`、`tests/test_audit_regressions.py`、`tests/test_log_reader.py`、`tests/test_logging.py` |
 | `atri_x.maintenance` | `tests/test_daily_summary.py`、`tests/test_maintenance.py`、`tests/test_maintenance_dsh.py`、`tests/test_maintenance_report.py` |
 | `atri_x.maintenance.dsh` | `tests/test_maintenance_dsh.py` |
 | `atri_x.maintenance.report` | `tests/test_maintenance_report.py` |
 | `atri_x.maintenance.summary` | `tests/test_daily_summary.py` |
-| `atri_x.media` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_atriena.py`、`tests/test_builtin_tools3.py`、`tests/test_gui_members.py`、`tests/test_gui_tabs.py`、`tests/test_imagecodec.py`、`tests/test_imagecodec_jpeg_precision.py`、`tests/test_media_image.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_media_platform.py`、`tests/test_media_resolver.py`、`tests/test_media_worker.py`、`tests/test_ops_health.py`、`tests/test_tool_media_runtime.py`、`tests/test_toolrun.py`、`tests/test_vision_privacy.py` |
+| `atri_x.media` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_atriena.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_tools3.py`、`tests/test_gui_members.py`、`tests/test_gui_tabs.py`、`tests/test_imagecodec.py`、`tests/test_imagecodec_jpeg_precision.py`、`tests/test_media_image.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_media_platform.py`、`tests/test_media_resolver.py`、`tests/test_media_worker.py`、`tests/test_ops_health.py`、`tests/test_tool_media_runtime.py`、`tests/test_toolrun.py`、`tests/test_vision_privacy.py` |
+| `atri_x.media.config` | `tests/test_audit_regressions.py` |
 | `atri_x.media.imagecodec` | `tests/test_gui_members.py`、`tests/test_gui_tabs.py`、`tests/test_imagecodec.py`、`tests/test_imagecodec_jpeg_precision.py`、`tests/test_media_image.py`、`tests/test_media_manager.py`、`tests/test_ops_health.py` |
 | `atri_x.media.imagecodec.backend_probe` | `tests/test_imagecodec_jpeg_precision.py`、`tests/test_ops_health.py` |
 | `atri_x.media.imagecodec.image` | `tests/test_imagecodec_jpeg_precision.py`、`tests/test_ops_health.py` |
 | `atri_x.media.imagecodec.jpeg_decode` | `tests/test_imagecodec.py`、`tests/test_imagecodec_jpeg_precision.py` |
 | `atri_x.media.imagecodec.jpeg_encode` | `tests/test_imagecodec_jpeg_precision.py` |
 | `atri_x.media.imagecodec.png` | `tests/test_imagecodec.py` |
+| `atri_x.media.locks` | `tests/test_audit_regressions.py` |
 | `atri_x.media.manager` | `tests/test_toolrun.py` |
 | `atri_x.media.platform` | `tests/test_media_platform.py` |
+| `atri_x.media.s3` | `tests/test_audit_regressions.py` |
 | `atri_x.media.types` | `tests/test_media_platform.py`、`tests/test_toolrun.py` |
 | `atri_x.media.worker` | `tests/test_media_image.py`、`tests/test_media_worker.py` |
 | `atri_x.memberprofile` | `tests/test_member_persona.py`、`tests/test_member_profile.py`、`tests/test_promptlib.py` |
@@ -361,24 +379,24 @@
 | `atri_x.memory.resident.atomic` | `tests/test_resident_memory.py` |
 | `atri_x.memory.resident.entries` | `tests/test_builtin_tools2.py` |
 | `atri_x.memory.resident.store` | `tests/test_app_runtime_resident.py` |
-| `atri_x.net` | `tests/test_atrinis_http.py`、`tests/test_config_state.py`、`tests/test_cron_dst.py`、`tests/test_cronspec.py`、`tests/test_gui_client.py`、`tests/test_gui_service.py`、`tests/test_httpclient.py`、`tests/test_media_resolver.py`、`tests/test_openai_adapter.py`、`tests/test_openai_responses.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_qqofficial.py`、`tests/test_qq_onebot_smoke.py`、`tests/test_s3.py`、`tests/test_tomlw.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py`、`tests/test_websocket.py` |
+| `atri_x.net` | `tests/test_atrinis_http.py`、`tests/test_audit_regressions.py`、`tests/test_config_state.py`、`tests/test_cron_dst.py`、`tests/test_cronspec.py`、`tests/test_gui_client.py`、`tests/test_gui_service.py`、`tests/test_httpclient.py`、`tests/test_media_resolver.py`、`tests/test_openai_adapter.py`、`tests/test_openai_responses.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_qqofficial.py`、`tests/test_qq_onebot_smoke.py`、`tests/test_s3.py`、`tests/test_tomlw.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py`、`tests/test_websocket.py` |
 | `atri_x.net.cronspec` | `tests/test_cron_dst.py`、`tests/test_cronspec.py` |
 | `atri_x.net.httpclient` | `tests/test_atrinis_http.py`、`tests/test_httpclient.py`、`tests/test_media_resolver.py`、`tests/test_openai_adapter.py`、`tests/test_openai_responses.py`、`tests/test_platform_qqofficial.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
-| `atri_x.net.s3` | `tests/test_s3.py` |
+| `atri_x.net.s3` | `tests/test_audit_regressions.py`、`tests/test_s3.py` |
 | `atri_x.net.tomlw` | `tests/test_config_state.py`、`tests/test_tomlw.py` |
 | `atri_x.net.websocket` | `tests/test_gui_client.py`、`tests/test_gui_service.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_qqofficial.py`、`tests/test_qq_onebot_smoke.py`、`tests/test_websocket.py` |
-| `atri_x.ops` | `tests/test_agent_bootstrap.py`、`tests/test_agent_directives.py`、`tests/test_builtin_imagegen.py`、`tests/test_media_manager.py`、`tests/test_ops.py`、`tests/test_ops_executors.py` |
-| `atri_x.ops.concurrency` | `tests/test_builtin_imagegen.py`、`tests/test_ops.py` |
+| `atri_x.ops` | `tests/test_agent_bootstrap.py`、`tests/test_agent_directives.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_imagegen.py`、`tests/test_media_manager.py`、`tests/test_ops.py`、`tests/test_ops_executors.py` |
+| `atri_x.ops.concurrency` | `tests/test_audit_regressions.py`、`tests/test_builtin_imagegen.py`、`tests/test_ops.py` |
 | `atri_x.ops.diskguard` | `tests/test_media_manager.py`、`tests/test_ops.py` |
 | `atri_x.ops.executors` | `tests/test_ops_executors.py` |
 | `atri_x.ops.ratelimit` | `tests/test_agent_bootstrap.py`、`tests/test_agent_directives.py`、`tests/test_ops.py` |
-| `atri_x.platform` | `tests/_comic_fakes.py`、`tests/test_agent_chat.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_core.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_inbound_media.py`、`tests/test_agent_participation.py`、`tests/test_agent_wakeup.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_cli_sessions.py`、`tests/test_gui_client.py`、`tests/test_gui_protocol.py`、`tests/test_long_memory_scope.py`、`tests/test_media_manager.py`、`tests/test_media_platform.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_platform_builtin.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py`、`tests/test_platform_core.py`、`tests/test_platform_headless.py`、`tests/test_platform_qq_onebot.py`、`tests/test_platform_qqofficial.py`、`tests/test_qq_onebot_backend.py`、`tests/test_qq_onebot_smoke.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py`、`tests/test_refcontext.py`、`tests/test_sandbox_core.py` |
+| `atri_x.platform` | `tests/_comic_fakes.py`、`tests/test_agent_chat.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_core.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_inbound_media.py`、`tests/test_agent_participation.py`、`tests/test_agent_wakeup.py`、`tests/test_audit_lifecycle.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_cli_sessions.py`、`tests/test_gui_appearance.py`、`tests/test_gui_client.py`、`tests/test_gui_protocol.py`、`tests/test_long_memory_scope.py`、`tests/test_media_manager.py`、`tests/test_media_platform.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_platform_builtin.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py`、`tests/test_platform_core.py`、`tests/test_platform_headless.py`、`tests/test_platform_qq_onebot.py`、`tests/test_platform_qqofficial.py`、`tests/test_qq_onebot_backend.py`、`tests/test_qq_onebot_smoke.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py`、`tests/test_refcontext.py`、`tests/test_sandbox_core.py` |
 | `atri_x.platform.builtin` | `tests/test_platform_builtin.py` |
-| `atri_x.platform.cli` | `tests/test_cli_sessions.py`、`tests/test_gui_client.py`、`tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py` |
+| `atri_x.platform.cli` | `tests/test_cli_sessions.py`、`tests/test_gui_appearance.py`、`tests/test_gui_client.py`、`tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py` |
 | `atri_x.platform.cli.adapter` | `tests/test_platform_cli.py` |
 | `atri_x.platform.cli.config` | `tests/test_cli_sessions.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py` |
 | `atri_x.platform.cli.local_file` | `tests/test_platform_cli.py`、`tests/test_platform_cli_tui.py` |
-| `atri_x.platform.cli.protocol` | `tests/test_cli_sessions.py`、`tests/test_gui_client.py`、`tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py` |
+| `atri_x.platform.cli.protocol` | `tests/test_cli_sessions.py`、`tests/test_gui_appearance.py`、`tests/test_gui_client.py`、`tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py` |
 | `atri_x.platform.cli.remote_client` | `tests/test_platform_cli_remote.py` |
 | `atri_x.platform.cli.remote_server` | `tests/test_cli_sessions.py`、`tests/test_platform_cli_remote.py` |
 | `atri_x.platform.cli.tui` | `tests/test_platform_cli_tui.py` |
@@ -393,14 +411,14 @@
 | `atri_x.platform.headless` | `tests/test_platform_headless.py` |
 | `atri_x.platform.media` | `tests/test_media_manager.py` |
 | `atri_x.platform.platform` | `tests/test_agent_inbound_media.py`、`tests/test_media_manager.py`、`tests/test_media_platform.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_qq_onebot.py`、`tests/test_platform_qqofficial.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py`、`tests/test_refcontext.py` |
-| `atri_x.platform.qq_onebot` | `tests/test_platform_qq_onebot.py`、`tests/test_qq_onebot_backend.py`、`tests/test_qq_onebot_smoke.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py` |
+| `atri_x.platform.qq_onebot` | `tests/test_audit_regressions.py`、`tests/test_platform_qq_onebot.py`、`tests/test_qq_onebot_backend.py`、`tests/test_qq_onebot_smoke.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py` |
 | `atri_x.platform.qq_onebot.adapter` | `tests/test_platform_qq_onebot.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py` |
 | `atri_x.platform.qq_onebot.attachment` | `tests/test_platform_qq_onebot.py`、`tests/test_qq_onebot_snowluma.py` |
 | `atri_x.platform.qq_onebot.backend` | `tests/test_qq_onebot_backend.py`、`tests/test_qq_onebot_snowluma.py` |
 | `atri_x.platform.qq_onebot.capabilities` | `tests/test_platform_qq_onebot.py` |
 | `atri_x.platform.qq_onebot.config` | `tests/test_platform_qq_onebot.py`、`tests/test_qq_onebot_backend.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py` |
 | `atri_x.platform.qq_onebot.forward` | `tests/test_platform_qq_onebot.py` |
-| `atri_x.platform.qq_onebot.inbound` | `tests/test_platform_qq_onebot.py` |
+| `atri_x.platform.qq_onebot.inbound` | `tests/test_audit_regressions.py`、`tests/test_platform_qq_onebot.py` |
 | `atri_x.platform.qq_onebot.message` | `tests/test_platform_qq_onebot.py`、`tests/test_qq_onebot_snowluma.py` |
 | `atri_x.platform.qq_onebot.output` | `tests/test_platform_qq_onebot.py` |
 | `atri_x.platform.qq_onebot.preprocess` | `tests/test_platform_qq_onebot.py`、`tests/test_qq_onebot_snowluma.py`、`tests/test_qq_slowfetch.py` |
@@ -422,11 +440,13 @@
 | `atri_x.platform.qqofficial.token` | `tests/test_platform_qqofficial.py` |
 | `atri_x.platform.qqofficial.types` | `tests/test_platform_qqofficial.py` |
 | `atri_x.platform.refcontext` | `tests/test_refcontext.py` |
+| `atri_x.platform.telegram` | `tests/test_audit_regressions.py` |
+| `atri_x.platform.telegram.message` | `tests/test_audit_regressions.py` |
 | `atri_x.processenv` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_shell.py`、`tests/test_tool_skill.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
-| `atri_x.promptlib` | `tests/test_gui_promptlib.py`、`tests/test_promptlib.py` |
+| `atri_x.promptlib` | `tests/test_audit_fileops.py`、`tests/test_gui_promptlib.py`、`tests/test_promptlib.py` |
 | `atri_x.promptlib.defaults` | `tests/test_promptlib.py` |
 | `atri_x.promptlib.library` | `tests/test_promptlib.py` |
-| `atri_x.promptlib.model` | `tests/test_promptlib.py` |
+| `atri_x.promptlib.model` | `tests/test_audit_fileops.py`、`tests/test_promptlib.py` |
 | `atri_x.promptlib.render` | `tests/test_promptlib.py` |
 | `atri_x.promptlib.store` | `tests/test_promptlib.py` |
 | `atri_x.promptlib.tags` | `tests/test_promptlib.py` |
@@ -434,7 +454,7 @@
 | `atri_x.reaction` | `tests/test_reaction.py` |
 | `atri_x.reaction.catalog` | `tests/test_reaction.py` |
 | `atri_x.redact` | `tests/test_redact.py`、`tests/test_redact_idempotent.py` |
-| `atri_x.request` | `tests/agent_commands_fakes.py`、`tests/test_agent_commands_session.py`、`tests/test_agent_context_runtime.py`、`tests/test_request_manager.py` |
+| `atri_x.request` | `tests/agent_commands_fakes.py`、`tests/test_agent_commands_session.py`、`tests/test_agent_context_runtime.py`、`tests/test_audit_regressions.py`、`tests/test_request_manager.py` |
 | `atri_x.request.manager` | `tests/test_agent_context_runtime.py` |
 | `atri_x.research` | `tests/test_research_bootstrap.py` |
 | `atri_x.research.bootstrap` | `tests/test_research_bootstrap.py` |
@@ -443,10 +463,13 @@
 | `atri_x.research.runner` | `tests/test_research_bootstrap.py` |
 | `atri_x.runtime` | `tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_core.py`、`tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py`、`tests/test_turn_manager.py` |
 | `atri_x.runtime.status` | `tests/test_gui_protocol.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py` |
-| `atri_x.safecontext` | `tests/test_agent_chat.py`、`tests/test_agent_core.py`、`tests/test_atrinis_http.py`、`tests/test_fileops.py`、`tests/test_groupanalysis.py`、`tests/test_maintenance.py`、`tests/test_maintenance_dsh.py`、`tests/test_media_image.py`、`tests/test_media_manager.py`、`tests/test_media_worker.py`、`tests/test_ops.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py`、`tests/test_request_manager.py`、`tests/test_selflearning.py`、`tests/test_signal.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_turn_manager.py`、`tests/test_vision.py`、`tests/test_vision_privacy.py` |
-| `atri_x.safety` | `tests/test_gui_safety.py`、`tests/test_safety_async_guard.py`、`tests/test_safety_core.py`、`tests/test_safety_engine.py`、`tests/test_safety_integration.py`、`tests/test_safety_providers.py`、`tests/test_safety_settings.py` |
+| `atri_x.safecontext` | `tests/test_agent_chat.py`、`tests/test_agent_core.py`、`tests/test_atrinis_http.py`、`tests/test_audit_regressions.py`、`tests/test_fileops.py`、`tests/test_groupanalysis.py`、`tests/test_maintenance.py`、`tests/test_maintenance_dsh.py`、`tests/test_media_image.py`、`tests/test_media_manager.py`、`tests/test_media_worker.py`、`tests/test_ops.py`、`tests/test_platform_cli.py`、`tests/test_platform_cli_remote.py`、`tests/test_platform_cli_tui.py`、`tests/test_request_manager.py`、`tests/test_selflearning.py`、`tests/test_signal.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_turn_manager.py`、`tests/test_vision.py`、`tests/test_vision_privacy.py` |
+| `atri_x.safety` | `tests/test_audit_regressions.py`、`tests/test_gui_safety.py`、`tests/test_safety_async_guard.py`、`tests/test_safety_core.py`、`tests/test_safety_engine.py`、`tests/test_safety_integration.py`、`tests/test_safety_providers.py`、`tests/test_safety_settings.py` |
 | `atri_x.safety.audit` | `tests/test_gui_safety.py` |
 | `atri_x.safety.engine` | `tests/test_safety_async_guard.py`、`tests/test_safety_engine.py`、`tests/test_safety_settings.py` |
+| `atri_x.safety.engine_remote` | `tests/test_audit_regressions.py`、`tests/test_safety_engine.py` |
+| `atri_x.safety.guard` | `tests/test_audit_regressions.py` |
+| `atri_x.safety.guard_async` | `tests/test_audit_regressions.py` |
 | `atri_x.safety.providers` | `tests/test_safety_async_guard.py`、`tests/test_safety_engine.py`、`tests/test_safety_providers.py` |
 | `atri_x.safety.providers.aliyun` | `tests/test_safety_providers.py` |
 | `atri_x.safety.providers.base` | `tests/test_safety_async_guard.py`、`tests/test_safety_engine.py`、`tests/test_safety_providers.py` |
@@ -454,26 +477,28 @@
 | `atri_x.safety.review_queue` | `tests/test_gui_safety.py` |
 | `atri_x.safety.rules` | `tests/test_safety_settings.py` |
 | `atri_x.safety.settings` | `tests/test_safety_providers.py`、`tests/test_safety_settings.py` |
-| `atri_x.sandbox` | `tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py`、`tests/test_sandbox_queue.py`、`tests/test_sandbox_tools.py`、`tests/test_sandbox_trust.py` |
+| `atri_x.sandbox` | `tests/test_audit_regressions.py`、`tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py`、`tests/test_sandbox_queue.py`、`tests/test_sandbox_tools.py`、`tests/test_sandbox_trust.py` |
 | `atri_x.sandbox.backend` | `tests/test_sandbox_manager.py` |
-| `atri_x.sandbox.backend_container` | `tests/test_sandbox_manager.py` |
+| `atri_x.sandbox.backend_container` | `tests/test_audit_regressions.py`、`tests/test_sandbox_core.py`、`tests/test_sandbox_manager.py` |
 | `atri_x.sandbox.container_cli` | `tests/test_sandbox_manager.py` |
-| `atri_x.sandbox.egress` | `tests/test_sandbox_core.py` |
+| `atri_x.sandbox.egress` | `tests/test_audit_regressions.py`、`tests/test_sandbox_core.py` |
 | `atri_x.sandbox.envs` | `tests/test_sandbox_manager.py` |
-| `atri_x.sandbox.errors` | `tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py`、`tests/test_sandbox_queue.py`、`tests/test_sandbox_tools.py` |
+| `atri_x.sandbox.errors` | `tests/test_audit_regressions.py`、`tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py`、`tests/test_sandbox_queue.py`、`tests/test_sandbox_tools.py` |
 | `atri_x.sandbox.files` | `tests/test_sandbox_core.py` |
 | `atri_x.sandbox.ledger` | `tests/test_sandbox_core.py`、`tests/test_sandbox_manager.py` |
+| `atri_x.sandbox.lifecycle` | `tests/test_audit_regressions.py` |
 | `atri_x.sandbox.manager` | `tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py`、`tests/test_sandbox_tools.py` |
 | `atri_x.sandbox.profiles` | `tests/test_sandbox_core.py` |
-| `atri_x.sandbox.queue` | `tests/test_sandbox_queue.py` |
+| `atri_x.sandbox.queue` | `tests/test_audit_regressions.py`、`tests/test_sandbox_queue.py` |
 | `atri_x.sandbox.runtime` | `tests/test_sandbox_tools.py` |
-| `atri_x.sandbox.settings` | `tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py` |
-| `atri_x.sandbox.tenant` | `tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py` |
+| `atri_x.sandbox.settings` | `tests/test_audit_regressions.py`、`tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py` |
+| `atri_x.sandbox.tenant` | `tests/test_audit_regressions.py`、`tests/test_sandbox_core.py`、`tests/test_sandbox_docker_it.py`、`tests/test_sandbox_manager.py` |
 | `atri_x.sandbox.trust` | `tests/test_sandbox_trust.py` |
 | `atri_x.security` | `tests/agent_commands_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_admission.py`、`tests/test_agent_assembly.py`、`tests/test_agent_bootstrap.py`、`tests/test_agent_commands.py`、`tests/test_agent_commands_integration.py`、`tests/test_agent_commands_services.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_group_policy.py`、`tests/test_agent_participation.py`、`tests/test_agent_risk.py`、`tests/test_app_runtime_agent.py`、`tests/test_background.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_cron.py`、`tests/test_hook_runtime.py`、`tests/test_long_memory_scope.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_platform_qq_onebot.py`、`tests/test_resident_memory.py`、`tests/test_sandbox_core.py`、`tests/test_security_grants.py`、`tests/test_tool_discover.py`、`tests/test_tool_skill.py`、`tests/test_toolrun.py` |
-| `atri_x.selflearning` | `tests/test_app_ops_plugins.py`、`tests/test_selflearning.py` |
+| `atri_x.selflearning` | `tests/test_app_ops_plugins.py`、`tests/test_audit_regressions.py`、`tests/test_selflearning.py` |
+| `atri_x.selflearning.db` | `tests/test_audit_regressions.py` |
 | `atri_x.selflearning.service` | `tests/test_app_ops_plugins.py` |
-| `atri_x.session` | `tests/agent_commands_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_risk.py`、`tests/test_cli_sessions.py`、`tests/test_memory_notes.py`、`tests/test_resident_memory.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_session_naming_contract.py` |
+| `atri_x.session` | `tests/agent_commands_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_risk.py`、`tests/test_audit_fileops.py`、`tests/test_cli_sessions.py`、`tests/test_memory_notes.py`、`tests/test_resident_memory.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_session_naming_contract.py` |
 | `atri_x.session.browse` | `tests/test_cli_sessions.py` |
 | `atri_x.session.naming` | `tests/test_session_naming_contract.py` |
 | `atri_x.session.promotion` | `tests/test_session_lifecycle.py` |
@@ -485,16 +510,16 @@
 | `atri_x.sidecar.kernel` | `tests/test_sidecar_kernel.py` |
 | `atri_x.sidecar.registry` | `tests/test_sidecar_kernel.py` |
 | `atri_x.signal` | `tests/test_signal.py` |
-| `atri_x.storage` | `tests/_atrinis_support.py`、`tests/_comic_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_admission.py`、`tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_commands_session.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_risk.py`、`tests/test_agent_title.py`、`tests/test_agent_tools.py`、`tests/test_angelmemory.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_cli_sessions.py`、`tests/test_comic_service.py`、`tests/test_contextmgr.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_cron_dst.py`、`tests/test_daily_summary.py`、`tests/test_dsh_gateway.py`、`tests/test_dsh_route.py`、`tests/test_groupanalysis.py`、`tests/test_gui_members.py`、`tests/test_gui_tabs.py`、`tests/test_historygate.py`、`tests/test_hook_runtime.py`、`tests/test_maintenance.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_member_profile.py`、`tests/test_platform_qq_onebot.py`、`tests/test_refcontext.py`、`tests/test_selflearning.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_migrations.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_tool_media_runtime.py`、`tests/test_toolrun.py` |
+| `atri_x.storage` | `tests/_atrinis_support.py`、`tests/_comic_fakes.py`、`tests/agent_fakes.py`、`tests/test_agent_admission.py`、`tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_commands_session.py`、`tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_core.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_risk.py`、`tests/test_agent_title.py`、`tests/test_agent_tools.py`、`tests/test_angelmemory.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_cli_sessions.py`、`tests/test_comic_service.py`、`tests/test_contextmgr.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_cron_dst.py`、`tests/test_daily_summary.py`、`tests/test_dsh_gateway.py`、`tests/test_dsh_route.py`、`tests/test_groupanalysis.py`、`tests/test_gui_members.py`、`tests/test_gui_tabs.py`、`tests/test_historygate.py`、`tests/test_hook_runtime.py`、`tests/test_maintenance.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_member_profile.py`、`tests/test_platform_qq_onebot.py`、`tests/test_refcontext.py`、`tests/test_selflearning.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_migrations.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_tool_media_runtime.py`、`tests/test_toolrun.py` |
 | `atri_x.storage.ids` | `tests/test_builtin_cron.py`、`tests/test_cron.py`、`tests/test_media_manager.py`、`tests/test_storage_models.py` |
-| `atri_x.storage.models` | `tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_title.py`、`tests/test_builtin_cron.py`、`tests/test_cli_sessions.py`、`tests/test_contextmgr.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_cron_dst.py`、`tests/test_groupanalysis.py`、`tests/test_hook_runtime.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_member_profile.py`、`tests/test_refcontext.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_toolrun.py` |
+| `atri_x.storage.models` | `tests/test_agent_context_policy.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_title.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_cron.py`、`tests/test_cli_sessions.py`、`tests/test_contextmgr.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_cron_dst.py`、`tests/test_groupanalysis.py`、`tests/test_hook_runtime.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_member_profile.py`、`tests/test_refcontext.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py`、`tests/test_toolrun.py` |
 | `atri_x.storage.repositories` | `tests/test_historygate.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py` |
-| `atri_x.storage.sqlite` | `tests/_atrinis_support.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_builtin_tools3.py`、`tests/test_cli_sessions.py`、`tests/test_daily_summary.py`、`tests/test_gui_members.py`、`tests/test_gui_tabs.py`、`tests/test_historygate.py`、`tests/test_maintenance.py`、`tests/test_session.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_migrations.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py` |
+| `atri_x.storage.sqlite` | `tests/_atrinis_support.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_http.py`、`tests/test_atrinis_llm.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_tools3.py`、`tests/test_cli_sessions.py`、`tests/test_daily_summary.py`、`tests/test_gui_members.py`、`tests/test_gui_tabs.py`、`tests/test_historygate.py`、`tests/test_maintenance.py`、`tests/test_session.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_migrations.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py` |
 | `atri_x.storage.sqlite.chat_history_repository` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_gui_members.py`、`tests/test_gui_tabs.py` |
 | `atri_x.storage.sqlite.migrations` | `tests/test_sqlite_migrations.py` |
 | `atri_x.storage.sqlite.store` | `tests/test_app_tool_runtime_wiring.py` |
 | `atri_x.storage.storage` | `tests/test_storage_models.py` |
-| `atri_x.storage.times` | `tests/test_angelmemory.py`、`tests/test_builtin_cron.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_groupanalysis.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_platform_qq_onebot.py`、`tests/test_selflearning.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py` |
+| `atri_x.storage.times` | `tests/test_angelmemory.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_cron.py`、`tests/test_cron.py`、`tests/test_cron_delivery.py`、`tests/test_groupanalysis.py`、`tests/test_media_lifecycle.py`、`tests/test_media_manager.py`、`tests/test_platform_qq_onebot.py`、`tests/test_selflearning.py`、`tests/test_session.py`、`tests/test_session_lifecycle.py`、`tests/test_sqlite_media.py`、`tests/test_sqlite_repositories.py`、`tests/test_sqlite_store.py`、`tests/test_storage_models.py` |
 | `atri_x.sysinfo` | `tests/test_builtin_runtime_resources.py`、`tests/test_maintenance_report.py`、`tests/test_ops.py` |
 | `atri_x.sysinfo_children` | `tests/test_builtin_runtime_resources.py` |
 | `atri_x.sysinfo_format` | `tests/test_builtin_runtime_resources.py` |
@@ -508,34 +533,35 @@
 | `atri_x.timesync.sntp` | `tests/test_timesync_sntp.py`、`tests/test_timesync_verifier.py` |
 | `atri_x.timesync.verifier` | `tests/test_timesync_verifier.py` |
 | `atri_x.timezones` | `tests/test_timezones.py` |
-| `atri_x.tool` | `tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_risk.py`、`tests/test_agent_tools.py`、`tests/test_app_runtime_agent.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_background.py`、`tests/test_builtin_character_artist.py`、`tests/test_builtin_comic.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_files.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_long_memory.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_builtin_shell.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_builtin_tools4.py`、`tests/test_command_router.py`、`tests/test_completion.py`、`tests/test_diagram_pack.py`、`tests/test_hook_runtime.py`、`tests/test_long_memory_scope.py`、`tests/test_member_persona.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_qq_slowfetch.py`、`tests/test_research_bootstrap.py`、`tests/test_safety_integration.py`、`tests/test_sandbox_tools.py`、`tests/test_tool_core.py`、`tests/test_tool_discover.py`、`tests/test_tool_media_runtime.py`、`tests/test_tool_runtimeinfo.py`、`tests/test_tool_skill.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_toolrun.py`、`tests/test_usage_attribution.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
+| `atri_x.tool` | `tests/agent_fakes.py`、`tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_directives.py`、`tests/test_agent_prompt.py`、`tests/test_agent_risk.py`、`tests/test_agent_tools.py`、`tests/test_app_runtime_agent.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_audit_fileops.py`、`tests/test_audit_gates.py`、`tests/test_audit_lifecycle.py`、`tests/test_audit_regressions.py`、`tests/test_background.py`、`tests/test_builtin_character_artist.py`、`tests/test_builtin_comic.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_files.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_long_memory.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_builtin_shell.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_builtin_tools4.py`、`tests/test_command_router.py`、`tests/test_completion.py`、`tests/test_diagram_pack.py`、`tests/test_hook_protocol.py`、`tests/test_hook_runtime.py`、`tests/test_long_memory_scope.py`、`tests/test_member_persona.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_qq_slowfetch.py`、`tests/test_research_bootstrap.py`、`tests/test_safety_integration.py`、`tests/test_sandbox_tools.py`、`tests/test_tool_core.py`、`tests/test_tool_discover.py`、`tests/test_tool_media_runtime.py`、`tests/test_tool_runtimeinfo.py`、`tests/test_tool_skill.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_toolrun.py`、`tests/test_usage_attribution.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
 | `atri_x.tool.builder` | `tests/test_tool_discover.py` |
-| `atri_x.tool.builtin` | `tests/test_app_runtime_agent.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_character_artist.py`、`tests/test_builtin_comic.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_files.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_long_memory.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_builtin_shell.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_builtin_tools4.py`、`tests/test_long_memory_scope.py`、`tests/test_member_persona.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_qq_slowfetch.py`、`tests/test_safety_integration.py`、`tests/test_sandbox_tools.py`、`tests/test_toolrun.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
-| `atri_x.tool.builtin.angel_memory` | `tests/test_builtin_tools2.py` |
+| `atri_x.tool.builtin` | `tests/test_app_runtime_agent.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_audit_fileops.py`、`tests/test_audit_gates.py`、`tests/test_audit_lifecycle.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_character_artist.py`、`tests/test_builtin_comic.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_files.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_long_memory.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_builtin_shell.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools3.py`、`tests/test_builtin_tools4.py`、`tests/test_hook_protocol.py`、`tests/test_long_memory_scope.py`、`tests/test_member_persona.py`、`tests/test_member_profile.py`、`tests/test_memory_notes.py`、`tests/test_qq_slowfetch.py`、`tests/test_safety_integration.py`、`tests/test_sandbox_tools.py`、`tests/test_toolrun.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
+| `atri_x.tool.builtin.angel_memory` | `tests/test_audit_lifecycle.py`、`tests/test_builtin_tools2.py` |
 | `atri_x.tool.builtin.artist_extract` | `tests/test_builtin_character_artist.py` |
-| `atri_x.tool.builtin.artist_library` | `tests/test_builtin_character_artist.py` |
+| `atri_x.tool.builtin.artist_library` | `tests/test_audit_lifecycle.py`、`tests/test_builtin_character_artist.py` |
 | `atri_x.tool.builtin.artist_tools` | `tests/test_builtin_character_artist.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_tools4.py` |
 | `atri_x.tool.builtin.atriwisp_creator` | `tests/test_builtin_tools4.py` |
-| `atri_x.tool.builtin.character` | `tests/test_builtin_character_artist.py`、`tests/test_builtin_imagegen.py`、`tests/test_member_persona.py` |
-| `atri_x.tool.builtin.chat_history` | `tests/test_builtin_tools2.py` |
+| `atri_x.tool.builtin.character` | `tests/test_audit_lifecycle.py`、`tests/test_builtin_character_artist.py`、`tests/test_builtin_imagegen.py`、`tests/test_member_persona.py` |
+| `atri_x.tool.builtin.chat_history` | `tests/test_audit_lifecycle.py`、`tests/test_builtin_tools2.py` |
 | `atri_x.tool.builtin.comic` | `tests/test_builtin_comic.py` |
 | `atri_x.tool.builtin.common` | `tests/test_builtin_character_artist.py`、`tests/test_builtin_files.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_tools3.py` |
 | `atri_x.tool.builtin.cron` | `tests/test_builtin_cron.py`、`tests/test_builtin_tools3.py` |
 | `atri_x.tool.builtin.fetch_message` | `tests/test_qq_slowfetch.py` |
-| `atri_x.tool.builtin.file_guard` | `tests/test_builtin_files.py`、`tests/test_builtin_shell.py` |
+| `atri_x.tool.builtin.file_guard` | `tests/test_audit_regressions.py`、`tests/test_builtin_files.py`、`tests/test_builtin_shell.py` |
 | `atri_x.tool.builtin.file_manager` | `tests/test_app_runtime_agent.py`、`tests/test_builtin_tools4.py`、`tests/test_member_profile.py` |
 | `atri_x.tool.builtin.file_rollback` | `tests/test_builtin_files.py` |
 | `atri_x.tool.builtin.file_tools` | `tests/test_builtin_files.py` |
-| `atri_x.tool.builtin.get_media` | `tests/test_builtin_tools3.py` |
+| `atri_x.tool.builtin.file_tools_ast` | `tests/test_audit_gates.py`、`tests/test_audit_lifecycle.py` |
+| `atri_x.tool.builtin.get_media` | `tests/test_audit_lifecycle.py`、`tests/test_builtin_tools3.py` |
 | `atri_x.tool.builtin.group_analysis` | `tests/test_builtin_tools3.py` |
-| `atri_x.tool.builtin.image_generate` | `tests/test_builtin_imagegen.py`、`tests/test_builtin_tools4.py`、`tests/test_safety_integration.py` |
-| `atri_x.tool.builtin.image_generate_compose` | `tests/test_builtin_imagegen.py` |
+| `atri_x.tool.builtin.image_generate` | `tests/test_audit_lifecycle.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_tools4.py`、`tests/test_safety_integration.py` |
+| `atri_x.tool.builtin.image_generate_compose` | `tests/test_audit_lifecycle.py`、`tests/test_builtin_imagegen.py` |
 | `atri_x.tool.builtin.image_generate_context` | `tests/test_builtin_imagegen.py` |
 | `atri_x.tool.builtin.image_to_prompt` | `tests/test_builtin_imagegen.py`、`tests/test_vision_privacy.py` |
 | `atri_x.tool.builtin.long_memory` | `tests/test_builtin_long_memory.py`、`tests/test_long_memory_scope.py` |
-| `atri_x.tool.builtin.long_memory_model` | `tests/test_builtin_long_memory.py`、`tests/test_long_memory_scope.py` |
+| `atri_x.tool.builtin.long_memory_model` | `tests/test_audit_fileops.py`、`tests/test_builtin_long_memory.py`、`tests/test_long_memory_scope.py` |
 | `atri_x.tool.builtin.long_memory_scope` | `tests/test_long_memory_scope.py` |
-| `atri_x.tool.builtin.long_memory_store` | `tests/test_builtin_long_memory.py`、`tests/test_long_memory_scope.py` |
+| `atri_x.tool.builtin.long_memory_store` | `tests/test_audit_fileops.py`、`tests/test_builtin_long_memory.py`、`tests/test_long_memory_scope.py` |
 | `atri_x.tool.builtin.persona` | `tests/test_member_persona.py` |
 | `atri_x.tool.builtin.prompt_library` | `tests/test_builtin_tools2.py` |
 | `atri_x.tool.builtin.register` | `tests/test_app_runtime_agent.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_comic.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_tools2.py`、`tests/test_builtin_tools4.py`、`tests/test_member_profile.py`、`tests/test_qq_slowfetch.py` |
@@ -544,31 +570,36 @@
 | `atri_x.tool.builtin.runtime_resources` | `tests/test_builtin_runtime_resources.py` |
 | `atri_x.tool.builtin.runtimeinfo` | `tests/test_app_runtime_agent.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_member_profile.py` |
 | `atri_x.tool.builtin.self_learning` | `tests/test_builtin_tools3.py` |
-| `atri_x.tool.builtin.send_file` | `tests/test_builtin_tools3.py`、`tests/test_safety_integration.py` |
-| `atri_x.tool.builtin.shell` | `tests/test_builtin_shell.py`、`tests/test_sandbox_tools.py` |
-| `atri_x.tool.builtin.shell_risk` | `tests/test_builtin_shell.py` |
+| `atri_x.tool.builtin.send_file` | `tests/test_builtin_tools3.py`、`tests/test_hook_protocol.py`、`tests/test_safety_integration.py` |
+| `atri_x.tool.builtin.shell` | `tests/test_audit_gates.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_shell.py`、`tests/test_sandbox_tools.py` |
+| `atri_x.tool.builtin.shell_risk` | `tests/test_audit_regressions.py`、`tests/test_builtin_shell.py` |
 | `atri_x.tool.builtin.shell_sandbox` | `tests/test_builtin_shell.py` |
 | `atri_x.tool.builtin.shell_syntax` | `tests/test_builtin_shell.py` |
 | `atri_x.tool.builtin.shell_warnings` | `tests/test_builtin_shell.py` |
 | `atri_x.tool.builtin.view_image` | `tests/test_builtin_tools3.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py` |
-| `atri_x.tool.builtin.web_extract` | `tests/test_builtin_tools2.py`、`tests/test_web_extract_engines.py` |
-| `atri_x.tool.builtin.web_extract_engines` | `tests/test_web_extract_engines.py` |
-| `atri_x.tool.builtin.web_search` | `tests/test_builtin_tools2.py`、`tests/test_web_search_engines.py` |
+| `atri_x.tool.builtin.web_extract` | `tests/test_audit_lifecycle.py`、`tests/test_builtin_tools2.py`、`tests/test_web_extract_engines.py` |
+| `atri_x.tool.builtin.web_extract_engines` | `tests/test_audit_lifecycle.py`、`tests/test_web_extract_engines.py` |
+| `atri_x.tool.builtin.web_search` | `tests/test_audit_lifecycle.py`、`tests/test_builtin_tools2.py`、`tests/test_web_search_engines.py` |
 | `atri_x.tool.builtin.web_search_cli` | `tests/test_web_search_engines.py` |
-| `atri_x.tool.builtin.web_search_engines` | `tests/test_web_search_engines.py` |
-| `atri_x.tool.builtin.workspace` | `tests/test_builtin_files.py`、`tests/test_builtin_tools2.py`、`tests/test_sandbox_tools.py`、`tests/test_toolrun.py` |
+| `atri_x.tool.builtin.web_search_engines` | `tests/test_audit_lifecycle.py`、`tests/test_web_search_engines.py` |
+| `atri_x.tool.builtin.workspace` | `tests/test_audit_gates.py`、`tests/test_audit_lifecycle.py`、`tests/test_builtin_files.py`、`tests/test_builtin_tools2.py`、`tests/test_sandbox_tools.py`、`tests/test_toolrun.py` |
 | `atri_x.tool.capability` | `tests/test_builtin_tools3.py`、`tests/test_command_router.py` |
-| `atri_x.tool.detail` | `tests/agent_fakes.py`、`tests/test_agent_cron_background.py`、`tests/test_tool_discover.py` |
+| `atri_x.tool.detail` | `tests/agent_fakes.py`、`tests/test_agent_cron_background.py`、`tests/test_audit_gates.py`、`tests/test_tool_discover.py` |
 | `atri_x.tool.discover` | `tests/test_tool_discover.py` |
-| `atri_x.tool.media_runtime` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_tools4.py`、`tests/test_tool_media_runtime.py` |
+| `atri_x.tool.media_runtime` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_audit_fileops.py`、`tests/test_builtin_tools4.py`、`tests/test_tool_media_runtime.py` |
 | `atri_x.tool.runtimeinfo` | `tests/test_builtin_cron.py`、`tests/test_tool_runtimeinfo.py` |
 | `atri_x.tool.sandbox` | `tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_background.py`、`tests/test_builtin_files.py`、`tests/test_builtin_shell.py`、`tests/test_builtin_tools3.py`、`tests/test_toolrun.py`、`tests/test_usage_attribution.py` |
-| `atri_x.tool.skill` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_tools4.py`、`tests/test_diagram_pack.py`、`tests/test_research_bootstrap.py`、`tests/test_tool_skill.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py` |
+| `atri_x.tool.skill` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_audit_fileops.py`、`tests/test_audit_lifecycle.py`、`tests/test_builtin_tools4.py`、`tests/test_diagram_pack.py`、`tests/test_research_bootstrap.py`、`tests/test_tool_skill.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py` |
 | `atri_x.tool.skill.agent_manifest` | `tests/test_diagram_pack.py`、`tests/test_research_bootstrap.py` |
+| `atri_x.tool.skill.agent_skill_tool` | `tests/test_audit_fileops.py` |
+| `atri_x.tool.skill.catalog` | `tests/test_audit_fileops.py` |
 | `atri_x.tool.skill.creator` | `tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py` |
+| `atri_x.tool.skill.finalize_atrix_skill` | `tests/test_audit_lifecycle.py` |
 | `atri_x.tool.skill.go_source` | `tests/test_tool_skill.py` |
-| `atri_x.tool.tool` | `tests/test_agent_assembly.py`、`tests/test_agent_cron.py`、`tests/test_agent_risk.py`、`tests/test_agent_tools.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_character_artist.py`、`tests/test_builtin_comic.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_long_memory.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_builtin_shell.py`、`tests/test_builtin_tools3.py`、`tests/test_builtin_tools4.py`、`tests/test_hook_runtime.py`、`tests/test_long_memory_scope.py`、`tests/test_member_persona.py`、`tests/test_qq_slowfetch.py`、`tests/test_safety_integration.py`、`tests/test_sandbox_tools.py`、`tests/test_tool_discover.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_toolrun.py`、`tests/test_vision_privacy.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
-| `atri_x.tool.workspace` | `tests/test_builtin_files.py`、`tests/test_sandbox_tools.py`、`tests/test_toolrun.py` |
+| `atri_x.tool.skill.manager` | `tests/test_audit_fileops.py` |
+| `atri_x.tool.skill.media` | `tests/test_audit_fileops.py` |
+| `atri_x.tool.tool` | `tests/test_agent_assembly.py`、`tests/test_agent_cron.py`、`tests/test_agent_risk.py`、`tests/test_agent_tools.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_audit_gates.py`、`tests/test_audit_lifecycle.py`、`tests/test_builtin_character_artist.py`、`tests/test_builtin_comic.py`、`tests/test_builtin_cron.py`、`tests/test_builtin_imagegen.py`、`tests/test_builtin_long_memory.py`、`tests/test_builtin_runtime_resources.py`、`tests/test_builtin_shell.py`、`tests/test_builtin_tools3.py`、`tests/test_builtin_tools4.py`、`tests/test_hook_runtime.py`、`tests/test_long_memory_scope.py`、`tests/test_member_persona.py`、`tests/test_qq_slowfetch.py`、`tests/test_safety_integration.py`、`tests/test_sandbox_tools.py`、`tests/test_tool_discover.py`、`tests/test_tool_skill_editor.py`、`tests/test_tool_skill_tools.py`、`tests/test_toolrun.py`、`tests/test_vision_privacy.py`、`tests/test_web_extract_engines.py`、`tests/test_web_search_engines.py` |
+| `atri_x.tool.workspace` | `tests/test_audit_gates.py`、`tests/test_audit_regressions.py`、`tests/test_builtin_files.py`、`tests/test_sandbox_tools.py`、`tests/test_toolrun.py` |
 | `atri_x.toolrun` | `tests/_atrinis_support.py`、`tests/test_agent_assembly.py`、`tests/test_agent_chat.py`、`tests/test_agent_cron.py`、`tests/test_agent_cron_background.py`、`tests/test_agent_risk.py`、`tests/test_agent_tools.py`、`tests/test_app_runtime_agent.py`、`tests/test_atrinis.py`、`tests/test_atrinis_helpers.py`、`tests/test_atrinis_llm.py`、`tests/test_toolrun.py`、`tests/test_toolrun_atriwisp_args.py`、`tests/test_toolrun_denied.py` |
 | `atri_x.toolrun.atriwisp` | `tests/test_toolrun.py` |
 | `atri_x.toolrun.atriwisp_exec` | `tests/test_toolrun.py`、`tests/test_toolrun_atriwisp_args.py` |
@@ -580,37 +611,39 @@
 | `atri_x.toolrun.toolrun` | `tests/test_agent_cron.py`、`tests/test_agent_risk.py`、`tests/test_app_runtime_agent.py`、`tests/test_toolrun.py` |
 | `atri_x.turn` | `tests/agent_commands_fakes.py`、`tests/test_agent_context_runtime.py`、`tests/test_agent_core.py`、`tests/test_agent_risk.py`、`tests/test_turn_manager.py` |
 | `atri_x.turn.manager` | `tests/test_agent_context_runtime.py` |
-| `atri_x.utils` | `tests/agent_commands_fakes.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_files.py`、`tests/test_fileops.py` |
-| `atri_x.utils.fileops` | `tests/agent_commands_fakes.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_files.py`、`tests/test_fileops.py` |
+| `atri_x.utils` | `tests/agent_commands_fakes.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_audit_fileops.py`、`tests/test_builtin_files.py`、`tests/test_fileops.py` |
+| `atri_x.utils.fileops` | `tests/agent_commands_fakes.py`、`tests/test_app_tool_runtime_wiring.py`、`tests/test_audit_fileops.py`、`tests/test_builtin_files.py`、`tests/test_fileops.py` |
+| `atri_x.utils.fileops.edit` | `tests/test_audit_fileops.py` |
+| `atri_x.utils.fileops.rollback` | `tests/test_audit_fileops.py` |
 | `atri_x.vision` | `tests/test_app_tool_runtime_wiring.py`、`tests/test_builtin_imagegen.py`、`tests/test_promptlib.py`、`tests/test_vision.py`、`tests/test_vision_attributes.py`、`tests/test_vision_identity.py`、`tests/test_vision_prechat.py`、`tests/test_vision_privacy.py`、`tests/test_vision_threading.py` |
 | `atri_x.vision.failures` | `tests/test_vision_privacy.py` |
 | `atri_x.vision.prompt` | `tests/test_promptlib.py` |
 
 ## 无直接测试覆盖的模块（按一级域）
 
-### agent（61）
+### agent（56）
 
-`atri_x.agent.asr`、`atri_x.agent.budget_chat`、`atri_x.agent.budget_keys`、`atri_x.agent.budget_ledger`、`atri_x.agent.character_guide_prompt`、`atri_x.agent.chat_request_options`、`atri_x.agent.chat_vision`、`atri_x.agent.command_runtime`、`atri_x.agent.commands.character`、`atri_x.agent.commands.compact`、`atri_x.agent.commands.completion`、`atri_x.agent.commands.context_policy`、`atri_x.agent.commands.doctor`、`atri_x.agent.commands.group_knowledge`、`atri_x.agent.commands.group_policy`、`atri_x.agent.commands.group_services`、`atri_x.agent.commands.help`、`atri_x.agent.commands.hook`、`atri_x.agent.commands.log`、`atri_x.agent.commands.log_args`、`atri_x.agent.commands.log_format`、`atri_x.agent.commands.member_panel`、`atri_x.agent.commands.memory_common`、`atri_x.agent.commands.memory_forget`、`atri_x.agent.commands.memory_learning`、`atri_x.agent.commands.model`、`atri_x.agent.commands.request`、`atri_x.agent.commands.research`、`atri_x.agent.commands.rollback`、`atri_x.agent.commands.sandbox`、`atri_x.agent.commands.session_core`、`atri_x.agent.commands.session_format`、`atri_x.agent.commands.session_lifecycle`、`atri_x.agent.commands.session_module`、`atri_x.agent.commands.session_navigation`、`atri_x.agent.commands.state`、`atri_x.agent.commands.time`、`atri_x.agent.commands.tool`、`atri_x.agent.completion`、`atri_x.agent.core_build`、`atri_x.agent.core_forward`、`atri_x.agent.cron_background`、`atri_x.agent.dsh.client`、`atri_x.agent.dsh.command`、`atri_x.agent.dsh.transport`、`atri_x.agent.events`、`atri_x.agent.identity`、`atri_x.agent.inbound_speaker`、`atri_x.agent.inbox`、`atri_x.agent.logging`、`atri_x.agent.media_output`、`atri_x.agent.member_panel`、`atri_x.agent.memory_learning_admin`、`atri_x.agent.ops`、`atri_x.agent.platform_signals`、`atri_x.agent.prefix`、`atri_x.agent.safety_llm`、`atri_x.agent.safety_tools`、`atri_x.agent.state_watch`、`atri_x.agent.tools_service`、`atri_x.agent.turn_gate`
+`atri_x.agent.asr`、`atri_x.agent.budget_chat`、`atri_x.agent.budget_keys`、`atri_x.agent.budget_ledger`、`atri_x.agent.character_guide_prompt`、`atri_x.agent.chat_request_options`、`atri_x.agent.chat_vision`、`atri_x.agent.command_runtime`、`atri_x.agent.commands.character`、`atri_x.agent.commands.compact`、`atri_x.agent.commands.completion`、`atri_x.agent.commands.context_policy`、`atri_x.agent.commands.doctor`、`atri_x.agent.commands.group_knowledge`、`atri_x.agent.commands.group_policy`、`atri_x.agent.commands.group_services`、`atri_x.agent.commands.help`、`atri_x.agent.commands.hook`、`atri_x.agent.commands.log`、`atri_x.agent.commands.log_args`、`atri_x.agent.commands.log_format`、`atri_x.agent.commands.member_panel`、`atri_x.agent.commands.memory_common`、`atri_x.agent.commands.memory_forget`、`atri_x.agent.commands.memory_learning`、`atri_x.agent.commands.request`、`atri_x.agent.commands.research`、`atri_x.agent.commands.rollback`、`atri_x.agent.commands.sandbox`、`atri_x.agent.commands.session_core`、`atri_x.agent.commands.session_format`、`atri_x.agent.commands.session_lifecycle`、`atri_x.agent.commands.session_module`、`atri_x.agent.commands.session_navigation`、`atri_x.agent.commands.state`、`atri_x.agent.commands.time`、`atri_x.agent.commands.tool`、`atri_x.agent.completion`、`atri_x.agent.core_build`、`atri_x.agent.core_forward`、`atri_x.agent.cron_background`、`atri_x.agent.dsh.client`、`atri_x.agent.dsh.command`、`atri_x.agent.dsh.transport`、`atri_x.agent.events`、`atri_x.agent.identity`、`atri_x.agent.inbound_speaker`、`atri_x.agent.logging`、`atri_x.agent.member_panel`、`atri_x.agent.memory_learning_admin`、`atri_x.agent.ops`、`atri_x.agent.prefix`、`atri_x.agent.safety_llm`、`atri_x.agent.safety_tools`、`atri_x.agent.tools_service`、`atri_x.agent.turn_gate`
 
-### angelmemory（3）
+### angelmemory（2）
 
-`atri_x.angelmemory.models`、`atri_x.angelmemory.schema`、`atri_x.angelmemory.store`
+`atri_x.angelmemory.models`、`atri_x.angelmemory.schema`
 
 ### app（4）
 
 `atri_x.app.asr`、`atri_x.app.image_to_prompt`、`atri_x.app.runtime_hooks`、`atri_x.app.runtime_support`
 
-### artist（5）
+### artist（4）
 
-`atri_x.artist.metadata_store`、`atri_x.artist.parser`、`atri_x.artist.render`、`atri_x.artist.service`、`atri_x.artist.store`
+`atri_x.artist.metadata_store`、`atri_x.artist.parser`、`atri_x.artist.render`、`atri_x.artist.service`
 
 ### asr（3）
 
 `atri_x.asr.asr`、`atri_x.asr.cache`、`atri_x.asr.error`
 
-### atriena（5）
+### atriena（3）
 
-`atri_x.atriena.calls`、`atri_x.atriena.delivery`、`atri_x.atriena.dispatcher`、`atri_x.atriena.origin`、`atri_x.atriena.types`
+`atri_x.atriena.delivery`、`atri_x.atriena.dispatcher`、`atri_x.atriena.origin`
 
 ### atrinis（12）
 
@@ -644,9 +677,9 @@
 
 `atri_x.cron.delivery`、`atri_x.cron.delivery_state`、`atri_x.cron.errors`、`atri_x.cron.jsonview`、`atri_x.cron.recovery`
 
-### devtools（9）
+### devtools（7）
 
-`atri_x.devtools`、`atri_x.devtools.__main__`、`atri_x.devtools.astindex`、`atri_x.devtools.boundaries`、`atri_x.devtools.cli`、`atri_x.devtools.domaindocs`、`atri_x.devtools.entrypoints`、`atri_x.devtools.markdown`、`atri_x.devtools.render`
+`atri_x.devtools.__main__`、`atri_x.devtools.boundaries`、`atri_x.devtools.cli`、`atri_x.devtools.domaindocs`、`atri_x.devtools.entrypoints`、`atri_x.devtools.markdown`、`atri_x.devtools.render`
 
 ### dist（5）
 
@@ -660,9 +693,9 @@
 
 `atri_x.groupkb.groupkb`
 
-### gui（27）
+### gui（25）
 
-`atri_x.gui.autostart`、`atri_x.gui.dialogs.common`、`atri_x.gui.dialogs.hooks`、`atri_x.gui.dialogs.maintenance`、`atri_x.gui.dialogs.selflearning`、`atri_x.gui.qqproto_cli`、`atri_x.gui.reactionpage`、`atri_x.gui.safetyviews`、`atri_x.gui.safetywordedit`、`atri_x.gui.sandboxpanel`、`atri_x.gui.selftest`、`atri_x.gui.taborder`、`atri_x.gui.tabs.base`、`atri_x.gui.tabs.chat`、`atri_x.gui.tabs.extractpanel`、`atri_x.gui.tabs.mountpanel`、`atri_x.gui.tabs.permission`、`atri_x.gui.tabs.research`、`atri_x.gui.tabs.searchpanel`、`atri_x.gui.timediagnostics`、`atri_x.gui.timesources`、`atri_x.gui.toolmenu`、`atri_x.gui.toolmode`、`atri_x.gui.toolpreview`、`atri_x.gui.toolsettings_general`、`atri_x.gui.toolsettings_media`、`atri_x.gui.tray`
+`atri_x.gui.aero`、`atri_x.gui.autostart`、`atri_x.gui.dialogs.common`、`atri_x.gui.dialogs.hooks`、`atri_x.gui.dialogs.maintenance`、`atri_x.gui.dialogs.selflearning`、`atri_x.gui.qqproto_cli`、`atri_x.gui.safetyviews`、`atri_x.gui.sandboxpanel`、`atri_x.gui.shell`、`atri_x.gui.tabs.base`、`atri_x.gui.tabs.chat`、`atri_x.gui.tabs.extractpanel`、`atri_x.gui.tabs.mountpanel`、`atri_x.gui.tabs.permission`、`atri_x.gui.tabs.research`、`atri_x.gui.tabs.searchpanel`、`atri_x.gui.timediagnostics`、`atri_x.gui.timesources`、`atri_x.gui.toolmenu`、`atri_x.gui.toolmode`、`atri_x.gui.toolpreview`、`atri_x.gui.toolsettings_general`、`atri_x.gui.toolsettings_media`、`atri_x.gui.tray`
 
 ### historygate（1）
 
@@ -688,17 +721,17 @@
 
 `atri_x.maintenance.maintenance`、`atri_x.maintenance.summary_cli`
 
-### media（16）
+### media（13）
 
-`atri_x.media.config`、`atri_x.media.generation`、`atri_x.media.history`、`atri_x.media.image`、`atri_x.media.imagecodec.ops`、`atri_x.media.imagecodec.resample`、`atri_x.media.lifecycle`、`atri_x.media.local`、`atri_x.media.locks`、`atri_x.media.mimetype`、`atri_x.media.output`、`atri_x.media.reference`、`atri_x.media.remote`、`atri_x.media.resolver`、`atri_x.media.s3`、`atri_x.media.sanitize`
+`atri_x.media.generation`、`atri_x.media.history`、`atri_x.media.image`、`atri_x.media.imagecodec.ops`、`atri_x.media.imagecodec.resample`、`atri_x.media.lifecycle`、`atri_x.media.local`、`atri_x.media.mimetype`、`atri_x.media.output`、`atri_x.media.reference`、`atri_x.media.remote`、`atri_x.media.resolver`、`atri_x.media.sanitize`
 
 ### memberprofile（1）
 
 `atri_x.memberprofile.store`
 
-### platform（19）
+### platform（17）
 
-`atri_x.platform.backoff`、`atri_x.platform.cli.clipboard`、`atri_x.platform.cli.session_browse`、`atri_x.platform.cli.tui.content`、`atri_x.platform.cli.tui.mouse`、`atri_x.platform.cli.tui.theme`、`atri_x.platform.cli.tui.view`、`atri_x.platform.config`、`atri_x.platform.telegram`、`atri_x.platform.telegram.adapter`、`atri_x.platform.telegram.capabilities`、`atri_x.platform.telegram.client`、`atri_x.platform.telegram.config`、`atri_x.platform.telegram.format`、`atri_x.platform.telegram.keyboard`、`atri_x.platform.telegram.message`、`atri_x.platform.telegram.stream`、`atri_x.platform.telegram.target`、`atri_x.platform.telegram.types`
+`atri_x.platform.backoff`、`atri_x.platform.cli.clipboard`、`atri_x.platform.cli.session_browse`、`atri_x.platform.cli.tui.content`、`atri_x.platform.cli.tui.mouse`、`atri_x.platform.cli.tui.theme`、`atri_x.platform.cli.tui.view`、`atri_x.platform.config`、`atri_x.platform.telegram.adapter`、`atri_x.platform.telegram.capabilities`、`atri_x.platform.telegram.client`、`atri_x.platform.telegram.config`、`atri_x.platform.telegram.format`、`atri_x.platform.telegram.keyboard`、`atri_x.platform.telegram.stream`、`atri_x.platform.telegram.target`、`atri_x.platform.telegram.types`
 
 ### processenv（1）
 
@@ -712,21 +745,21 @@
 
 `atri_x.redact.redact`
 
-### safety（8）
+### safety（5）
 
-`atri_x.safety.engine_remote`、`atri_x.safety.guard`、`atri_x.safety.guard_async`、`atri_x.safety.mode_ctx`、`atri_x.safety.normalize`、`atri_x.safety.policy`、`atri_x.safety.scope_policy`、`atri_x.safety.types`
+`atri_x.safety.mode_ctx`、`atri_x.safety.normalize`、`atri_x.safety.policy`、`atri_x.safety.scope_policy`、`atri_x.safety.types`
 
-### sandbox（8）
+### sandbox（7）
 
-`atri_x.sandbox.__main__`、`atri_x.sandbox.audit`、`atri_x.sandbox.doctor`、`atri_x.sandbox.image`、`atri_x.sandbox.lifecycle`、`atri_x.sandbox.network`、`atri_x.sandbox.probe`、`atri_x.sandbox.telemetry`
+`atri_x.sandbox.__main__`、`atri_x.sandbox.audit`、`atri_x.sandbox.doctor`、`atri_x.sandbox.image`、`atri_x.sandbox.network`、`atri_x.sandbox.probe`、`atri_x.sandbox.telemetry`
 
 ### security（3）
 
 `atri_x.security.context`、`atri_x.security.grants`、`atri_x.security.security`
 
-### selflearning（5）
+### selflearning（4）
 
-`atri_x.selflearning.db`、`atri_x.selflearning.mining`、`atri_x.selflearning.models`、`atri_x.selflearning.patterns`、`atri_x.selflearning.store`
+`atri_x.selflearning.mining`、`atri_x.selflearning.models`、`atri_x.selflearning.patterns`、`atri_x.selflearning.store`
 
 ### session（8）
 
@@ -752,13 +785,13 @@
 
 `atri_x.timesync.diagnostics`
 
-### tool（23）
+### tool（17）
 
-`atri_x.tool.availability`、`atri_x.tool.builtin.file_tools_ast`、`atri_x.tool.builtin.file_tools_detail`、`atri_x.tool.builtin.file_tools_directory`、`atri_x.tool.builtin.file_tools_read`、`atri_x.tool.builtin.image_safety`、`atri_x.tool.builtin.shell_env`、`atri_x.tool.builtin.time_tool`、`atri_x.tool.executor`、`atri_x.tool.provider`、`atri_x.tool.skill.agent_skill_tool`、`atri_x.tool.skill.atriyph_warnings`、`atri_x.tool.skill.catalog`、`atri_x.tool.skill.command_tool`、`atri_x.tool.skill.descriptor`、`atri_x.tool.skill.finalize_atrix_skill`、`atri_x.tool.skill.manager`、`atri_x.tool.skill.media`、`atri_x.tool.skill.modify_atrix_skill`、`atri_x.tool.skill.parser`、`atri_x.tool.skill.process`、`atri_x.tool.skill.runner`、`atri_x.tool.skill.scanner`
+`atri_x.tool.availability`、`atri_x.tool.builtin.file_tools_detail`、`atri_x.tool.builtin.file_tools_directory`、`atri_x.tool.builtin.file_tools_read`、`atri_x.tool.builtin.image_safety`、`atri_x.tool.builtin.shell_env`、`atri_x.tool.builtin.time_tool`、`atri_x.tool.executor`、`atri_x.tool.provider`、`atri_x.tool.skill.atriyph_warnings`、`atri_x.tool.skill.command_tool`、`atri_x.tool.skill.descriptor`、`atri_x.tool.skill.modify_atrix_skill`、`atri_x.tool.skill.parser`、`atri_x.tool.skill.process`、`atri_x.tool.skill.runner`、`atri_x.tool.skill.scanner`
 
-### utils（9）
+### utils（7）
 
-`atri_x.utils.fileops.atomic_write`、`atri_x.utils.fileops.diff`、`atri_x.utils.fileops.edit`、`atri_x.utils.fileops.encoding`、`atri_x.utils.fileops.file`、`atri_x.utils.fileops.match`、`atri_x.utils.fileops.rollback`、`atri_x.utils.fileops.text`、`atri_x.utils.runes`
+`atri_x.utils.fileops.atomic_write`、`atri_x.utils.fileops.diff`、`atri_x.utils.fileops.encoding`、`atri_x.utils.fileops.file`、`atri_x.utils.fileops.match`、`atri_x.utils.fileops.text`、`atri_x.utils.runes`
 
 ### vision（10）
 

@@ -497,13 +497,13 @@ class CallLlmTest(unittest.TestCase):
         return agent, out, result
 
     def test_stream_error_marks_user_notified(self) -> None:
-        from atri_x.agent.errors import is_user_notified
+        from atri_x.agent.errors import UserNotifiedError, is_user_notified
 
         client = _ScriptedClient([[StreamChunk(error=RuntimeError("boom"))]])
         agent = _agent_with_client(client)
         session = agent.sessions.get_or_create_current(agent.scope(make_ctx()), "hi")
         out = _Out()
-        with self.assertRaises(BaseException) as caught:
+        with self.assertRaises(UserNotifiedError) as caught:
             asyncio.run(
                 chat_llm.call_llm(
                     agent,

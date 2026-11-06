@@ -56,7 +56,7 @@ class ContextPolicyCommand:
             raise ValueError("context policy service is not configured")
         args = (req.args or "").split()
         if not args:
-            return Result(content=self._deps.context_policy.context_policy_status(ctx))
+            return Result(content=await _maybe_await(self._deps.context_policy.context_policy_status(ctx)))
         target = "all"
         value = ""
         for arg in args:
@@ -72,7 +72,7 @@ class ContextPolicyCommand:
             else:
                 value = normalized
         if value in ("", "show", "status"):
-            return Result(content=self._deps.context_policy.context_policy_status(ctx))
+            return Result(content=await _maybe_await(self._deps.context_policy.context_policy_status(ctx)))
         if value == "reset":
             content = await _maybe_await(
                 self._deps.context_policy.reset_context_policy(ctx, target)

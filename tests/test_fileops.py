@@ -289,7 +289,7 @@ class TestApplyEdits(unittest.TestCase):
             ("A\nB\nC\n", 2, 0, "X", "A\nXC\n"),
             ("A\nB\nC\nD\n", 2, 3, "X\nY\n", "A\nX\nY\nD\n"),
             ("A\nB\nC\n", 2, 0, "", "A\nC\n"),
-            ("A\nB", 2, 0, "\nX", "A\nX"),
+            ("A\nB", 2, 0, "\nX", "A\n\nX"),
             ("A\nB\n", 1, 2, "X", "X"),
             ("A\nB", 1, 2, "X\n", "X\n"),
         )

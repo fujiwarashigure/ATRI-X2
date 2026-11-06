@@ -120,12 +120,11 @@ class NoticeQueues:
         超出 ctx 预算时抛 ctx 的错误，不宣称仍在跑的发送已经结束。
         """
         with self._mu:
-            if self._closed:
-                return
-            self._closed = True
             queues = list(self._queues.values())
-            for queue in queues:
-                queue.begin_close()
+            if not self._closed:
+                self._closed = True
+                for queue in queues:
+                    queue.begin_close()
         token = _as_token(ctx)
         for queue in queues:
             await _wait_event(queue.done(), ctx, token)

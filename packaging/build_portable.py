@@ -231,6 +231,8 @@ def launcher_portable() -> str:
         "rem ATRI-X portable launcher: keeps ALL user data inside .\\data\\appdata\\ATRI-X",
         "rem Double-click to start the desktop UI in portable mode; --args are forwarded.",
         "setlocal",
+        'rem Inherited ATRIX_HOME would bypass the portable data dir; clear it.',
+        'set "ATRIX_HOME="',
         'set "HERE=%~dp0"',
         'if not exist "%HERE%data\\appdata" mkdir "%HERE%data\\appdata"',
         'set "APPDATA=%HERE%data\\appdata"',
@@ -271,6 +273,8 @@ def launcher_debug() -> str:
         "rem ATRI-X debug console: portable data dir + doctor report + a shell window.",
         "rem Args are forwarded to atri-x.exe, e.g.:  debug-console.bat config check",
         "setlocal",
+        'rem Inherited ATRIX_HOME would bypass the portable data dir; clear it.',
+        'set "ATRIX_HOME="',
         'set "HERE=%~dp0"',
         'if not exist "%HERE%data\\appdata" mkdir "%HERE%data\\appdata"',
         'set "APPDATA=%HERE%data\\appdata"',
@@ -424,6 +428,19 @@ def _write_entry(
     archive.writestr(info, data)
 
 
+def _assert_qqproto_sanitized(dist: Path) -> None:
+    """打包前复查内置协议端：残留 NapCat 运行期文件（可能带来源机令牌）就拒绝打包。"""
+    payload = Path(dist) / QQPROTO_DIR
+    if not payload.is_dir():
+        return
+    import qqproto  # noqa: PLC0415 - 只有真的带内置协议端时才需要
+
+    try:
+        qqproto.assert_sanitized(payload)
+    except qqproto.QqProtoError as exc:
+        raise PortableError(str(exc)) from exc
+
+
 def build(
     *,
     dist: Path = DEFAULT_DIST,
@@ -434,6 +451,7 @@ def build(
 ) -> dict[str, Any]:
     """把 onedir 产物打成便携版 zip；返回产物信息。"""
     tree = dist_tree(Path(dist))
+    _assert_qqproto_sanitized(Path(dist))
     resolved_version = (version or "").strip() or __version__
     folder = f"{FOLDER_PREFIX}{resolved_version}"
     base = (name or "").strip() or f"{FOLDER_PREFIX}{resolved_version}{PORTABLE_SUFFIX}"
@@ -697,6 +715,9 @@ def verify(
         env = os.environ.copy()
         env["APPDATA"] = str(appdata)
         env["XDG_CONFIG_HOME"] = str(appdata)
+        # 继承的 ATRIX_HOME 优先级最高，会绕过上面的便携重定向；自检必须清掉，
+        # 否则验证进程可能读写真实用户数据目录。
+        env.pop("ATRIX_HOME", None)
         expected_version = root.joinpath(INFO_NAME)
         version_text = ""
         if expected_version.is_file():

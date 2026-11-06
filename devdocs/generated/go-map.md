@@ -3,7 +3,7 @@
 
 # Go ↔ Python 映射（自动生成）
 
-- 有「对应 Go」声明的模块：**526** / 896。未声明的通常是 Python 侧新增能力。
+- 有「对应 Go」声明的模块：**526** / 898。未声明的通常是 Python 侧新增能力。
 - 权威映射是 `PORTING.md` §4（包级）；这里是模块级反查，用于查「这段代码对应上游哪个文件」。
 
 ## 模块 → Go 文件
@@ -458,7 +458,7 @@
 | `cmd/atri-x` | `atri_x/__main__.py` | OK |
 | `internal/launcher` | `atri_x/launcher/cli.py` | OK |
 | `internal/app` | `atri_x/app/*.py` | 缺失：atri_x/app/*.py |
-| `internal/config` | `atri_x/config/{config,assets,inspect}.py` | 缺失：atri_x/config/{config,assets,inspect}.py |
+| `internal/config` | `atri_x/config/{app,app_sections,loader,assets,inspect}.py` | 缺失：atri_x/config/{app,app_sections,loader,assets,inspect}.py |
 | `internal/logging` | `atri_x/logging/{logging,reader,contract}.py` | 缺失：atri_x/logging/{logging,reader,contract}.py |
 | `internal/redact` | `atri_x/redact/redact.py` | OK |
 | `internal/processenv` | `atri_x/processenv/environment.py` | OK |

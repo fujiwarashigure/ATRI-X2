@@ -194,7 +194,7 @@ class TagLibraryCase(TkCase):
 
 
 class MemberTagPickerCase(TkCase):
-    def test_members_tab_merges_picked_tags(self) -> None:
+    def test_members_tab_applies_complete_picker_selection(self) -> None:
         from atri_x.gui.tabs.members import MembersTab
         from atri_x.gui.taglibedit import apply_tag_picker
 
@@ -203,8 +203,10 @@ class MemberTagPickerCase(TkCase):
         frame.pack()
         tab = MembersTab(frame, self.paths)
         tab.tags_var.set("老标签")
+        # 对话框返回的是「完整选择集」：未登记的手写标签由对话框自己带回。
         with mock.patch(
-            "atri_x.gui.taglibedit.choose_tags", return_value=["傲娇", "新标签"]
+            "atri_x.gui.taglibedit.choose_tags",
+            return_value=["老标签", "傲娇", "新标签"],
         ):
             apply_tag_picker(tab, tab.tags_var, "从标签库选择群友标签")
         self.assertEqual(tab.tags_var.get(), "老标签, 傲娇, 新标签")

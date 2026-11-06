@@ -246,12 +246,17 @@ class InstallerTestCase(unittest.TestCase):
         self.assertEqual(info["runtime"]["homeDir"], str(chosen))
         self.assertEqual(info["runtime"]["source"], "env")
 
-    def test_uninstall_default_data_inside_app_is_removed_with_app(self) -> None:
+    def test_uninstall_default_data_inside_app_requires_explicit_purge(self) -> None:
         report = self.do_install()
         target = Path(report.target)
         self.assertTrue((target / "data").is_dir())
         result = installer.uninstall(
             yes=True, shortcut_remover=self.shortcuts.remove, registry=self.registry
+        )
+        self.assertFalse(result.ok)
+        self.assertTrue((target / "data").is_dir())
+        result = installer.uninstall(
+            yes=True, purge_data=True, shortcut_remover=self.shortcuts.remove, registry=self.registry
         )
         self.assertTrue(result.ok)
         self.assertFalse(target.exists())

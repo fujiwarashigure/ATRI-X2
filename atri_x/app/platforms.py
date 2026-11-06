@@ -2,14 +2,8 @@
 
 对应 Go：``internal/app/platforms.go``。
 
-包含四块：
-
-1. :class:`DefaultPlatformFactory` —— 用 ``internal/platform/builtin`` 造出主平台与
-   运行时列表。**延迟导入** ``atri_x.platform.builtin``（并行移植期可能尚未交付）。
-2. :class:`DefaultPlatformExecutor` + :func:`run_platforms` —— 启动全部平台运行时并
-   等它们结束，处理"非预期退出"与"交互式 CLI 退出即应用退出"两种情况。
-3. Hook / 补全 / 命令目录 / 平台发送器的注册助手。
-4. 启动期 Hook 告警的目标选择与补投递。
+提供平台工厂、运行循环、Hook/补全注册与启动告警补投递。
+平台运行时按服务/交互模式分别处理退出意图。
 
 与 Go 的差异：
 
@@ -539,10 +533,15 @@ async def run_platforms(
                 run_ctx.cancel()
 
     tasks = [asyncio.ensure_future(supervise(adapter)) for adapter in adapters]
-    if heartbeat is not None:
-        await maybe_await(heartbeat())
-    if after_start is not None:
-        await maybe_await(after_start(run_ctx))
+    try:
+        if heartbeat is not None:
+            await maybe_await(heartbeat())
+        if after_start is not None:
+            await maybe_await(after_start(run_ctx))
+    except BaseException:
+        run_ctx.cancel()
+        await _cancel_all(tasks)
+        raise
     if not adapters:
         # 没有任何平台被启用时进程必须保持存活：直接返回会让进程立即以 0 退出，
         # 在 Docker / systemd 下意味着新装的容器被反复拉起，health 接口也随之消失。

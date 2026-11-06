@@ -111,14 +111,16 @@ class RemoteModerationMixin:
         policy = self.stage_policy(stage, tool, scope)
         if policy in (STAGE_POLICY_LOCAL_ONLY, STAGE_POLICY_OFF):
             return None
-        key = _cache_key(content)
+        key = _cache_key("text\x00" + content)
         cached = self._cache_get(key)
         if cached is not None:
             return cached
         if policy == STAGE_POLICY_CACHE_ONLY:
             return None
-        if not self.settings.remote.enabled or not self._providers:
+        if not self.settings.remote.enabled:
             return None
+        if not self._providers:
+            return self._fail_outcome(_scope_key(platform, scope_id), "no_provider", stage)
         if self._budget_exceeded():
             overage = self.budget_overage_outcome(scope, stage)
             if overage is not None:
@@ -164,14 +166,16 @@ class RemoteModerationMixin:
             return None
         if not data and not url:
             return None
-        key = _cache_key(hashlib.sha256(data).hexdigest() if data else url)
+        key = _cache_key("image:data:" + hashlib.sha256(data).hexdigest() if data else "image:url:" + url)
         cached = self._cache_get(key)
         if cached is not None:
             return cached
         if policy == STAGE_POLICY_CACHE_ONLY:
             return None
-        if not self.settings.remote.enabled or not self._providers:
+        if not self.settings.remote.enabled:
             return None
+        if not self._providers:
+            return self._fail_outcome(_scope_key(platform, scope_id), "no_provider", stage)
         if self._budget_exceeded():
             overage = self.budget_overage_outcome(scope, stage)
             if overage is not None:
@@ -396,7 +400,7 @@ class RemoteModerationMixin:
     def _cache_put(self, key: str, outcome: RemoteOutcome) -> None:
         ttl = self.settings.remote.cache_ttl_seconds
         limit = self.settings.remote.cache_max_entries or _DEFAULT_CACHE_ENTRIES
-        if ttl <= 0 or limit <= 0:
+        if ttl <= 0 or limit <= 0 or outcome.degraded:
             return
         self._cache[key] = (self._clock(), outcome)
         self._cache.move_to_end(key)

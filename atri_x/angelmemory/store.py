@@ -79,13 +79,13 @@ def _transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]
     connection.execute("BEGIN IMMEDIATE")
     try:
         yield connection
+        connection.execute("COMMIT")
     except BaseException:
         try:
             connection.execute("ROLLBACK")
         except sqlite3.Error:  # pragma: no cover - 回滚失败时保留原始异常
             pass
         raise
-    connection.execute("COMMIT")
 
 
 class Store:
@@ -230,21 +230,14 @@ ON CONFLICT(platform, scope_id, content) DO UPDATE SET
                         format_time(memory.last_accessed_at),
                     ),
                 )
-            try:
-                rows = self.recall(
-                    RecallQuery(
-                        platform=memory.platform,
-                        scope_id=memory.scope_id,
-                        text=memory.content,
-                        limit=1,
-                    )
-                )
-            except Exception:  # Go: `if err != nil { return memory, nil }`
-                return memory
-            for row in rows:
-                if row.content == memory.content:
-                    return row
-            return memory
+            # UPSERT 保留已有 ID；按唯一键精确读回，不能使用相关性排名代替身份查询。
+            row = self._db.execute(
+                SELECT_MEMORY_COLUMNS + " WHERE platform = ? AND scope_id = ? AND content = ?",
+                (memory.platform, memory.scope_id, memory.content),
+            ).fetchone()
+            if row is None:
+                raise ErrNotFound
+            return row_to_memory(row)
 
     # -- 读取 ---------------------------------------------------------------
 

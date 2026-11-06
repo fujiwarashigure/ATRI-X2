@@ -98,6 +98,7 @@ class TestCliEndToEnd(HarnessCase):
         env = dict(os.environ)
         env.update({
             "ATRIX_DEPLOY_FAKE_CAPTURE": str(capture),
+            "ATRIX_DEPLOY_FAKE_ALLOW_REAL": "0",
             "ATRIX_DEPLOY_RECORD": str(record),
             "PYTHONIOENCODING": "utf-8",
         })

@@ -64,17 +64,18 @@ async def materialize_platform_media(agent: Any, ctx: Any) -> Any:
             out[index] = resolved
         return out
 
-    original = msg
+    original_segments = list(msg.segments)
+    original_reply = list(msg.reply.segments) if msg.reply is not None else []
     msg.segments = await _resolve(msg.segments)
     msg.context_segments = await _resolve(msg.context_segments)
     if msg.reply is not None:
         msg.reply.segments = await _resolve(msg.reply.segments)
     await associate_inbound_history(
-        host, ctx, msg, msg.platform_message_id, original.segments, msg.segments
+        host, ctx, msg, msg.platform_message_id, original_segments, msg.segments
     )
     if msg.reply is not None:
         await associate_inbound_history(
-            host, ctx, msg, msg.reply.message_id, original.reply.segments, msg.reply.segments
+            host, ctx, msg, msg.reply.message_id, original_reply, msg.reply.segments
         )
     return with_message_context(ctx, msg)
 
@@ -93,7 +94,7 @@ async def materialize_platform_segment(
         item = await agent.media.import_platform(
             ctx, getattr(msg, "platform", ""), getattr(msg, "media_resolver", None), segment
         )
-    except BaseException as exc:  # noqa: BLE001 - 与 Go 相同：失败的段不阻断消息
+    except Exception as exc:  # noqa: BLE001 - 与 Go 相同：失败的段不阻断消息
         _warn(
             agent,
             "materialize inbound platform media failed; segment degraded to unavailable",
@@ -128,7 +129,7 @@ async def associate_inbound_history(
         return
     try:
         row = await _history_lookup(agent, msg, message_id)
-    except BaseException as exc:  # noqa: BLE001 - 与 Go 相同：查不到就跳过
+    except Exception as exc:  # noqa: BLE001 - 与 Go 相同：查不到就跳过
         _warn(agent, "associate inbound history media failed", exc)
         return
     if row is None:
@@ -147,7 +148,7 @@ async def associate_inbound_history(
             await agent.media.associate_history(
                 ctx, row, index, getattr(raw, "type", ""), media_id
             )
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             _warn(agent, "associate inbound history media failed", exc)
 
 

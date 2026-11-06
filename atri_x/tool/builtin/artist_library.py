@@ -2,9 +2,7 @@
 
 对应 Go：``internal/tool/builtin/artist_library.go``。
 
-四个工具只在画师串库已配置时才注册：没有库的时候它们每个都只能失败，注册出去
-只会白占模型的工具位。
-
+四个工具仅在画师串库配置后注册。
 与 Go 的差异：
 
 * Go 的 ``artistMatchJSON`` / ``artistSlotJSON`` / ``artistPresetJSON`` 用
@@ -591,6 +589,8 @@ class ArtistLibrarySaveTool:
         source = normalize_source(args.source_type or "")
         if source == SourceKind.NONE:
             source = SourceKind.TEXT
+        if not viewer.superadmin and any((_slot_args(raw).tag or "").strip() for raw in args.artists or []):
+            return Result(content="共享画师目录的新增或替换只能由超级管理员执行；请引用已有 artist_id。")
         slots: list[PresetArtist] = []
         for raw_slot in args.artists or []:
             slot = _slot_args(raw_slot)

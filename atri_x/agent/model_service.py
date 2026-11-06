@@ -145,7 +145,8 @@ class ModelService(AgentService):
         self.agent.save_model_snapshot(name)
 
     async def apply_model_snapshot(self, ctx: Any, name: str) -> ModelSnapshot:
-        return await self.agent.apply_model_snapshot(ctx, name)
+        result = self.agent.apply_model_snapshot(ctx, name)
+        return await result if hasattr(result, "__await__") else result
 
     def delete_model_snapshot(self, name: str) -> None:
         self.agent.delete_model_snapshot(name)

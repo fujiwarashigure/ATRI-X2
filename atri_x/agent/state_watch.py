@@ -58,15 +58,23 @@ def start_runtime_state_watch(agent: Any, ctx: Any = None) -> None:
     """
     if agent is None or not getattr(agent, "state_path", ""):
         return
+    loop = _current_loop()
+    if loop is None:
+        return
     lock = _state_watch_lock(agent)
     with lock:
-        if getattr(agent, "state_watch_started", False):
+        task = getattr(agent, "state_watch_task", None)
+        if task is not None and not task.done():
             return
+        task = loop.create_task(_watch_loop(agent, ctx))
+        agent.state_watch_task = task
         agent.state_watch_started = True
-    loop = _current_loop()
-    if loop is None:  # pragma: no cover - 监视器必须在事件循环里启动
-        return
-    agent.state_watch_task = loop.create_task(_watch_loop(agent, ctx))
+    def finished(completed: asyncio.Task) -> None:
+        with lock:
+            if getattr(agent, "state_watch_task", None) is completed:
+                agent.state_watch_task = None
+                agent.state_watch_started = False
+    task.add_done_callback(finished)
 
 
 async def _watch_loop(agent: Any, ctx: Any) -> None:

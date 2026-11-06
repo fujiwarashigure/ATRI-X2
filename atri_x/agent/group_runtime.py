@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -362,8 +363,23 @@ def notify_group_runtime_change(
     try:
         result = sender(with_group_runtime_notice_bypass(None), notice)
         if hasattr(result, "__await__"):
-            result.close()
-    except BaseException as exc:  # noqa: BLE001 - 与 Go 相同：只记警告
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(result)
+                return
+            tasks = getattr(agent, "group_runtime_notice_tasks", None)
+            if tasks is None:
+                tasks = set()
+                agent.group_runtime_notice_tasks = tasks
+            task = asyncio.ensure_future(result)
+            tasks.add(task)
+            def finished(completed: asyncio.Future) -> None:
+                tasks.discard(completed)
+                if not completed.cancelled() and completed.exception() is not None:
+                    _warn(agent, "notify group runtime state failed", completed.exception())
+            task.add_done_callback(finished)
+    except Exception as exc:  # noqa: BLE001 - 普通失败记录，控制流异常不吞
         _warn(agent, "notify group runtime state failed", exc)
 
 

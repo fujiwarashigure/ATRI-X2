@@ -185,6 +185,7 @@ def verify_library(
     min_verified_ratio: float = 0.90,
     limit: int | None = None,
     progress: Callable[[int, int], None] | None = None,
+    suggest_missing_doi: bool = True,
 ) -> dict[str, Any]:
     """逐条核验；单条网络失败记 ``NOT_RUN``，不让整批失败。"""
     items: list[dict[str, Any]] = []
@@ -193,7 +194,11 @@ def verify_library(
     for index, work in enumerate(selected):
         try:
             item = verify_work(
-                http, work, title_pass=title_pass, title_warn=title_warn
+                http,
+                work,
+                title_pass=title_pass,
+                title_warn=title_warn,
+                suggest_missing_doi=suggest_missing_doi,
             )
         except Exception as exc:  # noqa: BLE001 - 单条失败要降级成 NOT_RUN
             message = getattr(exc, "message", None) or str(exc)

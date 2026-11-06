@@ -499,9 +499,9 @@ class ContextRuntimeService(AgentService):
         return await self.agent.compact_current(ctx, trigger_reason)
 
     # -- Deps.ContextPolicyService -----------------------------------------
-    def context_policy_status(self, ctx: Any) -> str:
+    async def context_policy_status(self, ctx: Any) -> str:
         """对应 Go ``ContextPolicyService.ContextPolicyStatus``。"""
-        return self.agent.context_policy_status(ctx)
+        return await self.agent.context_policy_status(ctx)
 
     async def set_context_policy(self, ctx: Any, target: str, value: str) -> str:
         """对应 Go ``ContextPolicyService.SetContextPolicy``。"""

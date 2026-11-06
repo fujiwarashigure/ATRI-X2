@@ -389,7 +389,7 @@ def collect_metrics(index: RepoIndex, *, long_file_lines: int = 600) -> dict[str
         "domains": len({module.domain for module in modules if module.domain}),
         "long_files": len(long_files),
         "long_file_lines": long_file_lines,
-        "longest": long_files[0] if long_files else ("", 0),
+        "longest": max(((m.path, m.lines) for m in modules), key=lambda item: item[1], default=("", 0)),
         "max_fan_in": fan_in[0] if fan_in else ("", 0),
         "hubs": fan_in[:7],
         "tested_modules": len(covered),

@@ -19,7 +19,7 @@ import os
 import posixpath
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, unquote
 
 from atri_x.delivery import (
     KindImage,
@@ -241,7 +241,9 @@ def local_source_path(source: str) -> str:
         or parts.fragment != ""
     ):
         raise InvalidError("invalid file URI")
-    path = parts.path
+    path = unquote(parts.path, errors="strict")
+    if "\x00" in path:
+        raise InvalidError("invalid file URI")
     if os.name == "nt" and len(path) >= 3 and path[0] == "/" and path[2] == ":":
         path = path[1:]
     if path == "":

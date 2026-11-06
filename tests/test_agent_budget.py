@@ -494,7 +494,8 @@ class TestBudgetMixin(unittest.TestCase):
         ok, reason = host.reserve_budget(None, "image", "c2")
         self.assertFalse(ok)
         self.assertIn("已用完", reason)
-        self.assertTrue(host.audit_events == [] or isinstance(host.audit_events, list))
+        # 原断言 `events == [] or isinstance(events, list)` 恒真；只断言可观察事实。
+        self.assertIsInstance(host.audit_events, list)
 
     def test_chat_budget_usage_for_scope_requires_group(self) -> None:
         host = _BudgetHost(BudgetLimitsConfig())

@@ -156,7 +156,10 @@ def iter_markdown(root: Path, *, include_generated: bool = False) -> list[Path]:
     """按路径排序列出 Markdown；默认跳过生成物与缓存目录。"""
     out: list[Path] = []
     for path in sorted(root.rglob("*.md")):
-        parts = set(path.relative_to(root).parts)
+        relative_parts = path.relative_to(root).parts
+        parts = set(relative_parts)
+        if relative_parts[0] in {"build", "dist", "runtime", ".git"}:
+            continue  # 仅排除根级产物；atri_x/runtime、atri_x/dist 仍接受检查。
         if "__pycache__" in parts or "node_modules" in parts:
             continue
         if not include_generated:

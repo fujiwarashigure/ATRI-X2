@@ -145,6 +145,23 @@ class LongMemoryToolTest(unittest.TestCase):
                 store.close()
         shutil.rmtree(TMP_ROOT, ignore_errors=True)
 
+    def test_incremental_sync_preserves_existing_id_against_duplicate_file(self) -> None:
+        store = self.write.store
+        store._ensure(None)
+        root = store.memories_dir
+        record = LongMemoryRecord(id=7, category="test", title="original", summary="summary", content="body",
+                                  created_at="2026-01-01T00:00:00Z", updated_at="2026-01-01T00:00:00Z")
+        original = os.path.join(root, "z-original.md")
+        with open(original, "wb") as handle:
+            handle.write(marshal_long_memory_file(record))
+        store._sync(None, True)
+        record.title = "duplicate"
+        with open(os.path.join(root, "a-duplicate.md"), "wb") as handle:
+            handle.write(marshal_long_memory_file(record))
+        store._sync(None, True)
+        self.assertEqual(store._record_by_id(7).file_path, original)
+        self.assertEqual(store._record_by_id(7).title, "original")
+
     def test_names_and_visibility(self) -> None:
         self.assertEqual(self.entry.name(), LONG_MEMORY_TOOL_NAME)
         self.assertEqual(self.search.name(), LONG_MEMORY_SEARCH_TOOL_NAME)

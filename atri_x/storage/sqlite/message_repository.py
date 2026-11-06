@@ -118,7 +118,7 @@ ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
             f"""
 SELECT {MESSAGE_COLUMNS}
 FROM messages
-WHERE session_id = ? AND (created_at < ? OR (created_at = ? AND rowid <= ?))
+WHERE session_id = ? AND ({_ORDER_TIME} < rtrim(?, 'Z') OR ({_ORDER_TIME} = rtrim(?, 'Z') AND rowid <= ?))
 ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
             (session_id, to_created_at, to_created_at, to_row_id),
         )
@@ -131,7 +131,7 @@ ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
             f"""
 SELECT {MESSAGE_COLUMNS}
 FROM messages
-WHERE session_id = ? AND (created_at > ? OR (created_at = ? AND rowid > ?))
+WHERE session_id = ? AND ({_ORDER_TIME} > rtrim(?, 'Z') OR ({_ORDER_TIME} = rtrim(?, 'Z') AND rowid > ?))
 ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
             (session_id, after_created_at, after_created_at, after_row_id),
         )
@@ -148,8 +148,8 @@ ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
 SELECT {MESSAGE_COLUMNS}
 FROM messages
 WHERE session_id = ?
-  AND (created_at > ? OR (created_at = ? AND rowid > ?))
-  AND (created_at < ? OR (created_at = ? AND rowid <= ?))
+  AND ({_ORDER_TIME} > rtrim(?, 'Z') OR ({_ORDER_TIME} = rtrim(?, 'Z') AND rowid > ?))
+  AND ({_ORDER_TIME} < rtrim(?, 'Z') OR ({_ORDER_TIME} = rtrim(?, 'Z') AND rowid <= ?))
 ORDER BY {_ORDER_TIME} ASC, rowid ASC""",
             (
                 session_id,

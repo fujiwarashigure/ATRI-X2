@@ -30,7 +30,7 @@ DEFAULT_SHARED_TTL = 600.0
 #: 过期清理间隔（1 分钟）。对应 Go ``sharedCleanupInterval``。
 SHARED_CLEANUP_INTERVAL = 60.0
 #: TTL 秒数上限。对应 Go ``maxSharedTTLSeconds`` = (1<<63-1)/1e9。
-MAX_SHARED_TTL_SECONDS = (1 << 63) - 1 // 1_000_000_000
+MAX_SHARED_TTL_SECONDS = ((1 << 63) - 1) // 1_000_000_000
 
 __all__ = [
     "SharedState",
@@ -365,9 +365,7 @@ def _raw(value: Any) -> Any:
         return None
     if isinstance(value, RawJSON):
         return value
-    if isinstance(value, str):
-        return RawJSON(value)
-    return dumps(value)
+    return RawJSON(dumps(value))
 
 
 def _optional_int(value: Any) -> int | None:

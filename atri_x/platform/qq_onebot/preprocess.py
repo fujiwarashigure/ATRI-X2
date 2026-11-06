@@ -10,7 +10,6 @@ Go 侧这些是 ``*Adapter`` 方法；Python 里做成模块级协程函数（�
 ``adapter`` ↔ ``preprocess`` 循环导入。
 
 形式差异：
-
 * ``refcontext.Apply`` 是**同步**的（它由另一位实现者按 Go 的同步签名落地），而
   OneBot 的引用兜底要发 ``get_msg``。这里先按"无平台兜底"调一次，只有在
   「本地来源没有给出任何引用内容、且这次不是命令、也不是续聊自己的 Session」时
@@ -119,6 +118,7 @@ async def prepare_inbound(
         trigger_keywords=list(adapter.cfg.trigger_keywords),
         meta={
             "qq_onebot.message_id": str(event.message_id),
+            "qq_onebot.forward_ids": list(normalized.forward_ids),
             "qq_onebot.message_type": event.message_type,
             "qq_onebot.group_id": str(event.group_id),
             "qq_onebot.user_id": str(event.user_id),

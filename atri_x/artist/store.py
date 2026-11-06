@@ -1,32 +1,19 @@
 """画师串库的落盘存储、归一化校验与并发写序。
 
-对应 Go：``internal/artist/store.go``（并承接 ``types.go`` 里 Go 挂在类型上的
-``Artist.Normalize`` / ``Artist.Validate`` / ``Preset.Normalize`` / ``Preset.Validate``
-与 ``validID`` / ``cleanList`` / ``trimmedRunes`` 等无状态助手——``types.py`` 已说明
-"只放字段定义、不做校验"，所以校验落在本模块）。
+对应 Go：``internal/artist/store.go``；模型归一化与校验也集中在本模块。
 
-整库放在一个 JSON 文件里，进程内一把互斥锁串行化所有写操作；每次写都走
-"临时文件 + 原子替换"，崩溃或磁盘写满都不会留下半截库文件。
-
+整库单个 JSON，线程锁串行写入；临时文件+原子替换避免半截库文件。
 Store 不判断权限：它只存它被告知的内容，只做结构不变式；可见性由 service 层
 按服务端调用上下文决定。
 
-与 Go 的差异：
-
-* Go 的 ``sync.Mutex`` → :class:`threading.Lock`（本模块读写同步、不 await）。
-* Go 的 ``os.ReadFile`` / ``fileops.AtomicWriteFile`` →
-  :func:`atri_x.utils.fileops.read_file` / :func:`~atri_x.utils.fileops.atomic_write_file`。
-* Go 的哨兵 error → :mod:`atri_x.errors` 的模块级单例异常；带细节的
-  :class:`ReferencedError` / :class:`ArtistConflictError` / :class:`ArtistInvalidError`
-  在本模块定义，并用 ``is`` / 类名回落与哨兵对应。
-* Go 的 ``time.Time`` JSON → RFC3339（见 :mod:`atri_x.storage.times`）；零值时间按
-  Go ``encoding/json`` 的实到行为**照常输出** ``0001-01-01T00:00:00Z``
-  （``omitempty`` 对结构体类型的 ``time.Time`` 不生效）。
+Go 差异：同步 threading.Lock；fileops 原子替换；错误见 atri_x.errors。
+时间使用 RFC3339；零值仍输出 0001-01-01T00:00:00Z（Go结构体omitempty语义）。
 """
 
 from __future__ import annotations
 
 import json
+import copy
 import os
 import threading
 from dataclasses import dataclass, field, replace
@@ -571,22 +558,24 @@ class Store:
         """读一次库文件。缺失=空库；存在但解析失败=报错，绝不静默重置。"""
         if self._state.loaded:
             return
-        self._state.loaded = True
         self._state.library = Library(schema=LIBRARY_SCHEMA, artists=[], presets=[])
         try:
             raw = fileops.read_file(self.path)
         except FileNotFoundError:
+            self._state.loaded = True
             return
         except OSError as exc:
             raise InvalidError(f"read artist library: {exc}") from exc
         text = raw.text or ""
         if text.strip() == "":
+            self._state.loaded = True
             return
         try:
             data = json.loads(text)
         except ValueError as exc:
             raise InvalidError(f"parse artist library: {exc}") from exc
         self._state.library = library_from_json(data)
+        self._state.loaded = True
 
     def library(self) -> Library:
         """整库深拷贝。对应 Go ``Store.Library``。"""
@@ -668,6 +657,13 @@ class Store:
         except OSError as exc:
             raise InvalidError(f"write artist library: {exc}") from exc
 
+    def _save_or_restore_locked(self, previous: Library) -> None:
+        try:
+            self._save_locked()
+        except Exception:
+            self._state.library = previous
+            raise
+
     def _preset_index_locked(self, id: str) -> int:
         for index, item in enumerate(self._state.library.presets or []):
             if item.id == id:
@@ -688,6 +684,7 @@ class Store:
         validate_artist(item)
         with self._mu:
             self._load_locked()
+            previous = copy.deepcopy(self._state.library)
             now = self._timestamp()
             index = self._artist_index_locked(item.id)
             artists = self._state.library.artists or []
@@ -706,7 +703,7 @@ class Store:
                 item.updated_at = now
                 artists[index] = item
             self._state.library.artists = artists
-            self._save_locked()
+            self._save_or_restore_locked(previous)
             return item
 
     def delete_artist(self, id: str) -> None:
@@ -727,10 +724,11 @@ class Store:
                         break
             if referencing:
                 raise ReferencedError(key, referencing)
+            previous = copy.deepcopy(self._state.library)
             artists = self._state.library.artists or []
             del artists[index]
             self._state.library.artists = artists
-            self._save_locked()
+            self._save_or_restore_locked(previous)
 
     def upsert_preset(self, preset: Preset, expected_revision: int) -> Preset:
         """插入或更新一个 preset。对应 Go ``Store.UpsertPreset``。"""
@@ -741,6 +739,7 @@ class Store:
         with self._mu:
             self._load_locked()
             now = self._timestamp()
+            previous = copy.deepcopy(self._state.library)
             presets = self._state.library.presets or []
             index = self._preset_index_locked(preset.id)
             if index < 0:
@@ -771,7 +770,7 @@ class Store:
                 preset.updated_at = now
                 presets[index] = preset
             self._state.library.presets = presets
-            self._save_locked()
+            self._save_or_restore_locked(previous)
             return self._state.library.presets[
                 self._preset_index_locked(preset.id)
             ]
@@ -790,9 +789,10 @@ class Store:
             current = presets[index]
             if expected_revision >= 0 and expected_revision != current.revision:
                 raise ArtistConflictError(key, expected_revision, current.revision)
+            previous = copy.deepcopy(self._state.library)
             del presets[index]
             self._state.library.presets = presets
-            self._save_locked()
+            self._save_or_restore_locked(previous)
             return current
 
 

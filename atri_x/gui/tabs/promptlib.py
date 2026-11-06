@@ -20,6 +20,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from atri_x.gui import widgets
 from atri_x.gui.imageprofileedit import ImageProfilesPanel
 from atri_x.gui.promptedit import PromptTemplatesPanel
 from atri_x.gui.taglibedit import TagLibraryPanel
@@ -65,9 +66,10 @@ class PromptLibTab(ConfigTab):
             (" 标签库 ", TagLibraryPanel),
         )
         for title, panel_class in pages:
-            frame = ttk.Frame(notebook)
+            # 「生图档案」在 720p 下会比可视区高，统一放进可滚动宿主。
+            frame = widgets.scrollable_host(notebook)
             notebook.add(frame, text=title)
-            panel = panel_class(frame, self.paths, self)
+            panel = panel_class(frame.inner, self.paths, self)
             panel.frame.pack(fill=tk.BOTH, expand=True)
             self._panels[title.strip()] = panel
 

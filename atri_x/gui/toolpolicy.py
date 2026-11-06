@@ -371,8 +371,8 @@ def discover_group_scopes(
 def migrate_legacy_scope_keys(state_path: str) -> dict[str, str]:
     """把文件里非规范写法的 ``group_policy`` 小节迁移到规范键，返回 ``{旧键: 新键}``。
 
-    迁移是"先写新键、再删旧键"：新键已存在时以旧小节的字段补齐（新键优先），
-    工具白名单两个键留给 :func:`save_scope_policy` 后续覆盖，避免把旧策略带过来。
+    迁移是"先写新键、再删旧键"；完整保留旧限制，新键显式策略优先。
+    名单与显式标记是一个整体，不能从旧键补入另一半而改变新策略。
     """
     if not state_path or not os.path.exists(state_path):
         return {}
@@ -389,14 +389,18 @@ def migrate_legacy_scope_keys(state_path: str) -> dict[str, str]:
         if not new_key or new_key == old_key or scope_problem(new_key):
             continue
         fields = entry if isinstance(entry, dict) else {}
-        carried = {
-            key: value
-            for key, value in fields.items()
-            if key not in ("tool_allowlist", "tool_allowlist_set")
-            and _toml_serializable(value)
-        }
+        target = section.get(new_key)
+        target = target if isinstance(target, dict) else {}
+        protected = set(target)
+        for suffix in ("", "_chat", "_work"):
+            key = "tool_allowlist" + suffix
+            if key in target or key + "_set" in target:
+                protected.update((key, key + "_set"))
+        carried = {key: value for key, value in fields.items()
+                   if key not in protected and _toml_serializable(value)}
         if carried:
             patch_section(state_path, f'group_policy."{new_key}"', carried)
+        section[new_key] = {**target, **carried}
         remove_section(state_path, f'group_policy."{old_key}"')
         migrated[old_key] = new_key
     return migrated

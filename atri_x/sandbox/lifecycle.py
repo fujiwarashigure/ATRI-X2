@@ -65,7 +65,7 @@ async def reset_tenant(service: Any, tenant: TenantKey, *, mode: str = "rebuild"
 async def destroy_tenant(service: Any, tenant: TenantKey) -> dict:
     """销毁环境与数据目录（配额/滥用账本保留，用于追溯）。"""
     result = await reset_tenant(service, tenant, mode="wipe")
-    service.ledger.prune({tenant.slug})
+    # 销毁环境不清理安全账本；prune 的参数是保留集合，会误删其他租户。
     return result
 
 

@@ -74,7 +74,7 @@ def _split_keywords(text: str) -> list[str]:
 class LinkTab(ConfigTab):
     """后台服务 / 协议端 / QQ 平台三段状态 + 连接开关。"""
 
-    hint = ""
+    scrollable = True  # 小窗口下三栏状态与说明文字会超出可视区，整页可滚。
 
     def __init__(
         self,

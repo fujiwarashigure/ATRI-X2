@@ -9,7 +9,7 @@
     python scripts/list_api.py atri_x.tool
     python scripts/list_api.py atri_x.tool Registry Info RiskAssessment
     python scripts/list_api.py --grep Risk atri_x.tool
-    python scripts/list_api.py --module-path atri_x.tool.tool RiskLevel
+    python scripts/list_api.py atri_x.tool.tool RiskLevel
 """
 
 from __future__ import annotations
@@ -54,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  dir() 有但未列入 __all__（{len(missing_from_all)} 个，多为子模块）: "
                   f"{missing_from_all[:12]}{' ...' if len(missing_from_all) > 12 else ''}")
 
+    missing: list[str] = []
     if args.names:
         missing = [n for n in args.names if not hasattr(module, n)]
         present = [n for n in args.names if hasattr(module, n)]
@@ -66,12 +67,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"GREP {args.grep!r} -> {len(hits)} hits")
         for name in hits:
             print(f"  {name}")
-        return 0
+        return 1 if missing else 0
 
     if not args.names:
         print(f"{args.module}: {len(public)} public names")
         print("  " + ", ".join(public))
-    return 0
+    return 1 if missing else 0
 
 
 if __name__ == "__main__":

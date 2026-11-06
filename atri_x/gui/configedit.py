@@ -335,7 +335,7 @@ def patch_top_level(path: str, values: Mapping[str, Any]) -> bool:
     lines = text.splitlines()
     end = len(lines)
     for index, line in enumerate(lines):
-        if _header_name(line) is not None:
+        if _header_name(line) is not None or _array_header_name(line) is not None:
             end = index
             break
     cursor = end
@@ -508,7 +508,7 @@ def _header_name(line: str) -> str | None:
 
 def _section_end(lines: list[str], header: int) -> int:
     for index in range(header + 1, len(lines)):
-        if _header_name(lines[index]) is not None:
+        if _header_name(lines[index]) is not None or _array_header_name(lines[index]) is not None:
             return index
     return len(lines)
 

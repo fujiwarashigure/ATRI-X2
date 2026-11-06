@@ -188,15 +188,7 @@ class AgentToolRunDeps:
     async def start_tool_request(
         self, ctx: Any, session_id: str, tool_name: str
     ) -> tuple[Any, Any, Any]:
-        """对应 Go ``StartToolRequest``：登记一次 tool 类 request。
-
-        返回值就是 :class:`atri_x.toolrun.RunnerDeps` 声明的**三元组**
-        ``(ctx, started_at, done)``：``done`` 结束这次 request，由 ``runner.run()``
-        保证恰好调用一次（成功/失败/取消/提前返回都释放）。宿主没有 request
-        管理器时不建请求，返回的 ``done`` 是空操作 —— 这不是"失败"，
-        所以仍返回三元组而不是抛异常；真正登记失败（``requests.start`` 抛错）
-        才让异常传给 ``runner`` 当启动失败处理。
-        """
+        """登记工具请求；交付 done 前失败由此处清理，交付后由 Runner 清理。"""
         agent = self.agent
         requests = getattr(agent, "requests", None)
         if requests is None:
@@ -228,13 +220,19 @@ class AgentToolRunDeps:
                 done = outcome[2]
         else:
             request = outcome
-        started_at = getattr(request, "started_at", None) or _now()
-        publish = getattr(self.output, "publish_runtime_status", None)
-        if publish is not None:
-            snapshot = _runtime_snapshot(session_id, request, tool_name, started_at)
-            result = publish(ctx, snapshot)
-            if hasattr(result, "__await__"):
-                await result
+        try:
+            started_at = getattr(request, "started_at", None) or _now()
+            publish = getattr(self.output, "publish_runtime_status", None)
+            if publish is not None:
+                snapshot = _runtime_snapshot(session_id, request, tool_name, started_at)
+                result = publish(ctx, snapshot)
+                if hasattr(result, "__await__"):
+                    await result
+        except BaseException:
+            cleanup = done()
+            if hasattr(cleanup, "__await__"):
+                await cleanup
+            raise
         return tool_ctx, started_at, done
 
     async def prepare_tool_context(self, ctx: Any, session: Any, call: Any) -> Any:

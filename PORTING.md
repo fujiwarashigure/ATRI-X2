@@ -106,7 +106,7 @@
 | `cmd/atri-x` | `atri_x/__main__.py` | 116 |
 | `internal/launcher` | `atri_x/launcher/cli.py` | 285 |
 | `internal/app` | `atri_x/app/*.py` | 4010 |
-| `internal/config` | `atri_x/config/{config,assets,inspect}.py` | 3552 |
+| `internal/config` | `atri_x/config/{app,app_sections,loader,assets,inspect}.py` | 3552 |
 | `internal/logging` | `atri_x/logging/{logging,reader,contract}.py` | 612 |
 | `internal/redact` | `atri_x/redact/redact.py` | 70 |
 | `internal/processenv` | `atri_x/processenv/environment.py` | 273 |

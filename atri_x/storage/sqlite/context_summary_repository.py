@@ -1,8 +1,6 @@
 """上下文摘要仓储。对应 Go：``internal/storage/sqlite/context_summary_repository.go``。
-``latest_by_session_up_to`` 的排序与 Go 一致：先按**目标消息**的
-``(created_at, id)`` 取"截至检查点"，再按摘要自身的 ``(created_at, id)`` 取最新一条。
-注意 Go 用的是 ``m.id`` 而不是 ``rowid``（``message_repository`` 用的是 rowid），
-本模块保持原样。
+``latest_by_session_up_to`` 按目标消息的归一化时间与插入 rowid 判断检查点，
+与消息仓储保持一致；不能使用随机 UUID 的字典序推断消息先后。
 """
 
 from __future__ import annotations
@@ -95,8 +93,8 @@ SELECT cs.id, cs.session_id, cs.from_message_id, cs.to_message_id, cs.summary, c
        cs.trigger_reason, cs.metadata, cs.created_at
 FROM context_summaries cs
 JOIN messages m ON m.id = cs.to_message_id AND m.session_id = cs.session_id
-WHERE cs.session_id = ? AND (m.created_at < ? OR (m.created_at = ? AND m.id <= ?))
-ORDER BY {_MT} DESC, m.id DESC, {_CT} DESC, cs.id DESC
+WHERE cs.session_id = ? AND ({_MT} < rtrim(?, 'Z') OR ({_MT} = rtrim(?, 'Z') AND m.rowid <= ?))
+ORDER BY {_MT} DESC, m.rowid DESC, {_CT} DESC, cs.id DESC
 LIMIT 1""",
             (session_id, position[0], position[0], position[1]),
         )
@@ -104,18 +102,18 @@ LIMIT 1""",
             raise ErrNotFound
         return _scan_context_summary(row)
 
-    def _message_position(self, session_id: str, message_id: str) -> tuple[str, str]:
-        """检查点消息的 ``(created_at, id)``；不属于该会话时抛 ErrNotFound。"""
+    def _message_position(self, session_id: str, message_id: str) -> tuple[str, int]:
+        """检查点消息的 ``(created_at, rowid)``；与消息仓储的同刻顺序一致。"""
         row = self._db.query_row(
             """
-SELECT created_at, id
+SELECT created_at, rowid AS row_id
 FROM messages
 WHERE id = ? AND session_id = ?""",
             (message_id, session_id),
         )
         if row is None:
             raise ErrNotFound
-        return text_of(row["created_at"]), row["id"]
+        return text_of(row["created_at"]), int(row["row_id"])
 
 
 def _scan_context_summary(row) -> ContextSummary:

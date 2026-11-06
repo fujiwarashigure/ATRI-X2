@@ -327,7 +327,11 @@ class DshTabCase(unittest.TestCase):
                 "enabled": True,
             },
         )
-        result = dshsmoke.run_smoke(self.paths.config_path)
+        with mock.patch("atri_x.agent.dsh.client.AcpClient", side_effect=AssertionError("kernel must not start")) as kernel, mock.patch(
+                "atri_x.agent.dsh.gateway.HeaderProxy", side_effect=AssertionError("proxy must not start")) as proxy:
+            result = dshsmoke.run_smoke(self.paths.config_path)
+        kernel.assert_not_called()
+        proxy.assert_not_called()
         self.assertFalse(result["ok"])
         self.assertEqual(result["stage"], "credential")
         self.assertIn("Anthropic Messages", str(result["error"]))

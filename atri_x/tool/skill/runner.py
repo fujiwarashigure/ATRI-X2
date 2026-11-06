@@ -150,7 +150,7 @@ class GoRunner:
                 raise ValueError("skill media runtime is not configured")
             media_call = self.media.new_call()
             try:
-                payload = prepare_go_media(run_ctx, args.payload, media_call, record.root)
+                payload = await prepare_go_media(run_ctx, args.payload, media_call, record.root)
                 command = self._command(run_ctx, record.binary_path)
                 return await run_media_command(
                     run_ctx,
@@ -281,7 +281,7 @@ async def run_media_command(
             out,
             err_text,
         )
-    return result_from_stdout_with_media(ctx, stdout_text, media_call, cwd)
+    return await result_from_stdout_with_media(ctx, stdout_text, media_call, cwd)
 
 
 def command_error(

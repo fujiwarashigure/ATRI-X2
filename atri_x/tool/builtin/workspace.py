@@ -64,7 +64,7 @@ class WorkspaceTool:
         if mark_notice:
             try:
                 await store.mark_workspace_agent_notice_dir(ctx, directory)
-            except BaseException as exc:  # noqa: BLE001 - 统一转成可回喂的错误
+            except Exception as exc:  # noqa: BLE001 - 统一转成可回喂的错误
                 raise InvalidError(
                     f"mark workspace instructions notice: {exc}"
                 ) from exc
@@ -95,12 +95,12 @@ class WorkspaceTool:
                         await store.clear_workspace_dir_with_agent_notice(
                             ctx, mark_notice
                         )
-                    except BaseException as exc:  # noqa: BLE001
+                    except Exception as exc:  # noqa: BLE001
                         raise InvalidError(f"reset workspace: {exc}") from exc
                     return Result(content=content)
                 try:
                     await store.clear_workspace_dir(ctx)
-                except BaseException as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
                     raise InvalidError(f"reset workspace: {exc}") from exc
             return Result(content=content)
 
@@ -120,12 +120,12 @@ class WorkspaceTool:
                     await store.set_workspace_dir_with_agent_notice(
                         ctx, directory, mark_notice
                     )
-                except BaseException as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
                     raise InvalidError(f"set workspace: {exc}") from exc
                 return Result(content=content)
             try:
                 await store.set_workspace_dir(ctx, directory)
-            except BaseException as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 raise InvalidError(f"set workspace: {exc}") from exc
             return Result(content=content)
 
@@ -140,10 +140,9 @@ class WorkspaceTool:
         ``/sandbox reset``（分三档，其中清空文件需要用户确认）。设置任意宿主路径
         属于「宿主文件访问」能力，默认不开放。
         """
-        workspace = await current_workspace_dir(ctx)
         content = (
             "current workspace: /workspace\n"
-            f"（沙箱模式：工作区由当前用户安全域托管，宿主路径 {workspace} 不直接暴露；"
+            "（沙箱模式：工作区由当前用户安全域托管，宿主路径不直接暴露；"
             "需要重建环境请用 `/sandbox reset`）"
         )
         if args.reset:
@@ -159,12 +158,9 @@ class WorkspaceTool:
 
 def _sandbox_service() -> Any:
     """当前生效的沙箱服务（未启用 / 显式 off 时返回 ``None``）。"""
-    try:
-        from atri_x.sandbox.runtime import service_or_none
+    from atri_x.sandbox.runtime import service_or_none
 
-        return service_or_none()
-    except Exception:  # noqa: BLE001 - 沙箱未装配时维持宿主行为
-        return None
+    return service_or_none()  # 仅显式 off 返回 None；查询故障不得退回宿主。
 
 
 def new_workspace_tool() -> WorkspaceTool:
@@ -203,9 +199,12 @@ def parse_workspace_args(raw: str) -> WorkspaceArgs:
     if not isinstance(data, dict):
         raise InvalidError("parse workspace arguments: expected a JSON object")
     path = data.get("path")
-    return WorkspaceArgs(
-        path="" if path is None else str(path), reset=bool(data.get("reset"))
-    )
+    if path is not None and not isinstance(path, str):
+        raise InvalidError("workspace path must be a string")
+    reset = data.get("reset", False)
+    if not isinstance(reset, bool):
+        raise InvalidError("workspace reset must be a boolean")
+    return WorkspaceArgs(path="" if path is None else str(path), reset=reset)
 
 
 def default_workspace_dir() -> str:
@@ -227,7 +226,7 @@ async def workspace_agent_instructions(
     directory = os.path.normpath((directory or "").strip())
     try:
         loaded = await notice_store.has_workspace_agent_notice_dir(ctx, directory)
-    except BaseException as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         raise InvalidError(f"load workspace instructions notice: {exc}") from exc
     if loaded:
         return "", False
@@ -247,9 +246,11 @@ async def workspace_agent_instructions(
         )
     try:
         with open(path, "rb") as handle:
-            data = handle.read()
+            data = handle.read(MAX_WORKSPACE_AGENT_FILE_SIZE + 1)
     except OSError as exc:
         raise InvalidError(f"read workspace instructions {name}: {exc}") from exc
+    if len(data) > MAX_WORKSPACE_AGENT_FILE_SIZE:
+        return "workspace instructions exceeded 64 KiB during read; not loaded", False
     text = data.decode("utf-8", "replace").rstrip("\r\n")
     return (f"Loaded workspace instructions from {name}:\n{text}", True)
 

@@ -63,9 +63,6 @@ class FeaturesTab(ConfigTab):
     # -- 构建 ---------------------------------------------------------------
     def _build(self) -> None:
         self.button("刷新状态", self.reload)
-        self.button("打开配置目录", self._open_config_dir)
-        self.button("打开后台日志", self._open_log_file)
-        self.button("查看日志", self._show_log_window)
 
         columns = ("name", "status", "detail")
         self.tree = ttk.Treeview(self.body, columns=columns, show="headings", height=14)

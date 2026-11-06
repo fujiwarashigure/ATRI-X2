@@ -91,6 +91,11 @@ class Limiter:
                 wait_err = ctx.error()
             else:
                 wait_err = ErrTimeout
+        except asyncio.CancelledError:
+            self._remove_waiter(waiter)
+            if waiter.granted:
+                self._release()
+            raise
         finally:
             remove()
             for future in (waiter.ready, cancel_future):

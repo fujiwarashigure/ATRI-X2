@@ -50,13 +50,13 @@ jobs:
           python-version: "3.12"
 
       - name: 语法 / 编码 / BOM / CRLF（check_syntax）
-        run: python scripts/check_syntax.py
+        run: python scripts/check_syntax.py --strict
 
       - name: 逐模块导入（check_imports）
-        run: python scripts/check_imports.py
+        run: python scripts/check_imports.py --strict
 
       - name: 跨模块契约（check_integration）
-        run: python scripts/check_integration.py
+        run: python scripts/check_integration.py --strict
 
       - name: 秘密扫描（check_secrets）
         run: python scripts/check_secrets.py
@@ -65,7 +65,7 @@ jobs:
         run: python scripts/check_except.py
 
       - name: PORTING 覆盖（check_coverage）
-        run: python scripts/check_coverage.py
+        run: python scripts/check_coverage.py --strict
 
       - name: 生成索引不漂移（gen_index --check）
         run: python scripts/gen_index.py --check

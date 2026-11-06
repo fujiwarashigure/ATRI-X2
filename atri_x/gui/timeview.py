@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import ipaddress
+import urllib.parse
 import os
 import urllib.error
 import urllib.request
@@ -289,14 +291,32 @@ def diagnostics_endpoint(addr: str) -> str:
         raise TimeViewError(
             f"未配置后台状态接口地址（.env 的 {HEALTH_ADDR_ENV}）；桌面端启动时会自动补齐"
         )
-    host, _, port = text.rpartition(":")
-    if not host:
-        host, port = text, "80"
-    if host in ("0.0.0.0", "::", "[::]", "*"):
-        host = "127.0.0.1"
-    if not port:
-        raise TimeViewError(f"状态接口地址缺少端口：{text}")
-    return f"http://{host}:{port}{DIAGNOSTICS_PATH}"
+    return local_status_endpoint(text, DIAGNOSTICS_PATH, TimeViewError)
+
+
+def local_status_endpoint(addr: str, path: str, error_type: type[Exception]) -> str:
+    """本机状态接口只接受数值回环地址；localhost 固定映射，不依赖 DNS。"""
+    text = (addr or "").strip()
+    try:
+        parts = urllib.parse.urlsplit("//" + text)
+        host, port = parts.hostname, parts.port
+        if parts.username is not None or parts.password is not None or parts.path or parts.query or parts.fragment:
+            raise ValueError("invalid address")
+        if host in ("*", "0.0.0.0", "::", "localhost"):
+            host = "127.0.0.1"
+        ip = ipaddress.ip_address(host or "")
+        if not ip.is_loopback or (port is not None and not 1 <= port <= 65535):
+            raise ValueError("not loopback")
+        host = f"[{ip}]" if ip.version == 6 else str(ip)
+        return f"http://{host}:{port or 80}{path}"
+    except ValueError as exc:
+        raise error_type("状态接口必须是有效的本机回环地址与端口") from exc
+
+
+class LocalStatusRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """状态请求携带运维令牌，禁止任何 HTTP 重定向。"""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def fetch_time_diagnostics(
@@ -316,7 +336,7 @@ def fetch_time_diagnostics(
         method="GET",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), LocalStatusRedirectHandler())
     try:
         with opener.open(request, timeout=max(0.2, float(timeout))) as response:
             payload = response.read()

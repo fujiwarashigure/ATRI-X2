@@ -293,7 +293,7 @@ class DefaultFoundationFactory:
             try:
                 await lifecycle.close(None)
             except BaseException as close_exc:  # noqa: BLE001
-                raise ExceptionGroup(
+                raise BaseExceptionGroup(
                     "foundation build failed and cleanup failed", [exc, close_exc]
                 ) from exc
             raise

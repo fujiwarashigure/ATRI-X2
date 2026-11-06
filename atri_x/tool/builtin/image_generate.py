@@ -335,7 +335,7 @@ class ImageGenerateTool:
         auto = mode == "auto"
         try:
             items = resolve_image_characters(tool, ctx, args, args.prompt, viewer, auto)
-        except BaseException as exc:  # noqa: BLE001 - Go 把错误翻成结果正文
+        except Exception as exc:  # noqa: BLE001 - Go 把错误翻成结果正文
             return Result(content=str(exc))
 
         context_text = ""
@@ -353,7 +353,7 @@ class ImageGenerateTool:
             hints = ""
             try:
                 hints = prompt_lib().library_hints(scene, PROMPT_LIBRARY_HINT_LIMIT)
-            except BaseException:  # noqa: BLE001 - Go 里库加载失败就不给提示
+            except Exception:  # noqa: BLE001 - Go 里库加载失败就不给提示
                 hints = ""
             request = ImagePromptRewriteRequest(
                 scene=scene,
@@ -371,7 +371,7 @@ class ImageGenerateTool:
                 value = await tool.rewriter.rewrite_image_prompt(ctx, request)
             except asyncio.CancelledError:
                 raise
-            except BaseException:  # noqa: BLE001 - Go 里改写失败就退回原文
+            except Exception:  # noqa: BLE001 - Go 里改写失败就退回原文
                 value = ""
             if (value or "").strip() != "":
                 scene = value.strip()
@@ -389,7 +389,7 @@ class ImageGenerateTool:
         if optimize:
             try:
                 library = prompt_lib()
-            except BaseException:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 library = None
             if library is not None:
                 term_mode = str(getattr(tool.cfg, "optimize_term_mode", "") or "")
@@ -425,7 +425,7 @@ class ImageGenerateTool:
 
         try:
             references = await collect_references(tool, ctx, args, items, viewer)
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             return Result(content=str(exc))
 
         # 画师串在改写之后才编译，所以改写器永远看不到它、改不动它、也丢不掉权重。
@@ -444,8 +444,9 @@ class ImageGenerateTool:
                 optimizer_negative,
                 args.negative_prompt or "",
                 len(references) > 0,
+                artist_negative=artist_block.negative,
             )
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             return Result(content=str(exc))
 
         count = _as_int(args.count)
@@ -506,7 +507,7 @@ class ImageGenerateTool:
             name = image_artifact_name(base, timestamp, suffix, result.mime_type)
             try:
                 stored = await store_image(tool, ctx, result.data, result.mime_type, name)
-            except BaseException as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 failures.append(f"第 {index + 1} 张保存失败：{exc}")
                 continue
             stored_results.append(result)
@@ -522,7 +523,7 @@ class ImageGenerateTool:
                     tool.characters.add_image(
                         ctx, items[0].id, name, result.mime_type, stored.id, result.data, viewer
                     )
-                except BaseException as exc:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
                     writeback_errors.append(f"{name}：{exc}")
         if not stored_media:
             message = "生图失败。"
@@ -644,14 +645,11 @@ def image_result_batch(
 async def generate_images(
     tool: Any, ctx: Any, request: Request, count: int
 ) -> tuple[list[Any], list[BaseException | None]]:
-    """并发生成 ``count`` 张。对应 Go ``generateImages``。
-
-    Go 用 worker goroutine + channel；这里用 ``asyncio`` 任务 + 信号量。
-    """
+    """并发生成 count 张；任务+信号量对应 Go generateImages worker。"""
     if count <= 1:
         try:
             return [await generate_one(tool, ctx, request)], [None]
-        except BaseException as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             return [None], [exc]
     results: list[Any] = [None] * count
     errors: list[BaseException | None] = [None] * count
@@ -662,15 +660,16 @@ async def generate_images(
         async with semaphore:
             try:
                 results[index] = await generate_one(tool, ctx, request)
-            except BaseException as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 errors[index] = exc
 
+    tasks = [asyncio.create_task(run(index)) for index in range(count)]
     try:
-        await asyncio.gather(*(run(index) for index in range(count)))
-    except asyncio.CancelledError:
-        for index in range(count):
-            if errors[index] is None and results[index] is None:
-                errors[index] = asyncio.CancelledError()
+        await asyncio.gather(*tasks)
+    except BaseException:  # 清理所有已创建任务后保持原异常（含取消）。
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         raise
     for index in range(count):
         if errors[index] is None and results[index] is None:

@@ -391,8 +391,11 @@ class RealAgentCommandSmokeTests(unittest.TestCase):
 
     def test_overflow_command(self) -> None:
         agent = booted_agent()
-        result = dispatch(agent, "/overflow")
-        self.assertTrue(result.content)
+        for text in ("/overflow", "/overflow show", "/ctxpolicy status"):
+            with self.subTest(command=text):
+                result = dispatch(agent, text)
+                self.assertIsInstance(result.content, str)
+                self.assertIn("reject", result.content)
 
     def test_memory_and_forget(self) -> None:
         agent = booted_agent()
@@ -424,9 +427,12 @@ class RealAgentCommandSmokeTests(unittest.TestCase):
         """每个命令的补全实现都要能被 await（Go 的 Completer 是异步契约）。"""
         import inspect
 
-        from atri_x.command import Request
+        from atri_x.command import CompletionRequest
+        from tests.test_session import new_test_service
 
-        agent = booted_agent()
+        sessions, store = new_test_service()
+        self.addCleanup(store.close)
+        agent = booted_agent(store=store, sessions=sessions)
         for info in agent.commands.commands():
             handler, ok = agent.commands.handler(info.name)
             self.assertTrue(ok, info.name)
@@ -437,9 +443,11 @@ class RealAgentCommandSmokeTests(unittest.TestCase):
                 self.assertTrue(inspect.iscoroutinefunction(complete))
                 outcome = complete(
                     superadmin_ctx(),
-                    Request(raw="/" + info.name, prefix="/", name=info.name, args=""),
+                    CompletionRequest(raw="/" + info.name + " ", prefix="/", name=info.name,
+                                      args="", cursor=len(info.name) + 2),
                 )
                 self.assertTrue(hasattr(outcome, "__await__"))
+                asyncio.run(outcome)
 
 
 class DepsSlotCoverageTests(unittest.TestCase):

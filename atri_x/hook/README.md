@@ -42,7 +42,7 @@
 | `atri_x.hook.protocol` | ``hook.v2`` 进程间协议。 | 19 | `test_hook_protocol.py`、`test_hook_rules.py`、`test_hook_runtime.py` |
 | `atri_x.hook.protocol.eventjson` | ``hook.Event`` 与其负载的 JSON 投影。 | 659 | — |
 | `atri_x.hook.protocol.frames` | ``hook.v2`` JSON Lines 协议帧。 | 330 | `test_hook_runtime.py` |
-| `atri_x.hook.protocol.stream` | ``hook.v2`` 的按行读取（带帧上限）。 | 154 | `test_hook_rules.py` |
+| `atri_x.hook.protocol.stream` | ``hook.v2`` 的按行读取（带帧上限）。 | 152 | `test_hook_protocol.py`、`test_hook_rules.py` |
 | `atri_x.hook.rules` | ``hooks.toml`` 规则引擎。 | 88 | `test_hook_rules.py` |
 | `atri_x.hook.rules.action` | 规则动作的执行：改文本、发消息、跑工具、调插件。 | 439 | — |
 | `atri_x.hook.rules.config` | ``hooks.toml`` 与插件 ``hook.toml`` 的装载。 | 686 | `test_hook_rules.py` |
@@ -53,13 +53,13 @@
 | `atri_x.hook.rules.rules` | 规则模块：装载 ``hooks.toml`` 并把每条规则注册成 Hook。 | 190 | `test_hook_rules.py` |
 | `atri_x.hook.rules.toml_error` | ``hooks.toml`` 的读取与详细错误信息。 | 514 | `test_hook_rules.py` |
 | `atri_x.hook.rules.types` | ``hooks.toml`` 的配置类型。 | 239 | `test_hook_rules.py` |
-| `atri_x.hook.runtime` | 有状态 Hook 运行时（hook.v2 进程）。 | 113 | `test_hook_builtin_control.py`、`test_hook_runtime.py` |
+| `atri_x.hook.runtime` | 有状态 Hook 运行时（hook.v2 进程）。 | 113 | `test_hook_builtin_control.py`、`test_hook_protocol.py`、`test_hook_runtime.py` |
 | `atri_x.hook.runtime.config` | 有状态 Hook 进程的配置、状态与运行期选项。 | 253 | — |
 | `atri_x.hook.runtime.manager` | 有状态 Hook 运行时的协调者：应用配置、启停 worker、路由事件。 | 528 | — |
 | `atri_x.hook.runtime.media` | ``media.*`` RPC：把宿主 MediaAPI 暴露给进程 Hook。 | 356 | — |
 | `atri_x.hook.runtime.protocol` | 有状态 Hook 进程的协议负载（``system.init`` / ``event.handle``）。 | 209 | — |
 | `atri_x.hook.runtime.routes` | Hook 路由：租约、等待态、单飞调用与工具上下文令牌。 | 355 | `test_hook_runtime.py` |
-| `atri_x.hook.runtime.shared` | Hook 共享的有界 JSON 协调存储。 | 382 | `test_hook_runtime.py` |
+| `atri_x.hook.runtime.shared` | Hook 共享的有界 JSON 协调存储。 | 380 | `test_hook_protocol.py`、`test_hook_runtime.py` |
 | `atri_x.hook.runtime.tool_bridge` | 进程 Hook 发来的请求：``tool.call`` / ``hooks.reload`` / ``media.*`` / ``shared.*``。 | 307 | `test_hook_runtime.py` |
 | `atri_x.hook.runtime.transport` | worker 的协议传输层：读写帧、请求/响应配对、进程强杀。 | 276 | — |
 | `atri_x.hook.runtime.worker` | 一个有状态 Hook 进程（hook.v2 worker）。 | 714 | — |
@@ -72,4 +72,4 @@
 
 - 读 `docs/dev/find-it.md` 里对应的任务条目；
 - 改完跑 `python scripts/gen_index.py`（本文件的模块清单会跟着更新），再跑 `python scripts/check_docs.py`；
-- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 896 个 / 超线文件 79 个）。
+- 全仓结构指标见 `scripts/complexity_budget.json`（当前模块 898 个 / 超线文件 79 个）。

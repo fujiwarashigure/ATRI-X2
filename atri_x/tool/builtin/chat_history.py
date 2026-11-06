@@ -1,9 +1,6 @@
 """聊天历史工具族：关键词检索、上下文窗口、引用回复。
 
 对应 Go：``internal/tool/builtin/chat_history.go``。
-
-与 Go 的差异（仅形式）：
-
 * ``storage.ChatHistoryRepository`` 在本仓是**同步**协议，``media.Manager`` 的
   ``history_ids`` 是**异步**方法；因此读取记录同步做、拼媒体标签异步做。
 * 时间一律带时区；``parseChatHistoryTime`` 的 ``YYYY-MM-DD HH:MM[:SS]`` 按**本地
@@ -421,6 +418,10 @@ def chat_history_time_range_at(
     """对应 Go ``chatHistoryTimeRangeAt``（``AddDate(0,0,-days)`` 用日历天复刻）。"""
     since = parse_chat_history_time(since_raw)
     until = parse_chat_history_time(until_raw)
+    if (since_raw.strip() and since is None) or (until_raw.strip() and until is None):
+        raise InvalidError("invalid explicit history time filter")
+    if since is not None and until is not None and since > until:
+        raise InvalidError("history since must not be after until")
     if since is None:
         if hours > 0:
             since = now - timedelta(hours=hours)

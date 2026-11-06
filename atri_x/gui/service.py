@@ -563,7 +563,7 @@ def _url_from_listen(listen: str) -> str:
 
 def _find_header(lines: list[str], header: str) -> int | None:
     for index, line in enumerate(lines):
-        if line.strip() == header:
+        if re.fullmatch(re.escape(header) + r"\s*(?:#.*)?", line.strip()):
             return index
     return None
 
@@ -571,7 +571,7 @@ def _find_header(lines: list[str], header: str) -> int | None:
 def _section_end(lines: list[str], header: int) -> int:
     for index in range(header + 1, len(lines)):
         text = lines[index].strip()
-        if text.startswith("[") and text.endswith("]"):
+        if re.fullmatch(r"\[\[?.*?\]\]?\s*(?:#.*)?", text):
             return index
     return len(lines)
 

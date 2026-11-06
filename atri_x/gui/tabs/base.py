@@ -21,7 +21,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any, Callable
 
-from atri_x.gui import journal, widgets
+from atri_x.gui import aero, journal, widgets
 from atri_x.gui.configedit import ConfigEditError, ConfigPaths
 
 __all__ = ["ConfigTab", "confirm", "message"]
@@ -69,13 +69,11 @@ class ConfigTab:
         self.scroller: widgets.ScrollFrame | None = None
         if self.scrollable:
             self.scroller = widgets.ScrollFrame(self.frame)
-            self.scroller.pack(fill=tk.BOTH, expand=True)
             self.body = self.scroller.inner
         else:
             self.body = ttk.Frame(self.frame)
-            self.body.pack(fill=tk.BOTH, expand=True)
-        bar = ttk.Frame(self.frame)
-        bar.pack(fill=tk.X, pady=(8, 0))
+        divider = tk.Frame(self.frame, bg=aero.GLASS_EDGE_SOFT, height=1)
+        bar = ttk.Frame(self.frame, style="Footer.TFrame")
         self._buttons = ttk.Frame(bar)
         self._buttons.pack(side=tk.LEFT)
         self._status = tk.StringVar(value="")
@@ -84,6 +82,15 @@ class ConfigTab:
         )
         if on_restart is not None:
             ttk.Button(bar, text="重启后台服务", command=on_restart).pack(side=tk.RIGHT)
+        # 先把底部条固定到底部，再让内容区吃掉剩余高度：窗口被压小时正文自己缩
+        # （或滚动），保存/重载按钮永远可见——旧顺序下内容请求高度一大，pack 会
+        # 把底部条挤出窗口，这正是"拉满也够不到底部"的来源之一。
+        bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(2, 0))
+        divider.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
+        if self.scroller is not None:
+            self.scroller.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        else:
+            self.body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         if not self.is_ready():
             self.notify("找不到配置文件：请先用桌面端启动一次，或到「功能」页查看配置目录。")
 

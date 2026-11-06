@@ -72,6 +72,9 @@ class ProcessStateCase(unittest.TestCase):
         shutil.rmtree(TEMP_ROOT, ignore_errors=True)
         TEMP_ROOT.mkdir(parents=True, exist_ok=True)
         self.env_dir = TEMP_ROOT / "proto"
+        identity = mock.patch.object(proto_process, "_pid_creation_id", return_value="synthetic-created")
+        identity.start()
+        self.addCleanup(identity.stop)
 
     def tearDown(self) -> None:
         shutil.rmtree(TEMP_ROOT, ignore_errors=True)
@@ -96,7 +99,7 @@ class ProcessStateCase(unittest.TestCase):
         killer.assert_not_called()
 
     def test_stop_clears_record_when_pid_is_gone(self) -> None:
-        proto_process.write_state(str(self.env_dir), {"pid": 424242, "image": "cmd.exe"})
+        proto_process.write_state(str(self.env_dir), {"pid": 424242, "creation_id": "synthetic-created", "image": "cmd.exe"})
         with (
             mock.patch.object(proto_process, "_pid_alive", return_value=False),
             mock.patch.object(proto_process, "_terminate_tree") as killer,
@@ -108,7 +111,7 @@ class ProcessStateCase(unittest.TestCase):
 
     def test_stop_refuses_pid_reuse(self) -> None:
         """PID 被别的进程占用（镜像名不一致）时放弃，而不是把别人的 QQ 杀掉。"""
-        proto_process.write_state(str(self.env_dir), {"pid": 777, "image": "cmd.exe"})
+        proto_process.write_state(str(self.env_dir), {"pid": 777, "creation_id": "synthetic-created", "image": "cmd.exe"})
         with (
             mock.patch.object(proto_process, "_pid_alive", return_value=True),
             mock.patch.object(proto_process, "_pid_image", return_value="QQ.exe"),
@@ -121,7 +124,7 @@ class ProcessStateCase(unittest.TestCase):
 
     def test_stop_kills_only_own_tree(self) -> None:
         proto_process.write_state(
-            str(self.env_dir), {"pid": 888, "image": "cmd.exe", "backend": "napcat"}
+            str(self.env_dir), {"pid": 888, "creation_id": "synthetic-created", "image": "cmd.exe", "backend": "napcat"}
         )
         alive = {"value": True}
 
@@ -144,7 +147,7 @@ class ProcessStateCase(unittest.TestCase):
 
     def test_status_accepts_recorded_image_without_exe_suffix(self) -> None:
         """记录存的是 ``argv[0]`` 的 basename（``cmd``），tasklist 报的是 ``cmd.exe``。"""
-        proto_process.write_state(str(self.env_dir), {"pid": 555, "image": "cmd"})
+        proto_process.write_state(str(self.env_dir), {"pid": 555, "creation_id": "synthetic-created", "image": "cmd"})
         with (
             mock.patch.object(proto_process, "_pid_alive", return_value=True),
             mock.patch.object(proto_process, "_pid_image", return_value="cmd.exe"),
@@ -159,7 +162,7 @@ class ProcessStateCase(unittest.TestCase):
         # 路径用正斜杠：``os.path.basename`` 只在 Windows 上把反斜杠当分隔符，
         # 用 ``C:\Windows\...`` 会让 POSIX 的 CI 分片把整串当成文件名而误判。
         proto_process.write_state(
-            str(self.env_dir), {"pid": 556, "image": "C:/Windows/System32/CMD.EXE"}
+            str(self.env_dir), {"pid": 556, "creation_id": "synthetic-created", "image": "C:/Windows/System32/CMD.EXE"}
         )
         with (
             mock.patch.object(proto_process, "_pid_alive", return_value=True),
@@ -170,7 +173,7 @@ class ProcessStateCase(unittest.TestCase):
 
     def test_stop_accepts_recorded_image_without_exe_suffix(self) -> None:
         """NapCat 是 ``cmd /c`` 起的；不能因为少个 .exe 就放弃停止自己起的进程树。"""
-        proto_process.write_state(str(self.env_dir), {"pid": 557, "image": "cmd"})
+        proto_process.write_state(str(self.env_dir), {"pid": 557, "creation_id": "synthetic-created", "image": "cmd"})
         alive = {"value": True}
 
         def fake_alive(pid: int) -> bool:

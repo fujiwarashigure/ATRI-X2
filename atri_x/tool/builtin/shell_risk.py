@@ -414,6 +414,8 @@ class ShellRiskClassifier:
 
     def classify_git(self, args: list[str]) -> None:
         """对应 Go ``classifyGit``：先剥掉全局选项，再看子命令。"""
+        if any(arg == "-c" or arg.startswith(("-c", "--config-env", "--exec-path")) for arg in args):
+            self.raise_risk(RiskHigh, "git 配置覆盖可能执行外部命令")
         index = 0
         while index < len(args):
             arg = args[index]
@@ -436,6 +438,13 @@ class ShellRiskClassifier:
         sub = rest[0]
         rest = rest[1:]
         if sub in _GIT_READ_ONLY:
+            if sub == "branch" and rest and any(arg not in ("--list", "-l", "-a", "-r", "-v", "-vv", "--all", "--remotes") for arg in rest):
+                self.raise_risk(RiskHigh, "git branch 参数可能修改分支")
+            if any(arg.startswith(("--ext-diff", "--textconv", "--output")) for arg in rest):
+                self.raise_risk(RiskHigh, "git 输出或外部转换可能写文件或执行代码")
+            return
+        if sub not in _GIT_MUTATING:
+            self.raise_risk(RiskHigh, f"git {sub} 未被确认是只读操作")
             return
         if sub in _GIT_MUTATING:
             dropped = (sub == "reset" and has_arg(rest, "--hard")) or sub == "clean"

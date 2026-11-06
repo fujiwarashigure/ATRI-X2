@@ -110,38 +110,44 @@ def _new_panic_handler(deps: Deps) -> Any:
             ) or scope_id.startswith("channel:")
         if in_group and "confirm" not in [item.lower() for item in args]:
             return Result(content=_PANIC_GROUP_HINT)
+        failed: list[str] = []
+
+        def attempt(name: str, fn: Any, fallback: Any = 0) -> Any:
+            try:
+                return fn()
+            except Exception:  # noqa: BLE001 - 各停止步骤独立，错误不泄露服务细节
+                failed.append(name)
+                return fallback
+
         grants = 0
         if deps.grants is not None:
-            grants = deps.grants.clear()
+            grants = attempt("grants", deps.grants.clear)
         turns = 0
         session_ids: list[str] = []
         if deps.turns is not None:
-            try:
-                session_ids = [
-                    str(getattr(item, "session_id", "") or "")
-                    for item in deps.turns.snapshot_all()
-                ]
-            except Exception:  # noqa: BLE001 - 快照失败不影响停止
-                session_ids = []
-            deps.turns.stop_all()
-            turns = len(session_ids)
+            session_ids = attempt("snapshot", lambda: [
+                str(getattr(item, "session_id", "") or "")
+                for item in deps.turns.snapshot_all()
+            ], [])
+            attempt("turns", deps.turns.stop_all)
+            turns = len(session_ids) if "turns" not in failed else 0
         requests = 0
         if deps.requests is not None:
-            requests = int(deps.requests.cancel_all() or 0)
+            requests = attempt("requests", lambda: int(deps.requests.cancel_all() or 0))
         inbox = 0
         if deps.cancel_session_inbox is not None:
             for session_id in session_ids:
                 if session_id:
-                    inbox += int(deps.cancel_session_inbox(session_id) or 0)
+                    inbox += attempt("inbox", lambda: int(deps.cancel_session_inbox(session_id) or 0))
         envs = 0
         sandbox = _sandbox_service()
         if sandbox is not None:
             try:
                 envs = int(await sandbox.stop_all(reason="panic") or 0)
             except Exception:  # noqa: BLE001 - 停止失败不能阻断紧急停止
-                envs = 0
+                failed.append("sandbox")
         if deps.audit is not None:
-            deps.audit(
+            attempt("audit", lambda: deps.audit(
                 "panic",
                 "grants",
                 grants,
@@ -157,12 +163,14 @@ def _new_panic_handler(deps: Deps) -> Any:
                 str(getattr(deps.scope(ctx), "platform_scope_id", "") or "")
                 if deps.scope is not None
                 else "",
-            )
-        return Result(
-            content=_PANIC_DONE.format(
-                grants=grants, turns=turns, requests=requests, inbox=inbox, envs=envs
-            )
+                "failed_steps", ",".join(failed),
+            ))
+        content = _PANIC_DONE.format(
+            grants=grants, turns=turns, requests=requests, inbox=inbox, envs=envs
         )
+        if failed:
+            content = "紧急停止未完成；已尝试其余步骤，失败/未知项：" + ", ".join(failed) + "。\n" + content
+        return Result(content=content)
 
     return new_func(
         Info(

@@ -238,6 +238,7 @@ def launch_console(
             "argv": list(argv),
             "cwd": cwd or "",
             "started_at": time.time(),
+            "creation_id": _pid_creation_id(int(proc.pid)),
         },
     )
     return True, detail or f"已启动协议端（PID {proc.pid}）"
@@ -253,11 +254,11 @@ def managed_status(env_dir: str) -> dict[str, Any]:
         return {"managed": False, "pid": pid, "reason": "记录的协议端进程已经退出"}
     expected = _image_name(record.get("image"))
     actual = _pid_image(pid)
-    if expected and actual and expected != _image_name(actual):
+    if not expected or not actual or expected != _image_name(actual) or not _same_creation(record, pid):
         return {
             "managed": False,
             "pid": pid,
-            "reason": f"PID {pid} 已被别的进程占用（{actual}）",
+            "reason": f"PID {pid} 身份不符或无法确认（{actual or '镜像未知'}）",
         }
     return {
         "managed": True,
@@ -272,7 +273,7 @@ def managed_status(env_dir: str) -> dict[str, Any]:
 def stop_managed(env_dir: str) -> tuple[bool, str]:
     """只停本程序启动的那一个协议端进程树；返回 ``(成功, 说明)``。
 
-    校验顺序：有记录 → PID 还活着 → 镜像名对得上。任一项不成立就**不动手**，
+    校验顺序：有记录 → PID 还活着 → 镜像名与 OS 创建标识均对得上。任一项不成立就**不动手**，
     只清理过期记录并说明原因（宁可让用户手动处理，也不误杀别人的 QQ）。
     """
     record = read_state(env_dir)
@@ -284,7 +285,7 @@ def stop_managed(env_dir: str) -> tuple[bool, str]:
         return False, "记录的协议端进程已经退出（已清理记录）"
     expected = _image_name(record.get("image"))
     actual = _pid_image(pid)
-    if expected and actual and expected != _image_name(actual):
+    if not expected or not actual or expected != _image_name(actual) or not _same_creation(record, pid):
         clear_state(env_dir)
         return False, f"PID {pid} 现在是 {actual}，不是本程序启动的协议端，已放弃停止"
     _terminate_tree(pid)
@@ -320,6 +321,42 @@ def _image_name(value: Any) -> str:
     """
     base = os.path.basename(str(value or "").strip()).lower()
     return base[:-4] if base.endswith(".exe") else base
+
+
+def _same_creation(record: dict[str, Any], pid: int) -> bool:
+    expected = str(record.get("creation_id") or "")
+    return bool(expected) and expected == _pid_creation_id(pid)
+
+
+def _pid_creation_id(pid: int) -> str:
+    """读取 OS 创建标识；失败返回空串，禁止用墙钟时间猜测归属。"""
+    if pid <= 0:
+        return ""
+    if os.name != "nt":
+        try:
+            with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
+                return "proc:" + handle.read().rsplit(")", 1)[1].split()[19]
+        except (OSError, IndexError):
+            return ""
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel.GetProcessTimes.restype = wintypes.BOOL
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.CloseHandle.restype = wintypes.BOOL
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return ""
+    try:
+        created, exited, system, user = (wintypes.FILETIME() for _ in range(4))
+        if not kernel.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited), ctypes.byref(system), ctypes.byref(user)):
+            return ""
+        return "win:" + str((created.dwHighDateTime << 32) | created.dwLowDateTime)
+    finally:
+        kernel.CloseHandle(handle)
 
 
 def _pid_alive(pid: int) -> bool:

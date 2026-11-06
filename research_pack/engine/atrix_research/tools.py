@@ -501,6 +501,7 @@ def tool_verify(args: Any) -> dict[str, Any]:
         title_warn=float(cfg.get("title_similarity_warn") or 0.75),
         min_verified_ratio=min_ratio,
         limit=int(getattr(args, "limit", 0) or 0) or None,
+        suggest_missing_doi=suggestion,
     )
     result["run"] = state.get("id")
     result["verified_at"] = now_iso()

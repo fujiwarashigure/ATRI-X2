@@ -645,8 +645,10 @@ class TestConfiguredChain(unittest.TestCase):
     def test_cli_engine_reports_missing_binary(self) -> None:
         specs = [SearchEngineSpec(name="agy", protocol=PROTOCOL_ANTIGRAVITY)]
         tool = WebSearchTool(client=_RoutingClient({}), specs=specs)
-        with self.assertRaises(InvalidError) as ctx:
-            _run(tool.call(None, _call({"query": "hi"})))
+        # 断言「找不到可执行文件」的分支，不能依赖宿主是否真的装了 agy。
+        with mock.patch.object(web_search_cli.shutil, "which", return_value=None):
+            with self.assertRaises(InvalidError) as ctx:
+                _run(tool.call(None, _call({"query": "hi"})))
         message = str(ctx.exception)
         self.assertIn("agy", message)
         self.assertIn("所有通道均失败", message)

@@ -192,7 +192,7 @@ class GetMediaTool:
                         item = await self.center.get_history_media(
                             ctx, row, index, getattr(msg, "media_resolver", None)
                         )
-                    except BaseException:  # noqa: BLE001 - 传输错误可能带凭据 URL
+                    except Exception:  # noqa: BLE001 - 传输错误可能带凭据 URL；取消必须透传
                         # Transport errors may contain credential URLs or local
                         # paths; never echo them to the LLM.
                         line = prefix + "[媒体获取失败：来源不可用、超限或关联保存失败]"

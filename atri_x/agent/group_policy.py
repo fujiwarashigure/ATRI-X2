@@ -1,8 +1,6 @@
 """群级策略：状态快照、视图、模型目录与授权闸门。
 
-对应 Go：``internal/agent/group_policy.go``（字段规则部分见
-:mod:`atri_x.agent.group_policy_rules`）。
-
+对应 Go：``internal/agent/group_policy.go``；字段规则见 :mod:`atri_x.agent.group_policy_rules`。
 职责：``cloneGroupPolicy`` / ``setGroupPolicySnapshot`` / ``groupPolicySnapshot`` /
 ``groupPolicyForScope`` / ``setGroupPolicyForScope`` / ``isGroupScope`` /
 ``canManageCurrentGroupPolicy`` / ``GroupPolicyStatus`` / ``rawGroupPolicy`` /
@@ -637,6 +635,8 @@ async def reset_group_policy(agent: Any, ctx: Any, field: str) -> str:
     raw_field = str(field or "").strip().lower()
     actor = _actor(agent, ctx)
     if not raw_field or raw_field == "all":
+        if getattr(actor, "role", "") != RoleSuperadmin:
+            raise InvalidError("整群策略重置包含受保护字段，只能由机器人超级管理员执行")
         set_group_policy_for_scope(agent, scope, GroupPolicyConfig())
         try:
             _save_runtime_state(agent)

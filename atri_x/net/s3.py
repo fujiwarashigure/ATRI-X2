@@ -261,7 +261,7 @@ def sign_request(
         hashlib.sha256,
     ).hexdigest()
     request_headers = {name: value for name, value in signed.items()}
-    request_headers["Host"] = signed["host"]
+    request_headers["Host"] = request_headers.pop("host")
     request_headers["Authorization"] = (
         f"{ALGORITHM} Credential={access_key}/{scope}, "
         f"SignedHeaders={signed_headers}, Signature={signature}"

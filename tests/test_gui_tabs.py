@@ -1422,8 +1422,9 @@ class ToolPermTabCase(TkCase):
         self.assertIn(" 工具进度预览 ", titles)
         self.assertIsNotNone(self.tab.preview_panel)
         self.tab.show_preview_tab()
+        # 1.2.1 第二次冻结起子页包了一层可滚动宿主，notebook 选中的是宿主而不是面板本身。
         self.assertEqual(
-            str(self.tab.notebook.select()), str(self.tab.preview_panel.frame)
+            str(self.tab.notebook.select()), str(self.tab._preview_host)
         )
 
     def test_preview_panel_saves_texts_and_switch(self) -> None:

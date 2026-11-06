@@ -326,10 +326,18 @@ class _FakeAdapter:
 
 
 def _ctx_with_adapter(adapter: object) -> object:
-    return with_message_context(None, MessageContext(platform="qqonebot", media_resolver=adapter))
+    return with_message_context(None, MessageContext(platform="qqonebot", media_resolver=adapter,
+        reply_to_message_id="7", meta={"qq_onebot.forward_ids": ["9"]}))
 
 
 class FetchMessageToolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unbound_message_id_never_reaches_adapter(self) -> None:
+        adapter = _FakeAdapter()
+        with self.assertRaises(InvalidError):
+            await FetchMessageTool().call(_ctx_with_adapter(adapter), ToolCallRequest(
+                name="fetch_message", arguments='{"message_id":"other-chat-id"}'))
+        self.assertEqual(adapter.asked, [])
+
     async def test_metadata(self) -> None:
         tool = new_fetch_message_tool()
         self.assertEqual(tool.name(), FETCH_MESSAGE_TOOL_NAME)

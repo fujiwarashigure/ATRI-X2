@@ -247,6 +247,49 @@ class StoreTest(unittest.TestCase):
         self.assertTrue(found)
         self.assertEqual(item.canonical_tag, "sakura_paint")
 
+    def test_failed_artist_persistence_restores_memory(self) -> None:
+        from unittest.mock import patch
+        store = _new_store()
+        store.put_artist(_artist("sakura", "original"))
+        before = store.library().revision
+        with patch("atri_x.artist.store.fileops.atomic_write_file", side_effect=OSError("synthetic")):
+            with self.assertRaises(Exception):
+                store.put_artist(_artist("sakura", "replacement"))
+        self.assertEqual(store.artist("sakura")[0].canonical_tag, "original")
+        self.assertEqual(store.library().revision, before)
+
+    def test_failed_preset_persistence_restores_memory(self) -> None:
+        from unittest.mock import patch
+        store = _new_store()
+        saved = store.upsert_preset(_preset(), -1)
+        before = store.library().revision
+        updated = _preset()
+        updated.name = "replacement"
+        with patch("atri_x.artist.store.fileops.atomic_write_file", side_effect=OSError("synthetic")):
+            with self.assertRaises(Exception):
+                store.upsert_preset(updated, saved.revision)
+        self.assertNotEqual(store.preset(saved.id)[0].name, "replacement")
+        self.assertEqual(store.library().revision, before)
+
+    def test_failed_deletions_restore_records_and_revision(self) -> None:
+        from unittest.mock import patch
+        store = _new_store()
+        store.put_artist(_artist("sakura", "original"))
+        saved = store.upsert_preset(_preset(), -1)
+        store.put_artist(_artist("unreferenced", "standalone"))
+        for operation in ("artist", "preset"):
+            before = store.library().revision
+            with self.subTest(operation=operation), patch("atri_x.artist.store.fileops.atomic_write_file", side_effect=OSError("synthetic")):
+                with self.assertRaises(Exception):
+                    if operation == "artist":
+                        store.delete_artist("unreferenced")
+                    else:
+                        store.delete_preset(saved.id, saved.revision)
+            self.assertTrue(store.artist("sakura")[1])
+            self.assertTrue(store.preset(saved.id)[1])
+            self.assertTrue(store.artist("unreferenced")[1])
+            self.assertEqual(store.library().revision, before)
+
     def test_library_round_trip_on_disk(self) -> None:
         store = _new_store()
         store.put_artist(_artist("sakura", "sakura_paint"))

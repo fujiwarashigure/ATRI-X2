@@ -7,14 +7,7 @@
 （当前活跃数最少的 key 先上，平局时优先最近未被放行的 key，再按入队时间）；
 支持按 Session / Scope / FairKey 的定向取消，以及 ``Snapshot`` 指标。
 
-约定：
-
-- Go 的 ``time.Duration`` → Python ``float`` 秒；``time.Time`` →
-  ``datetime.datetime``（UTC aware）。
-- Go 的 ``context.Context`` → :class:`atri_x.safecontext.CancelToken`。
-- ``Start`` 是唯一的异步方法（等队列需要 await），其余状态操作都是同步的；
-  互斥用 ``threading.Lock``，等待唤醒用 ``asyncio.Future``。
-- Go 的 ``(T, error)`` → 抛 :mod:`atri_x.errors` 里的哨兵异常。
+约定：秒用 float，时间用 UTC datetime；取消用 CancelToken，锁用 threading.Lock。
 """
 
 from __future__ import annotations
@@ -531,6 +524,13 @@ class Manager:
                 wait_err = ctx.error()
             elif waiter.ready not in done:
                 wait_err = ErrQueueTimeout
+        except asyncio.CancelledError:
+            with self._lock:
+                self._remove_waiter_locked(kind, waiter)
+                if waiter.granted:
+                    self._pending[kind] = max(0, self._pending.get(kind, 0) - 1)
+                self._grant_waiters_locked(kind)
+            raise
         finally:
             remove_callback()
             for future in (waiter.ready, cancel_future):

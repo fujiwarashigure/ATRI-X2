@@ -183,7 +183,7 @@ class ForgetCommand:
             or (resident_scope.actor_id or "").strip() == ""
         ):
             return Result(content="当前上下文没有足够的用户信息，无法清空常驻记忆。")
-        requires_confirm = action in ("core", "all")
+        requires_confirm = action in ("core", "all", "clear")
         if requires_confirm and not confirmed:
             return Result(
                 content=(

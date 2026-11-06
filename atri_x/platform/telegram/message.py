@@ -283,14 +283,14 @@ async def resolve_media(
 
 
 def final_message_segments(
-    text: str, current: Sequence[MessageSegment], referenced: Sequence[MessageSegment]
+    text: str, current: Sequence[MessageSegment], referenced: Sequence[MessageSegment] | None
 ) -> list[MessageSegment]:
     """文本头 + 当前媒体段 + 引用媒体段。对应 Go ``finalMessageSegments``。"""
     out: list[MessageSegment] = []
     if (text or "").strip() != "":
         out.append(MessageSegment(type=MessageSegmentType.TEXT, text=text))
     out = append_non_text_segments(out, current)
-    out = append_non_text_segments(out, referenced)
+    out = append_non_text_segments(out, referenced or ())
     return out
 
 

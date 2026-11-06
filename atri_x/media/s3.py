@@ -52,7 +52,8 @@ def resolve_credentials(
     3. 都没有时读 ``cfg.s3_access_key`` / ``cfg.s3_secret_key``，仍为空则读
        ``cfg.s3_access_key_env`` / ``cfg.s3_secret_key_env`` 指向的环境变量。
     """
-    access = secret = token = ""
+    access = secret = ""
+    token = cfg.s3_session_token if credentials is None else ""
     if credentials is not None:
         source = credentials
         retriever = getattr(credentials, "retrieve", None)

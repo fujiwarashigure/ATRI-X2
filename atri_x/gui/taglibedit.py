@@ -70,7 +70,7 @@ class TagLibraryPanel:
         ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
         ttk.Label(right, text="标签名").grid(row=1, column=0, sticky="w", pady=2)
         self.name_var = tk.StringVar()
-        ttk.Entry(right, textvariable=self.name_var).grid(
+        ttk.Entry(right, textvariable=self.name_var, state="readonly").grid(
             row=1, column=1, sticky="ew", pady=2
         )
         ttk.Label(right, text="分组").grid(row=2, column=0, sticky="w", pady=2)
@@ -250,7 +250,14 @@ class TagPickerDialog:
         )
         self._refill()
 
+    def _capture_selection(self) -> None:
+        visible = getattr(self, "_visible", [])
+        chosen = [visible[index] for index in self.listbox.curselection()]
+        self._selected = [name for name in self._selected if name not in visible]
+        self._selected.extend(name for name in chosen if name not in self._selected)
+
     def _refill(self) -> None:
+        self._capture_selection()
         keyword = self.search_var.get().strip().lower()
         self._visible: list[str] = []
         self.listbox.delete(0, tk.END)
@@ -268,11 +275,8 @@ class TagPickerDialog:
         self._visible_names = self._visible
 
     def _confirm(self) -> None:
-        chosen = [self._visible[index] for index in self.listbox.curselection()]
-        # 保留用户手写、未登记在词表里的标签（只替换词表内的部分）。
-        known = set(self._names)
-        missing = [item for item in self._selected if item not in known]
-        self.result = chosen + missing
+        self._capture_selection()
+        self.result = list(self._selected)
         self._window.destroy()
 
     def _cancel(self) -> None:
@@ -314,5 +318,5 @@ def apply_tag_picker(tab: Any, variable: Any, journal_text: str) -> None:
     chosen = choose_tags(tab.frame, paths.config_dir, current)
     if chosen is None:
         return
-    variable.set(", ".join(merge_tag_list(current, chosen)))
+    variable.set(", ".join(merge_tag_list([], chosen)))
     tab.journal(journal_text)

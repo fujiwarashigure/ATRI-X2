@@ -211,6 +211,7 @@ def compose_image_request(
     optimizer_negative: str,
     extra_negative: str,
     reference_used: bool,
+    artist_negative: str = "",
 ) -> ImageComposition:
     """编译正负向提示词。对应 Go ``composeImageRequest``。"""
     blocks: list[PromptBlock] = []
@@ -266,6 +267,8 @@ def compose_image_request(
 
     composition = ImageComposition()
     negatives = negative_parts(tool, items, optimizer_negative, extra_negative)
+    if artist_negative.strip() and artist_negative.strip() not in negatives:
+        negatives.append(artist_negative.strip())
     mode = NormalizeNegativePromptMode(getattr(cfg, "negative_prompt_mode", ""))
     if mode == NegativePromptModeOff:
         if negatives:

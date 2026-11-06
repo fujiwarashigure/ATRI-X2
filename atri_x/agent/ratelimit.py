@@ -100,8 +100,8 @@ def ensure_rate_limit_state(host: Any) -> RateLimitState:
 
 def is_group_context(host: Any, ctx: Any) -> bool:
     """当前是否群上下文。对应 Go ``isGroupContext``。"""
-    message = message_context_from(ctx)
-    if message is not None and getattr(message, "conversation_kind", "") == ConversationGroup:
+    message, found = message_context_from(ctx)
+    if found and getattr(message, "conversation_kind", "") == ConversationGroup:
         return True
     scope_id = str(getattr(host.scope(ctx), "platform_scope_id", "") or "").strip()
     return scope_id.startswith("group:") or scope_id.startswith("supergroup:")

@@ -11,6 +11,9 @@
 - :func:`run_async` —— 把"获取模型目录 / 下载头像"这类网络 IO 放到后台线程，结果
   经 ``widget.after`` 回到 Tk 主线程。Tk 不是线程安全的，所以绝不在子线程里碰控件。
 
+主窗口外壳（左侧导航 + 玻璃页头）在 :mod:`atri_x.gui.shell`，1.2.1 第二次冻结起从本模块拆出：
+它需要整块重画渐变/装饰，和这里的"输入框 / 滚动容器 / 线程回主线程"不是一回事。
+
 约定：本模块只依赖 Tk 与标准库，不读配置文件、不联网（网络在调用方那层）。
 """
 
@@ -22,7 +25,8 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable
 
-__all__ = ["MASK_CHAR", "ScrollFrame", "SecretEntry", "dropdown", "run_async"]
+__all__ = ["MASK_CHAR", "ScrollFrame", "SecretEntry", "dropdown", "run_async",
+           "compact_notebooks", "scrollable_host"]
 
 #: 密钥掩码字符。
 MASK_CHAR = "*"
@@ -280,3 +284,40 @@ def run_async(
     except tk.TclError:  # pragma: no cover - 窗口已销毁
         pass
     return thread
+
+
+def scrollable_host(parent: Any) -> ttk.Frame:
+    """把"要塞进 Notebook 的页面容器"做成竖向可滚动的宿主。
+
+    返回的 Frame 直接交给 ``notebook.add(...)``；子面板 pack 到 ``host.inner``
+    里即可。内容比可视区矮时不显示滚动条，窗口被压小时可以滚到底——页内的
+    子选项卡（工具进度预览 / 生图档案 / 内容安全词表等）都用它包一层。
+    """
+    host = ttk.Frame(parent)
+    scroller = ScrollFrame(host)
+    scroller.pack(fill=tk.BOTH, expand=True)
+    host.inner = scroller.inner  # type: ignore[attr-defined]
+    host.scroller = scroller  # type: ignore[attr-defined]
+    return host
+
+
+def compact_notebooks(parent: Any) -> None:
+    """收起页内标签，保持程序化切页与测试接口兼容。"""
+    for child in parent.winfo_children():
+        if isinstance(child, ttk.Notebook) and len(child.tabs()) > 1:
+            if not getattr(child, "_compact_selector", None):
+                child.configure(style="Workspace.TNotebook", padding=(0, 40, 0, 0))
+                box = ttk.Combobox(child, state="readonly", width=30)
+                child._compact_selector = box
+                def sync(_e: Any = None, book: Any = child, choice: Any = box) -> None:
+                    choice.configure(values=[str(book.tab(t, "text")).strip() for t in book.tabs()])
+                    if book.select():
+                        choice.current(book.index(book.select()))
+                def select(_e: Any, book: Any = child, choice: Any = box) -> None:
+                    if choice.current() >= 0:
+                        book.select(choice.current())
+                box.bind("<<ComboboxSelected>>", select)
+                child.bind("<<NotebookTabChanged>>", sync, add="+")
+                box.place(x=0, y=0)
+                sync()
+        compact_notebooks(child)

@@ -73,7 +73,7 @@ class ToolTagsPanel:
         ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
         ttk.Label(right, text="tag 名").grid(row=1, column=0, sticky="w", pady=2)
         self.name_var = tk.StringVar()
-        ttk.Entry(right, textvariable=self.name_var).grid(
+        ttk.Entry(right, textvariable=self.name_var, state="readonly").grid(
             row=1, column=1, sticky="ew", pady=2
         )
         ttk.Label(right, text="工具（逗号分隔）").grid(row=2, column=0, sticky="nw", pady=2)
@@ -178,6 +178,9 @@ class ToolTagsPanel:
         if not _TAG_PATTERN.match(name):
             self._fail("tag 名只允许小写字母、数字、_ - .（1–60 个字符）")
             return
+        if name in self._tags:
+            self._fail("同名标签已存在，请选择其它名称")
+            return
         self._tags[name] = {"tools": [], "prompt": ""}
         self._refill()
         self._select(name)
@@ -210,7 +213,7 @@ class ToolTagsPanel:
             if not _TAG_PATTERN.match(name):
                 self._fail(f"tag 名不合法：{name!r}")
                 return
-            lines.append("[tags." + name + "]")
+            lines.append("[tags." + toml_value(name) + "]")
             tools = list(entry.get("tools") or [])
             if tools:
                 lines.append("tools = " + toml_value(tools))

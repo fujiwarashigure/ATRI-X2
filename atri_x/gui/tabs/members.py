@@ -1,12 +1,7 @@
 """「群友」选项卡：按群管理群友的角色数据（备注名 / 标签 / 角色数据 / 头像）。
 
-分工：
-
-- **群友列表**来自后台服务的聊天历史库（``chat_messages`` 表，只读）：按群看"谁发过言、
-  发了多少、最后什么时候"，不用手工一个个录；
-- **角色数据**是 GUI 与后台共用的档案（``<配置目录>/gui/members.json``，
-  见 :mod:`atri_x.memberprofile`）：备注名、标签、自由文本，加上一张头像（头像缓存到
-  ``<配置目录>/gui/avatars/*.png``）。
+群友列表只读聊天历史；角色数据由 memberprofile 共享存储管理。
+头像缓存位于配置目录的 gui/avatars，不发送给模型。
 
 写入只走 :mod:`atri_x.gui.memberdata`（委托共享存储；原子替换 + 损坏不覆盖由它保证）；
 头像的下载/解码/缩放走 :mod:`atri_x.gui.avatars`。
@@ -62,7 +57,7 @@ _IMAGE_TYPES = (
 class MembersTab(ConfigTab):
     """群友列表 + 档案编辑器。"""
 
-    hint = ""
+    scrollable = True  # 1080p 下档案编辑器底部会溢出（实测 req≈932），整页可滚。
 
     def __init__(self, parent: Any, paths: Any, *, on_restart: Any = None) -> None:
         super().__init__(parent, paths, on_restart=on_restart)
@@ -616,8 +611,13 @@ class MembersTab(ConfigTab):
         widgets.run_async(
             self.frame,
             lambda: avatars.fetch_avatar_png(url),
-            self._avatar_downloaded,
+            lambda png, error: self._avatar_result(profile.key, self._avatar_downloaded, png, error),
         )
+
+    def _avatar_result(self, key: str, callback: Any, value: Any, error: Any) -> None:
+        if self._current is None or self._current.key != key:
+            return  # 已切换成员，丢弃旧请求结果，不能写入新成员。
+        callback(value, error)
 
     def _avatar_downloaded(self, png: Any, error: BaseException | None) -> None:
         if error is not None:
@@ -641,7 +641,7 @@ class MembersTab(ConfigTab):
         widgets.run_async(
             self.frame,
             lambda: avatars.cache_avatar_file(config_dir, key, path),
-            self._avatar_picked,
+            lambda relative, error: self._avatar_result(key, self._avatar_picked, relative, error),
         )
 
     def _avatar_picked(self, relative: Any, error: BaseException | None) -> None:

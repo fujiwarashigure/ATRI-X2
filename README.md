@@ -4,7 +4,7 @@
 
 上游是 Go 项目 [`ATRI-X`](https://github.com/fujiwarashigure/ATRI-X)（本仓库对应 v0.9.0）。本仓库把上游 71 个生产包逐包重写为 Python（包名 `atri_x`），**纯标准库、零运行时第三方依赖**，在仓库根目录直接 `python -m atri_x` 运行——不需要安装，也没有构建产物。
 
-支持普通聊天、工具调用、Hook 扩展、Cron 调度、Skill 沉淀、长期记忆、外部事件触发、多平台接入与容器化部署；1.2.0 起 `shell` / 文件类工具默认在按用户安全域复用的沙箱容器里执行。
+支持普通聊天、工具调用、Hook 扩展、Cron 调度、Skill 沉淀、长期记忆、外部事件触发、多平台接入与容器化部署；1.2.0 起 `shell` / 文件类工具默认在按用户安全域复用的沙箱容器里执行；1.2.1（第二次冻结）起桌面端换成 **Frutiger Aero 玻璃主题**，页面导航收进左侧一棵树，所有页面在 1080p / 小窗口下都能滚到底。
 
 > **⚠️ 法务与合规提示**：本项目**仅供学习、技术研究与个人自托管实验**，**不是**腾讯 / QQ /
 > Telegram / NapCat / SnowLuma / DeepSeek 等任何平台或服务商的官方产品，与其**无隶属、授权或背书
@@ -12,7 +12,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 版本 | `1.2.0`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
+| 版本 | `1.2.1`（对应上游 v0.9.0；Windows 安装包 / 便携版自 0.9.1 起提供） |
 | 许可 | [Apache-2.0](LICENSE)（与上游一致） |
 | Python | ≥ 3.11（开发与验证在 3.14.7 上完成） |
 | 入口 | `python -m atri_x` |
@@ -44,13 +44,13 @@
 | 项 | 说明 |
 | --- | --- |
 | 上游 | Go 版 `ATRI-X` v0.9.0：446 个生产 `.go` 文件 / 90,203 行 |
-| 本仓库 | 平铺布局的 `atri_x/`：897 个 `.py` 模块，约 26.1 万行（物理行，含空行/注释/docstring；`tests/` 另有约 12.1 万行） |
+| 本仓库 | 平铺布局的 `atri_x/`：899 个 `.py` 模块，约 26.2 万行（物理行，含空行/注释/docstring；`tests/` 另有约 12.1 万行） |
 | 研究引擎 | 随包 `research_pack/`：38 个模块、约 8.7k 行纯标准库引擎 + 15 个原创 AgentSkill；安装版 / 便携版首启自动装进配置目录 |
 | 图表能力 | 随包 `drawio_pack/`（drawio-skill 3.4.2，47 个纯标准库脚本 + 20 篇参考 + shape 索引）+ 内置 draw.io 32.6.1 无头渲染器；工具 `drawio` 仅超管可用，安装版 / 便携版开箱出 PNG/SVG/PDF |
 | 包级映射 | 上游 71 个生产包 + `cmd/atri-x`，共 72 条映射，全部有对应实现（[PORTING.md](PORTING.md) §4） |
 | 平台 | CLI（本地 TUI / 远程客户端）、Telegram、QQ OneBot、QQ Official，另有 headless 适配 |
 | 存储 | SQLite（标准库 `sqlite3`），会话、消息、工具调用、媒体引用与审计数据均持久化 |
-| 测试 | `tests/` 260 个 Python 文件（其中 250 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
+| 测试 | `tests/` 265 个 Python 文件（其中 255 个 `test_*.py`）；用例数不硬编码（见「开发与验证」） |
 | 门禁 | 代码 7 道 + 文档 1 道（`check_docs`）+ 索引 1 道（`gen_index --check`）+ 复杂度预算，全部可在 CI 跑 |
 | 规模 | 1522 个受版本控制文件（不含 `.git`；与源码归档条目数一致） |
 
@@ -174,23 +174,23 @@ python -m atri_x --config path/to/app.toml   # 指定主配置
 
 ## 发行版、容器镜像与部署
 
-当前版本 **`1.2.0`**（正式发行版）：**用户安全域沙箱（P0 批次）**。
-`shell` 与文件/图片/发送工具默认在按「平台 + 机器人账号 + scope + 用户 ID」复用的容器里执行：
-盒内普通命令不再逐条确认，宿主秘密不进入盒子；默认公网出站可用，但宿主 / 内网 / 云元数据 /
-容器引擎端口被网络层与出口代理拒绝（`offline` / `public` / `restricted` 三档）；内存、pids、
-CPU、磁盘、命令时限都有硬顶，资源不足时公平排队；环境可按「重启 / 保留文件重建 / 清空文件」
-三档重置，流量与审计账本不会被重置清零；后端不可用时 **fail-closed 拒绝执行**，绝不回落宿主
-Shell。桌面端「进阶」页新增沙箱管理面板，聊天侧新增 `/sandbox` 命令，`/panic` 会实际停止环境。
-配置格式向后兼容（`[sandbox]` 段扩展，旧 `mode` 缺省即容器模式；如需显式回退宿主模式可设
-`mode="off"`，不安全）。详见 [`docs/release-notes/1.2.0.md`](docs/release-notes/1.2.0.md)、
-[`docs/sandbox.md`](docs/sandbox.md)、[CHANGELOG.md](CHANGELOG.md)；上一版（上下文窗口桌面端
-可配置 + `/resources` 统计子进程 + 桌面端「DSH」配置页）见
-[`docs/release-notes/1.1.9.md`](docs/release-notes/1.1.9.md)。
+当前版本 **`1.2.1`**（2026-11-06 发布，第二次冻结）：**Frutiger Aero 桌面界面重做 + 全仓审计修复**。
+桌面端换成玻璃 / 水光 / 天空主题：左侧导航一棵树装下 18 个页面与页内子页（顶部不再有第二套
+标签栏），页头是渐变玻璃 + 气泡 + ATRI 角色图，聊天欢迎页换成 Aero 风格壁纸；同时修掉
+"1080p 下部分页面底部滚不到"的问题（表单页整页可滚、页内子页可滚、底部保存按钮固定），
+最小窗口 1180×700。功能面与第一次冻结的 1.2.1 一致（界面一致性 / 内存回滚 / 外部协议校验
+修复），基础能力仍来自 1.2.0 的用户安全域沙箱（`shell` 与文件/图片/发送工具默认在按
+「平台 + 机器人账号 + scope + 用户 ID」复用的容器里执行，`offline` / `public` /
+`restricted` 三档联网、资源硬顶、公平排队、fail-closed）。详见
+[`docs/release-notes/1.2.1.md`](docs/release-notes/1.2.1.md)、
+[`docs/release-notes/1.2.0.md`](docs/release-notes/1.2.0.md)、[`docs/sandbox.md`](docs/sandbox.md)
+与 [CHANGELOG.md](CHANGELOG.md)。
 历史版发行说明见 [`docs/release-notes/`](docs/release-notes/)。
 
-当前线上版：[**GitHub Release v1.2.0**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.2.0)
-（tag `v1.2.0` 指向 1.2.0 发行提交；安装包 / 便携版 / 源码归档 / `SHA256SUMS.txt` 均为 Release 附件）；
-上一版 [v1.1.9](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.1.9)。
+当前已发布版本：[**GitHub Release v1.2.1**](https://github.com/fujiwarashigure/ATRI-X2/releases/tag/v1.2.1)
+（tag `v1.2.1`；`ATRI-X-1.2.1-setup.exe` / `ATRI-X-1.2.1-portable-win64.zip` /
+`ATRI-X-1.2.1-repo.zip` / `SHA256SUMS-1.2.1.txt` / 发行说明与验收报告均为 Release 附件）。
+历史版本见 [Releases](https://github.com/fujiwarashigure/ATRI-X2/releases)。
 
 | 产物 | 位置 |
 | --- | --- |
@@ -315,8 +315,8 @@ server`，拆片后不再出现。
 
 | 门禁 | 结果 |
 | --- | --- |
-| `check_syntax` | 1172 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
-| `check_imports` | `modules=897 imported=897`，0 失败 |
+| `check_syntax` | 1180 个文件，0 错（`bom=0`、`crlf=0`、`damaged=0`） |
+| `check_imports` | `modules=899 imported=899`，0 失败 |
 | `check_integration` | 74 项检查，0 失败 |
 | `check_coverage --strict` | `packages=72 covered=72 missing=0 weighted=100.0%`（**文件存在性**口径，不衡量行为正确性） |
 | `check_except` | 与位置级基线一致（0 个新增位置） |

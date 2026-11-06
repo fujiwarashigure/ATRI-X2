@@ -388,6 +388,7 @@ class PromptTemplatesPanel:
         if not isinstance(raw, list):
             self._fail("文件结构不对：需要 {\"prompts\": [...]} 或条目数组")
             return
+        self._capture()
         imported = 0
         for item in raw:
             entry = prompt_from_dict(item)
@@ -399,6 +400,8 @@ class PromptTemplatesPanel:
             if entry.id not in self._order:
                 self._order.append(entry.id)
             imported += 1
+        if self._current_id in self._entries:
+            self._select(self._current_id)
         self._fill_tree()
         self._notify(f"已导入 {imported} 条自建条目；点「保存提示词库」后落盘")
 

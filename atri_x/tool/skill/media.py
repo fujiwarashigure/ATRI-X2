@@ -54,7 +54,7 @@ MAX_INLINE_MEDIA_BYTES = 1024 * 1024
 # ---------------------------------------------------------------------------
 
 
-def prepare_go_media(ctx: Any, raw: str, call: Any, base: str) -> str:
+async def prepare_go_media(ctx: Any, raw: str, call: Any, base: str) -> str:
     """改写 Go skill 的 stdin 副本。对应 Go ``prepareGoMedia``。
 
     没有 ``media_inputs`` 字段时原样返回 ``raw``（一个字节都不动）。
@@ -72,7 +72,7 @@ def prepare_go_media(ctx: Any, raw: str, call: Any, base: str) -> str:
     prepared: list[dict[str, Any]] = []
     for item in inputs:
         media_id = _media_id_of(item)
-        path, metadata = _export(call, ctx, media_id, base)
+        path, metadata = await _export(call, ctx, media_id, base)
         size = _meta_attr(metadata, "size", 0)
         entry: dict[str, Any] = {
             "media": media_id,
@@ -91,7 +91,7 @@ def prepare_go_media(ctx: Any, raw: str, call: Any, base: str) -> str:
     return _dump(payload)
 
 
-def prepare_command_media(
+async def prepare_command_media(
     ctx: Any, raw: str, manifest: Any, call: Any, base: str
 ) -> str:
     """按清单 schema 把媒体 ID 换成相对路径。对应 Go ``prepareCommandMedia``。
@@ -113,7 +113,7 @@ def prepare_command_media(
     for name, property_ in properties.items():
         if name not in values or not schema_contains_media(property_):
             continue
-        values[name] = prepare_media_value(
+        values[name] = await prepare_media_value(
             ctx, values[name], property_, call, base, name
         )
     return _dump(values)
@@ -135,7 +135,7 @@ def schema_contains_media(value: Any) -> bool:
     return False
 
 
-def prepare_media_value(
+async def prepare_media_value(
     ctx: Any, raw: Any, schema_value: Any, call: Any, base: str, name: str
 ) -> Any:
     """递归替换一个参数里的媒体值。对应 Go ``prepareMediaValue``。"""
@@ -146,13 +146,13 @@ def prepare_media_value(
     if kind == "media":
         if not isinstance(raw, str):
             raise ValueError(f"media argument {name} must be a media ID")
-        path, _ = _export(call, ctx, raw, base)
+        path, _ = await _export(call, ctx, raw, base)
         return _to_slash(path)
     if kind == "array":
         if not isinstance(raw, list):
             raise ValueError(f"media argument {name} must be an array")
         return [
-            prepare_media_value(
+            await prepare_media_value(
                 ctx, item, schema.get("items"), call, base, f"{name}[{index}]"
             )
             for index, item in enumerate(raw)
@@ -167,7 +167,7 @@ def prepare_media_value(
         for field_name, property_ in properties.items():
             if field_name not in raw or not schema_contains_media(property_):
                 continue
-            out[field_name] = prepare_media_value(
+            out[field_name] = await prepare_media_value(
                 ctx, raw[field_name], property_, call, base, f"{name}.{field_name}"
             )
         return out
@@ -179,12 +179,12 @@ def prepare_media_value(
 # ---------------------------------------------------------------------------
 
 
-def result_from_stdout(out: str) -> Result:
+async def result_from_stdout(out: str) -> Result:
     """不带媒体运行时的 stdout 解析。对应 Go ``resultFromStdout``。"""
-    return result_from_stdout_with_media(None, out, None, "")
+    return await result_from_stdout_with_media(None, out, None, "")
 
 
-def result_from_stdout_with_media(
+async def result_from_stdout_with_media(
     ctx: Any, out: str, call: Any, base: str
 ) -> Result:
     """解析 skill 的 stdout。
@@ -239,9 +239,9 @@ def result_from_stdout_with_media(
         mime_type = str(raw_segment.get("mime_type") or "")
         resolved = media_id
         if path != "":
-            metadata = _import_media(call, ctx, base, path, name, mime_type)
+            metadata = await _import_media(call, ctx, base, path, name, mime_type)
             resolved = _meta_attr(metadata, "id", "")
-        metadata = _retain(call, ctx, resolved)
+        metadata = await _retain(call, ctx, resolved)
         if name == "":
             name = _meta_attr(metadata, "name", "")
         if mime_type == "":
@@ -271,11 +271,11 @@ def _media_id_of(item: Any) -> str:
     return ""
 
 
-def _export(call: Any, ctx: Any, media_id: str, base: str) -> tuple[str, Any]:
+async def _export(call: Any, ctx: Any, media_id: str, base: str) -> tuple[str, Any]:
     export = getattr(call, "export", None)
     if export is None:
         raise ValueError("skill media runtime is not configured")
-    return export(ctx, media_id, base)
+    return await _maybe_await(export(ctx, media_id, base))
 
 
 def _workspace(call: Any, base: str) -> str:
@@ -285,21 +285,25 @@ def _workspace(call: Any, base: str) -> str:
     return workspace(base)
 
 
-def _import_media(
+async def _import_media(
     call: Any, ctx: Any, base: str, path: str, name: str, mime_type: str
 ) -> Any:
     """调用运行时的 ``Import``（Python 关键字，故为 ``import_``）。"""
     importer = getattr(call, "import_", None) or getattr(call, "import_media", None)
     if importer is None:
         raise ValueError("skill media runtime does not support import")
-    return importer(ctx, base, path, MediaInput(name=name, mime_type=mime_type))
+    return await _maybe_await(importer(ctx, base, path, MediaInput(name=name, mime_type=mime_type)))
 
 
-def _retain(call: Any, ctx: Any, media_id: str) -> Any:
+async def _retain(call: Any, ctx: Any, media_id: str) -> Any:
     retain = getattr(call, "retain", None)
     if retain is None:
         raise ValueError("skill media runtime is not configured")
-    return retain(ctx, media_id)
+    return await _maybe_await(retain(ctx, media_id))
+
+
+async def _maybe_await(value: Any) -> Any:
+    return await value if hasattr(value, "__await__") else value
 
 
 def _meta_attr(metadata: Any, name: str, default: Any) -> Any:

@@ -21,6 +21,7 @@ from tkinter import messagebox, ttk
 from typing import Any, Callable
 
 from atri_x.gui import actions, journal
+from atri_x.gui.shell import DesktopShell
 from atri_x.gui.client import (
     STATE_AUTH_FAILED,
     STATE_CONNECTED,
@@ -124,9 +125,10 @@ class GuiApp:
 
         root.title(WINDOW_TITLE)
         self._apply_window_icon()
-        # 1100 宽是「进阶」页两列布局与「模型 → 搜索服务」页左右并列表单的最小舒适宽度；
-        # 高度不足时这两页都可以竖向滚动，所以 700 够用。
-        root.minsize(1100, 700)
+        # 1180 宽是「人设卡」等左右分栏页在 125% 缩放下不横向裁切的要求；700 高是最低
+        # 可用高度（比这更矮的页面各自滚动）。1.2.1 第二次冻结的玻璃侧栏比旧版宽，因此最小值
+        # 从 1100 提到 1180。
+        root.minsize(1180, 700)
         root.geometry(self._window_state.get("geometry") or "1280x860")
         root.protocol("WM_DELETE_WINDOW", self.on_close_request)
         self._build_ui()
@@ -144,21 +146,10 @@ class GuiApp:
     # ---------------------------------------------------------------- 构建界面
 
     def _build_ui(self) -> None:
-        style = ttk.Style(self.root)
-        try:
-            style.theme_use("vista")
-        except tk.TclError:  # pragma: no cover - 老系统没有 vista 主题
-            pass
-
-        top = ttk.Frame(self.root, padding=(10, 8, 10, 4))
-        top.pack(fill=tk.X)
-        self.status_label = ttk.Label(top, text="● 未连接", font=("Microsoft YaHei UI", 10, "bold"))
-        self.status_label.pack(side=tk.LEFT)
-        self.runtime_label = ttk.Label(top, text="", foreground="#555555")
-        self.runtime_label.pack(side=tk.RIGHT)
-
-        notebook = ttk.Notebook(self.root, padding=(8, 4, 8, 2))
-        notebook.pack(fill=tk.BOTH, expand=True)
+        self._shell = DesktopShell(self.root, self.select_tab, self.reconnect)
+        self.status_label = self._shell.status
+        self.runtime_label = self._shell.runtime
+        notebook = self._shell.notebook
         self.notebook = notebook
 
         # 选项卡**按需构建**：启动只建「对话」与「功能」，其余先放占位 Frame，
@@ -178,7 +169,7 @@ class GuiApp:
                 on_new=self.new_session,
                 on_send=self.send_current_input,
                 on_tab=self.request_completion,
-                on_clear=self.clear_transcript,
+                on_clear=self.clear_transcript, on_stop=lambda: self.chat.stop_request(self.client),
             ),
             1: lambda parent: ModelTab(parent, self.paths, on_restart=self._restart_backend),
             2: lambda parent: CharacterTab(
@@ -243,6 +234,7 @@ class GuiApp:
             self._tabs[index] = tab
         notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
         self.features_tab.set_status(self._status_text)
+        self.chat.sidebar.bind_management(self); self.chat.bind_privacy_controls(self)
 
     def _ensure_tab(self, index: int) -> Any:
         """按索引返回选项卡；懒加载页首次访问时在占位 Frame 里真正构建它。"""
@@ -430,10 +422,14 @@ class GuiApp:
         kind = str(getattr(message, "type", "") or "")
         if kind == REMOTE_MSG_SESSIONS_RESULT:
             self.chat.sidebar.set_sessions(decode_sessions(message))
+            self.chat.sidebar.confirm_switch(self, decode_sessions(message))
             if self._active_session_id:
                 self.chat.sidebar.set_active(self._active_session_id)
             return
         if kind == REMOTE_MSG_HISTORY_RESULT:
+            if str(getattr(message, "session_id", "")) != self._active_session_id:
+                return
+            self.chat.sidebar._pending_switch = None
             items = decode_history(message)
             if items or str(getattr(message, "session_id", "")):
                 self._active_session_id = str(getattr(message, "session_id", "") or "")
@@ -540,6 +536,7 @@ class GuiApp:
             index = int(self.notebook.index("current"))
         except tk.TclError:  # pragma: no cover - 窗口销毁中
             return
+        self._shell.activate(index)
         previous, self._active_tab_index = self._active_tab_index, index
         if previous is not None and previous != index:
             self._notify_tab_hidden(self._tabs.get(previous))
@@ -553,6 +550,7 @@ class GuiApp:
             except Exception:  # noqa: BLE001 - 记日志失败不影响提示
                 pass
             return
+        self._shell.organize(tab.frame, index)
         handler = getattr(tab, "on_show", None)
         if handler is None:
             return
@@ -593,23 +591,22 @@ class GuiApp:
         text = self.chat.get_input().strip()
         if not text:
             return
-        if not text.startswith("/") and (self.client is None or not self.client.connected):
-            self._append_notice("还没连上后台服务，消息没有发出去。可以用「服务 → 启动/确认后台服务」。")
+        if getattr(self.chat.sidebar, "_pending_switch", None):
+            self._append_notice("正在确认会话切换，请稍候；草稿已保留。")
+            return
+        if self.client is None or not self.client.connected or not self.client.send_input(text):
+            self._append_notice("发送失败：原文已保留，请检查连接后重试（未确认服务端接收）。")
             return
         self.chat.set_input("")
         self.transcript.add_user(text)
         self._dirty = True
-        if self.client is not None:
-            self.client.send_input(text)
 
     def new_session(self) -> None:
         """新建会话：通知服务端 ``/new``，清空本地记录并刷新列表。"""
-        self.transcript.clear()
-        self._runtime_text = ""
-        self._active_session_id = ""
-        self._dirty = True
-        if self.client is not None and self.client.connected:
-            self.client.send_input("/new")
+        if self.client is None or not self.client.connected or not self.client.send_input("/new"):
+            self._append_notice("新建请求未发出，已保留当前会话。请连接后重试。")
+            return
+        self.chat.sidebar.begin_switch(self, "")
         self.refresh_sessions()
 
     def clear_transcript(self) -> None:
@@ -621,7 +618,7 @@ class GuiApp:
         """请求会话列表（未连接时忽略；连上时会自动调用一次）。"""
         if self.client is None or not self.client.connected:
             return
-        self.client.request_sessions(30)
+        self.client.request_sessions(100, "" if getattr(self.chat.sidebar, "_pending_switch", None) else self.chat.sidebar.search_var.get().strip())
 
     def open_session(self, session_id: str) -> None:
         """切到某个历史会话：发 ``/resume <id>`` 并拉取该会话历史。"""
@@ -631,10 +628,10 @@ class GuiApp:
         if self.client is None or not self.client.connected:
             self._append_notice("还没连上后台服务，无法切换会话。")
             return
-        self._active_session_id = session_id
-        self.client.send_input(f"/resume {session_id}")
-        self.client.request_history(session_id, 200)
-        self.chat.sidebar.set_active(session_id)
+        if not self.client.send_input(f"/resume {session_id}"):
+            self._append_notice("切换请求发送失败，已保留当前会话。")
+            return
+        self.chat.sidebar.begin_switch(self, session_id)
 
     def copy_all(self) -> None:
         self.root.clipboard_clear()

@@ -60,7 +60,7 @@ class FileGuardRule:
         except InvalidError:
             return False
         rel = _relpath(root, path)
-        if rel is None or rel == "." or rel.startswith("..") or os.path.isabs(rel):
+        if rel is None or rel in (".", "..") or rel.startswith(".." + os.sep) or os.path.isabs(rel):
             return False
         if self.match is None:
             return True

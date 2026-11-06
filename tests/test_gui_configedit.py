@@ -195,12 +195,20 @@ class ProviderTestCase(ConfigCase):
         self.assertEqual(data["providers"]["relay"]["models"], ["m1", "m2"])
         self.assertEqual(configmodel.load_providers(self.paths)["relay"].models, ["m1", "m2"])
 
-    def test_rename_moves_section(self) -> None:
+    def test_rename_is_rejected_without_writing(self) -> None:
+        # 改名会牵动 models/mode_models 等引用，1.2.1 明确拒绝而不是写一半。
+        from atri_x.gui.configedit import ConfigEditError
+
+        services = Path(self.paths.services_path)
+        before = services.read_bytes()
         view = configmodel.ProviderView(name="deepseek2", base_url="https://x/v1")
-        configmodel.save_provider(self.paths, view, original="deepseek")
+        with self.assertRaises(ConfigEditError) as caught:
+            configmodel.save_provider(self.paths, view, original="deepseek")
+        self.assertIn("暂不支持", str(caught.exception))
+        self.assertEqual(services.read_bytes(), before)
         providers = configmodel.load_providers(self.paths)
-        self.assertIn("deepseek2", providers)
-        self.assertNotIn("deepseek", providers)
+        self.assertIn("deepseek", providers)
+        self.assertNotIn("deepseek2", providers)
 
     def test_delete_provider(self) -> None:
         configmodel.delete_provider(self.paths, "openai")

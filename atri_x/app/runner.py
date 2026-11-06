@@ -110,7 +110,7 @@ class Runner:
             body_error = exc
         cleanup_error = await self._shutdown(cleanups)
         if body_error is not None and cleanup_error is not None:
-            raise ExceptionGroup("app: run and shutdown errors", [body_error, cleanup_error])
+            raise BaseExceptionGroup("app: run and shutdown errors", [body_error, cleanup_error])
         if body_error is not None:
             raise body_error
         if cleanup_error is not None:
@@ -360,6 +360,12 @@ class _RunContext:
             except Exception:  # noqa: BLE001
                 return False
         return False
+
+    def is_set(self) -> bool:
+        return self.stopped
+
+    async def wait(self) -> None:
+        await self.wait_stopped()
 
     async def wait_stopped(self) -> None:
         waiter = getattr(self._ctx, "wait", None)

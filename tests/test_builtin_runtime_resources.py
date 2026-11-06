@@ -424,7 +424,9 @@ class CollectResourcesTests(unittest.TestCase):
         self.assertTrue(hasattr(collector, "sample_process"))
         self.assertTrue(hasattr(collector, "sample_system"))
         sample = collector.sample_process()
-        self.assertEqual(sample.rss_bytes, sample.rss_bytes)  # 不抛即通过
+        # 断言真实契约：字节数是整数且非负；原来写成 x == x，永远不会失败。
+        self.assertIsInstance(sample.rss_bytes, int)
+        self.assertGreaterEqual(sample.rss_bytes, 0)
 
     def test_process_sampling_failure_degrades(self) -> None:
         collector = FakeCollector(process_error=OSError("boom"))

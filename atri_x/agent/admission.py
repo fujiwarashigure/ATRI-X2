@@ -125,7 +125,7 @@ def quiet_now(agent: Any, now: datetime | None = None) -> datetime:
         return datetime.now(zone)
     if now.tzinfo is None:
         return now.replace(tzinfo=zone)
-    return now
+    return now.astimezone(zone)
 
 
 def global_quiet_active(agent: Any, now: datetime | None = None) -> bool:
@@ -196,7 +196,7 @@ def admit(
         return Admission(reason=reason, quiet=True)
     if reason == DIRECT_MESSAGE and bool(getattr(config, "allow_direct", True)):
         return Admission(reason=reason, quiet=True)
-    if reason not in _SKIPPABLE:
+    if reason not in _SKIPPABLE and reason != DIRECT_MESSAGE:
         return Admission(reason=reason, quiet=True)
     return Admission(
         decision=ADMIT_SKIP,

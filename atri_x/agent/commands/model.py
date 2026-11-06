@@ -414,10 +414,10 @@ class _ModelCommand:
             return self._complete_snapshot_names(query, token.start, token.end)
         if option_only_model_args(req.args) or self._deps.models is None:
             return []
-        result = self._deps.models.model_list(query, ModelListOptions())
+        result = await _maybe_await(self._deps.models.model_list(query, ModelListOptions()))
         items = result.options
         if not items:
-            items = self._fuzzy_model_options(query)
+            items = await self._fuzzy_model_options(query)
         out: list[Completion] = []
         seen: set[str] = set()
         for model in items:
@@ -437,12 +437,12 @@ class _ModelCommand:
             )
         return out
 
-    def _fuzzy_model_options(self, query: str) -> list[ModelOption]:
+    async def _fuzzy_model_options(self, query: str) -> list[ModelOption]:
         """精确前缀没命中时退到子序列模糊匹配。对应 Go ``fuzzyModelOptions``。"""
         query = (query or "").strip().lower()
         if query == "" or self._deps.models is None:
             return []
-        items = self._deps.models.model_list("", ModelListOptions()).options
+        items = (await _maybe_await(self._deps.models.model_list("", ModelListOptions()))).options
         out: list[ModelOption] = []
         for model in items:
             provider_model = (model.provider + "/" + model.model).lower()

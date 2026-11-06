@@ -2,8 +2,7 @@
 
 对应 Go：``internal/tool/builtin/file_tools_ast.go``。
 
-与 Go 的差异（必须记录）：
-
+与 Go 的差异：
 * Go 用 ``go/parser`` + ``go/ast`` 做真正的语法分析。Python 标准库没有 Go 解析器，
   这里用 **clean-room 词法扫描**：剥掉注释与字符串字面量后按 token 归类，容器范围
   由 ``func`` / ``type`` 声明的花括号配对推出。结果是「近似 AST」——对合法 Go
@@ -358,13 +357,14 @@ def find_go_ast_matches(path: str, source: str, query: str) -> list[ASTMatch]:
     tokens = _go_tokens(masked)
     ranges = _go_ranges(tokens)
     matches: list[ASTMatch] = []
+    source_lines = source.split("\n")
     for token in tokens:
         if token.text != query or token.text in _GO_KEYWORDS:
             continue
         matches.append(
             ASTMatch(
                 line=token.line,
-                column=token.col,
+                column=_go_byte_column(source_lines[token.line - 1], token.col - 1),
                 kind="identifier",
                 container=_go_container(ranges, token.start),
             )

@@ -406,14 +406,14 @@ class TestMedia(SkillTestBase):
         from atri_x.tool.skill import prepare_go_media
 
         raw = '{"a": 1}'
-        self.assertEqual(prepare_go_media(None, raw, None, self.root), raw)
+        self.assertEqual(asyncio.run(prepare_go_media(None, raw, None, self.root)), raw)
 
     def test_prepare_go_media_expands_inputs(self) -> None:
         from atri_x.tool.skill import prepare_go_media
 
         call = FakeMediaCall()
         raw = json.dumps({"media_inputs": [{"media": "media:" + "a" * 64}], "keep": 1})
-        out = json.loads(prepare_go_media(None, raw, call, self.root))
+        out = json.loads(asyncio.run(prepare_go_media(None, raw, call, self.root)))
         entry = out["media_inputs"][0]
         self.assertTrue(entry["path"].startswith("media/"))
         self.assertIn("base64", entry)
@@ -426,14 +426,14 @@ class TestMedia(SkillTestBase):
 
         call = FakeMediaCall(payload=b"x" * (1024 * 1024 + 1))
         raw = json.dumps({"media_inputs": [{"media": "media:" + "b" * 64}]})
-        out = json.loads(prepare_go_media(None, raw, call, self.root))
+        out = json.loads(asyncio.run(prepare_go_media(None, raw, call, self.root)))
         self.assertNotIn("base64", out["media_inputs"][0])
 
     def test_prepare_go_media_rejects_non_array(self) -> None:
         from atri_x.tool.skill import prepare_go_media
 
         with self.assertRaises(ValueError):
-            prepare_go_media(None, '{"media_inputs": 1}', FakeMediaCall(), self.root)
+            asyncio.run(prepare_go_media(None, '{"media_inputs": 1}', FakeMediaCall(), self.root))
 
     def test_prepare_command_media_replaces_ids(self) -> None:
         from atri_x.tool.skill import prepare_command_media
@@ -443,7 +443,7 @@ class TestMedia(SkillTestBase):
             {"media_in": "media:" + "c" * 64, "nested": {"blob": "media:" + "d" * 64}}
         )
         out = json.loads(
-            prepare_command_media(None, raw, manifest, FakeMediaCall(), self.root)
+            asyncio.run(prepare_command_media(None, raw, manifest, FakeMediaCall(), self.root))
         )
         self.assertTrue(out["media_in"].endswith(".bin"))
         self.assertTrue(out["nested"]["blob"].endswith(".bin"))
@@ -453,7 +453,7 @@ class TestMedia(SkillTestBase):
 
         manifest = parse_agent_skill_manifest(CALLABLE_TOML)
         with self.assertRaises(ValueError) as caught:
-            prepare_command_media(None, '{"media_in": null}', manifest, FakeMediaCall(), self.root)
+            asyncio.run(prepare_command_media(None, '{"media_in": null}', manifest, FakeMediaCall(), self.root))
         self.assertIn("must not be null", str(caught.exception))
 
     def test_prepare_command_media_without_media_schema(self) -> None:
@@ -461,24 +461,24 @@ class TestMedia(SkillTestBase):
 
         manifest = parse_agent_skill_manifest(DOC_ONLY_TOML)
         raw = '{"a": 1}'
-        self.assertEqual(prepare_command_media(None, raw, manifest, None, self.root), raw)
+        self.assertEqual(asyncio.run(prepare_command_media(None, raw, manifest, None, self.root)), raw)
 
     def test_result_from_stdout_plain_text(self) -> None:
         from atri_x.tool.skill import result_from_stdout
 
-        self.assertEqual(result_from_stdout("plain output").content, "plain output")
-        self.assertEqual(result_from_stdout("   ").content, "")
+        self.assertEqual(asyncio.run(result_from_stdout("plain output")).content, "plain output")
+        self.assertEqual(asyncio.run(result_from_stdout("   ")).content, "")
 
     def test_result_from_stdout_structured_content(self) -> None:
         from atri_x.tool.skill import result_from_stdout
 
-        result = result_from_stdout('{"content": "done", "data": {"path": "out.txt"}}')
+        result = asyncio.run(result_from_stdout('{"content": "done", "data": {"path": "out.txt"}}'))
         self.assertEqual(result.content, "done")
 
     def test_result_from_stdout_truncates_long_output(self) -> None:
         from atri_x.tool.skill import result_from_stdout
 
-        self.assertIn("output truncated", result_from_stdout("x" * (16 * 1024 + 100)).content)
+        self.assertIn("output truncated", asyncio.run(result_from_stdout("x" * (16 * 1024 + 100))).content)
 
     def test_result_from_stdout_segments(self) -> None:
         from atri_x.tool.skill import result_from_stdout_with_media
@@ -494,7 +494,7 @@ class TestMedia(SkillTestBase):
                 ],
             }
         )
-        result = result_from_stdout_with_media(None, payload, call, self.root)
+        result = asyncio.run(result_from_stdout_with_media(None, payload, call, self.root))
         self.assertEqual(result.segments[0].text, "head")
         self.assertEqual(result.segments[1].text, "extra")
         self.assertEqual(result.segments[2].media, "media:" + "e" * 64)
@@ -505,13 +505,13 @@ class TestMedia(SkillTestBase):
         from atri_x.tool.skill import result_from_stdout
 
         with self.assertRaises(ValueError):
-            result_from_stdout(
+            asyncio.run(result_from_stdout(
                 '{"content": "x", "segments": [{"type": "text", "media": "m"}]}'
-            )
+            ))
         with self.assertRaises(ValueError):
-            result_from_stdout('{"segments": [{"type": "image"}]}')
+            asyncio.run(result_from_stdout('{"segments": [{"type": "image"}]}'))
         with self.assertRaises(ValueError):
-            result_from_stdout('{"segments": [{"type": "video", "media": "m"}]}')
+            asyncio.run(result_from_stdout('{"segments": [{"type": "video", "media": "m"}]}'))
 
     def test_truncate_output_is_byte_based(self) -> None:
         from atri_x.tool.skill import truncate_output

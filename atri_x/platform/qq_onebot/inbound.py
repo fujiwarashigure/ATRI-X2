@@ -291,7 +291,12 @@ class EventDispatcher:
             job = await self.normal.get()
             if self._stopping:
                 return
-            await self.prepare_and_dispatch(job)
+            try:
+                await self.prepare_and_dispatch(job)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                finish_inbound_job(self.adapter, job.message_key, INBOUND_DEDUP_STATE_FAILED, str(exc))
 
     async def _high_worker(self) -> None:
         """对应 Go ``highWorker``。"""
@@ -299,7 +304,12 @@ class EventDispatcher:
             job = await self.high.get()
             if self._stopping:
                 return
-            await self.adapter.handle_platform_event(self.life_ctx, self.handler, job.event)
+            try:
+                await self.adapter.handle_platform_event(self.life_ctx, self.handler, job.event)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                finish_inbound_job(self.adapter, job.message_key, INBOUND_DEDUP_STATE_FAILED, str(exc))
 
     async def prepare_and_dispatch(self, job: OutboundEventJob) -> None:
         """在有界 worker 里做预处理，再把整轮处理交给独立 task。

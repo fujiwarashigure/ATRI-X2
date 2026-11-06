@@ -29,7 +29,7 @@ def _quiet_agent(**overrides):
     config = SimpleNamespace(
         enabled=True,
         window="00:00-23:59",
-        timezone="",
+        timezone="UTC",
         allow_cron=False,
         allow_external=False,
         allow_direct=True,
@@ -111,6 +111,12 @@ class AdmissionTest(unittest.TestCase):
         self.assertTrue(admission.global_quiet_active(agent, three))
         self.assertTrue(admission.admit(agent, None, CRON, three).skipped)
 
+    def test_explicit_input_timezone_converts_to_configured_window(self) -> None:
+        agent = _quiet_agent(window="03:00-03:01", timezone="Asia/Shanghai")
+        moment = datetime(2026, 1, 1, 19, 0, tzinfo=timezone.utc)
+        self.assertTrue(admission.global_quiet_active(agent, moment))
+        self.assertFalse(admission.global_quiet_active(agent, moment + timedelta(hours=1)))
+
     def test_cross_midnight_window(self) -> None:
         agent = _quiet_agent(window="23:00-07:00")
         late = datetime(2026, 1, 1, 23, 30, tzinfo=timezone.utc)
@@ -149,7 +155,7 @@ class CronQuietGateTest(unittest.TestCase):
         config = SimpleNamespace(
             enabled=True,
             window="00:00-23:59",
-            timezone="",
+            timezone="UTC",
             allow_cron=False,
             allow_external=False,
             allow_direct=True,
